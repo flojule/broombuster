@@ -181,15 +181,26 @@ def street_display(raw: str) -> str:
 
 # Matches time ranges regardless of separator style or colon presence:
 #   "8AM-10AM", "8:00 AM – 10:00 AM", "8AM to 10AM", "8:00 AM •10:00PM"
+# Also tolerates the whitespace artifacts produced by Alameda's PDF parser:
+#   "8:00 AM -11 :00 AM", "1 0:00 AM -1: 00 PM" — stray spaces inside hours,
+#   minutes, and around colons. Each digit group allows internal spaces;
+#   colons may be flanked by spaces.
 _TIME_RANGE_RE = re.compile(
-    r"(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*(?:[-–—•]|to)\s*"
-    r"(\d{1,2})(?::(\d{2}))?\s*(AM|PM)",
+    r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)[\s,]*(?:[-–—•·o]|to)\s*"
+    r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)",
     re.IGNORECASE,
 )
 
 
+def _digits_only(s: str | None) -> str | None:
+    """Strip whitespace from inside a captured digit group (Alameda PDF artifact)."""
+    return re.sub(r"\s+", "", s) if s else s
+
+
 def _fmt_part(h: str, m: str | None, ap: str) -> str:
-    ap = ap.upper()
+    ap = re.sub(r"[\s,]+", "", ap).upper()
+    h = _digits_only(h) or h
+    m = _digits_only(m)
     mn = int(m) if m else 0
     if mn:
         return f"{int(h)}:{mn:02d}{ap}"

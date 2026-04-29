@@ -55,11 +55,15 @@ weekday_map = {
 
 # Handle combinations like 'MWF', 'TTHS', etc.
 compound_map = {
-    'MWF': [0, 2, 4],
-    'TTH': [1, 3],
+    'MWF':  [0, 2, 4],
+    'TTH':  [1, 3],
     'TTHS': [1, 3, 5],
-    'MF': [0, 4],
-    'E': list(range(7)),  # Every day
+    'MF':   [0, 4],
+    # Oakland uses two-letter pairs for "Tue+Fri", "Thu+Fri", "Tue+Thu".
+    # The trailing 'E' (every) is added by the endswith-'E' branch below.
+    'TF':   [1, 4],
+    'THF':  [3, 4],
+    'E':    list(range(7)),  # Every day
 }
 
 # Handle codes like M13, T2, F24
@@ -334,6 +338,128 @@ def schedules_for_segment(segment):
     return ([e] if e else []), ([o] if o else [])
 
 
+def schedules_for_all_matching_rows(gdf_3857, resolved):
+    """Return (schedule_even, schedule_odd) UNIONED across every GDF row
+    that describes the same physical segment as `resolved`.
+
+    SF's data layer emits one row per (segment × weekday); the resolver
+    picks one of them. Without this helper, every downstream view (card,
+    hover, urgency) sees only that one row's schedule, even though the map
+    color reflects the union of all rows. This produces the long-running
+    "hover says Wed but card says Mon" inconsistency.
+
+    Two rows are treated as the same physical segment when they share
+    `STREET_KEY` and overlap geometrically — at least one sub-line endpoint
+    pair (rounded to ~1m, CRS-aware) appears in both. The overlap test
+    handles Alameda's schema where one MultiLineString row spans every
+    block of a street.
+
+    Returns deduped lists of (code, desc, time) tuples — order is
+    deterministic (sorted by code) so downstream message-formatting
+    produces stable output.
+    """
+    if resolved is None or resolved.segment is None:
+        return [], []
+    if getattr(resolved, "is_polygon", False):
+        # Polygon zones (Chicago) are one row per zone — no merge needed.
+        return schedules_for_segment(resolved.segment)
+
+    target_geom = resolved.segment.geometry
+    if target_geom is None or target_geom.is_empty:
+        return schedules_for_segment(resolved.segment)
+    if target_geom.geom_type not in ("LineString", "MultiLineString"):
+        return schedules_for_segment(resolved.segment)
+
+    target_key = resolved.segment.get("STREET_KEY") or _norm_name(
+        resolved.segment.get("STREET_NAME") or ""
+    )
+    target_endpoints = _segment_endpoints(target_geom)
+    if target_key == "" or not target_endpoints:
+        return schedules_for_segment(resolved.segment)
+
+    # Iterate the name index — only rows with the same STREET_KEY are candidates
+    # (avoids touching every row in the GDF).
+    name_idx = _get_name_index(gdf_3857)
+    candidates = name_idx.get(target_key, [])
+
+    seen_even: set = set()
+    seen_odd:  set = set()
+    even_out: list = []
+    odd_out:  list = []
+
+    for i in candidates:
+        try:
+            row = gdf_3857.loc[i]
+        except KeyError:
+            continue
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+        if geom.geom_type not in ("LineString", "MultiLineString"):
+            continue
+        cand = _segment_endpoints(geom)
+        # Match if any sub-line endpoint pair is shared. Alameda lumps a
+        # whole street into one MultiLineString row, so blocks of the same
+        # street are siblings (same STREET_KEY) but only some sub-line keys
+        # overlap with the resolved row's geometry.
+        if not cand or cand.isdisjoint(target_endpoints):
+            continue
+
+        e = get_schedule(row, 0)
+        o = get_schedule(row, 1)
+        if e and e not in seen_even:
+            seen_even.add(e)
+            even_out.append(e)
+        if o and o not in seen_odd:
+            seen_odd.add(o)
+            odd_out.append(o)
+
+    # Stable order: sort by sweep code so message formatting is deterministic.
+    even_out.sort(key=lambda t: (t[0] or "", t[1] or "", t[2] or ""))
+    odd_out.sort (key=lambda t: (t[0] or "", t[1] or "", t[2] or ""))
+    return even_out, odd_out
+
+
+def _segment_endpoints(geom):
+    """Return a frozenset of endpoint pairs for the geometry (~1m precision).
+
+    Each LineString contributes one (start, end) pair. A MultiLineString
+    contributes one pair per sub-line (Alameda's schema lumps every
+    Channing Way block into a single multiline row). The set comparison is
+    "any sub-line in common" so siblings that share at least one block of
+    geometry will match.
+
+    Coordinate rounding is CRS-aware: 0 decimals for meter-scale CRSs
+    (|coord| > 180), 5 decimals for degree-scale — both ~1m tolerance,
+    matching maps._seg_key.
+    """
+    if geom is None or geom.is_empty:
+        return None
+    sub_lines: list = []
+    if geom.geom_type == "LineString":
+        sub_lines = [list(geom.coords)]
+    elif geom.geom_type == "MultiLineString":
+        for sub in geom.geoms:
+            if sub is None or sub.is_empty:
+                continue
+            sub_lines.append(list(sub.coords))
+    else:
+        return None
+    out = set()
+    decimals = None
+    for coords in sub_lines:
+        if len(coords) < 2:
+            continue
+        if decimals is None:
+            decimals = 0 if abs(coords[0][0]) > 180 else 5
+        a = (round(coords[0][0],  decimals), round(coords[0][1],  decimals))
+        b = (round(coords[-1][0], decimals), round(coords[-1][1], decimals))
+        # Each sub-line is order-independent: store as a frozen pair so
+        # comparisons treat (a, b) and (b, a) as identical.
+        out.add(frozenset({a, b}))
+    return frozenset(out) if out else None
+
+
 def check_day_street_sweeping(schedule, local_now=None):
     myDay      = local_now.date() if local_now else datetime.date.today()
     myTomorrow = myDay + datetime.timedelta(days=1)
@@ -388,6 +514,30 @@ def _is_str(v):
     return isinstance(v, str) and v.strip() != ""
 
 
+# Codes that explicitly mean "no sweeping" — these have parse_sweeping_code() == [],
+# but they are pre-listed here so the formatter doesn't render their descriptor
+# strings (e.g. "No Sweeping (HYW)", "No Signage", "No Sweeping (Uncontrol Condition)")
+# as if they were real schedule entries on the car card.
+# Compared case-insensitively after stripping. Includes Oakland's variants and
+# the SF "no sweeping" placeholder.
+_NO_SWEEP_CODES = frozenset({
+    "N", "NS", "O", "N-S",
+    "N-E", "N-O",   # Oakland: "No Even/Odd Addresses" — that side simply doesn't exist.
+    "NS-UC", "NS-H", "NS-O", "NS-A",
+})
+
+
+def is_no_sweep_code(code) -> bool:
+    """True if the given DAY_* code is one of the explicit no-sweep markers.
+
+    These codes have no associated sweep dates; their DESC fields describe
+    why (e.g. "No Sweeping (HYW)") and should not be rendered as schedules.
+    """
+    if not isinstance(code, str):
+        return False
+    return code.strip().upper() in _NO_SWEEP_CODES
+
+
 def _safe_int(v):
     """Parse a value as int, returning None on failure (handles NaN)."""
     try:
@@ -423,10 +573,15 @@ def _get_name_index(gdf) -> dict:
 
 
 def get_schedule(street_section, side):
-    """Return a (code, desc, time) tuple for the given side (0 = even, 1 = odd)."""
+    """Return a (code, desc, time) tuple for the given side (0 = even, 1 = odd).
+
+    Returns None when the code is missing or marks an explicit "no sweeping"
+    state — those rows still drive the urgency colour (cornflowerblue) but
+    have no schedule to render in the card or hover.
+    """
     if side % 2 == 0:
         code = street_section.get("DAY_EVEN")
-        if _is_str(code):
+        if _is_str(code) and not is_no_sweep_code(code):
             return (
                 code,
                 street_section.get("DESC_EVEN") or "",
@@ -434,7 +589,7 @@ def get_schedule(street_section, side):
             )
     else:
         code = street_section.get("DAY_ODD")
-        if _is_str(code):
+        if _is_str(code) and not is_no_sweep_code(code):
             return (
                 code,
                 street_section.get("DESC_ODD") or "",
@@ -472,12 +627,30 @@ def _parse_sweeping_code_cached(code: str, year: int, month: int) -> tuple:
             for d in get_all_dates_for_weekday(wd, year, month)
         )
 
-    # Handle every <day> (e.g., 'ME' = every Mon, 'TE' = every Tues)
+    # Handle every <day> (e.g., 'ME' = every Mon, 'TE' = every Tues).
+    # Also handles compound "every X and Y" codes Oakland uses (e.g., 'TFE'
+    # = every Tue+Fri, 'MFE' = every Mon+Fri) by falling back to compound_map
+    # for the prefix.
     if code.endswith('E'):
         day_code = code[:-1]
         wd = weekday_map.get(day_code)
         if wd is not None:
             return tuple(get_all_dates_for_weekday(wd, year, month))
+        wds = compound_map.get(day_code)
+        if wds is not None:
+            return tuple(
+                d for w in wds
+                for d in get_all_dates_for_weekday(w, year, month)
+            )
+
+    # Bare weekend codes ('S' = every Saturday, 'SU' = every Sunday).
+    # Oakland uses these without the 'E' suffix that weekdays carry — treat
+    # them as "every Sat" / "every Sun". Without this branch the parser
+    # silently returns no dates and ~1000 Saturday/Sunday Oakland rows go
+    # un-rendered in the urgency colour and card.
+    if code in ('S', 'SU'):
+        wd = weekday_map[code]
+        return tuple(get_all_dates_for_weekday(wd, year, month))
 
     # Try matching ordinal part
     for suffix, ordinal_list in ordinals.items():

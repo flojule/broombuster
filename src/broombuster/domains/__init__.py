@@ -3,16 +3,23 @@
 Each domain (street sweeping, trash days, parking permit zones, …) is a
 plugin that knows how to:
 
-  - tell whether it supports a given city,
-  - resolve a car coordinate to its relevant data row,
-  - format a per-domain answer for the API response.
+  - tell whether it supports a given city          (`supports_city`)
+  - resolve a car coordinate to its relevant row   (`resolve_for`)
+  - format a per-domain answer                     (`format`)
 
-The active registry is built by `src/domains/registry.py` and consumed by
-`api/api.py:/check`. New plugins are added by importing them in
-`registry.py`'s `_REGISTRY` list — no other wiring required.
-
-This package will hold the abstraction in Step 3. For now it carries only
-the sweeping-specific output formatter (compose_message), since that
-function is sweeping-shaped and belongs alongside the future
-`SweepingPlugin` rather than in the email-alerts module.
+The active registry is built by `broombuster.domains.registry` and
+consumed by `broombuster.api.app:/check`. Adding a new plugin is one
+file and one line — a new module here, plus appending to
+`registry._REGISTRY`.
 """
+
+from broombuster.domains.base import DomainPlugin, DomainResult, max_urgency
+from broombuster.domains.registry import for_city, iter_plugins
+
+__all__ = [
+    "DomainPlugin",
+    "DomainResult",
+    "max_urgency",
+    "for_city",
+    "iter_plugins",
+]

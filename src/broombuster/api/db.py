@@ -76,9 +76,20 @@ CREATE TABLE IF NOT EXISTS push_subs (
 
 
 def init_db() -> None:
-    """Create tables if they don't exist. Safe to call on every startup."""
+    """Create tables if they don't exist. Safe to call on every startup.
+
+    When `DEV_MODE` is set we also seed a synthetic `dev-user` row so that
+    `save_prefs("dev-user", …)` doesn't trip the FK on user_prefs.user_id.
+    deps.verify_jwt returns the literal string "dev-user" in DEV_MODE, so
+    the seeded row matches whatever ID the API will pass through.
+    """
     with get_db() as conn:
         conn.executescript(_SCHEMA)
+        if os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes"):
+            conn.execute(
+                "INSERT OR IGNORE INTO users (id, email, pw_hash) VALUES (?, ?, ?)",
+                ("dev-user", "dev@localhost", ""),
+            )
         conn.commit()
 
 

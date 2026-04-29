@@ -35,7 +35,7 @@ def _sweeping_color(row, local_now=None):
 
     def has_sweep_on(day_code, check_date):
         s = _safe(day_code)
-        if s in ("N/A", "N", "NS", "O"):
+        if s == "N/A" or _analysis.is_no_sweep_code(s):
             return False
         try:
             return check_date in _analysis.parse_sweeping_code(s)
@@ -224,6 +224,7 @@ def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, mess
             "geometry": shapely.geometry.mapping(geom),
             "properties": {
                 "render_type":  "polygon",
+                "domain":       "sweeping",
                 "urgency":      color,
                 "fill_color":   fill_color,
                 "border_color": border_color,
@@ -242,7 +243,12 @@ def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, mess
             (round(x[-1], 5), round(y[-1], 5)),
         })
 
-    def _side_body(desc, time):
+    def _side_body(code, desc, time):
+        # Mirror analysis.get_schedule: skip explicit no-sweep codes so the
+        # hover never shows their descriptor text ("No Signage", etc.) as
+        # if it were a schedule. Cornflowerblue colour still surfaces them.
+        if _analysis.is_no_sweep_code(code):
+            return None
         d = _clean_desc(_safe(desc))
         t = _normalize.time_display(_safe(time))
         if d in ("N/A", ""):
@@ -259,8 +265,8 @@ def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, mess
             continue
         color = _row_color[_]
         pri   = _PRIORITY[color]
-        be    = _side_body(row.get("DESC_EVEN"), row.get("TIME_EVEN"))
-        bo    = _side_body(row.get("DESC_ODD"),  row.get("TIME_ODD"))
+        be    = _side_body(row.get("DAY_EVEN"), row.get("DESC_EVEN"), row.get("TIME_EVEN"))
+        bo    = _side_body(row.get("DAY_ODD"),  row.get("DESC_ODD"),  row.get("TIME_ODD"))
         # Use display name for UI rendering; fallback to stored STREET_NAME
         name  = _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME"))
 
@@ -271,19 +277,28 @@ def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, mess
                 seg_data[k] = {
                     "color": color, "pri": pri,
                     "x": x, "y": y, "name": name,
+                    # Even/Odd schedule text is ACCUMULATED across every row
+                    # that shares this physical segment. SF's normalizer emits
+                    # one row per (segment × weekday); without accumulation
+                    # the hover would show one weekday while the colour reflects
+                    # the union of all weekdays — the long-running hover-vs-card
+                    # inconsistency users were seeing. Dedup on first append.
                     "even": [be] if be else [],
                     "odd":  [bo] if bo else [],
                 }
             else:
                 sd = seg_data[k]
+                # Color (and the geometry it shows on hover-pick) follows the
+                # most-urgent row, but text accumulates regardless of priority.
                 if pri > sd["pri"]:
-                    sd["pri"] = pri; sd["color"] = color
-                    sd["x"] = x;    sd["y"] = y
-                    if be: sd["even"] = [be]
-                    if bo: sd["odd"]  = [bo]
-                else:
-                    if be and not sd["even"]: sd["even"] = [be]
-                    if bo and not sd["odd"]:  sd["odd"]  = [bo]
+                    sd["pri"] = pri
+                    sd["color"] = color
+                    sd["x"] = x
+                    sd["y"] = y
+                if be and be not in sd["even"]:
+                    sd["even"].append(be)
+                if bo and bo not in sd["odd"]:
+                    sd["odd"].append(bo)
 
     for sd in seg_data.values():
         evens = sd["even"]
@@ -313,6 +328,7 @@ def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, mess
             },
             "properties": {
                 "render_type": "line",
+                "domain":      "sweeping",
                 "urgency":     color,
                 "line_color":  color,
                 "line_width":  line_width,

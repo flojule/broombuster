@@ -25,7 +25,7 @@ from broombuster import maps
 from broombuster import normalize as _normalize
 from broombuster import resolve
 from broombuster.cities import CITIES, REGIONS
-from broombuster.domains.sweeping import compose_message
+from broombuster.domains import for_city as plugins_for_city
 
 from .auth import router as auth_router
 from .deps import verify_jwt
@@ -383,6 +383,11 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
     address:  str = ""
     snap: Optional[dict] = None
 
+    # Per-domain results, populated below. The /check response carries
+    # `domains[]` for forward compatibility (Step 3+) AND the legacy
+    # top-level fields so the existing frontend keeps working.
+    domain_results: list[dict] = []
+
     if not is_tile_only:
         # SINGLE SOURCE OF TRUTH — resolve the car to one authoritative segment.
         # Every downstream field (street name, side, schedule, urgency, map
@@ -399,9 +404,6 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
 
         if resolved is not None:
             myCar.street_name = resolved.street_name
-            schedule_even, schedule_odd = analysis.schedules_for_segment(resolved.segment)
-            urgency  = analysis.compute_urgency(resolved.segment, local_now=local_now)
-            car_side = resolved.side or "odd"
             display = resolved.street_display or resolved.street_name
             snap = {
                 "street_name": display,
@@ -425,15 +427,48 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
                     address = f"{display}, {city_short}"
                 else:
                     address = f"{req.lat:.4f}, {req.lon:.4f}"
-
-            message = compose_message(
-                schedule_even, schedule_odd, car_side
-            )
         else:
             # Car is not near any mapped street — be explicit rather than
             # silently guessing.
             address = f"{req.lat:.4f}, {req.lon:.4f}"
             message = "Car not near a mapped street."
+
+        # Run every plugin that supports this city. Each plugin gets the
+        # resolved segment (or None) and produces its own DomainResult.
+        # The sweeping plugin's output is also mirrored into the legacy
+        # top-level response fields below.
+        for plugin in plugins_for_city(city_key):
+            # Plugins may re-resolve with their own parameters in the future;
+            # for now sweeping shares the same resolved segment we already
+            # computed. Calling resolve_for ensures plugins that DO need a
+            # different shape can produce one without breaking the contract.
+            plugin_resolved = (
+                resolved
+                if plugin.domain_id == "sweeping"
+                else plugin.resolve_for(myCity_3857, req.lat, req.lon, city_key)
+            )
+            result = plugin.format(plugin_resolved, myCity_3857, local_now)
+            domain_results.append({
+                "id":             result.domain_id,
+                "label":          result.label,
+                "urgency":        result.urgency,
+                "schedule_lines": list(result.schedule_lines),
+                "extras":         dict(result.extras),
+            })
+
+            # Mirror the sweeping plugin's output back into the legacy
+            # top-level fields so the existing frontend doesn't notice
+            # anything changed.
+            if plugin.domain_id == "sweeping":
+                schedule_even = result.extras.get("schedule_even", []) or []
+                schedule_odd  = result.extras.get("schedule_odd", []) or []
+                car_side      = result.extras.get("car_side") or "odd"
+                # Legacy `urgency` field uses False (not "safe") for the
+                # no-urgency state — preserve that to keep the wire format
+                # byte-identical to pre-Step-3.
+                urgency       = result.urgency if result.urgency in ("today", "tomorrow") else False
+                if resolved is not None:
+                    message = result.extras.get("message") or ""
 
     # By default clip to ~2 km radius to avoid serializing the full region
     # (which can be large). Clients can request the entire region by setting
@@ -531,6 +566,11 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         # far the car is from it — powers the "snapped to 5th St — 12 m"
         # indicator and ensures the map highlight matches the alarm.
         "snap": snap,
+        # `domains` is the new (Step 3) per-plugin payload. The legacy
+        # fields above continue to mirror the sweeping plugin so existing
+        # clients keep working; new clients can iterate `domains[]` and
+        # render one card per domain.
+        "domains": domain_results,
     }
 
 
