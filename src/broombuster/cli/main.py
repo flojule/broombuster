@@ -1,12 +1,12 @@
 import argparse
 import time
 
-import analysis
-import car
-import data_loader
-import maps
-import notification
-from cities import CITIES, REGIONS
+from broombuster import analysis
+from broombuster import car
+from broombuster import data_loader
+from broombuster import email_alerts
+from broombuster import maps
+from broombuster.cities import CITIES, REGIONS
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -60,7 +60,7 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-if __name__ == "__main__":
+def main() -> None:
     args = _parse_args()
 
     # CLI arguments override module-level defaults
@@ -68,9 +68,9 @@ if __name__ == "__main__":
     _city       = args.city   or CITY
     _single     = args.single or SINGLE_CITY_MODE
     _manual_lat = args.lat if args.lat is not None else MANUAL_LAT
-    _manual_lon   = args.lon if args.lon is not None else MANUAL_LON
-    _plot         = PLOT and not args.no_plot
-    _send_notif   = args.notify or SEND_NOTIFICATION
+    _manual_lon = args.lon if args.lon is not None else MANUAL_LON
+    _plot       = PLOT and not args.no_plot
+    _send_notif = args.notify or SEND_NOTIFICATION
 
     if _single:
         city_cfg = CITIES[_city]
@@ -98,10 +98,7 @@ if __name__ == "__main__":
     # Pre-compute the city key closest to the car's starting position so that
     # analysis.py can filter cross-city name collisions.
     def _nearest_city(lat, lon):
-        active = (
-            [_city] if _single
-            else REGIONS[_region]["cities"]
-        )
+        active = [_city] if _single else REGIONS[_region]["cities"]
         best, best_d = active[0], float("inf")
         for ck in active:
             c = CITIES[ck]["center"]
@@ -137,7 +134,7 @@ if __name__ == "__main__":
             # 6. Notify if sweeping is today or tomorrow
             urgency = analysis.check_day_street_sweeping(schedule)
             if _send_notif and urgency:
-                notification.send_email(message, urgency=urgency)
+                email_alerts.send_email(message, urgency=urgency)
 
             if not args.loop:
                 break
@@ -148,3 +145,5 @@ if __name__ == "__main__":
         print("\nExiting…")
 
 
+if __name__ == "__main__":
+    main()

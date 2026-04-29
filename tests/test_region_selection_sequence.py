@@ -12,9 +12,9 @@ import os
 os.environ.setdefault("DEV_MODE", "1")
 
 from fastapi.testclient import TestClient
-import data_loader
-import api.api as api_mod
-import normalize
+from broombuster import data_loader
+from broombuster.api import app as api_mod
+from broombuster import normalize
 import pytest
 
 
@@ -33,7 +33,7 @@ def test_full_region_then_bbox_consistency():
     lat, lon = 37.821326, -122.280705
 
     # Preload the city GDFs into the API module to avoid background-load races
-    from cities import REGIONS
+    from broombuster.cities import REGIONS
     from importlib import reload
     # Load each city synchronously and populate api module caches
     for ck in REGIONS["bay_area"]["cities"]:
@@ -71,7 +71,7 @@ def test_bbox_then_full_region_consistency():
     lat, lon = 37.821326, -122.280705
 
     # Preload cities to avoid background thread races
-    from cities import REGIONS
+    from broombuster.cities import REGIONS
     for ck in REGIONS["bay_area"]["cities"]:
         g4 = data_loader.load_city_data(ck).copy()
         api_mod._city_gdfs[ck] = g4.to_crs("EPSG:4326")

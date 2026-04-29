@@ -1,6 +1,6 @@
 from datetime import datetime
 
-import gps
+from broombuster import gps
 
 
 class Car:

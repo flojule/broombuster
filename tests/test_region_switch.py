@@ -17,9 +17,9 @@ os.environ.setdefault("DEV_MODE", "1")
 import pytest
 from fastapi.testclient import TestClient
 
-import data_loader
-import api.api as api_mod
-from cities import REGIONS
+from broombuster import data_loader
+from broombuster.api import app as api_mod
+from broombuster.cities import REGIONS
 
 
 # ---------------------------------------------------------------------------

@@ -5,8 +5,8 @@ import numpy as np
 import shapely
 import shapely.geometry
 
-import analysis as _analysis
-import normalize as _normalize
+from broombuster import analysis as _analysis
+from broombuster import normalize as _normalize
 
 
 def _clean_desc(s: str) -> str:

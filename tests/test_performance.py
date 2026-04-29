@@ -16,8 +16,8 @@ import time
 os.environ.setdefault("DEV_MODE", "1")
 
 import pytest
-import data_loader
-from cities import CITIES, REGIONS
+from broombuster import data_loader
+from broombuster.cities import CITIES, REGIONS
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ def test_api_tile_request_is_fast():
     return in under 3 seconds when city data is already loaded.
     """
     from fastapi.testclient import TestClient
-    import api.api as api_mod
+    from broombuster.api import app as api_mod
 
     lat, lon = 37.821326, -122.280705
 

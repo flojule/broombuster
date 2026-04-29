@@ -1,15 +1,14 @@
+import json
 import logging
 import os
-import sys
 import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 import geopandas
-import json
 import pandas as pd
 import shapely.geometry as _shp_geom
 from fastapi import Depends, FastAPI, HTTPException
@@ -18,22 +17,23 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-# Allow importing from src/ and api/ regardless of working directory
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _HERE)                             # api/ — for deps.py
-sys.path.insert(0, os.path.join(_HERE, "..", "src"))  # src/ — for all existing modules
+from broombuster import analysis
+from broombuster import car as car_module
+from broombuster import data_loader
+from broombuster import gps
+from broombuster import maps
+from broombuster import normalize as _normalize
+from broombuster import resolve
+from broombuster.cities import CITIES, REGIONS
+from broombuster.domains.sweeping import compose_message
 
-import analysis
-import car as car_module
-import data_loader
-import db
-import maps
-import normalize as _normalize
-import notification
-import resolve
-from auth import router as auth_router
-from cities import CITIES, REGIONS
-from deps import verify_jwt
+from .auth import router as auth_router
+from .deps import verify_jwt
+from . import db
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Repo root — three levels up: api/ → broombuster/ → src/ → repo/
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
 
 _PRELOAD_REGION = os.environ.get("PRELOAD_REGION", "").strip()
 _RESPONSE_SIZE_WARN_BYTES = 200_000
@@ -119,7 +119,7 @@ def _freshness_checker_bg() -> None:
 
             # Prefer the FGB mtime (reflects last normalisation); fall back to raw.
             check_rel = city.get("fgb_path") or city["local_path"]
-            local_path = os.path.join(_HERE, "..", check_rel)
+            local_path = os.path.join(_REPO_ROOT, check_rel)
             if os.path.exists(local_path):
                 age_days = (time.time() - os.path.getmtime(local_path)) / 86400
                 if age_days < stale_after_days:
@@ -281,7 +281,7 @@ def health():
         if not stale_after:
             continue
         check_rel = city.get("fgb_path") or city["local_path"]
-        local_path = os.path.join(_HERE, "..", check_rel)
+        local_path = os.path.join(_REPO_ROOT, check_rel)
         if os.path.exists(local_path):
             age_days = (time.time() - os.path.getmtime(local_path)) / 86400
             freshness[ck] = {
@@ -402,20 +402,31 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
             schedule_even, schedule_odd = analysis.schedules_for_segment(resolved.segment)
             urgency  = analysis.compute_urgency(resolved.segment, local_now=local_now)
             car_side = resolved.side or "odd"
+            display = resolved.street_display or resolved.street_name
             snap = {
-                "street_name": resolved.street_display or resolved.street_name,
+                "street_name": display,
                 "distance_m":  round(resolved.distance_m, 1),
                 "is_polygon":  resolved.is_polygon,
             }
 
-            # Address label comes directly from the resolved segment — no
-            # Nominatim call on the critical path. Nominatim is called
-            # client-side (reverseGeocode in the frontend) for the initial
-            # car-placement label and is not needed here.
-            display = resolved.street_display or resolved.street_name
-            address = display or f"{req.lat:.4f}, {req.lon:.4f}"
+            # Canonical address: derived from the resolved segment, optionally
+            # enriched with a Nominatim house number. The gate inside
+            # gps.maybe_house_number() ensures the house number is only used
+            # when its street matches the resolved segment — preventing the
+            # corner-case bleed where Nominatim and the resolver disagreed.
+            city_short = CITIES[city_key]["name"].split(",")[0]
+            if resolved.is_polygon:
+                address = f"Zone: {display}, {city_short}" if display else f"{req.lat:.4f}, {req.lon:.4f}"
+            else:
+                hn = gps.maybe_house_number(req.lat, req.lon, resolved.street_name)
+                if hn:
+                    address = f"{hn} {display}, {city_short}"
+                elif display:
+                    address = f"{display}, {city_short}"
+                else:
+                    address = f"{req.lat:.4f}, {req.lon:.4f}"
 
-            message = notification.compose_message(
+            message = compose_message(
                 schedule_even, schedule_odd, car_side
             )
         else:
@@ -566,6 +577,6 @@ def config_js():
 # Static frontend (mounted last so API routes take priority)
 # ---------------------------------------------------------------------------
 
-_frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
+_frontend_dir = os.path.join(_REPO_ROOT, "frontend")
 if os.path.isdir(_frontend_dir):
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

@@ -1,7 +1,7 @@
 """Unit tests for analysis.parse_sweeping_code and check_day_street_sweeping."""
 import datetime
 
-import analysis
+from broombuster import analysis
 
 # ---------------------------------------------------------------------------
 # parse_sweeping_code
@@ -103,18 +103,19 @@ def test_return_type_is_string_or_false():
 
 def test_today_sweep_returns_today():
     today_code = _code_for_date(datetime.date.today())
-    if today_code is None:
-        return  # skip if today has no simple code (weekend edge case)
     schedule = [(today_code, "Test", "8AM-10AM")]
     result = analysis.check_day_street_sweeping(schedule)
+    # Time has the day already passed? Use a time guaranteed to still be open.
+    # check_day_street_sweeping uses datetime.date.today() when local_now is None,
+    # and treats untimed entries as still active — so "today" is expected.
+    # If the 8-10AM window has closed in real local time, the test still passes
+    # because we provide local_now=None (which skips the time-window check).
     assert result == "today"
 
 
 def test_tomorrow_sweep_returns_tomorrow():
     tomorrow = datetime.date.today() + datetime.timedelta(days=1)
     tomorrow_code = _code_for_date(tomorrow)
-    if tomorrow_code is None:
-        return
     schedule = [(tomorrow_code, "Test", "8AM-10AM")]
     result = analysis.check_day_street_sweeping(schedule)
     # Could be "today" if the code also matches today, but at minimum truthy
@@ -126,6 +127,10 @@ def test_tomorrow_sweep_returns_tomorrow():
 # ---------------------------------------------------------------------------
 
 def _code_for_date(d: datetime.date):
-    """Return an 'every weekday' code that covers the given date, or None."""
+    """Return an 'every weekday' code that covers the given date.
+
+    weekday() is always 0–6, and there's a code for every weekday, so this
+    never fails. Mon=0 → ME, Tue=1 → TE, …, Sun=6 → SUE.
+    """
     codes = ["ME", "TE", "WE", "THE", "FE", "SE", "SUE"]
-    return codes[d.weekday()] if d.weekday() < len(codes) else None
+    return codes[d.weekday()]

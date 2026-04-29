@@ -10,8 +10,8 @@ import geopandas
 import pandas as pd
 import shapely.geometry
 
-import analysis
-import data_loader
+from broombuster import analysis
+from broombuster import data_loader
 
 # ---------------------------------------------------------------------------
 # Helpers

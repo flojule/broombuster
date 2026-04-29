@@ -27,7 +27,7 @@ import pdfplumber
 import requests
 from shapely.geometry import LineString, mapping
 
-import normalize as _normalize
+from broombuster import normalize as _normalize
 
 # ---------------------------------------------------------------------------
 # Schedule encoding helpers

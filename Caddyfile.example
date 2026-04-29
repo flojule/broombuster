@@ -1,0 +1,58 @@
+# BroomBuster — production Caddyfile examples
+#
+# This file is documentation only. Copy the variant you need into the active
+# `Caddyfile` (which docker-compose mounts into the caddy container).
+#
+# All three variants share the same proxy + cache rules; only the site
+# address line differs.
+
+# ─── Variant A: public domain with Let's Encrypt ─────────────────────────────
+#
+# Replace the hostname with your own. Caddy will solve ACME automatically;
+# no certbot, no cron job. Requires that the host is reachable on port 80
+# (Caddy uses HTTP-01 by default) and that the DNS record points at your IP.
+
+broombuster.example.com {
+    encode zstd gzip
+    reverse_proxy /auth/*    api:8000
+    reverse_proxy /check     api:8000
+    reverse_proxy /prefs     api:8000
+    reverse_proxy /cities    api:8000
+    reverse_proxy /health    api:8000
+    reverse_proxy /config.js api:8000
+    reverse_proxy *          api:8000
+
+    @static path *.js *.css *.webp *.png *.svg *.ico *.json /manifest.json
+    header @static Cache-Control "public, max-age=86400, stale-while-revalidate=3600"
+    header /config.js Cache-Control "no-store"
+}
+
+# ─── Variant B: Tailscale-issued cert (no public DNS needed) ────────────────
+#
+# When the host is on your tailnet, Tailscale can issue a real cert for
+# `<machine>.<tailnet>.ts.net`. Caddy then runs HTTPS on the tailnet only.
+# Requires `tailscale cert` to have been run once for this host.
+#
+# broombuster.your-tailnet.ts.net {
+#     encode zstd gzip
+#     tls /var/lib/tailscale/certs/broombuster.your-tailnet.ts.net.crt \
+#         /var/lib/tailscale/certs/broombuster.your-tailnet.ts.net.key
+#     reverse_proxy *          api:8000
+#     @static path *.js *.css *.webp *.png *.svg *.ico *.json /manifest.json
+#     header @static Cache-Control "public, max-age=86400, stale-while-revalidate=3600"
+#     header /config.js Cache-Control "no-store"
+# }
+
+# ─── Variant C: LAN / localhost with self-signed cert ───────────────────────
+#
+# For the active default, see ./Caddyfile. This block is the same as that
+# file, kept here so the public-domain and Tailscale variants live alongside.
+#
+# https://localhost {
+#     tls internal
+#     encode zstd gzip
+#     reverse_proxy *          api:8000
+#     @static path *.js *.css *.webp *.png *.svg *.ico *.json /manifest.json
+#     header @static Cache-Control "public, max-age=86400, stale-while-revalidate=3600"
+#     header /config.js Cache-Control "no-store"
+# }

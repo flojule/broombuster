@@ -16,8 +16,8 @@ import pyproj
 import pytest
 from shapely.geometry import LineString, Polygon
 
-import data_loader
-from resolve import NoSegmentNearby, resolve_car_segment
+from broombuster import data_loader
+from broombuster.resolve import NoSegmentNearby, resolve_car_segment
 
 
 _TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
@@ -304,7 +304,7 @@ def test_oakland_known_coord_snaps_to_chestnut(bay_area_3857):
     # Match is street-name only; we do not assert side here because the
     # Oakland shapefile's address-range parity convention is covered by the
     # synthetic tests above.
-    from normalize import street_name as _norm
+    from broombuster.normalize import street_name as _norm
     assert _norm(resolved.street_name) == _norm("CHESTNUT ST")
     assert resolved.is_polygon is False
     assert resolved.distance_m < 40.0

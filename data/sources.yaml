@@ -1,0 +1,98 @@
+# Authoritative origin records for raw city data.
+#
+# This file is the single source of truth for "where did our raw input come from?"
+# Used by `scripts/rebuild_city_data.py` to fetch source files when rebuilding
+# a city's normalised FlatGeobuf (.fgb) from scratch.
+#
+# Field reference:
+#   url:    Direct download URL (or null when only available as a manual portal export).
+#   files:  One or more raw files that together make up the input. For shapefiles
+#           list every sidecar (.shp/.dbf/.shx/.prj/.cpg). For PDF-driven cities
+#           list each PDF.
+#   sha256: The SHA-256 of the file the bundled .fgb was last built from. Acts
+#           as an integrity check when re-downloading. Bump it whenever a city
+#           publishes new data and the rebuild runs successfully.
+#   notes:  Free-form context — portal URL, manual download instructions,
+#           caveats. Read by humans, ignored by scripts.
+#
+# The repo no longer commits raw inputs. To rebuild any city's .fgb:
+#   python scripts/rebuild_city_data.py <city_key>
+#
+# That script downloads what it can, and prompts for a manual drop into
+# data/<city>/raw/ when the source has no direct URL.
+
+cities:
+
+  oakland:
+    url: null
+    files:
+      - data/oakland/StreetSweeping.shp
+      - data/oakland/StreetSweeping.dbf
+      - data/oakland/StreetSweeping.shx
+      - data/oakland/StreetSweeping.prj
+      - data/oakland/StreetSweeping.cpg
+    sha256:
+      data/oakland/StreetSweeping.shp: ffef27ec19543db8ab95561c4fd939d37ce5ef653e5a1a8ff37212bae7125ba4
+      data/oakland/StreetSweeping.dbf: d323abb788f65f6228c639e320307c6c736941cc236da7c1d5829d8e23670309
+      data/oakland/StreetSweeping.shx: a73ee37bf87e86f765aa025e593a51b61eaf59edab4fed169c8741cf929ce6b3
+      data/oakland/StreetSweeping.prj: 6bec4ca176720d67a61edba467c762c459385d00ecf5a51debb391fe885e6cbf
+      data/oakland/StreetSweeping.cpg: 3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824
+    notes: |
+      Oakland's street-sweeping shapefile is published periodically by the City
+      of Oakland Public Works department. It is NOT served from a stable URL.
+      To refresh: visit https://data.oaklandca.gov, search "street sweeping",
+      download the shapefile, and unpack the five sidecar files into
+      data/oakland/. Then run scripts/rebuild_city_data.py oakland.
+
+  san_francisco:
+    url: https://data.sfgov.org/resource/yhqp-riqs.geojson?$limit=200000
+    files:
+      - data/san_francisco/StreetSweeping.geojson
+    sha256: {}  # Auto-refreshing dataset; SHA changes whenever DataSF re-publishes.
+    notes: |
+      DataSF "Street Sweeping Schedule" dataset (yhqp-riqs). Refreshed monthly
+      by the city. The runtime freshness checker re-downloads automatically
+      when the local file is older than `stale_after_days` (30) — see
+      api/api.py and cities.py.
+
+  berkeley:
+    url: null  # Each PDF has its own URL; see `files` below.
+    files:
+      - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNamesA-G.pdf
+      - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNamesH-Z.pdf
+      - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNumbered.pdf
+    sha256:
+      data/berkeley/StreetSweepingSchedule_StNamesA-G.pdf: a017acda777852e877e691eb3d07eeba978755dffc3a27e662f93e5836abe45b
+      data/berkeley/StreetSweepingSchedule_StNamesH-Z.pdf: 22cc1a8203dfa70eea41b4067db79d51bb754189611bef96563e5b01bb36b9ac
+      data/berkeley/StreetSweepingSchedule_StNumbered.pdf: 05ecb14fd55a7b7aa1ff2a0913565fe65e987756dae2498243ff3f70713739d7
+    notes: |
+      Berkeley publishes street-sweeping schedules as three PDFs (alphabetical
+      A-G, H-Z, and numbered streets). The rebuild script downloads each PDF,
+      then runs scripts/build_berkeley_geojson.py to convert them to GeoJSON
+      with Overpass API geometries. Re-check the source page for newer PDFs:
+      https://berkeleyca.gov/city-services/streets-sidewalks-sewers-and-utilities/street-sweeping
+
+  alameda:
+    url: null
+    files:
+      - data/alameda/street-sweeping-schedule.pdf
+    sha256:
+      data/alameda/street-sweeping-schedule.pdf: 5c061f1a21801b9052d5208675ec82060b09b25c21193712ed3e70b114f7ff27
+    notes: |
+      Alameda publishes a single street-sweeping schedule PDF. The URL pattern
+      changes with each refresh, so we don't pin one. To refresh: visit
+      https://www.alamedaca.gov/Residents/Transportation-and-Streets/Street-Sweeping-Schedule
+      download the latest PDF, save as data/alameda/street-sweeping-schedule.pdf,
+      then run scripts/rebuild_city_data.py alameda.
+
+  chicago_all:
+    url: https://data.cityofchicago.org/resource/utb4-q645.geojson?$limit=50000
+    files:
+      - data/chicago/StreetSweepingZones.geojson
+    sha256: {}  # Auto-refreshing dataset; SHA changes when Chicago re-publishes (annually).
+    notes: |
+      Chicago Data Portal "Street Sweeping Zones" dataset. Republished each
+      March/April when the city publishes the new year's calendar. The dataset
+      ID changes year-to-year — when the rebuild fails, search the portal for
+      "street sweeping zones" and update the URL in cities.py. Then bump
+      stale_after_days if necessary.

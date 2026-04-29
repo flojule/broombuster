@@ -29,12 +29,14 @@ import os
 import zipfile
 
 # Repo root — used to resolve data file paths regardless of working directory.
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# This file lives at <repo>/src/broombuster/data_loader.py so we walk up
+# three levels (broombuster → src → repo).
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import geopandas
 import numpy as np
 import requests
-import normalize
+from broombuster import normalize
 from collections import OrderedDict
 import threading
 
@@ -52,7 +54,7 @@ except Exception:
     _HAS_PYOGRIO = False
 from shapely.geometry import box as _shapely_box
 
-from cities import CITIES
+from broombuster.cities import CITIES
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -128,10 +130,12 @@ def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.G
         url = city.get("url")
         if not url:
             raise FileNotFoundError(
-                f"Data file not found: {local_path}\n"
-                f"No automatic download is configured for '{city['name']}'.\n"
-                f"Download the data manually and save it to: {local_path}\n"
-                f"See cities.py for the data-portal URL."
+                f"No data found for {city['name']}.\n"
+                f"  Missing FGB:   {fgb_path}\n"
+                f"  Missing raw:   {local_path}\n"
+                f"To rebuild from the upstream source, run:\n"
+                f"    python scripts/rebuild_city_data.py {city_key}\n"
+                f"See data/sources.yaml for the source URL and any manual steps."
             )
         print(f"Downloading {city['name']} data …")
         _download(url, local_path)
@@ -166,7 +170,7 @@ def load_region_data(region_key: str, *, force_refresh: bool = False) -> geopand
     """
     import pandas as pd
 
-    from cities import REGIONS
+    from broombuster.cities import REGIONS
 
     region = REGIONS[region_key]
     print(f"Loading region '{region['name']}' …")

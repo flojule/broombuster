@@ -2,13 +2,14 @@ import calendar
 import datetime
 import functools
 import re
+import weakref
 
 import pyproj as _pyproj
 from shapely.geometry import MultiPolygon, Point, Polygon
 
-import gps
-import normalize
-import notification
+from broombuster import gps
+from broombuster import normalize
+from broombuster.domains.sweeping import compose_message
 
 # Canonical street-name comparison key — delegates to normalize module.
 def _norm_name(name: str) -> str:
@@ -74,10 +75,14 @@ ordinals = {
 # Pre-built CRS transformer reused across all calls (avoids repeated construction)
 _CRS_TRANSFORMER = _pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
-# Module-level cache: id(gdf) → {normalized_street_name: [row_labels]}
-_name_index_cache: dict[int, dict] = {}
-# Module-level cache: id(gdf) → bool (True if any polygon geometry present)
-_has_polygons_cache: dict[int, bool] = {}
+# Module-level caches keyed by id(gdf). Python recycles ids when objects are
+# garbage-collected, so each cache entry pairs the value with a weakref to the
+# original GDF. On lookup we verify the weakref still resolves to the same
+# object — if not, the entry is stale and we rebuild.
+#   id(gdf) → (weakref.ref(gdf), {normalized_street_name: [row_labels]})
+_name_index_cache: dict[int, tuple] = {}
+#   id(gdf) → (weakref.ref(gdf), bool)
+_has_polygons_cache: dict[int, tuple] = {}
 
 
 def check_street_sweeping(myCar, myCity):
@@ -257,13 +262,17 @@ def check_street_sweeping(myCar, myCity):
     # If no schedule was found above, test whether the car sits inside a zone polygon.
     if not schedule_even and not schedule_odd:
         gdf_id = id(myCity)
-        if gdf_id not in _has_polygons_cache:
-            _has_polygons_cache[gdf_id] = any(
+        cached = _has_polygons_cache.get(gdf_id)
+        if cached is not None and cached[0]() is myCity:
+            has_polygons = cached[1]
+        else:
+            has_polygons = any(
                 isinstance(g, (Polygon, MultiPolygon))
                 for g in myCity.geometry
                 if g is not None
             )
-        if _has_polygons_cache[gdf_id]:
+            _has_polygons_cache[gdf_id] = (weakref.ref(myCity), has_polygons)
+        if has_polygons:
             car_x, car_y = _CRS_TRANSFORMER.transform(myCar.lon, myCar.lat)
             car_pt = Point(car_x, car_y)
             # Spatial index filters to candidate bounding boxes first,
@@ -282,7 +291,7 @@ def check_street_sweeping(myCar, myCity):
     schedule = list(set(schedule_even) | set(schedule_odd))
 
     car_side = normalize.car_side(myNumber)
-    message  = notification.compose_message(schedule_even, schedule_odd, car_side)
+    message  = compose_message(schedule_even, schedule_odd, car_side)
 
     return schedule, schedule_even, schedule_odd, message
 
@@ -329,7 +338,12 @@ def check_day_street_sweeping(schedule, local_now=None):
     myDay      = local_now.date() if local_now else datetime.date.today()
     myTomorrow = myDay + datetime.timedelta(days=1)
     schedule_ymd: set = set()
-    date_times: dict  = {}  # date → [time_str, ...]
+    # date → list of time strings, INCLUDING empty strings. An empty entry
+    # means "this side sweeps today but has no time info" — which we treat
+    # as "still active" all day. Storing it makes the per-day window check
+    # consistent with maps._sweeping_color, which evaluates each side
+    # independently rather than filtering out empty times.
+    date_times: dict  = {}
 
     for day in schedule:
         if not day:
@@ -340,32 +354,32 @@ def check_day_street_sweeping(schedule, local_now=None):
             dates = parse_sweeping_code(code)
             for d in dates:
                 schedule_ymd.add(d)
-                if time_str:
-                    date_times.setdefault(d, []).append(time_str)
+                date_times.setdefault(d, []).append(time_str)
         except Exception:
             pass
 
     def _day_active(d):
-        """True if sweeping is scheduled on d and has not yet ended."""
+        """True if sweeping is scheduled on d and at least one side is still active."""
         if d not in schedule_ymd:
             return False
         if local_now is None:
             return True
         times = date_times.get(d, [])
         if not times:
-            return True  # no time info — assume still active
+            return True  # day scheduled but no time entries — assume active
         for ts in times:
+            if not ts:
+                return True  # an empty time on a swept side → that side is still active
             _, end_t = _parse_time_range(ts)
             if end_t is None or local_now.time() <= end_t:
                 return True  # at least one window still open
-        return False  # all windows have closed
+        return False  # all sides with time info have closed; no untimed side either
 
     if _day_active(myDay):
         return "today"
     elif myTomorrow in schedule_ymd:
         return "tomorrow"
     else:
-        print('No sweeping today or tomorrow\n')
         return False
 
 
@@ -385,20 +399,27 @@ def _safe_int(v):
 def _get_name_index(gdf) -> dict:
     """Build and cache a {normalized_name: [row_labels]} lookup for fast street matching."""
     gdf_id = id(gdf)
-    if gdf_id not in _name_index_cache:
-        idx: dict[str, list] = {}
-        for i, row in gdf.iterrows():
-            # Prefer precomputed STREET_KEY if available (already canonical).
-            k = row.get("STREET_KEY")
-            if _is_str(k):
-                idx.setdefault(k, []).append(i)
-                continue
-            # Fallback to normalising the stored STREET_NAME
-            n = row.get("STREET_NAME")
-            if _is_str(n):
-                idx.setdefault(_norm_name(n), []).append(i)
-        _name_index_cache[gdf_id] = idx
-    return _name_index_cache[gdf_id]
+    cached = _name_index_cache.get(gdf_id)
+    if cached is not None:
+        ref, idx = cached
+        if ref() is gdf:
+            return idx
+        # Stale entry — id was recycled by a different GDF. Drop it.
+        del _name_index_cache[gdf_id]
+
+    idx = {}
+    for i, row in gdf.iterrows():
+        # Prefer precomputed STREET_KEY if available (already canonical).
+        k = row.get("STREET_KEY")
+        if _is_str(k):
+            idx.setdefault(k, []).append(i)
+            continue
+        # Fallback to normalising the stored STREET_NAME
+        n = row.get("STREET_NAME")
+        if _is_str(n):
+            idx.setdefault(_norm_name(n), []).append(i)
+    _name_index_cache[gdf_id] = (weakref.ref(gdf), idx)
+    return idx
 
 
 def get_schedule(street_section, side):

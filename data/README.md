@@ -9,27 +9,53 @@ to `src/analysis.py` and `src/maps.py`.
 
 ## Directory Layout
 
+Only the **runtime artifacts** (`.fgb`) are committed. Raw shapefiles, source
+PDFs, and intermediate GeoJSONs are reproducible via the rebuild script and
+are kept out of git.
+
 ```
 data/
-  alameda/
-    StreetSweeping.geojson          ← prebuilt by scripts/build_alameda_geojson.py
-    street-sweeping-schedule.pdf    ← source PDF (required to rebuild)
-  berkeley/
-    StreetSweeping.geojson          ← prebuilt by scripts/build_berkeley_geojson.py
-    *.pdf                           ← source PDFs (required to rebuild)
-  chicago/
-    StreetSweepingZones.geojson     ← auto-downloaded from Chicago Data Portal
-  oakland/
-    StreetSweeping.shp / .dbf / .prj / .shx / .cpg   ← shapefile (bundled)
-  san_francisco/
-    StreetSweeping.geojson          ← auto-downloaded from DataSF
+  README.md                          ← this file
+  sources.yaml                       ← origin URLs + SHA256s for raw inputs
+  alameda/StreetSweeping.fgb         ← runtime: normalised, in EPSG:4326
+  berkeley/StreetSweeping.fgb
+  chicago/StreetSweepingZones.fgb
+  oakland/StreetSweeping.fgb
+  san_francisco/StreetSweeping.fgb
 ```
 
-All data files are **committed to the repository** — no download is needed on
-first startup. Cities with a `url` configured (SF, Chicago) will be refreshed
-automatically in the background when the on-disk file exceeds its `stale_after_days`
-threshold (SF: 30 days, Chicago: 90 days). Prebuilt files (Berkeley, Alameda)
-must be regenerated manually with the build scripts after a PDF schedule update.
+The runtime cares only about the `.fgb` files. Each was produced from a raw
+upstream source documented in [`sources.yaml`](sources.yaml) — official
+shapefiles, GeoJSON exports, or PDF schedules.
+
+### Rebuilding from upstream
+
+To refresh a city's `.fgb` from its upstream source, run:
+
+```bash
+python scripts/rebuild_city_data.py [<city_key> ...]
+python scripts/rebuild_city_data.py --force         # ignore SHA cache
+```
+
+The script downloads what it can (SF, Chicago, Berkeley PDFs) and prints a
+manual download instruction for cities with no stable URL (Oakland, Alameda).
+Once the raw input is in place, it runs the appropriate normaliser and writes
+the new `.fgb`.
+
+### Auto-refresh at runtime
+
+SF and Chicago auto-refresh in the background while the server runs: when
+the cached file is older than its `stale_after_days` (SF: 30 days, Chicago:
+90 days), `data_loader.py` re-downloads from the upstream URL recorded in
+`cities.py`. Berkeley, Alameda, and Oakland do not auto-refresh — they
+require the explicit `rebuild_city_data.py` invocation.
+
+### Local-only files (never committed)
+
+| File | Purpose |
+|---|---|
+| `data/app.sqlite` (and `-wal`, `-shm`, `-journal`) | User accounts and prefs database. Created on first server start. |
+| Raw inputs (`*.shp`, `*.pdf`, `*.geojson` etc.) | Reproducible from `sources.yaml`. Kept out of git via `.gitignore`. |
 
 ---
 
@@ -120,10 +146,11 @@ The parser accepts any number of ISO-8601 dates separated by commas.
 
 ### Oakland — Shapefile (`schema: "oakland"`)
 
-- **File:** `data/oakland/StreetSweeping.shp` (bundled in repo)
+- **Runtime:** `data/oakland/StreetSweeping.fgb` (committed)
+- **Raw input:** `data/oakland/StreetSweeping.{shp,dbf,shx,prj,cpg}` (not committed; rebuild via `scripts/rebuild_city_data.py oakland` — see `sources.yaml` for the manual portal-download instructions)
 - **CRS:** EPSG:2227 (California State Plane III, feet) — reprojected at load time
 - **Geometry:** `LineString` (one segment per street block side)
-- **Source:** Oakland open data portal (bundled; no auto-download)
+- **Source:** Oakland open data portal (manual export; no auto-download URL)
 
 Key raw columns mapped to the standard schema:
 
@@ -143,7 +170,8 @@ Key raw columns mapped to the standard schema:
 
 ### San Francisco — GeoJSON (`schema: "sf"`)
 
-- **File:** `data/san_francisco/StreetSweeping.geojson` — bundled in repo (~17 MB)
+- **Runtime:** `data/san_francisco/StreetSweeping.fgb` (committed, ~11 MB)
+- **Raw input:** `data/san_francisco/StreetSweeping.geojson` (not committed; auto-downloaded ~17 MB)
 - **Refresh URL:** `https://data.sfgov.org/resource/yhqp-riqs.geojson?$limit=200000`
 - **Auto-refresh:** when file is older than 30 days (background, no restart needed)
 - **CRS:** EPSG:4326
@@ -170,10 +198,10 @@ The derived code is `<DAY_LETTER><ORDINAL>`, e.g. `"ME"` (every Mon),
 
 ### Berkeley — GeoJSON (`schema: "berkeley"`, prebuilt)
 
-- **File:** `data/berkeley/StreetSweeping.geojson`
-- **Build script:** `scripts/build_berkeley_geojson.py`
-- **Source PDFs:** `data/berkeley/*.pdf` — download from
-  `https://berkeleyca.gov/city-services/streets-sidewalks-sewers-and-utilities/street-sweeping`
+- **Runtime:** `data/berkeley/StreetSweeping.fgb` (committed)
+- **Raw input:** `data/berkeley/*.pdf` (not committed; auto-downloaded by `scripts/rebuild_city_data.py berkeley` or manually fetched from
+  `https://berkeleyca.gov/city-services/streets-sidewalks-sewers-and-utilities/street-sweeping`)
+- **Build script:** `scripts/build_berkeley_geojson.py` (called by the rebuild orchestrator)
 - **CRS:** EPSG:4326
 - **Geometry:** `LineString`
 
@@ -191,10 +219,10 @@ The build script:
 
 ### Alameda — GeoJSON (`schema: "alameda"`, prebuilt)
 
-- **File:** `data/alameda/StreetSweeping.geojson`
-- **Build script:** `scripts/build_alameda_geojson.py`
-- **Source PDF:** `data/alameda/street-sweeping-schedule.pdf` — download from
-  `https://www.alamedaca.gov/Residents/Transportation-and-Streets/Street-Sweeping-Schedule`
+- **Runtime:** `data/alameda/StreetSweeping.fgb` (committed)
+- **Raw input:** `data/alameda/street-sweeping-schedule.pdf` (not committed; manual download from
+  `https://www.alamedaca.gov/Residents/Transportation-and-Streets/Street-Sweeping-Schedule`)
+- **Build script:** `scripts/build_alameda_geojson.py` (called by the rebuild orchestrator)
 - **CRS:** EPSG:4326
 - **Geometry:** `LineString`
 
@@ -211,7 +239,8 @@ The build script:
 
 ### Chicago — GeoJSON (`schema: "chicago"`)
 
-- **File:** `data/chicago/StreetSweepingZones.geojson` — bundled in repo (~5 MB)
+- **Runtime:** `data/chicago/StreetSweepingZones.fgb` (committed, ~2 MB)
+- **Raw input:** `data/chicago/StreetSweepingZones.geojson` (not committed; auto-downloaded ~5 MB)
 - **Refresh URL:** `https://data.cityofchicago.org/resource/utb4-q645.geojson?$limit=50000`
 - **Auto-refresh:** when file is older than 90 days (background, no restart needed)
 - **CRS:** EPSG:4326
@@ -219,8 +248,8 @@ The build script:
 - **Source:** Chicago Data Portal — Street Sweeping Zones (dataset `utb4-q645`)
 
 Chicago publishes a new dataset each year (typically March/April).
-When that happens, update the dataset ID in `src/cities.py` and delete
-`data/chicago/StreetSweepingZones.geojson` to force a re-download.
+When that happens, update the dataset ID in `src/cities.py` (the URL `utb4-q645`
+segment) and run `scripts/rebuild_city_data.py chicago_all --force`.
 
 The raw data has month columns (`april` … `november`) containing
 comma-separated day-of-month numbers:
@@ -252,15 +281,22 @@ car-location check uses a point-in-polygon test instead.
 
 ---
 
-## Rebuilding Prebuilt Files
+## Rebuilding from upstream
+
+The recommended entry point is the orchestrator, which downloads what it can,
+verifies SHA256 against `sources.yaml`, runs the per-city normaliser, and writes
+a fresh `.fgb`:
 
 ```bash
-# Alameda (requires data/alameda/street-sweeping-schedule.pdf)
-python scripts/build_alameda_geojson.py
-
-# Berkeley (requires data/berkeley/*.pdf)
-python scripts/build_berkeley_geojson.py
+python scripts/rebuild_city_data.py                  # all cities
+python scripts/rebuild_city_data.py oakland          # one city
+python scripts/rebuild_city_data.py san_francisco --force   # ignore SHA cache
 ```
 
-Both scripts must be run from the repo root or any directory —
-they resolve paths relative to the script location.
+Per-city build scripts (called internally by the orchestrator) can also be
+run directly during development:
+
+```bash
+python scripts/build_alameda_geojson.py    # requires data/alameda/street-sweeping-schedule.pdf
+python scripts/build_berkeley_geojson.py   # requires data/berkeley/*.pdf
+```

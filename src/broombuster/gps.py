@@ -6,7 +6,7 @@ import requests
 from geopy.geocoders import Nominatim
 from shapely.geometry import Point as _Point
 
-import normalize as _normalize
+from broombuster import normalize as _normalize
 
 _TRANSFORMER = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 _GEOLOCATOR = Nominatim(user_agent="broombuster")
@@ -14,7 +14,10 @@ _GEOLOCATOR = Nominatim(user_agent="broombuster")
 
 @lru_cache(maxsize=1024)
 def _reverse_geocode(lat: float, lon: float):
-    location = _GEOLOCATOR.reverse((lat, lon), exactly_one=True)
+    try:
+        location = _GEOLOCATOR.reverse((lat, lon), exactly_one=True)
+    except Exception:
+        return None, None
     if location is None:
         return None, None
     myStreetName = location.raw['address'].get('road')  # type: ignore[union-attr]
@@ -25,6 +28,26 @@ def _reverse_geocode(lat: float, lon: float):
 
 def get_street_info(myCar):
     return _reverse_geocode(round(myCar.lat, 4), round(myCar.lon, 4))
+
+
+def maybe_house_number(lat: float, lon: float, expected_street: str) -> int | None:
+    """Return a Nominatim house number ONLY when the geocoded road matches
+    `expected_street` under street_name() canonicalisation.
+
+    This is the gate that prevents corner-case bleed: if the resolver chose
+    "Grand Ave" but Nominatim returns "5th St" for the same coordinates,
+    the house number from "5th St" is dropped.
+
+    Returns None on any failure or mismatch — never raises.
+    """
+    if not expected_street:
+        return None
+    road, number = _reverse_geocode(round(lat, 4), round(lon, 4))
+    if number is None or not road:
+        return None
+    if _normalize.street_name(road) != _normalize.street_name(expected_street):
+        return None
+    return number
 
 def get_nearby_streets(myCar):
     """Legacy Overpass-based lookup — kept for offline/CLI use only.

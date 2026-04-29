@@ -35,7 +35,7 @@ import jwt
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, field_validator
 
-import db
+from . import db
 
 # ---------------------------------------------------------------------------
 # Config

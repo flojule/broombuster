@@ -32,16 +32,14 @@ import os
 os.environ.setdefault("DEV_MODE", "1")
 
 import datetime
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pandas as pd
 import pytest
 from zoneinfo import ZoneInfo
 
-import analysis
-import notification
-import resolve
+from broombuster import analysis
+from broombuster import resolve
+from broombuster.domains.sweeping import compose_message
 
 # ---------------------------------------------------------------------------
 # Shared fixture helpers
@@ -355,7 +353,7 @@ class TestComposeMessage:
 
     def test_car_side_even_highlights_even(self):
         se = self._make("ME", "Mon sweeping", "8AM-10AM")
-        msg = notification.compose_message(se, [], car_side="even")
+        msg = compose_message(se, [], car_side="even")
         lines = msg.splitlines()
         even_line = next(l for l in lines if "Even" in l)
         odd_line  = next(l for l in lines if "Odd" in l)
@@ -364,7 +362,7 @@ class TestComposeMessage:
 
     def test_car_side_odd_highlights_odd(self):
         so = self._make("WE", "Wed sweeping", "9AM-11AM")
-        msg = notification.compose_message([], so, car_side="odd")
+        msg = compose_message([], so, car_side="odd")
         lines = msg.splitlines()
         even_line = next(l for l in lines if "Even" in l)
         odd_line  = next(l for l in lines if "Odd" in l)
@@ -373,18 +371,18 @@ class TestComposeMessage:
 
     def test_both_sides_same_produces_single_street_line(self):
         entry = self._make("ME", "Mon sweeping", "8AM-10AM")
-        msg = notification.compose_message(entry, entry, car_side="even")
+        msg = compose_message(entry, entry, car_side="even")
         assert msg.startswith("► Street:"), f"Expected single street line, got: {msg!r}"
         assert "\n" not in msg, "Single-street message should not have newlines"
 
     def test_both_sides_different_produces_two_lines(self):
         se = self._make("ME", "Mon sweeping", "8AM-10AM")
         so = self._make("WE", "Wed sweeping", "9AM-11AM")
-        msg = notification.compose_message(se, so, car_side="even")
+        msg = compose_message(se, so, car_side="even")
         assert "\n" in msg, "Two-schedule message should have a newline"
 
     def test_no_schedule_either_side(self):
-        msg = notification.compose_message([], [], car_side="even")
+        msg = compose_message([], [], car_side="even")
         assert "no sweeping" in msg.lower()
         lines = msg.splitlines()
         even_line = next(l for l in lines if "Even" in l)
@@ -393,7 +391,7 @@ class TestComposeMessage:
     def test_car_side_none_no_highlight_anywhere(self):
         se = self._make("ME", "Mon", "8AM-10AM")
         so = self._make("WE", "Wed", "9AM-11AM")
-        msg = notification.compose_message(se, so, car_side=None)
+        msg = compose_message(se, so, car_side=None)
         lines = msg.splitlines()
         assert not any(l.startswith("►") for l in lines), (
             f"No side should be highlighted when car_side=None: {msg!r}"
@@ -402,21 +400,21 @@ class TestComposeMessage:
     def test_dedup_identical_entries_on_same_side(self):
         entry = ("ME", "Mon sweeping", "8AM-10AM")
         se = [entry, entry]  # duplicated
-        msg = notification.compose_message(se, [], car_side="even")
+        msg = compose_message(se, [], car_side="even")
         even_line = next(l for l in msg.splitlines() if "Even" in l)
         # Should not have " / Mon sweeping / Mon sweeping"
         assert even_line.count("Mon sweeping") == 1, f"Duplicate not deduped: {even_line!r}"
 
     def test_desc_and_time_joined_with_dash(self):
         se = self._make("ME", "Mon sweeping", "8AM-10AM")
-        msg = notification.compose_message(se, [], car_side="even")
+        msg = compose_message(se, [], car_side="even")
         assert "Mon sweeping" in msg
         assert "8AM-10AM" in msg
         assert "—" in msg  # em-dash separator
 
     def test_desc_only_no_dash_when_no_time(self):
         se = self._make("ME", "Mon sweeping", "")
-        msg = notification.compose_message(se, [], car_side="even")
+        msg = compose_message(se, [], car_side="even")
         assert "Mon sweeping" in msg
         assert "—" not in msg
 
@@ -436,7 +434,7 @@ class TestCrossFieldConsistency:
         se = [("ME", "Mon", "8AM-10AM")]
         so = [("WE", "Wed", "9AM-11AM")]
         for car_side in ("even", "odd"):
-            msg = notification.compose_message(se, so, car_side=car_side)
+            msg = compose_message(se, so, car_side=car_side)
             lines = msg.splitlines()
             highlighted = [l for l in lines if l.startswith("►")]
             assert len(highlighted) == 1, f"Exactly one line should be highlighted: {msg!r}"
@@ -457,7 +455,7 @@ class TestCrossFieldConsistency:
         assert urgency == "today"
 
         # Confirm: the even side contains today, odd side does not
-        from analysis import parse_sweeping_code
+        from broombuster.analysis import parse_sweeping_code
         today_in_even = _TODAY in parse_sweeping_code(se[0][0])
         today_in_odd  = _TODAY in parse_sweeping_code(so[0][0])
         assert today_in_even,  "Even side should contain today"
@@ -478,7 +476,7 @@ class TestCrossFieldConsistency:
         assert urgency == "today"
 
         # Now build message for a car parked on the odd side
-        msg = notification.compose_message(se, so, car_side="odd")
+        msg = compose_message(se, so, car_side="odd")
         odd_line = next(l for l in msg.splitlines() if "Odd" in l)
         # The odd line is highlighted (car is there) but shows the odd schedule
         # which is NOT today — message correctly shows future date, not "today"
@@ -513,7 +511,7 @@ class TestCrossFieldConsistency:
 
     def test_message_no_sweep_marker_consistent(self):
         """When neither side has sweeping, message still has ► on car_side line."""
-        msg = notification.compose_message([], [], car_side="even")
+        msg = compose_message([], [], car_side="even")
         highlighted = [l for l in msg.splitlines() if l.startswith("►")]
         assert len(highlighted) == 1
         assert "Even" in highlighted[0]
@@ -537,7 +535,7 @@ class TestApiCheckIntegration:
     @pytest.fixture(scope="class")
     def client(self):
         from fastapi.testclient import TestClient
-        import api.api as api_mod
+        from broombuster.api import app as api_mod
         with TestClient(api_mod.app) as c:
             yield c
 
@@ -554,7 +552,11 @@ class TestApiCheckIntegration:
             assert field in check_data, f"Field '{field}' missing from /check response"
 
     def test_urgency_is_valid_value(self, check_data):
-        assert check_data["urgency"] in ("today", "tomorrow", False, True, None, "safe"), (
+        # /check returns whatever compute_urgency() returned. Per
+        # analysis.compute_urgency's contract the only legal values are
+        # "today", "tomorrow", or False. Anything else is a bug — including
+        # the string "safe" or None, which were previously tolerated here.
+        assert check_data["urgency"] in ("today", "tomorrow", False), (
             f"Unexpected urgency value: {check_data['urgency']!r}"
         )
 
@@ -596,7 +598,7 @@ class TestApiCheckIntegration:
 
     def test_snap_street_name_matches_address(self, check_data):
         """address field should contain the same street name as snap.street_name."""
-        import normalize
+        from broombuster import normalize
         snap = check_data.get("snap") or {}
         snap_name = snap.get("street_name", "")
         address   = check_data.get("address", "")
@@ -620,7 +622,7 @@ class TestApiCheckIntegration:
         if urgency != "today":
             pytest.skip("urgency is not 'today' — skip consistency check")
 
-        from analysis import parse_sweeping_code
+        from broombuster.analysis import parse_sweeping_code
         today = datetime.date.today()
         all_sched = check_data["schedule_even"] + check_data["schedule_odd"]
         found_today = any(
@@ -666,7 +668,7 @@ class TestMissingColumnRobustness:
 
     def test_compose_message_empty_entries_ignored(self):
         # Entries shorter than 3 elements or falsy should be silently skipped
-        msg = notification.compose_message([None, (), ("ME",)], [], car_side="even")
+        msg = compose_message([None, (), ("ME",)], [], car_side="even")
         assert "no sweeping" in msg.lower()
 
     def test_compute_urgency_with_invalid_code_does_not_raise(self):

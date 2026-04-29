@@ -9,18 +9,14 @@ FlatGeobuf and verify:
 These exercises help catch regressions in name-indexing, range parsing,
 and schedule propagation when normalizers or persistence change.
 """
-import os
-import sys
 import math
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
-import data_loader
-import analysis
-import normalize
-from cities import CITIES
+from broombuster import data_loader
+from broombuster import analysis
+from broombuster import normalize
+from broombuster.cities import CITIES
 from pyproj import Transformer
 from shapely.geometry import Point
 

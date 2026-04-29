@@ -17,12 +17,12 @@ Covers:
   - House number: ranges, semicolons, letter suffix
 """
 
-import pytest
-import sys, os
-import geopandas as gpd
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import os
 
-import normalize
+import geopandas as gpd
+import pytest
+
+from broombuster import normalize
 
 
 # ─────────────────────────────────────────────────────────────────────────────

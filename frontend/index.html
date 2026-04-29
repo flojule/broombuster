@@ -1270,7 +1270,6 @@ async function commitPlacement(lat, lon) {
     const car = cars.find(c => c.id === editId);
     if (car) {
       car.lat = lat; car.lon = lon;
-      car.address = await reverseGeocode(lat, lon);
       await savePrefs();
       updateCarMarkers();
       checkCarSilently(car);
@@ -1331,8 +1330,7 @@ async function savePendingCar() {
   if (pendingLat === null) return;
   const name = namePanelInput.value.trim() || 'My car';
   const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
-  const address = await reverseGeocode(pendingLat, pendingLon);
-  cars.push({ id, name, lat: pendingLat, lon: pendingLon, address });
+  cars.push({ id, name, lat: pendingLat, lon: pendingLon });
   removeTempPin();
   namePanel.style.display = 'none';
   if (_gpsLocPin) {
@@ -1357,20 +1355,6 @@ function defaultCarName() {
   let i = 2;
   while (used.has(`Car ${i}`)) i++;
   return `Car ${i}`;
-}
-
-// ── Reverse geocode ───────────────────────────────────────────────────────────
-async function reverseGeocode(lat, lon) {
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
-    const d = await r.json();
-    if (!d.address) return null;
-    const a = d.address;
-    const num    = a.house_number || '';
-    const street = a.road || a.pedestrian || '';
-    const city   = a.city || a.town || a.village || '';
-    return [num, street].filter(Boolean).join(' ') + (city ? `, ${city}` : '');
-  } catch (_) { return null; }
 }
 
 // ── Cars panel ────────────────────────────────────────────────────────────────
@@ -1431,7 +1415,7 @@ function renderCarsPanel() {
                    : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
     const urgBg    = urgency === 'today'    ? '#fee2e2'
                    : urgency === 'tomorrow' ? '#ffedd5' : '#ffffff';
-    const addrText = abbreviate(car.address || sched?.address || '');
+    const addrText = abbreviate(sched?.address || '');
 
     const entry = document.createElement('div');
     entry.className = 'car-entry' + (car.id === _selectedCarId ? ' selected' : '');
@@ -1498,13 +1482,7 @@ function renderCarsPanel() {
           setTimeout(() => { addrEl.style.color = ''; addrEl.textContent = addrText; }, 2500);
           return;
         }
-        const a = hits[0].address || {};
-        const num    = a.house_number || '';
-        const street = a.road || a.pedestrian || a.footway || '';
-        const city   = a.city || a.town || a.village || '';
-        const canonical = [num, street].filter(Boolean).join(' ') + (city ? `, ${city}` : '');
         car.lat = parseFloat(hits[0].lat); car.lon = parseFloat(hits[0].lon);
-        car.address = canonical || hits[0].display_name;
         await savePrefs();
         setNearestRegion(car.lat, car.lon);
         updateCarMarkers();
@@ -1518,7 +1496,6 @@ function renderCarsPanel() {
       btn.disabled = true; btn.textContent = '…';
       getGPS(async (lat, lon) => {
         car.lat = lat; car.lon = lon;
-        car.address = await reverseGeocode(lat, lon);
         await savePrefs();
         btn.disabled = false; btn.textContent = '📍 GPS';
         setNearestRegion(lat, lon); setLocationKnown('gps', lat, lon);

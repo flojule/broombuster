@@ -8,9 +8,9 @@ Chicago polygon zones are present both at small and large clip boxes.
 """
 import pytest
 from shapely.geometry import box
-import data_loader
-import maps
-import car as car_module
+from broombuster import data_loader
+from broombuster import maps
+from broombuster import car as car_module
 
 
 def _fixed_now():

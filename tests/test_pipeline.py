@@ -1,12 +1,18 @@
 """
-End-to-end pipeline tests for both the Bay Area and Chicago regions.
+End-to-end pipeline tests for the LEGACY CLI path (src/main.py).
 
 Full stack exercised per test:
   load_region_data  →  to_crs("EPSG:3857")  →  check_street_sweeping
   →  check_day_street_sweeping  →  compose_message
 
+`analysis.check_street_sweeping` is the older, name-index-based resolver.
+The HTTP /check endpoint uses `resolve.resolve_car_segment` instead, so
+these tests cover a parallel code path that is currently used only by the
+CLI in `src/main.py`. They remain useful for verifying that `analysis.py`
+still produces sensible per-side schedules and time-window urgency.
+
 No network calls are made: street info is injected directly onto the Car
-object so that analysis.check_street_sweeping uses the cached-info path.
+object so the cached-info branch of check_street_sweeping is taken.
 For Chicago the polygon-zone fallback is triggered automatically because
 no Chicago zone is named after a street.
 """
@@ -14,10 +20,10 @@ import datetime
 
 import pytest
 
-import analysis
-import car as car_module
-import data_loader
-import notification
+from broombuster import analysis
+from broombuster import car as car_module
+from broombuster import data_loader
+from broombuster.domains.sweeping import compose_message
 
 # ---------------------------------------------------------------------------
 # Module-scoped fixtures — region data loaded once for the whole module
@@ -162,7 +168,7 @@ class TestBayAreaPipeline:
             myCar, bay_area_3857
         )
         car_side = "odd"   # 2931 is odd
-        recomposed = notification.compose_message(schedule_even, schedule_odd, car_side)
+        recomposed = compose_message(schedule_even, schedule_odd, car_side)
         assert recomposed == message
 
     # -- SF sub-test (different city, same region GDF) -----------------------
@@ -303,7 +309,7 @@ class TestChicagoPipeline:
             myCar, chicago_3857
         )
         car_side = "even"  # 1616 is even
-        recomposed = notification.compose_message(schedule_even, schedule_odd, car_side)
+        recomposed = compose_message(schedule_even, schedule_odd, car_side)
         assert recomposed == message
 
     def test_message_non_empty_when_schedule_found(self, chicago_3857):

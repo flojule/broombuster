@@ -29,7 +29,7 @@ def verify_jwt(authorization: str = Header(default="")) -> str:
     # Import here to avoid a circular-import at module load time
     # (auth.py imports db.py which is imported before api.py finishes wiring).
     try:
-        from auth import decode_access
+        from .auth import decode_access
     except ImportError as exc:
         raise HTTPException(status_code=500, detail=f"Auth module unavailable: {exc}")
 

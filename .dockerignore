@@ -1,0 +1,54 @@
+# Keep the build context small. Anything listed here is not sent to the
+# Docker daemon and never ends up in the image layers.
+
+# Local env / virtualenvs
+.venv
+.env
+.env.local
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Test / lint / build caches
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+*.egg-info
+build
+dist
+
+# Tests and dev-only files — not needed at runtime
+tests
+.dockerignore
+
+# Docs and images — runtime never reads these
+documentation
+images
+README.md
+data/README.md
+
+# Local SQLite (created at runtime in /data volume)
+data/app.sqlite
+data/app.sqlite-journal
+data/app.sqlite-wal
+data/app.sqlite-shm
+
+# Raw city inputs are not consumed by the runtime — only .fgb is read.
+data/*/*.shp
+data/*/*.dbf
+data/*/*.shx
+data/*/*.prj
+data/*/*.cpg
+data/*/*.geojson
+data/*/*.pdf
+
+# Editor / OS clutter
+.DS_Store
+.idea
+.vscode
+*.swp

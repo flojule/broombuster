@@ -1,17 +1,22 @@
 """
-Tests verifying that the schedule shown in car cards matches the nearest GDF segment.
+Nearest-segment invariant tests for the LEGACY CLI path
+(`analysis.check_street_sweeping`).
 
-Core invariant: check_street_sweeping must use the segment geometrically closest
-to the car's position when address ranges are absent, rather than collecting a
-union of all segments sharing the same street name.
+Core invariant: when address ranges are absent, check_street_sweeping must
+use the segment geometrically closest to the car's position rather than
+collecting a union of all segments sharing the same street name.
+
+Note: the HTTP /check endpoint uses `resolve.resolve_car_segment` for the
+same purpose; that resolver is covered separately in test_resolve.py. Both
+code paths exist (CLI vs. API) and both should produce sensible answers.
 """
 import pyproj
 import pytest
 from shapely.geometry import Point
 
-import analysis
-import car as car_module
-import data_loader
+from broombuster import analysis
+from broombuster import car as car_module
+from broombuster import data_loader
 
 _CRS = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 

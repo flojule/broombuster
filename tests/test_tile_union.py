@@ -5,9 +5,9 @@ when tiles and merged bbox responses differ.
 """
 from shapely.geometry import box, shape
 import pytest
-import data_loader
-import maps
-import car as car_module
+from broombuster import data_loader
+from broombuster import maps
+from broombuster import car as car_module
 
 
 def _fixed_now():

@@ -23,7 +23,9 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-_DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent.parent / "data" / "app.sqlite")))
+# Repo root: this file is <repo>/src/broombuster/api/db.py.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_DB_PATH = Path(os.environ.get("DB_PATH", str(_REPO_ROOT / "data" / "app.sqlite")))
 
 
 def _connect() -> sqlite3.Connection:
