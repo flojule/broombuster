@@ -1,9 +1,0 @@
-geopandas
-shapely
-pyproj
-plotly
-geopy
-requests
-numpy
-python-dotenv
-pdfplumber   # only needed to rebuild city GeoJSONs from PDF (scripts/)
