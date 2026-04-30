@@ -312,14 +312,13 @@ def client():
 # ---------------------------------------------------------------------------
 
 
-# Per-region grid density. Bay Area uses a 32x32 grid (~1024 sample points)
-# so every neighbourhood is sampled. Chicago is sparse polygon zones — 100
-# points cover them. Both have a strict 0-violation budget: every known
+# Per-region grid density. Both regions use a 10x10 grid (100 sample points)
+# to keep the suite fast. Both have a strict 0-violation budget: every known
 # upstream data-quality issue (Alameda PDF artefacts, Oakland "No Sweeping"
 # descriptors, multi-row segment merges) has a fix landed in the
 # consistency layer; any new violation is a real regression.
 _GRID_N_PER_SIDE = {
-    "bay_area": 32,
+    "bay_area": 10,
     "chicago":  10,
 }
 

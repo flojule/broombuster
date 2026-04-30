@@ -183,58 +183,44 @@ _POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
 _PRIORITY   = {"tomato": 2, "orange": 1, "cornflowerblue": 0}
 
 
-def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, message=None, local_now=None) -> dict:
-    """Return zone data as a GeoJSON FeatureCollection for client-side rendering."""
+def build_map_geojson(
+    myCar, myCity,
+    schedule_even=None, schedule_odd=None, message=None, local_now=None,
+    simplify_tolerance: float | None = None,
+) -> dict:
+    """Return zone data as a GeoJSON FeatureCollection for client-side rendering.
+
+    `simplify_tolerance` is in degrees (the CRS the geometry is converted to
+    before serialization). When provided, every feature's geometry is run
+    through `geom.simplify(tolerance, preserve_topology=True)` before being
+    serialized to GeoJSON. The expected use is sub-pixel simplification at
+    the requested viewport — a typical browser viewport is ~1000 px wide,
+    so a tolerance of `viewport_width_deg / 2000` is invisible to the user
+    but can shrink Chicago polygon payloads from ~1.2 MB to ~100 KB at wide
+    zooms.
+    """
     schedule_even = schedule_even or []
     schedule_odd  = schedule_odd  or []
 
     myCity_ = myCity.to_crs("EPSG:4326")
 
-    # ------------------------------------------------------------------
-    # Pre-compute urgency color for every row
-    # ------------------------------------------------------------------
-    _row_color: dict = {}
-    for _idx, _row in myCity_.iterrows():
-        _row_color[_idx] = _sweeping_color(_row, local_now=local_now)
+    do_simplify = bool(simplify_tolerance and simplify_tolerance > 0)
+
+    def _simplify(geom):
+        if do_simplify and geom is not None:
+            try:
+                return geom.simplify(simplify_tolerance, preserve_topology=True)
+            except (ValueError, TypeError):
+                return geom
+        return geom
 
     features = []
 
     # ------------------------------------------------------------------
-    # Polygon zones (e.g. Chicago ward sections)
-    # ------------------------------------------------------------------
-    for _, row in myCity_.iterrows():
-        geom = row["geometry"]
-        if not hasattr(geom, "is_empty") or geom.is_empty:
-            continue
-        if not isinstance(geom, _POLY_TYPES):
-            continue
-
-        color = _row_color[_]
-        try:
-            w = int(float(row.get("ward_id") or row.get("ward") or 0))
-            s = int(float(row.get("section_id") or row.get("section") or 0))
-        except (TypeError, ValueError):
-            w, s = 0, 0
-
-        fill_color, border_color, _ = _zone_fill_color(w, s, color)
-        hover = _zone_hover(row)
-
-        features.append({
-            "type": "Feature",
-            "geometry": shapely.geometry.mapping(geom),
-            "properties": {
-                "render_type":  "polygon",
-                "domain":       "sweeping",
-                "urgency":      color,
-                "fill_color":   fill_color,
-                "border_color": border_color,
-                "hover_html":   hover,
-            },
-        })
-
-    # ------------------------------------------------------------------
-    # Line street rendering (Oakland / SF)
-    # Deduplicates segments and merges even/odd schedule text.
+    # Single pass over the (already clipped) GDF.
+    #   - Polygon rows (Chicago ward sections) are emitted directly.
+    #   - Line rows (Oakland / SF) accumulate into seg_data and are emitted
+    #     as deduplicated segments after the loop.
     # No densification needed — MapLibre hit-tests along the full geometry.
     # ------------------------------------------------------------------
     def _seg_key(x, y):
@@ -261,9 +247,38 @@ def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, mess
         geom = row["geometry"]
         if not hasattr(geom, "is_empty") or geom.is_empty:
             continue
+
+        color = _sweeping_color(row, local_now=local_now)
+
         if isinstance(geom, _POLY_TYPES):
+            try:
+                w = int(float(row.get("ward_id") or row.get("ward") or 0))
+                s = int(float(row.get("section_id") or row.get("section") or 0))
+            except (TypeError, ValueError):
+                w, s = 0, 0
+
+            fill_color, border_color, _name = _zone_fill_color(w, s, color)
+            hover = _zone_hover(row)
+
+            out_geom = _simplify(geom)
+            if out_geom is None or out_geom.is_empty:
+                continue
+
+            features.append({
+                "type": "Feature",
+                "geometry": shapely.geometry.mapping(out_geom),
+                "properties": {
+                    "render_type":  "polygon",
+                    "domain":       "sweeping",
+                    "urgency":      color,
+                    "fill_color":   fill_color,
+                    "border_color": border_color,
+                    "hover_html":   hover,
+                },
+            })
             continue
-        color = _row_color[_]
+
+        # Line / multiline path
         pri   = _PRIORITY[color]
         be    = _side_body(row.get("DAY_EVEN"), row.get("DESC_EVEN"), row.get("TIME_EVEN"))
         bo    = _side_body(row.get("DAY_ODD"),  row.get("DESC_ODD"),  row.get("TIME_ODD"))
@@ -318,7 +333,18 @@ def build_map_geojson(myCar, myCity, schedule_even=None, schedule_odd=None, mess
         line_width = _color_meta[color][1]
 
         # GeoJSON coords: [[lon, lat], ...]
-        coords = [[float(lon), float(lat)] for lon, lat in zip(sd["x"], sd["y"])]
+        if simplify_tolerance and simplify_tolerance > 0 and len(sd["x"]) > 2:
+            try:
+                ls = shapely.geometry.LineString(zip(sd["x"], sd["y"]))
+                ls_simple = ls.simplify(simplify_tolerance, preserve_topology=False)
+                coords = [[float(x), float(y)] for x, y in ls_simple.coords]
+            except (ValueError, TypeError):
+                coords = [[float(lon), float(lat)] for lon, lat in zip(sd["x"], sd["y"])]
+        else:
+            coords = [[float(lon), float(lat)] for lon, lat in zip(sd["x"], sd["y"])]
+
+        if len(coords) < 2:
+            continue
 
         features.append({
             "type": "Feature",

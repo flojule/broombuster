@@ -74,7 +74,7 @@ See [`Caddyfile.example`](Caddyfile.example) for public-domain and Tailscale
 variants. Or run the API alone (no TLS):
 
 ```
-uvicorn api.api:app --host 0.0.0.0 --port $PORT
+uvicorn broombuster.api.app:app --host 0.0.0.0 --port $PORT
 ```
 
 ---
@@ -119,10 +119,8 @@ BroomBuster/
 │   └── build_alameda_geojson.py    Per-city PDF→GeoJSON (called by orchestrator)
 ├── tests/
 ├── documentation/
-│   ├── architecture.md            How the app works and its dependencies
-│   ├── performance_plan.md        Current bottlenecks and free optimisation options
-│   ├── user_database_options.md   Options for persisting user data
-│   └── web_hosting_options.md     Options for hosting the backend
+│   ├── performance_plan.md        Shipped map-speed optimisations + remaining map-speed work
+│   └── feature_plan.md            Remaining feature work (trash domain, frontend modules, manifests)
 ├── Dockerfile
 └── .env.example
 ```

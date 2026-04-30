@@ -617,8 +617,134 @@ function initMap(center) {
   });
   map.dragRotate.disable();
   map.touchZoomRotate.disableRotation();
-  map.on('load', () => { map.resize(); attachMapListeners(); });
+  map.on('load', () => {
+    map.resize();
+    attachMapListeners();
+    // Hydrate the persisted viewport cache once. Fire-and-forget — pans
+    // before hydration completes will fall through to network and the
+    // result populates both caches via fetchViewport's normal path.
+    hydrateViewportCache();
+  });
   map.on('error', (e) => console.error('[MapLibre]', e.error));
+}
+
+// ── Viewport fetch + cache (module scope so loadAreaMap can prefetch) ────────
+//
+// One bbox per request — the server clips its GDF to that bbox and returns
+// a complete FeatureCollection for the visible area. The cache key is the
+// rounded bbox; entries persist across page reloads via IndexedDB.
+let _viewportFetchTimer    = null;
+let _inflightController    = null;  // AbortController for the latest /check
+const VIEWPORT_CACHE_MAX   = 64;
+const VIEWPORT_TTL_MS      = 10 * 60 * 1000; // 10 minutes
+const viewportCache        = new Map(); // bboxKey -> { geojson, ts }
+
+// IndexedDB persistence: viewport responses survive page reloads. Keyed by
+// the same bboxKey we use in memory; TTL still 10 minutes.
+const VIEWPORT_DB_NAME    = 'broombuster';
+const VIEWPORT_STORE      = 'viewport_cache';
+const VIEWPORT_DB_VERSION = 1;
+let _viewportDb = null;
+
+function _openViewportDb() {
+  return new Promise((resolve) => {
+    if (!('indexedDB' in window)) return resolve(null);
+    let req;
+    try { req = indexedDB.open(VIEWPORT_DB_NAME, VIEWPORT_DB_VERSION); }
+    catch (_) { return resolve(null); }
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(VIEWPORT_STORE)) {
+        db.createObjectStore(VIEWPORT_STORE, { keyPath: 'k' });
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror   = ()  => resolve(null);
+  });
+}
+
+async function hydrateViewportCache() {
+  if (_viewportDb) return;
+  _viewportDb = await _openViewportDb();
+  if (!_viewportDb) return;
+  await new Promise((resolve) => {
+    let tx;
+    try { tx = _viewportDb.transaction(VIEWPORT_STORE, 'readonly'); }
+    catch (_) { return resolve(); }
+    const req = tx.objectStore(VIEWPORT_STORE).getAll();
+    req.onsuccess = (e) => {
+      const now = Date.now();
+      for (const r of e.target.result || []) {
+        if (r && r.k && r.geojson && (now - (r.ts || 0)) < VIEWPORT_TTL_MS) {
+          viewportCache.set(r.k, { geojson: r.geojson, ts: r.ts });
+        }
+      }
+      resolve();
+    };
+    req.onerror = () => resolve();
+  });
+}
+
+function _persistViewportEntry(key, entry) {
+  if (!_viewportDb) return;
+  try {
+    const tx = _viewportDb.transaction(VIEWPORT_STORE, 'readwrite');
+    tx.objectStore(VIEWPORT_STORE).put({ k: key, geojson: entry.geojson, ts: entry.ts });
+  } catch (_) {}
+}
+
+function _bboxKey(b, region) {
+  // Round to ~110 m so adjacent fine-grained pans hit the same cache entry.
+  return `${region}|${b.getSouth().toFixed(3)},${b.getWest().toFixed(3)},${b.getNorth().toFixed(3)},${b.getEast().toFixed(3)}`;
+}
+
+async function fetchViewport(bounds) {
+  const region = regionSelect.value || _renderedRegion;
+  if (!region || !map) return;
+  const key = _bboxKey(bounds, region);
+  const now = Date.now();
+  const cached = viewportCache.get(key);
+  if (cached && (now - cached.ts) < VIEWPORT_TTL_MS) {
+    renderZones(cached.geojson);
+    return;
+  }
+
+  // Cancel any earlier in-flight /check — only the latest viewport matters.
+  if (_inflightController) _inflightController.abort();
+  const controller = new AbortController();
+  _inflightController = controller;
+
+  try {
+    const res = await apiFetch('/check', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        lat:    map.getCenter().lat,
+        lon:    map.getCenter().lng,
+        region: regionSelect.value || undefined,
+        bbox:   [bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast()],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const geojson = data.geojson || { type: 'FeatureCollection', features: [] };
+
+    const entry = { geojson, ts: Date.now() };
+    viewportCache.set(key, entry);
+    if (viewportCache.size > VIEWPORT_CACHE_MAX) {
+      // Evict oldest insertion (Map preserves insertion order)
+      const k = viewportCache.keys().next().value;
+      viewportCache.delete(k);
+    }
+    _persistViewportEntry(key, entry);
+
+    // Guard against the rare race where abort() didn't propagate before
+    // a competing fetch resolved: only render if we're still the latest.
+    if (controller === _inflightController) renderZones(geojson);
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
 }
 
 let _mapListenersAttached = false;
@@ -661,154 +787,14 @@ function attachMapListeners() {
   map.on('move', updateGpsPinPopup);
   map.on('moveend', updateGpsPinPopup);
 
-  // Incremental viewport fetch: debounced to avoid flooding the server.
-  // Implementation: tile-based requests at a fixed tile zoom, with a
-  // client-side per-tile LRU cache and a zoom threshold so we only fetch
-  // street-level tiles when sufficiently zoomed in.
-  let _viewportFetchTimer = null;
-  const TILE_Z = 13;         // tile zoom used for requests
-  const TILE_CACHE_MAX = 256; // max cached tile entries
-  const TILE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-  const tileCache = new Map(); // tileKey -> { geojson, ts }
-
-  function _clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-
-  function lon2tileX(lon, z) {
-    const n = Math.pow(2, z);
-    return Math.floor((lon + 180) / 360 * n);
-  }
-
-  function lat2tileY(lat, z) {
-    const rad = lat * Math.PI / 180;
-    const n = Math.pow(2, z);
-    return Math.floor((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * n);
-  }
-
-  function tilesForBounds(b, z) {
-    const minLat = b.getSouth(), minLon = b.getWest(), maxLat = b.getNorth(), maxLon = b.getEast();
-    const n = Math.pow(2, z) - 1;
-    const x0 = _clamp(lon2tileX(minLon, z), 0, n);
-    const x1 = _clamp(lon2tileX(maxLon, z), 0, n);
-    const y0 = _clamp(lat2tileY(maxLat, z), 0, n);
-    const y1 = _clamp(lat2tileY(minLat, z), 0, n);
-    const out = [];
-    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
-      for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
-        out.push(`${z}/${x}/${y}`);
-      }
-    }
-    return out;
-  }
-
-  function mergeGeojsons(list) {
-    if (!list || !list.length) return null;
-    const seen = new Set();
-    const features = [];
-    for (const g of list) {
-      if (!g || !g.features) continue;
-      for (const f of g.features) {
-        // Deduplicate by geometry JSON to avoid repeated features across tiles
-        const key = JSON.stringify(f.geometry || {});
-        if (seen.has(key)) continue;
-        seen.add(key);
-        features.push(f);
-      }
-    }
-    return { type: 'FeatureCollection', features };
-  }
-
-  async function _fetchTilesAndRender(tiles) {
-    // Build cached list and missing tiles
-    const now = Date.now();
-    const cached = [];
-    const missing = [];
-    for (const t of tiles) {
-      const e = tileCache.get(t);
-      if (e && (now - e.ts) < TILE_TTL_MS) cached.push(e.geojson);
-      else missing.push(t);
-    }
-
-    if (missing.length === 0) {
-      const merged = mergeGeojsons(cached);
-      renderZones(merged);
-      return;
-    }
-
-    try {
-      const res = await apiFetch('/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: (map.getCenter().lat), lon: (map.getCenter().lng), region: regionSelect.value || undefined, tiles: missing }),
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      const mergedNew = data.geojson || null;
-      const newCount = mergedNew && Array.isArray(mergedNew.features) ? mergedNew.features.length : 0;
-
-      // Store returned merged payload under each requested tile key.
-      // Use an empty FeatureCollection placeholder for out-of-bbox tiles so
-      // the cache entry exists (and prevents re-fetching) without stomping data.
-      const cacheEntry = newCount > 0 ? mergedNew : { type: 'FeatureCollection', features: [] };
-      for (const t of missing) {
-        tileCache.set(t, { geojson: cacheEntry, ts: Date.now() });
-        // Evict oldest when over limit
-        if (tileCache.size > TILE_CACHE_MAX) {
-          const k = tileCache.keys().next().value;
-          tileCache.delete(k);
-        }
-      }
-
-      // Compose final merged from cached + newly fetched (skip empty new result)
-      const all = cached.slice();
-      if (newCount > 0) all.push(mergedNew);
-      const merged = mergeGeojsons(all);
-
-      // Never overwrite non-empty rendered zones with an empty result.
-      const currentCount = _currentGeojson && Array.isArray(_currentGeojson.features)
-        ? _currentGeojson.features.length : 0;
-      if (merged.features.length === 0 && currentCount > 0) return;
-
-      renderZones(merged);
-
-      // Prefetch adjacent tiles (one-ring) after a short delay
-      setTimeout(() => {
-        const neighbors = new Set();
-        for (const t of missing) {
-          const parts = t.split('/');
-          if (parts.length !== 3) continue;
-          const z = parseInt(parts[0], 10), x = parseInt(parts[1], 10), y = parseInt(parts[2], 10);
-          for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-              if (dx === 0 && dy === 0) continue;
-              const nx = x + dx; const ny = y + dy;
-              if (nx < 0 || ny < 0) continue;
-              neighbors.add(`${z}/${nx}/${ny}`);
-            }
-          }
-        }
-        const toFetch = [];
-        const now2 = Date.now();
-        for (const n of neighbors) {
-          const e = tileCache.get(n);
-          if (!e || (now2 - e.ts) >= TILE_TTL_MS) toFetch.push(n);
-        }
-        if (toFetch.length) {
-          // Fire-and-forget prefetch; don't block rendering
-          _fetchTilesAndRender(toFetch);
-        }
-      }, 500);
-    } catch (_) {}
-  }
-
+  // Debounced viewport fetch on pan/zoom. The actual fetch lives at module
+  // scope so initial loads (loadAreaMap) can call it directly.
   map.on('moveend', () => {
     if (_viewportFetchTimer) clearTimeout(_viewportFetchTimer);
     _viewportFetchTimer = setTimeout(() => {
       if (!_renderedRegion) return;
-      const bounds = map.getBounds();
-      const tiles = tilesForBounds(bounds, TILE_Z);
-      if (!tiles.length) return;
-      _fetchTilesAndRender(tiles);
-    }, 350);
+      fetchViewport(map.getBounds());
+    }, 200);
   });
 }
 
@@ -1172,7 +1158,9 @@ function loadAreaMap(lat, lon, zoom = 11) {
   if (!map || !_renderedRegion) return;
   map.jumpTo({ center: [lon, lat], zoom });
   setStatus('idle', 'Add a car to check street sweeping.');
-  // jumpTo fires moveend → debounced tile-based fetch
+  // jumpTo fires moveend → debounced fetch, but we also fire immediately
+  // so the user doesn't wait the 200 ms debounce for the first frame.
+  fetchViewport(map.getBounds());
 }
 
 function getGPS(onSuccess, onError) {

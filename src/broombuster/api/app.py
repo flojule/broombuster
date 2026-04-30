@@ -56,6 +56,11 @@ _city_events: dict = {}      # city_key → threading.Event (set when done)
 _region_combined: dict = {}  # region_key → (frozenset(loaded_keys), gdf_4326, gdf_3857)
 _city_loaded_at: dict = {}   # city_key → float (time.time() when last loaded into memory)
 
+# Protects the city GDF caches against torn reads during a hot-swap. Reads
+# in /check that touch _city_gdfs and _city_gdfs_3857 must hold this lock so
+# they never see one CRS updated and the other still on the previous version.
+_swap_lock = threading.Lock()
+
 
 def _load_city_bg(city_key: str) -> None:
     """Load one city in a background thread and signal completion."""
@@ -80,13 +85,18 @@ def _hot_swap_city(city_key: str) -> None:
         gdf = data_loader.load_city_data(city_key, force_refresh=True)
         gdf = gdf.copy()
         gdf["_city"] = city_key
-        _city_gdfs[city_key]      = gdf.to_crs("EPSG:4326")
-        _city_gdfs_3857[city_key] = gdf.to_crs("EPSG:3857")
-        _city_loaded_at[city_key] = time.time()
-        # Invalidate the region combined-GDF cache so the next request rebuilds it.
-        for rk, rv in REGIONS.items():
-            if city_key in rv["cities"]:
-                _region_combined.pop(rk, None)
+        # Build both projections BEFORE taking the lock, then swap them in
+        # under the lock so a concurrent /check never sees mixed CRS versions.
+        new_4326 = gdf.to_crs("EPSG:4326")
+        new_3857 = gdf.to_crs("EPSG:3857")
+        with _swap_lock:
+            _city_gdfs[city_key]      = new_4326
+            _city_gdfs_3857[city_key] = new_3857
+            _city_loaded_at[city_key] = time.time()
+            # Invalidate the region combined-GDF cache so the next request rebuilds it.
+            for rk, rv in REGIONS.items():
+                if city_key in rv["cities"]:
+                    _region_combined.pop(rk, None)
         logger.info("[freshness] %s refreshed successfully", city["name"])
     except (OSError, ValueError, RuntimeError) as exc:
         logger.warning("[freshness] could not refresh '%s': %s", city_key, exc)
@@ -178,6 +188,25 @@ app.include_router(auth_router)
 # ---------------------------------------------------------------------------
 
 
+def _clip_with_sindex(gdf, clip_geom):
+    """Clip a GeoDataFrame to features intersecting `clip_geom` via the
+    spatial index. Falls back to the linear .intersects() scan if the
+    sindex query is unavailable (older shapely or empty index).
+
+    Indices are sorted to preserve the original GeoDataFrame row order — the
+    GeoJSON builder's segment dedup relies on insertion order, and several
+    tests assert behavior that depends on that order matching `.intersects()`.
+    """
+    try:
+        import numpy as _np
+        idx = gdf.sindex.query(clip_geom, predicate="intersects")
+    except (AttributeError, TypeError, ValueError, ImportError):
+        return gdf[gdf.geometry.intersects(clip_geom)]
+    if len(idx) == 0:
+        return gdf.iloc[0:0]
+    return gdf.iloc[_np.sort(idx)]
+
+
 def _in_city_bbox(lat: float, lon: float, city_key: str) -> bool:
     bbox = CITIES[city_key].get("bbox")
     if not bbox:
@@ -211,34 +240,35 @@ def _get_region_gdfs(lat: float, lon: float, region_key: str):
         if ck in _city_gdfs:
             break  # have data for the user's city; good enough to proceed
 
-    loaded = frozenset(ck for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs)
-    if not loaded:
-        return None, None
+    # Hold _swap_lock for the entire snapshot + combine + cache step so a
+    # concurrent _hot_swap_city cannot replace a city's GDF in the middle of
+    # building the combined frame. Hot swaps are hourly and the concat is
+    # only a few ms even for the full Bay Area, so contention is negligible.
+    with _swap_lock:
+        loaded = frozenset(ck for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs)
+        if not loaded:
+            return None, None
 
-    # Return cached combined GDF if the set of loaded cities hasn't changed.
-    cached = _region_combined.get(region_key)
-    if cached and cached[0] == loaded:
-        return cached[1], cached[2]
+        cached = _region_combined.get(region_key)
+        if cached and cached[0] == loaded:
+            return cached[1], cached[2]
 
-    city_keys = [ck for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs]
-    gdfs_4326 = [_city_gdfs[ck] for ck in city_keys]
+        city_keys = [ck for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs]
+        gdfs_4326 = [_city_gdfs[ck] for ck in city_keys]
 
-    # Build 3857 list robustly: prefer cached 3857 frames, otherwise convert
-    # the 4326 copy. This avoids KeyError when only one of the caches is
-    # populated (e.g. due to race conditions or partial synchronous loads).
-    gdfs_3857 = []
-    for ck in city_keys:
-        gdf3857 = _city_gdfs_3857.get(ck)
-        if gdf3857 is None:
-            # Convert a copy of the 4326 frame to 3857 on-the-fly.
-            gdf3857 = _city_gdfs[ck].to_crs("EPSG:3857")
-            # Do not mutate the global cache here; keep conversion local.
-        gdfs_3857.append(gdf3857)
+        # Prefer cached 3857 frames; fall back to on-the-fly conversion of
+        # the 4326 copy if a city only has the 4326 entry populated.
+        gdfs_3857 = []
+        for ck, gdf4326 in zip(city_keys, gdfs_4326):
+            gdf3857 = _city_gdfs_3857.get(ck)
+            if gdf3857 is None:
+                gdf3857 = gdf4326.to_crs("EPSG:3857")
+            gdfs_3857.append(gdf3857)
 
-    c4 = geopandas.GeoDataFrame(pd.concat(gdfs_4326, ignore_index=True), crs="EPSG:4326")
-    c3 = geopandas.GeoDataFrame(pd.concat(gdfs_3857, ignore_index=True), crs="EPSG:3857")
-    _region_combined[region_key] = (loaded, c4, c3)
-    return c4, c3
+        c4 = geopandas.GeoDataFrame(pd.concat(gdfs_4326, ignore_index=True), crs="EPSG:4326")
+        c3 = geopandas.GeoDataFrame(pd.concat(gdfs_3857, ignore_index=True), crs="EPSG:3857")
+        _region_combined[region_key] = (loaded, c4, c3)
+        return c4, c3
 
 
 def _nearest_city_key(lat: float, lon: float, region_key: str) -> str:
@@ -476,6 +506,11 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
     # area for offline/overview modes.
     # If the client requested a set of tiles (z/x/y strings), prefer that
     # clipping region (unless full_region was explicitly requested).
+    #
+    # We track the clip bbox span (in degrees) to derive a sub-pixel
+    # simplify tolerance for the GeoJSON builder. A typical browser viewport
+    # is ~1000 px wide, so a tolerance of `span / 2000` is invisible.
+    bbox_span_deg = 0.03  # default radius mode below: ±0.015°
     if req.tiles and isinstance(req.tiles, list) and not req.full_region:
         import math
         try:
@@ -520,23 +555,41 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
             clip_geom = None
 
         if clip_geom is not None:
-            myCity_display = myCity_4326[myCity_4326.geometry.intersects(clip_geom)]
+            myCity_display = _clip_with_sindex(myCity_4326, clip_geom)
+            minx, miny, maxx, maxy = clip_geom.bounds
+            bbox_span_deg = max(maxx - minx, maxy - miny)
         else:
             myCity_display = myCity_4326
+            minx, miny, maxx, maxy = myCity_4326.total_bounds
+            bbox_span_deg = max(maxx - minx, maxy - miny)
     elif req.full_region:
         myCity_display = myCity_4326
+        # full_region is used for offline preload / overview; the requesting
+        # client may later issue smaller-bbox requests against the same data,
+        # and tests assert that bbox features are a subset of full-region
+        # features. Simplifying here would break that invariant by giving
+        # the same physical segment different coordinate strings depending
+        # on the clip span, so we skip simplification entirely in this mode.
+        bbox_span_deg = 0.0
     elif req.bbox and isinstance(req.bbox, list) and len(req.bbox) == 4:
         # bbox given as [min_lat, min_lon, max_lat, max_lon]
         min_lat, min_lon, max_lat, max_lon = req.bbox
         _clip = _shp_geom.box(min_lon, min_lat, max_lon, max_lat)
-        myCity_display = myCity_4326[myCity_4326.geometry.intersects(_clip)]
+        myCity_display = _clip_with_sindex(myCity_4326, _clip)
+        bbox_span_deg = max(max_lon - min_lon, max_lat - min_lat)
     else:
         _CLIP_DEG = 0.015  # ≈ 1.5 km
         _clip = _shp_geom.box(
             req.lon - _CLIP_DEG, req.lat - _CLIP_DEG,
             req.lon + _CLIP_DEG, req.lat + _CLIP_DEG,
         )
-        myCity_display = myCity_4326[myCity_4326.geometry.intersects(_clip)]
+        myCity_display = _clip_with_sindex(myCity_4326, _clip)
+        bbox_span_deg = 2 * _CLIP_DEG
+
+    # Sub-pixel simplify tolerance derived from the viewport span. At wide
+    # zooms (e.g. full Chicago), this cuts MultiPolygon coordinate counts
+    # ~10x without any visible change in the browser.
+    simplify_tolerance = bbox_span_deg / 2000.0 if bbox_span_deg > 0 else None
 
     geojson = maps.build_map_geojson(
         myCar, myCity_display,
@@ -544,6 +597,7 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         schedule_odd=schedule_odd,
         message=message,
         local_now=local_now,
+        simplify_tolerance=simplify_tolerance,
     )
 
     geojson_size = len(json.dumps(geojson).encode())
