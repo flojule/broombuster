@@ -31,16 +31,16 @@ Tests are organised as:
 """
 
 import os
+
 os.environ.setdefault("DEV_MODE", "1")
 
 import datetime
-import pandas as pd
-import pytest
 from zoneinfo import ZoneInfo
 
-from broombuster import analysis
-from broombuster import maps
-from broombuster import normalize
+import pandas as pd
+import pytest
+
+from broombuster import analysis, maps, normalize
 
 _TZ = ZoneInfo("America/Los_Angeles")
 
@@ -238,7 +238,6 @@ class TestSyntheticRowConsistency:
     # ── NaN / float in day column ─────────────────────────────────────────────
 
     def test_nan_day_even(self):
-        import math
         _check_agree(_seg(DAY_EVEN=float("nan")), _NOW_MORNING, label="nan day even: ")
 
     def test_float_day_even(self):
@@ -377,6 +376,7 @@ class TestApiRoundTripConsistency:
     @pytest.fixture(scope="class")
     def client(self):
         from fastapi.testclient import TestClient
+
         from broombuster.api import app as api_mod
         with TestClient(api_mod.app) as c:
             yield c
@@ -447,7 +447,8 @@ class TestApiRoundTripConsistency:
 
         assert urgency == expected_box, (
             f"Map/car-box mismatch at ({lat}, {lon}) street='{snap_name}':\n"
-            f"  GeoJSON feature urgency colour = {feat_color!r}  → expects car-box={expected_box!r}\n"
+            f"  GeoJSON feature urgency colour = {feat_color!r}  → "
+            f"expects car-box={expected_box!r}\n"
             f"  Actual car-box urgency         = {urgency!r}\n"
             f"  snap: {snap}"
         )
@@ -503,9 +504,9 @@ class TestApiRoundTripConsistency:
         if message.startswith("► Street:"):
             return
 
-        highlighted = [l for l in lines if l.startswith("►")]
+        highlighted = [ln for ln in lines if ln.startswith("►")]
         assert len(highlighted) >= 1, f"No ► in message: {message!r}"
-        assert any(labeled in l for l in highlighted), (
+        assert any(labeled in ln for ln in highlighted), (
             f"car_side={car_side!r} but ► not on '{labeled}' line.\n"
             f"message:\n{message}"
         )

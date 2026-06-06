@@ -8,9 +8,9 @@ Chicago polygon zones are present both at small and large clip boxes.
 """
 import pytest
 from shapely.geometry import box
-from broombuster import data_loader
-from broombuster import maps
+
 from broombuster import car as car_module
+from broombuster import data_loader, maps
 
 
 def _fixed_now():
@@ -89,7 +89,10 @@ def test_chicago_zone_present_at_multiple_scales():
 
     # Count polygon features in both builds
     def poly_count(geo):
-        return sum(1 for f in geo.get("features", []) if f.get("properties", {}).get("render_type") == "polygon")
+        return sum(
+            1 for f in geo.get("features", [])
+            if f.get("properties", {}).get("render_type") == "polygon"
+        )
 
     ps = poly_count(geo_small)
     pl = poly_count(geo_large)

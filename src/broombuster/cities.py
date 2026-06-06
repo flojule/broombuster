@@ -77,125 +77,15 @@ CITIES = {
         "fgb_path": "data/alameda/StreetSweeping.fgb",
     },
 
-    "piedmont": {
-        "name": "Piedmont, CA",
-        "center": {"lat": 37.8240, "lon": -122.2335},
-        "manual_default": {"lat": 37.8240, "lon": -122.2335},
-        "local_path": "data/piedmont/StreetSweeping.geojson",
-        # Piedmont has no public open-data portal for street sweeping.
-        # Source: https://www.piedmont.ca.gov/departments/public_works/street_maintenance.php
-        # Data must be built manually from the city's PDF schedule maps.
-        # Schema likely matches Oakland (address-range segments with DAY_EVEN/ODD).
-        "url": None,
-        "schema": "oakland",
-        "bbox": [37.815, -122.245, 37.835, -122.220],
-        "fgb_path": "data/piedmont/StreetSweeping.fgb",
-    },
-
-    "emeryville": {
-        "name": "Emeryville, CA",
-        "center": {"lat": 37.8403, "lon": -122.2913},
-        "manual_default": {"lat": 37.8403, "lon": -122.2913},
-        "local_path": "data/emeryville/StreetSweeping.geojson",
-        # Emeryville has no public shapefile for street sweeping as of 2026.
-        # Source: https://www.emeryville.org/217/Street-Sweeping
-        # Data must be built manually from the city's published schedule.
-        # Schema likely matches Oakland (address-range segments with DAY_EVEN/ODD).
-        "url": None,
-        "schema": "oakland",
-        "bbox": [37.825, -122.310, 37.855, -122.270],
-        "fgb_path": "data/emeryville/StreetSweeping.fgb",
-    },
-
-    "santa_cruz": {
-        "name": "Santa Cruz, CA",
-        "center": {"lat": 36.9741, "lon": -122.0308},
-        "manual_default": {"lat": 36.9741, "lon": -122.0308},
-        "local_path": "data/santa_cruz/StreetSweeping.geojson",
-        # Santa Cruz publishes street sweeping maps as PDFs.
-        # Source: https://www.cityofsantacruz.com/government/city-departments/public-works/streets/street-sweeping
-        # Data must be built manually from the city's zone maps.
-        # Schema likely matches Oakland (address-range segments with DAY_EVEN/ODD).
-        "url": None,
-        "schema": "oakland",
-        "bbox": [36.950, -122.070, 37.010, -121.990],
-        "fgb_path": "data/santa_cruz/StreetSweeping.fgb",
-    },
-
     # ------------------------------------------------------------------
-    # Chicago
+    # Candidate Bay Area cities — not yet onboarded (no data file built).
+    # Each needs a StreetSweeping.fgb (schema "oakland") before it can join
+    # the bay_area region in REGIONS below. Build with
+    # scripts/rebuild_city_data.py once a source is found:
+    #   piedmont, emeryville, santa_cruz, san_jose, fremont, san_leandro,
+    #   hayward, marin_county (Novato/San Rafael PDFs), castro_valley (ACPW).
     # ------------------------------------------------------------------
-    "san_jose": {
-        "name": "San José, CA",
-        "center": {"lat": 37.3382, "lon": -121.8863},
-        "manual_default": {"lat": 37.3382, "lon": -121.8863},
-        "local_path": "data/san_jose/StreetSweeping.geojson",
-        # San José Open Data (Socrata) — search "street sweeping routes" at:
-        #   https://data.sanjoseca.gov
-        # The dataset is typically a GeoJSON or Shapefile with address-range
-        # segments and day/time codes similar to Oakland.
-        # Once the dataset ID is known, use:
-        #   "https://data.sanjoseca.gov/resource/<DATASET_ID>.geojson?$limit=200000"
-        "url": None,
-        "schema": "oakland",
-        "bbox": [37.18, -122.04, 37.47, -121.59],
-        "fgb_path": "data/san_jose/StreetSweeping.fgb",
-    },
 
-    "fremont": {
-        "name": "Fremont, CA",
-        "center": {"lat": 37.5485, "lon": -121.9886},
-        "manual_default": {"lat": 37.5485, "lon": -121.9886},
-        "local_path": "data/fremont/StreetSweeping.geojson",
-        # Fremont GIS open data — check:
-        #   https://gis.fremont.gov/arcgis/rest/services/
-        # or the city's public works page for a downloadable schedule shapefile.
-        # Schema likely matches Oakland (address-range segments + DAY_EVEN/ODD).
-        "url": None,
-        "schema": "oakland",
-        "bbox": [37.45, -122.09, 37.64, -121.86],
-        "fgb_path": "data/fremont/StreetSweeping.fgb",
-    },
-
-    "san_leandro": {
-        "name": "San Leandro, CA",
-        "center": {"lat": 37.7249, "lon": -122.1561},
-        "manual_default": {"lat": 37.7249, "lon": -122.1561},
-        "local_path": "data/san_leandro/StreetSweeping.geojson",
-        # San Leandro may publish data via Alameda County ArcGIS portal:
-        #   https://www.acgov.org/acpw/index.html
-        # Alternatively, the city's Public Works dept provides PDF maps:
-        #   https://www.sanleandro.org/depts/pw/streets/sweeping.asp
-        "url": None,
-        "schema": "oakland",
-        "bbox": [37.68, -122.20, 37.76, -122.11],
-        "fgb_path": "data/san_leandro/StreetSweeping.fgb",
-    },
-
-    "hayward": {
-        "name": "Hayward, CA",
-        "center": {"lat": 37.6688, "lon": -122.0808},
-        "manual_default": {"lat": 37.6688, "lon": -122.0808},
-        "local_path": "data/hayward/StreetSweeping.geojson",
-        # Hayward publishes a PDF street sweeping schedule by district:
-        #   https://www.hayward-ca.gov/services/streets-parks/street-sweeping
-        # Data needs to be digitized manually into a GeoJSON with address ranges.
-        # Schema likely matches Oakland once digitized.
-        "url": None,
-        "schema": "oakland",
-        "bbox": [37.61, -122.16, 37.73, -121.99],
-        "fgb_path": "data/hayward/StreetSweeping.fgb",
-    },
-
-    # ------------------------------------------------------------------
-    # Bay Area — cities requiring more research before adding
-    # ------------------------------------------------------------------
-    #
-    # "marin_county": Marin County Open Data portal has some infrastructure data;
-    #   individual cities (Novato, San Rafael) may have PDFs.
-    #
-    # "castro_valley": Alameda County unincorporated — check ACPW portal.
-    #
     # ------------------------------------------------------------------
     # Chicago
     # ------------------------------------------------------------------

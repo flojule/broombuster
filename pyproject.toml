@@ -24,7 +24,7 @@ api = [
     "uvicorn[standard]",
     "PyJWT",
     "cryptography",
-    "passlib[bcrypt]",
+    "bcrypt",
     "slowapi",
     "httpx",
 ]

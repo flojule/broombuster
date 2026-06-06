@@ -12,6 +12,7 @@ Two layers of coverage:
 """
 
 import os
+
 os.environ.setdefault("DEV_MODE", "1")
 
 import datetime
@@ -20,14 +21,12 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from broombuster import analysis
-from broombuster.domains import DomainPlugin, DomainResult, max_urgency
+from broombuster.domains import DomainPlugin, max_urgency
 from broombuster.domains.registry import for_city, iter_plugins
 from broombuster.domains.sweeping import (
     SweepingPlugin,
-    _schedule_lines,
     compose_message,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared synthetic-row fixtures (mirror of test_car_panel_consistency.py)
@@ -252,6 +251,7 @@ class TestMaxUrgency:
 class TestCheckResponseShape:
     def test_check_includes_domains_array(self):
         from fastapi.testclient import TestClient
+
         from broombuster.api import app as app_module
 
         # Known coord that resolves to a Bay Area sweeping segment.
@@ -278,6 +278,7 @@ class TestCheckResponseShape:
         """Map features must carry properties.domain so the frontend can
         eventually layer per-domain styling."""
         from fastapi.testclient import TestClient
+
         from broombuster.api import app as app_module
 
         lat, lon = 37.821326, -122.280705

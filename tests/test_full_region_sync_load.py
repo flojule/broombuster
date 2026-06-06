@@ -10,12 +10,12 @@ work and return complete data, which is useful for debugging and for
 any direct API consumers.
 """
 import os
+
 os.environ.setdefault("DEV_MODE", "1")
 
 from fastapi.testclient import TestClient
+
 from broombuster.api import app as api_mod
-from broombuster import data_loader
-import pytest
 
 
 def test_full_region_triggers_sync_load():
@@ -29,7 +29,9 @@ def test_full_region_triggers_sync_load():
     api_mod._region_combined.clear()
 
     with TestClient(api_mod.app) as client:
-        resp = client.post("/check", json={"lat": lat, "lon": lon, "region": "bay_area", "full_region": True})
+        resp = client.post(
+            "/check", json={"lat": lat, "lon": lon, "region": "bay_area", "full_region": True}
+        )
         assert resp.status_code == 200, resp.text
         data = resp.json()
         geo = data.get("geojson") or {}

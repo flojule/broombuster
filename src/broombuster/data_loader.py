@@ -24,37 +24,40 @@ Oakland-style day codes understood by analysis.parse_sweeping_code():
   N / NS / O = no sweeping
 """
 
+import importlib.util
 import io
 import os
+import threading
 import zipfile
-
-# Repo root — used to resolve data file paths regardless of working directory.
-# This file lives at <repo>/src/broombuster/data_loader.py so we walk up
-# three levels (broombuster → src → repo).
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from collections import OrderedDict
 
 import geopandas
 import numpy as np
 import requests
-from broombuster import normalize
-from collections import OrderedDict
-import threading
+from shapely.geometry import box as _shapely_box
 
-# In-memory LRU cache for already-read FlatGeobuf files: path -> (mtime, gdf)
-# Use an OrderedDict and a small max size to bound memory usage.
+from broombuster import normalize
+from broombuster.cities import CITIES
+
+# Repo root — resolves data paths regardless of working directory.
+# This file is <repo>/src/broombuster/data_loader.py — walk up three levels.
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# BroomBuster cache layers (each a distinct key/scope, not redundant):
+#   1. _GDF_CACHE (here)         path -> (mtime, gdf)     skip FGB disk reads
+#   2. app._city_gdfs[_3857]     city -> projected gdf    runtime serving cache
+#   3. app._region_combined      region -> concat gdf     skip per-request concat
+#   4. analysis._*_cache         id(gdf) -> name index    skip O(n) index rebuild
+# Layer 1 serves the CLI and tests (repeat load_city_data); the API loads each
+# city once into layer 2, so layer 1 is keep-warm, not on the request path.
+
+# In-memory LRU cache for already-read FlatGeobuf files: path -> (mtime, gdf).
 MAX_GDF_CACHE_ENTRIES = int(os.environ.get("MAX_GDF_CACHE_ENTRIES", "5"))
 _GDF_CACHE: "OrderedDict[str, tuple[float, geopandas.GeoDataFrame]]" = OrderedDict()
 _GDF_CACHE_LOCK = threading.Lock()
 
-# Prefer pyogrio when available for faster reads
-try:
-    import pyogrio  # type: ignore
-    _HAS_PYOGRIO = True
-except Exception:
-    _HAS_PYOGRIO = False
-from shapely.geometry import box as _shapely_box
-
-from broombuster.cities import CITIES
+# Prefer pyogrio when installed for faster reads.
+_HAS_PYOGRIO = importlib.util.find_spec("pyogrio") is not None
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -275,6 +278,19 @@ def _normalise(gdf: geopandas.GeoDataFrame, schema: str) -> geopandas.GeoDataFra
 # Oakland
 # ---------------------------------------------------------------------------
 
+def _add_key_and_display(out: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+    """Populate STREET_KEY and STREET_DISPLAY from STREET_NAME (in place)."""
+    def _key(v):
+        return normalize.street_name(v) if isinstance(v, str) else ""
+
+    def _disp(v):
+        return normalize.street_display(v) if isinstance(v, str) else ""
+
+    out["STREET_KEY"] = out["STREET_NAME"].map(_key)
+    out["STREET_DISPLAY"] = out["STREET_NAME"].map(_disp)
+    return out
+
+
 def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
     Oakland shapefile already uses Oakland codes for DAY_EVEN / DAY_ODD.
@@ -288,8 +304,7 @@ def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     ).str.strip().str.upper()
     # Add canonical key and readable short display form so downstream code
     # doesn't need to re-normalise on every access.
-    out["STREET_KEY"] = out["STREET_NAME"].map(lambda v: normalize.street_name(v) if isinstance(v, str) else "")
-    out["STREET_DISPLAY"] = out["STREET_NAME"].map(lambda v: normalize.street_display(v) if isinstance(v, str) else "")
+    _add_key_and_display(out)
     out["DESC_EVEN"] = out.get("DescDayEve", pd_series_none(out))
     out["DESC_ODD"]  = out.get("DescDayOdd", pd_series_none(out))
     out["TIME_EVEN"] = out.get("DescTimeEv", pd_series_none(out))
@@ -367,8 +382,7 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     out["STREET_NAME"] = (
         out[name_col].fillna("").str.strip().str.upper() if name_col else ""
     )
-    out["STREET_KEY"] = out["STREET_NAME"].map(lambda v: normalize.street_name(v) if isinstance(v, str) else "")
-    out["STREET_DISPLAY"] = out["STREET_NAME"].map(lambda v: normalize.street_display(v) if isinstance(v, str) else "")
+    _add_key_and_display(out)
     for addr_cn in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
         out[addr_cn] = np.nan
 
@@ -538,8 +552,7 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
     # Keep the in-memory STREET_NAME in readable form (Title / mixed-case)
     out["STREET_NAME"] = names
-    out["STREET_KEY"] = out["STREET_NAME"].map(lambda v: normalize.street_name(v) if isinstance(v, str) else "")
-    out["STREET_DISPLAY"] = out["STREET_NAME"].map(lambda v: normalize.street_display(v) if isinstance(v, str) else "")
+    _add_key_and_display(out)
     out["DAY_EVEN"]    = day_codes
     out["DAY_ODD"]     = day_codes
     out["DESC_EVEN"]   = descs
@@ -572,8 +585,7 @@ def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
             out[col] = np.nan
     # Ensure STREET_KEY and STREET_DISPLAY exist and are derived from STREET_NAME
     if "STREET_NAME" in out.columns:
-        out["STREET_KEY"] = out["STREET_NAME"].map(lambda v: normalize.street_name(v) if isinstance(v, str) else "")
-        out["STREET_DISPLAY"] = out["STREET_NAME"].map(lambda v: normalize.street_display(v) if isinstance(v, str) else "")
+        _add_key_and_display(out)
     else:
         out["STREET_KEY"] = ""
         out["STREET_DISPLAY"] = ""

@@ -1,9 +1,10 @@
 # BroomBuster Data Directory
 
 This directory contains street-sweeping schedule data for each supported city.
-Each city has its own subdirectory. The files are consumed by `src/data_loader.py`,
-which normalises every source into a shared column schema before handing the data
-to `src/analysis.py` and `src/maps.py`.
+Each city has its own subdirectory. The files are consumed by
+`src/broombuster/data_loader.py`, which normalises every source into a shared
+column schema before handing the data to `broombuster.analysis` and
+`broombuster.maps`.
 
 ---
 
@@ -269,7 +270,7 @@ car-location check uses a point-in-polygon test instead.
 1. **Create the data file** — either download raw data or write a build script
    that produces a GeoJSON with `LineString` or `Polygon`/`MultiPolygon` geometry.
 
-2. **Write a normaliser** in `src/data_loader.py` — implement
+2. **Write a normaliser** in `src/broombuster/data_loader.py` — implement
    `_normalise_<city>(gdf)` that maps source columns to the standard schema.
    Add the key to the `dispatch` dict in `_normalise()`.
 

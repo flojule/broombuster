@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 
 from . import db
 
@@ -62,23 +62,36 @@ _AUD_ACCESS          = "broombuster"
 _AUD_REFRESH         = "broombuster-refresh"
 
 # ---------------------------------------------------------------------------
-# Rate limiting — optional; skipped gracefully if slowapi not installed
+# Rate limiting — slowapi; disabled when slowapi is absent or in DEV_MODE
 # ---------------------------------------------------------------------------
+
+_RATE_LIMIT = "10/minute"
 
 try:
     from slowapi import Limiter
     from slowapi.util import get_remote_address
-    _limiter = Limiter(key_func=get_remote_address)
-    _RATE_LIMIT = "10/minute"
+    _limiter = None if _DEV_MODE else Limiter(key_func=get_remote_address)
 except ImportError:
     _limiter = None
     _RATE_LIMIT = None
 
 
-def _rate_limit(request: Request) -> None:
-    if _limiter is None or _DEV_MODE:
+def _maybe_limit(func):
+    """Apply the slowapi limit decorator when a limiter is active; else no-op."""
+    if _limiter is not None and _RATE_LIMIT:
+        return _limiter.limit(_RATE_LIMIT)(func)
+    return func
+
+
+def init_rate_limiting(app) -> None:
+    """Attach the limiter and 429 handler to the FastAPI app (no-op if disabled)."""
+    if _limiter is None:
         return
-    # Delegate to slowapi if available; no-op otherwise.
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+
+    app.state.limiter = _limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ---------------------------------------------------------------------------
@@ -124,21 +137,31 @@ def decode_refresh(token: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Password hashing — passlib with bcrypt
+# Password hashing — bcrypt directly (passlib 1.7.x breaks on bcrypt >= 4.1)
 # ---------------------------------------------------------------------------
 
+# bcrypt ignores bytes past position 72; truncate so long passwords hash
+# instead of raising.
+_BCRYPT_MAX_BYTES = 72
+
 try:
-    from passlib.context import CryptContext
-    _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    import bcrypt
 
     def _hash_pw(pw: str) -> str:
-        return _pwd.hash(pw)
+        return bcrypt.hashpw(
+            pw.encode("utf-8")[:_BCRYPT_MAX_BYTES], bcrypt.gensalt()
+        ).decode("ascii")
 
     def _verify_pw(pw: str, hashed: str) -> bool:
-        return _pwd.verify(pw, hashed)
+        try:
+            return bcrypt.checkpw(
+                pw.encode("utf-8")[:_BCRYPT_MAX_BYTES], hashed.encode("ascii")
+            )
+        except (ValueError, TypeError):
+            return False
 
 except ImportError:
-    # Fallback for dev environments where passlib isn't installed yet.
+    # Dev-only fallback when bcrypt isn't installed.
     import hashlib
 
     def _hash_pw(pw: str) -> str:
@@ -151,6 +174,12 @@ except ImportError:
             _, salt, h = hashed.split(":", 2)
             return hashlib.sha256((salt + pw).encode()).hexdigest() == h
         return False
+
+
+# Constant-time decoy for unknown-email logins (blocks user enumeration by
+# timing). A real hash of a random secret, so _verify_pw never rejects it as
+# malformed the way a hand-written placeholder string does.
+_DUMMY_PW_HASH = _hash_pw(secrets.token_hex(16))
 
 
 # ---------------------------------------------------------------------------
@@ -191,8 +220,8 @@ def _token_response(user_id: str) -> dict:
 
 
 @router.post("/register")
+@_maybe_limit
 def register(req: RegisterRequest, request: Request):
-    _rate_limit(request)
     existing = db.get_user_by_email(req.email)
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -205,13 +234,12 @@ def register(req: RegisterRequest, request: Request):
 
 
 @router.post("/login")
+@_maybe_limit
 def login(req: LoginRequest, request: Request):
-    _rate_limit(request)
     # Constant-time path: always hash-compare even if user not found,
     # to prevent timing-based user enumeration.
     user = db.get_user_by_email(req.email)
-    dummy_hash = "$2b$12$notarealhashjustpadding000000000000000000000000000000000"
-    stored = user["pw_hash"] if user else dummy_hash
+    stored = user["pw_hash"] if user else _DUMMY_PW_HASH
     ok = _verify_pw(req.password, stored)
     if not user or not ok:
         raise HTTPException(status_code=401, detail="Invalid email or password")

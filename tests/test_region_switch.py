@@ -12,6 +12,7 @@ These tests exercise the API side: tile/bbox requests with explicit
 and repeating a request for the same region must return identical data.
 """
 import os
+
 os.environ.setdefault("DEV_MODE", "1")
 
 import pytest
@@ -20,7 +21,6 @@ from fastapi.testclient import TestClient
 from broombuster import data_loader
 from broombuster.api import app as api_mod
 from broombuster.cities import REGIONS
-
 
 # ---------------------------------------------------------------------------
 # Fixture: preload both regions so tests don't measure load time
@@ -38,7 +38,8 @@ def client_with_data(tmp_path_factory):
                 api_mod._city_gdfs[ck]      = g.to_crs("EPSG:4326")
                 api_mod._city_gdfs_3857[ck] = g.to_crs("EPSG:3857")
                 import threading
-                ev = threading.Event(); ev.set()
+                ev = threading.Event()
+                ev.set()
                 api_mod._city_events[ck]    = ev
                 api_mod._city_loaded_at[ck] = 0
             except FileNotFoundError:
@@ -130,8 +131,10 @@ def test_bay_area_then_chicago_then_bay_area(client_with_data):
     Sequential requests: bay_area → chicago → bay_area.
     The final bay_area response must match the first one (no cross-region bleed).
     """
-    ba_payload = {"lat": 37.821326, "lon": -122.280705, "region": "bay_area", "tiles": ["13/1309/3166"]}
-    ch_payload = {"lat": 41.8781,   "lon": -87.6298,   "region": "chicago",  "tiles": ["13/2097/3040"]}
+    ba_payload = {"lat": 37.821326, "lon": -122.280705, "region": "bay_area",
+                  "tiles": ["13/1309/3166"]}
+    ch_payload = {"lat": 41.8781, "lon": -87.6298, "region": "chicago",
+                  "tiles": ["13/2097/3040"]}
 
     r_ba1 = client_with_data.post("/check", json=ba_payload)
     _     = client_with_data.post("/check", json=ch_payload)

@@ -29,16 +29,16 @@ Cross-field invariants explicitly tested:
 """
 
 import os
+
 os.environ.setdefault("DEV_MODE", "1")
 
 import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
-from zoneinfo import ZoneInfo
 
-from broombuster import analysis
-from broombuster import resolve
+from broombuster import analysis, resolve
 from broombuster.domains.sweeping import compose_message
 
 # ---------------------------------------------------------------------------
@@ -355,8 +355,8 @@ class TestComposeMessage:
         se = self._make("ME", "Mon sweeping", "8AM-10AM")
         msg = compose_message(se, [], car_side="even")
         lines = msg.splitlines()
-        even_line = next(l for l in lines if "Even" in l)
-        odd_line  = next(l for l in lines if "Odd" in l)
+        even_line = next(ln for ln in lines if "Even" in ln)
+        odd_line  = next(ln for ln in lines if "Odd" in ln)
         assert even_line.startswith("►"), f"Even line not highlighted: {msg!r}"
         assert not odd_line.startswith("►"), f"Odd line incorrectly highlighted: {msg!r}"
 
@@ -364,8 +364,8 @@ class TestComposeMessage:
         so = self._make("WE", "Wed sweeping", "9AM-11AM")
         msg = compose_message([], so, car_side="odd")
         lines = msg.splitlines()
-        even_line = next(l for l in lines if "Even" in l)
-        odd_line  = next(l for l in lines if "Odd" in l)
+        even_line = next(ln for ln in lines if "Even" in ln)
+        odd_line  = next(ln for ln in lines if "Odd" in ln)
         assert odd_line.startswith("►"), f"Odd line not highlighted: {msg!r}"
         assert not even_line.startswith("►"), f"Even line incorrectly highlighted: {msg!r}"
 
@@ -385,7 +385,7 @@ class TestComposeMessage:
         msg = compose_message([], [], car_side="even")
         assert "no sweeping" in msg.lower()
         lines = msg.splitlines()
-        even_line = next(l for l in lines if "Even" in l)
+        even_line = next(ln for ln in lines if "Even" in ln)
         assert even_line.startswith("►"), "Even side should still be highlighted even when no sweep"
 
     def test_car_side_none_no_highlight_anywhere(self):
@@ -393,7 +393,7 @@ class TestComposeMessage:
         so = self._make("WE", "Wed", "9AM-11AM")
         msg = compose_message(se, so, car_side=None)
         lines = msg.splitlines()
-        assert not any(l.startswith("►") for l in lines), (
+        assert not any(ln.startswith("►") for ln in lines), (
             f"No side should be highlighted when car_side=None: {msg!r}"
         )
 
@@ -401,7 +401,7 @@ class TestComposeMessage:
         entry = ("ME", "Mon sweeping", "8AM-10AM")
         se = [entry, entry]  # duplicated
         msg = compose_message(se, [], car_side="even")
-        even_line = next(l for l in msg.splitlines() if "Even" in l)
+        even_line = next(ln for ln in msg.splitlines() if "Even" in ln)
         # Should not have " / Mon sweeping / Mon sweeping"
         assert even_line.count("Mon sweeping") == 1, f"Duplicate not deduped: {even_line!r}"
 
@@ -436,7 +436,7 @@ class TestCrossFieldConsistency:
         for car_side in ("even", "odd"):
             msg = compose_message(se, so, car_side=car_side)
             lines = msg.splitlines()
-            highlighted = [l for l in lines if l.startswith("►")]
+            highlighted = [ln for ln in lines if ln.startswith("►")]
             assert len(highlighted) == 1, f"Exactly one line should be highlighted: {msg!r}"
             labeled_side = "Even" if car_side == "even" else "Odd"
             assert labeled_side in highlighted[0], (
@@ -477,7 +477,7 @@ class TestCrossFieldConsistency:
 
         # Now build message for a car parked on the odd side
         msg = compose_message(se, so, car_side="odd")
-        odd_line = next(l for l in msg.splitlines() if "Odd" in l)
+        odd_line = next(ln for ln in msg.splitlines() if "Odd" in ln)
         # The odd line is highlighted (car is there) but shows the odd schedule
         # which is NOT today — message correctly shows future date, not "today"
         assert "►" in odd_line, "Odd side should be highlighted (car is there)"
@@ -512,7 +512,7 @@ class TestCrossFieldConsistency:
     def test_message_no_sweep_marker_consistent(self):
         """When neither side has sweeping, message still has ► on car_side line."""
         msg = compose_message([], [], car_side="even")
-        highlighted = [l for l in msg.splitlines() if l.startswith("►")]
+        highlighted = [ln for ln in msg.splitlines() if ln.startswith("►")]
         assert len(highlighted) == 1
         assert "Even" in highlighted[0]
         assert "no sweeping" in highlighted[0].lower()
@@ -535,6 +535,7 @@ class TestApiCheckIntegration:
     @pytest.fixture(scope="class")
     def client(self):
         from fastapi.testclient import TestClient
+
         from broombuster.api import app as api_mod
         with TestClient(api_mod.app) as c:
             yield c
@@ -579,12 +580,12 @@ class TestApiCheckIntegration:
         if car_side is None:
             pytest.skip("car_side is None — no side to highlight")
         labeled = "Even" if car_side == "even" else "Odd"
-        highlighted_lines = [l for l in msg.splitlines() if l.startswith("►")]
+        highlighted_lines = [ln for ln in msg.splitlines() if ln.startswith("►")]
         if not highlighted_lines:
             # Single "► Street:" line — both sides same
             assert msg.startswith("► Street:"), f"Unexpected message format: {msg!r}"
         else:
-            assert any(labeled in l for l in highlighted_lines), (
+            assert any(labeled in ln for ln in highlighted_lines), (
                 f"car_side={car_side!r} but ► not on {labeled} side.\n"
                 f"message:\n{msg}"
             )
@@ -657,7 +658,6 @@ class TestMissingColumnRobustness:
         assert result is not None  # DAY_EVEN is present
 
     def test_nan_in_day_column_returns_none(self):
-        import math
         seg = _seg(DAY_EVEN=float("nan"))
         assert analysis.get_schedule(seg, 0) is None
 

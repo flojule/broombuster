@@ -16,9 +16,9 @@ import time
 os.environ.setdefault("DEV_MODE", "1")
 
 import pytest
+
 from broombuster import data_loader
 from broombuster.cities import CITIES, REGIONS
-
 
 # ---------------------------------------------------------------------------
 # FGB load timing — exercises the fast path (prebuilt FlatGeobuf on disk)
@@ -109,6 +109,7 @@ def test_api_tile_request_is_fast():
     return in under 3 seconds when city data is already loaded.
     """
     from fastapi.testclient import TestClient
+
     from broombuster.api import app as api_mod
 
     lat, lon = 37.821326, -122.280705

@@ -19,7 +19,6 @@ from shapely.geometry import LineString, Polygon
 from broombuster import data_loader
 from broombuster.resolve import NoSegmentNearby, resolve_car_segment
 
-
 _TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 _TO_4326 = pyproj.Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
 

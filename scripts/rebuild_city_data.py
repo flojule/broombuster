@@ -36,7 +36,6 @@ clear message — the user has to drop the file in by hand.
 
 import argparse
 import hashlib
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -49,9 +48,8 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
-from broombuster import data_loader
-from broombuster.cities import CITIES
-
+from broombuster import data_loader  # noqa: E402  (after sys.path insert)
+from broombuster.cities import CITIES  # noqa: E402
 
 _SOURCES_YAML = _ROOT / "data" / "sources.yaml"
 

@@ -10,13 +10,13 @@ These tests run the FastAPI app with `DEV_MODE=1` so authentication is
 skipped.
 """
 import os
+
 os.environ.setdefault("DEV_MODE", "1")
 
 import pytest
 from fastapi.testclient import TestClient
 
-from broombuster import data_loader
-from broombuster import normalize
+from broombuster import data_loader, normalize
 
 
 def _nearest_row_for_point(gdf_3857, lat, lon):

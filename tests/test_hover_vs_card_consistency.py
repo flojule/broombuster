@@ -126,7 +126,7 @@ def _find_feature_for_snap(features, snap_name, lat, lon):
     almost always grabs the wrong block, producing false-positive
     "inconsistencies" between the resolver's segment and the hover text.
     """
-    from shapely.geometry import shape, Point
+    from shapely.geometry import Point, shape
     snap_key = normalize.street_name(snap_name)
     best, best_d = None, float("inf")
     fallback = None
@@ -221,7 +221,7 @@ def _run_invariants(client, lat: float, lon: float, region: str) -> list[Violati
         card_lines = sweeping.get("schedule_lines") or []
         hover_set = set(_explode_schedule_atoms(_split_hover_sides(hover_body)))
         card_set  = set(_explode_schedule_atoms([
-            _HOVER_PREFIX_RE.sub("", l).strip() for l in card_lines
+            _HOVER_PREFIX_RE.sub("", ln).strip() for ln in card_lines
         ]))
         only_in_hover = hover_set - card_set
         only_in_card  = card_set - hover_set
@@ -242,7 +242,8 @@ def _run_invariants(client, lat: float, lon: float, region: str) -> list[Violati
 
 
 _PLACEHOLDER_RE = re.compile(
-    r"^(?:no sweeping(?:\s+(?:data|scheduled|soon))?|no signage|no sweeping data — car not near a mapped street)$",
+    r"^(?:no sweeping(?:\s+(?:data|scheduled|soon))?|no signage|"
+    r"no sweeping data — car not near a mapped street)$",
     flags=re.IGNORECASE,
 )
 

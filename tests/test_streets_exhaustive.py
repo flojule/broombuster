@@ -12,13 +12,11 @@ and schedule propagation when normalizers or persistence change.
 import math
 
 import pytest
-
-from broombuster import data_loader
-from broombuster import analysis
-from broombuster import normalize
-from broombuster.cities import CITIES
 from pyproj import Transformer
 from shapely.geometry import Point
+
+from broombuster import analysis, data_loader, normalize
+from broombuster.cities import CITIES
 
 
 def _load_city(city_key):
@@ -127,7 +125,10 @@ def test_address_range_presence_and_sample_lookup(city_key):
                 lt = row.get("L_T_ADD")
                 rf = row.get("R_F_ADD")
                 rt = row.get("R_T_ADD")
-                nums = [int(float(v)) for v in (lf, lt, rf, rt) if v is not None and v != "" and not (isinstance(v, float) and math.isnan(v))]
+                nums = [
+                    int(float(v)) for v in (lf, lt, rf, rt)
+                    if v is not None and v != "" and not (isinstance(v, float) and math.isnan(v))
+                ]
             except Exception:
                 nums = []
             if nums:
@@ -145,7 +146,8 @@ def test_address_range_presence_and_sample_lookup(city_key):
                     except Exception:
                         sample_num = None
                 if sample_num is not None:
-                    if (isinstance(row.get("L_F_ADD"), (int, float, str)) and row.get("L_F_ADD") is not None):
+                    if (isinstance(row.get("L_F_ADD"), (int, float, str))
+                            and row.get("L_F_ADD") is not None):
                         try:
                             lf = int(float(row.get("L_F_ADD")))
                             lt = int(float(row.get("L_T_ADD")))
@@ -153,7 +155,8 @@ def test_address_range_presence_and_sample_lookup(city_key):
                                 covers_sample = True
                         except Exception:
                             pass
-                    if (isinstance(row.get("R_F_ADD"), (int, float, str)) and row.get("R_F_ADD") is not None):
+                    if (isinstance(row.get("R_F_ADD"), (int, float, str))
+                            and row.get("R_F_ADD") is not None):
                         try:
                             rf = int(float(row.get("R_F_ADD")))
                             rt = int(float(row.get("R_T_ADD")))
@@ -166,7 +169,9 @@ def test_address_range_presence_and_sample_lookup(city_key):
 
         # If the city has ranges for these streets, at least one should cover the sample
         if has_any_range:
-            assert covers_sample, f"For {name} in {city_key}, found ranges but none covered sample {sample_num}"
+            assert covers_sample, (
+                f"For {name} in {city_key}, found ranges but none covered sample {sample_num}"
+            )
 
 
 # ---------------------------------------------------------------------------

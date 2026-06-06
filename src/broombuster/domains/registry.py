@@ -16,7 +16,6 @@ from typing import Iterable
 from broombuster.domains.base import DomainPlugin
 from broombuster.domains.sweeping import SweepingPlugin
 
-
 # Order matters: plugins listed first appear first in /check responses.
 # The frontend renders cards in this order, so put the most safety-critical
 # domain (street sweeping) at the top.

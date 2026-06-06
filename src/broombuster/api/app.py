@@ -17,19 +17,15 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import analysis
 from broombuster import car as car_module
-from broombuster import data_loader
-from broombuster import gps
-from broombuster import maps
-from broombuster import normalize as _normalize
-from broombuster import resolve
+from broombuster import data_loader, gps, maps, resolve
 from broombuster.cities import CITIES, REGIONS
 from broombuster.domains import for_city as plugins_for_city
 
+from . import db
+from .auth import init_rate_limiting
 from .auth import router as auth_router
 from .deps import verify_jwt
-from . import db
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # Repo root — three levels up: api/ → broombuster/ → src/ → repo/
@@ -62,17 +58,43 @@ _city_loaded_at: dict = {}   # city_key → float (time.time() when last loaded 
 _swap_lock = threading.Lock()
 
 
-def _load_city_bg(city_key: str) -> None:
-    """Load one city in a background thread and signal completion."""
+def _ensure_city_loaded(city_key: str) -> bool:
+    """Load a city into the in-memory caches if absent; return availability.
+
+    Thread-safe: both CRS frames are built before `_swap_lock` is taken, then
+    assigned under it so a concurrent /check or hot-swap never sees mixed
+    state. Used by the startup background loader and the /check full_region
+    sync path so both share one locking discipline.
+    """
+    if city_key in _city_gdfs:
+        return True
     try:
         gdf = data_loader.load_city_data(city_key)
         gdf = gdf.copy()
         gdf["_city"] = city_key
-        _city_gdfs[city_key] = gdf.to_crs("EPSG:4326")
-        _city_gdfs_3857[city_key] = gdf.to_crs("EPSG:3857")
-        _city_loaded_at[city_key] = time.time()
+        new_4326 = gdf.to_crs("EPSG:4326")
+        new_3857 = gdf.to_crs("EPSG:3857")
     except (OSError, ValueError, RuntimeError) as exc:
         logger.warning("could not load city '%s': %s", city_key, exc)
+        return False
+    with _swap_lock:
+        _city_gdfs[city_key] = new_4326
+        _city_gdfs_3857[city_key] = new_3857
+        _city_loaded_at[city_key] = time.time()
+        for rk, rv in REGIONS.items():
+            if city_key in rv["cities"]:
+                _region_combined.pop(rk, None)
+    ev = _city_events.get(city_key)
+    if ev is None:
+        ev = _city_events[city_key] = threading.Event()
+    ev.set()
+    return True
+
+
+def _load_city_bg(city_key: str) -> None:
+    """Background-thread city load; always signals completion via the event."""
+    try:
+        _ensure_city_loaded(city_key)
     finally:
         _city_events[city_key].set()
 
@@ -182,6 +204,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+init_rate_limiting(app)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -293,6 +316,112 @@ def _auto_region(lat: float, lon: float) -> str:
     return best
 
 
+def _resolve_region(req):
+    """Return (region_key, local_now) for a request (explicit region or auto)."""
+    region = req.region if req.region in REGIONS else _auto_region(req.lat, req.lon)
+    local_now = datetime.now(ZoneInfo(REGIONS[region].get("tz", "UTC")))
+    return region, local_now
+
+
+def _build_address(resolved, city_key: str, lat: float, lon: float) -> str:
+    """Canonical address string from the resolved segment.
+
+    Polygon zones → "Zone: <name>, <city>". Line segments → optional
+    Nominatim house number (gated to the resolved street) + display name.
+    Falls back to raw lat/lon when nothing resolves.
+    """
+    if resolved is None:
+        return f"{lat:.4f}, {lon:.4f}"
+    display = resolved.street_display or resolved.street_name
+    city_short = CITIES[city_key]["name"].split(",")[0]
+    if resolved.is_polygon:
+        return f"Zone: {display}, {city_short}" if display else f"{lat:.4f}, {lon:.4f}"
+    hn = gps.maybe_house_number(lat, lon, resolved.street_name)
+    if hn:
+        return f"{hn} {display}, {city_short}"
+    if display:
+        return f"{display}, {city_short}"
+    return f"{lat:.4f}, {lon:.4f}"
+
+
+def _tiles_to_geom(tiles):
+    """Union of XYZ tile boxes ('z/x/y' strings) → clip geometry, or None."""
+    import math
+    try:
+        from shapely.ops import unary_union
+    except ImportError:
+        unary_union = None
+
+    def _tile_lat(yy: int, zz: int) -> float:
+        n2 = 2 ** zz
+        return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * yy / n2))))
+
+    boxes = []
+    for t in tiles:
+        if not isinstance(t, str):
+            continue
+        parts = t.split('/')
+        if len(parts) != 3:
+            continue
+        try:
+            z, x, y = int(parts[0]), int(parts[1]), int(parts[2])
+        except ValueError:
+            continue
+        n = 2 ** z
+        lon_min = x / n * 360.0 - 180.0
+        lon_max = (x + 1) / n * 360.0 - 180.0
+        boxes.append(_shp_geom.box(lon_min, _tile_lat(y + 1, z), lon_max, _tile_lat(y, z)))
+
+    if not boxes:
+        return None
+    if unary_union:
+        return unary_union(boxes)
+    minx = min(b.bounds[0] for b in boxes)
+    miny = min(b.bounds[1] for b in boxes)
+    maxx = max(b.bounds[2] for b in boxes)
+    maxy = max(b.bounds[3] for b in boxes)
+    return _shp_geom.box(minx, miny, maxx, maxy)
+
+
+def _clip_region_for_request(req, gdf_4326):
+    """Clip the region GDF to the requested view; return (gdf, simplify_tol).
+
+    Priority: tiles → union of tile boxes; full_region → whole region (no
+    simplify, so it stays a superset of later bbox requests); bbox → explicit
+    box; otherwise → ~1.5 km radius around the car. The simplify tolerance is
+    sub-pixel for a ~1000 px viewport (span / 2000).
+    """
+    bbox_span_deg = 0.03  # default radius mode below: ±0.015°
+    if req.tiles and isinstance(req.tiles, list) and not req.full_region:
+        clip_geom = _tiles_to_geom(req.tiles)
+        if clip_geom is not None:
+            gdf_display = _clip_with_sindex(gdf_4326, clip_geom)
+            minx, miny, maxx, maxy = clip_geom.bounds
+        else:
+            gdf_display = gdf_4326
+            minx, miny, maxx, maxy = gdf_4326.total_bounds
+        bbox_span_deg = max(maxx - minx, maxy - miny)
+    elif req.full_region:
+        gdf_display = gdf_4326
+        bbox_span_deg = 0.0  # skip simplify so full-region stays a superset
+    elif req.bbox and isinstance(req.bbox, list) and len(req.bbox) == 4:
+        min_lat, min_lon, max_lat, max_lon = req.bbox
+        _clip = _shp_geom.box(min_lon, min_lat, max_lon, max_lat)
+        gdf_display = _clip_with_sindex(gdf_4326, _clip)
+        bbox_span_deg = max(max_lon - min_lon, max_lat - min_lat)
+    else:
+        _CLIP_DEG = 0.015  # ≈ 1.5 km
+        _clip = _shp_geom.box(
+            req.lon - _CLIP_DEG, req.lat - _CLIP_DEG,
+            req.lon + _CLIP_DEG, req.lat + _CLIP_DEG,
+        )
+        gdf_display = _clip_with_sindex(gdf_4326, _clip)
+        bbox_span_deg = 2 * _CLIP_DEG
+
+    simplify_tolerance = bbox_span_deg / 2000.0 if bbox_span_deg > 0 else None
+    return gdf_display, simplify_tolerance
+
+
 # ---------------------------------------------------------------------------
 # Routes — public
 # ---------------------------------------------------------------------------
@@ -366,28 +495,13 @@ class CheckRequest(BaseModel):
 
 @app.post("/check")
 def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
-    region    = req.region if req.region in REGIONS else _auto_region(req.lat, req.lon)
-    local_now = datetime.now(ZoneInfo(REGIONS[region].get("tz", "UTC")))
+    region, local_now = _resolve_region(req)
 
     # If client explicitly requested the full region, synchronously load
     # any missing city data first so the combined region GDF is complete.
     if req.full_region:
         for ck in REGIONS[region]["cities"]:
-            if ck in _city_gdfs:
-                continue
-            try:
-                gdf = data_loader.load_city_data(ck)
-                gdf = gdf.copy()
-                gdf["_city"] = ck
-                _city_gdfs[ck] = gdf.to_crs("EPSG:4326")
-                _city_gdfs_3857[ck] = gdf.to_crs("EPSG:3857")
-                _city_loaded_at[ck] = time.time()
-                ev = _city_events.get(ck)
-                if not ev:
-                    _city_events[ck] = threading.Event()
-                _city_events[ck].set()
-            except (OSError, ValueError, RuntimeError) as exc:
-                logger.warning("sync-load failed for city %s: %s", ck, exc)
+            _ensure_city_loaded(ck)
 
     myCity_4326, myCity_3857 = _get_region_gdfs(req.lat, req.lon, region)
     if myCity_4326 is None:
@@ -441,22 +555,9 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
                 "is_polygon":  resolved.is_polygon,
             }
 
-            # Canonical address: derived from the resolved segment, optionally
-            # enriched with a Nominatim house number. The gate inside
-            # gps.maybe_house_number() ensures the house number is only used
-            # when its street matches the resolved segment — preventing the
-            # corner-case bleed where Nominatim and the resolver disagreed.
-            city_short = CITIES[city_key]["name"].split(",")[0]
-            if resolved.is_polygon:
-                address = f"Zone: {display}, {city_short}" if display else f"{req.lat:.4f}, {req.lon:.4f}"
-            else:
-                hn = gps.maybe_house_number(req.lat, req.lon, resolved.street_name)
-                if hn:
-                    address = f"{hn} {display}, {city_short}"
-                elif display:
-                    address = f"{display}, {city_short}"
-                else:
-                    address = f"{req.lat:.4f}, {req.lon:.4f}"
+            # Canonical address derived from the resolved segment (see
+            # _build_address; the house-number gate prevents Nominatim bleed).
+            address = _build_address(resolved, city_key, req.lat, req.lon)
         else:
             # Car is not near any mapped street — be explicit rather than
             # silently guessing.
@@ -500,96 +601,10 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
                 if resolved is not None:
                     message = result.extras.get("message") or ""
 
-    # By default clip to ~2 km radius to avoid serializing the full region
-    # (which can be large). Clients can request the entire region by setting
-    # `full_region=true` in the request body — useful when loading the whole
-    # area for offline/overview modes.
-    # If the client requested a set of tiles (z/x/y strings), prefer that
-    # clipping region (unless full_region was explicitly requested).
-    #
-    # We track the clip bbox span (in degrees) to derive a sub-pixel
-    # simplify tolerance for the GeoJSON builder. A typical browser viewport
-    # is ~1000 px wide, so a tolerance of `span / 2000` is invisible.
-    bbox_span_deg = 0.03  # default radius mode below: ±0.015°
-    if req.tiles and isinstance(req.tiles, list) and not req.full_region:
-        import math
-        try:
-            from shapely.ops import unary_union
-        except ImportError:
-            unary_union = None
-
-        def _tile_lat(yy: int, zz: int) -> float:
-            n2 = 2 ** zz
-            lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * yy / n2)))
-            return math.degrees(lat_rad)
-
-        boxes = []
-        for t in req.tiles:
-            if not isinstance(t, str):
-                continue
-            parts = t.split('/')
-            if len(parts) != 3:
-                continue
-            try:
-                z = int(parts[0])
-                x = int(parts[1])
-                y = int(parts[2])
-            except ValueError:
-                continue
-            n = 2 ** z
-            lon_min = x / n * 360.0 - 180.0
-            lon_max = (x + 1) / n * 360.0 - 180.0
-            boxes.append(_shp_geom.box(lon_min, _tile_lat(y + 1, z), lon_max, _tile_lat(y, z)))
-
-        if boxes:
-            if unary_union:
-                clip_geom = unary_union(boxes)
-            else:
-                # Fallback: bounding box of all tiles
-                minx = min(b.bounds[0] for b in boxes)
-                miny = min(b.bounds[1] for b in boxes)
-                maxx = max(b.bounds[2] for b in boxes)
-                maxy = max(b.bounds[3] for b in boxes)
-                clip_geom = _shp_geom.box(minx, miny, maxx, maxy)
-        else:
-            clip_geom = None
-
-        if clip_geom is not None:
-            myCity_display = _clip_with_sindex(myCity_4326, clip_geom)
-            minx, miny, maxx, maxy = clip_geom.bounds
-            bbox_span_deg = max(maxx - minx, maxy - miny)
-        else:
-            myCity_display = myCity_4326
-            minx, miny, maxx, maxy = myCity_4326.total_bounds
-            bbox_span_deg = max(maxx - minx, maxy - miny)
-    elif req.full_region:
-        myCity_display = myCity_4326
-        # full_region is used for offline preload / overview; the requesting
-        # client may later issue smaller-bbox requests against the same data,
-        # and tests assert that bbox features are a subset of full-region
-        # features. Simplifying here would break that invariant by giving
-        # the same physical segment different coordinate strings depending
-        # on the clip span, so we skip simplification entirely in this mode.
-        bbox_span_deg = 0.0
-    elif req.bbox and isinstance(req.bbox, list) and len(req.bbox) == 4:
-        # bbox given as [min_lat, min_lon, max_lat, max_lon]
-        min_lat, min_lon, max_lat, max_lon = req.bbox
-        _clip = _shp_geom.box(min_lon, min_lat, max_lon, max_lat)
-        myCity_display = _clip_with_sindex(myCity_4326, _clip)
-        bbox_span_deg = max(max_lon - min_lon, max_lat - min_lat)
-    else:
-        _CLIP_DEG = 0.015  # ≈ 1.5 km
-        _clip = _shp_geom.box(
-            req.lon - _CLIP_DEG, req.lat - _CLIP_DEG,
-            req.lon + _CLIP_DEG, req.lat + _CLIP_DEG,
-        )
-        myCity_display = _clip_with_sindex(myCity_4326, _clip)
-        bbox_span_deg = 2 * _CLIP_DEG
-
-    # Sub-pixel simplify tolerance derived from the viewport span. At wide
-    # zooms (e.g. full Chicago), this cuts MultiPolygon coordinate counts
-    # ~10x without any visible change in the browser.
-    simplify_tolerance = bbox_span_deg / 2000.0 if bbox_span_deg > 0 else None
+    # Clip the region to the requested view (tiles / full_region / bbox /
+    # radius) and derive the sub-pixel simplify tolerance. See
+    # _clip_region_for_request.
+    myCity_display, simplify_tolerance = _clip_region_for_request(req, myCity_4326)
 
     geojson = maps.build_map_geojson(
         myCar, myCity_display,

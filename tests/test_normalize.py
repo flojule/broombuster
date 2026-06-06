@@ -24,7 +24,6 @@ import pytest
 
 from broombuster import normalize
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # street_name() — basic case + suffix
 # ─────────────────────────────────────────────────────────────────────────────
@@ -288,7 +287,10 @@ class TestStreetNameStorage:
         ("data/chicago/StreetSweepingZones.fgb",        "Chicago"),
     ])
     def test_street_names_are_uppercase(self, fgb_path, city):
-        import geopandas as gpd, os, re
+        import os
+        import re
+
+        import geopandas as gpd
         root = os.path.join(os.path.dirname(__file__), "..")
         path = os.path.join(root, fgb_path)
         if not os.path.exists(path):
@@ -453,7 +455,9 @@ class TestFGBSchemaAndKeys:
         assert "STREET_KEY" in gdf.columns and "STREET_DISPLAY" in gdf.columns
 
         # Spot-check: STREET_KEY must equal normalized STREET_NAME for non-empty names
-        for n, k in zip(gdf["STREET_NAME"].fillna("").iloc[:50], gdf["STREET_KEY"].fillna("").iloc[:50]):
+        for n, k in zip(
+            gdf["STREET_NAME"].fillna("").iloc[:50], gdf["STREET_KEY"].fillna("").iloc[:50]
+        ):
             if isinstance(n, str) and n.strip():
                 assert k == normalize.street_name(n)
 

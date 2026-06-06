@@ -12,7 +12,6 @@
   <meta name="theme-color" content="#2563eb">
 
   <script src="/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css">
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
 
@@ -357,15 +356,10 @@
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
 const DEV_MODE      = window.DEV_MODE === true || window.DEV_MODE === 'true';
-const SUPABASE_URL  = window.SUPABASE_URL  || 'https://bebepoowtumqmzwlydeu.supabase.co';
-const SUPABASE_ANON = window.SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlYmVwb293dHVtcW16d2x5ZGV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2MDg2ODEsImV4cCI6MjA4OTE4NDY4MX0.BHZ2EiFN1-GiM7QEsxnqMB8oVI1Jzl1LH3D-y230nk4';
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
 function carColor(idx) { return CAR_COLORS[idx % CAR_COLORS.length]; }
-
-// ── Supabase ──────────────────────────────────────────────────────────────────
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let session        = null;

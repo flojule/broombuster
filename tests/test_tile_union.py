@@ -3,11 +3,11 @@ Test that assembling per-tile GeoJSONs yields the same result as building
 one GeoJSON for the combined bbox. This reproduces client-side flicker
 when tiles and merged bbox responses differ.
 """
-from shapely.geometry import box, shape
 import pytest
-from broombuster import data_loader
-from broombuster import maps
+from shapely.geometry import box, shape
+
 from broombuster import car as car_module
+from broombuster import data_loader, maps
 
 
 def _fixed_now():

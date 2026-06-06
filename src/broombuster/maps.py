@@ -1,7 +1,5 @@
 import re as _re
-from datetime import date, timedelta
 
-import numpy as np
 import shapely
 import shapely.geometry
 
@@ -28,36 +26,16 @@ def _safe(val):
     return s if s.upper() not in ("NAN", "NONE", "") else "N/A"
 
 
+# Map analysis.compute_urgency's verdict to the urgency colour. The map colour
+# and the car-card urgency now derive from this one function, so they cannot
+# disagree (the long-running flicker/inconsistency bug).
+_URGENCY_TO_COLOR = {"today": "tomato", "tomorrow": "orange"}
+
+
 def _sweeping_color(row, local_now=None):
-    """Return an urgency color string based on sweeping schedule."""
-    today    = local_now.date() if local_now else date.today()
-    tomorrow = today + timedelta(days=1)
-
-    def has_sweep_on(day_code, check_date):
-        s = _safe(day_code)
-        if s == "N/A" or _analysis.is_no_sweep_code(s):
-            return False
-        try:
-            return check_date in _analysis.parse_sweeping_code(s)
-        except Exception:
-            return False
-
-    def is_done(time_key):
-        if local_now is None:
-            return False
-        time_str = _safe(row.get(time_key))
-        if time_str in ("N/A", ""):
-            return False
-        _, end_t = _analysis._parse_time_range(time_str)
-        return end_t is not None and local_now.time() > end_t
-
-    if has_sweep_on(row.get("DAY_EVEN"), today) and not is_done("TIME_EVEN"):
-        return "tomato"
-    if has_sweep_on(row.get("DAY_ODD"), today) and not is_done("TIME_ODD"):
-        return "tomato"
-    if has_sweep_on(row.get("DAY_EVEN"), tomorrow) or has_sweep_on(row.get("DAY_ODD"), tomorrow):
-        return "orange"
-    return "cornflowerblue"
+    """Return an urgency colour for a row via analysis.compute_urgency."""
+    urgency = _analysis.compute_urgency(row, local_now=local_now)
+    return _URGENCY_TO_COLOR.get(urgency, "cornflowerblue")
 
 
 def _geom_lines(geom):
@@ -325,8 +303,10 @@ def build_map_geojson(
             sched_html = "No sweeping data"
         else:
             parts = []
-            if evens: parts.append("Even: " + " / ".join(evens))
-            if odds:  parts.append("Odd: "  + " / ".join(odds))
+            if evens:
+                parts.append("Even: " + " / ".join(evens))
+            if odds:
+                parts.append("Odd: " + " / ".join(odds))
             sched_html = "<br>".join(parts)
 
         hover      = f"<b>{sd['name']}</b><br>{sched_html}"

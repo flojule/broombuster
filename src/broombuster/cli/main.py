@@ -1,12 +1,11 @@
 import argparse
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from broombuster import analysis
-from broombuster import car
-from broombuster import data_loader
-from broombuster import email_alerts
-from broombuster import maps
+from broombuster import car, data_loader, email_alerts, maps
 from broombuster.cities import CITIES, REGIONS
+from broombuster.domains import for_city
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -88,15 +87,13 @@ def main() -> None:
     lat = _manual_lat if _manual_lat is not None else default_lat
     lon = _manual_lon if _manual_lon is not None else default_lon
 
-    # Project once; analysis.check_street_sweeping expects EPSG:3857.
-    # Using the same object across loop iterations also keeps the name-index
-    # cache hot (keyed by id(gdf)).
+    # Project once; the resolver expects EPSG:3857. Reusing the same object
+    # across loop iterations keeps the name-index cache hot (keyed by id(gdf)).
     myCity_3857 = myCity.to_crs("EPSG:3857")
 
     myCar = car.Car(lat=lat, lon=lon)
 
-    # Pre-compute the city key closest to the car's starting position so that
-    # analysis.py can filter cross-city name collisions.
+    # City key closest to the car — restricts cross-city name collisions.
     def _nearest_city(lat, lon):
         active = [_city] if _single else REGIONS[_region]["cities"]
         best, best_d = active[0], float("inf")
@@ -107,32 +104,46 @@ def main() -> None:
                 best, best_d = ck, d
         return best
 
+    def _region_of(city_key):
+        for rk, rv in REGIONS.items():
+            if city_key in rv["cities"]:
+                return rk
+        return _region
+
     try:
         while True:
-            # 1. Update car location
             myCar.set_location(lat, lon)
+            city_key = _nearest_city(myCar.lat, myCar.lon)
+            myCar._city = city_key
+            tz = REGIONS.get(_region_of(city_key), {}).get("tz", "UTC")
+            local_now = datetime.now(ZoneInfo(tz))
 
-            # 2. Tag the car with its nearest city key (used in analysis)
-            myCar._city = _nearest_city(myCar.lat, myCar.lon)
+            # Same resolver + sweeping plugin the /check endpoint uses.
+            sweeping = next(
+                (p for p in for_city(city_key) if p.domain_id == "sweeping"), None
+            )
+            if sweeping is None:
+                print(f"No sweeping data for {CITIES[city_key]['name']}.")
+                break
+            resolved = sweeping.resolve_for(myCity_3857, myCar.lat, myCar.lon, city_key)
+            result = sweeping.format(resolved, myCity_3857, local_now)
+            if resolved is not None:
+                myCar.street_name = resolved.street_display or resolved.street_name
+            schedule_even = result.extras.get("schedule_even", [])
+            schedule_odd = result.extras.get("schedule_odd", [])
+            message = result.extras.get("message") or (
+                "Car not near a mapped street." if resolved is None else ""
+            )
+            urgency = result.urgency if result.urgency in ("today", "tomorrow") else False
 
-            # 3. Reverse-geocode to get street name, number, and nearby streets
-            myCar.get_info()
             print()
             print(myCar)
-
-            # 4. Analyse street-sweeping schedule for the car's current block
-            schedule, schedule_even, schedule_odd, message = analysis.check_street_sweeping(
-                myCar, myCity_3857
-            )
             print(message)
 
-            # 5. Show interactive map with car position and schedule info
             if _plot:
                 maps.plot_map(myCar, myCity, schedule_even=schedule_even,
-                              schedule_odd=schedule_odd, message=message)
+                              schedule_odd=schedule_odd, message=message, local_now=local_now)
 
-            # 6. Notify if sweeping is today or tomorrow
-            urgency = analysis.check_day_street_sweeping(schedule)
             if _send_notif and urgency:
                 email_alerts.send_email(message, urgency=urgency)
 

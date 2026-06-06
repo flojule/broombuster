@@ -9,13 +9,13 @@ If this fails in the browser it reproduces the flicker caused by differing
 responses after region selection.
 """
 import os
+
 os.environ.setdefault("DEV_MODE", "1")
 
 from fastapi.testclient import TestClient
+
 from broombuster import data_loader
 from broombuster.api import app as api_mod
-from broombuster import normalize
-import pytest
 
 
 def _extract_feature_keys(geo):
@@ -33,28 +33,34 @@ def test_full_region_then_bbox_consistency():
     lat, lon = 37.821326, -122.280705
 
     # Preload the city GDFs into the API module to avoid background-load races
+
     from broombuster.cities import REGIONS
-    from importlib import reload
     # Load each city synchronously and populate api module caches
     for ck in REGIONS["bay_area"]["cities"]:
         g4 = data_loader.load_city_data(ck).copy()
         api_mod._city_gdfs[ck] = g4.to_crs("EPSG:4326")
         api_mod._city_gdfs_3857[ck] = g4.to_crs("EPSG:3857")
-        api_mod._city_events[ck] = type("E", (), {"is_set": lambda self: True, "set": lambda self: None})()
+        api_mod._city_events[ck] = type(
+            "E", (), {"is_set": lambda self: True, "set": lambda self: None}
+        )()
         api_mod._city_loaded_at[ck] = 0
     # Clear combined cache
     api_mod._region_combined.clear()
 
     with TestClient(api_mod.app) as client:
         # 1) preload full region
-        resp_full = client.post("/check", json={"lat": lat, "lon": lon, "region": "bay_area", "full_region": True})
+        resp_full = client.post(
+            "/check", json={"lat": lat, "lon": lon, "region": "bay_area", "full_region": True}
+        )
         assert resp_full.status_code == 200, resp_full.text
         geo_full = resp_full.json().get("geojson") or {"features": []}
 
         # 2) immediately request a small bbox
         pad = 0.002
         bbox = [lat - pad, lon - pad, lat + pad, lon + pad]
-        resp_bbox = client.post("/check", json={"lat": lat, "lon": lon, "region": "bay_area", "bbox": bbox})
+        resp_bbox = client.post(
+            "/check", json={"lat": lat, "lon": lon, "region": "bay_area", "bbox": bbox}
+        )
         assert resp_bbox.status_code == 200, resp_bbox.text
         geo_bbox = resp_bbox.json().get("geojson") or {"features": []}
 
@@ -76,18 +82,24 @@ def test_bbox_then_full_region_consistency():
         g4 = data_loader.load_city_data(ck).copy()
         api_mod._city_gdfs[ck] = g4.to_crs("EPSG:4326")
         api_mod._city_gdfs_3857[ck] = g4.to_crs("EPSG:3857")
-        api_mod._city_events[ck] = type("E", (), {"is_set": lambda self: True, "set": lambda self: None})()
+        api_mod._city_events[ck] = type(
+            "E", (), {"is_set": lambda self: True, "set": lambda self: None}
+        )()
         api_mod._city_loaded_at[ck] = 0
     api_mod._region_combined.clear()
 
     with TestClient(api_mod.app) as client:
         pad = 0.002
         bbox = [lat - pad, lon - pad, lat + pad, lon + pad]
-        resp_bbox = client.post("/check", json={"lat": lat, "lon": lon, "region": "bay_area", "bbox": bbox})
+        resp_bbox = client.post(
+            "/check", json={"lat": lat, "lon": lon, "region": "bay_area", "bbox": bbox}
+        )
         assert resp_bbox.status_code == 200, resp_bbox.text
         geo_bbox = resp_bbox.json().get("geojson") or {"features": []}
 
-        resp_full = client.post("/check", json={"lat": lat, "lon": lon, "region": "bay_area", "full_region": True})
+        resp_full = client.post(
+            "/check", json={"lat": lat, "lon": lon, "region": "bay_area", "full_region": True}
+        )
         assert resp_full.status_code == 200, resp_full.text
         geo_full = resp_full.json().get("geojson") or {"features": []}
 

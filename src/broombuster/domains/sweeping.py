@@ -21,7 +21,6 @@ from broombuster import analysis, normalize, resolve
 from broombuster.cities import CITIES
 from broombuster.domains.base import DomainResult
 
-
 # Mirrors the cleanup maps._clean_desc does on the hover text — keeps the
 # card and hover formatting in lock-step. See maps.py for the original.
 _DESC_REDUNDANT_RE = re.compile(r"\s*\(every\)", flags=re.IGNORECASE)

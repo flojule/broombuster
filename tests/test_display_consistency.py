@@ -10,13 +10,8 @@ import pyproj
 import pytest
 from shapely.geometry import Point
 
-from broombuster import data_loader
-from broombuster import gps
-from broombuster import maps
-from broombuster import normalize
-from broombuster import analysis
 from broombuster import car as car_module
-
+from broombuster import data_loader, gps, maps, normalize
 
 _CRS = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 

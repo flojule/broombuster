@@ -103,7 +103,9 @@ BroomBuster/
 │   ├── cli/                      Command-line entry point
 │   │   └── main.py               `python -m broombuster.cli.main` — interactive map + email alert
 │   └── domains/                  City-data domain plugins (Step 3+)
-│       └── sweeping.py           Street-sweeping output formatter (compose_message)
+│       ├── base.py               DomainPlugin protocol + DomainResult
+│       ├── registry.py           Active plugin list; for_city() lookup
+│       └── sweeping.py           Street-sweeping plugin + compose_message
 ├── frontend/
 │   ├── index.html       Single-page PWA
 │   ├── manifest.json    PWA manifest

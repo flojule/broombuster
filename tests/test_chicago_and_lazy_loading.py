@@ -10,10 +10,8 @@ Tests addressing reported Chicago UI problems and lazy-loading coverage.
 """
 import pytest
 
-from broombuster import data_loader
-from broombuster import maps
 from broombuster import car as car_module
-from broombuster import normalize
+from broombuster import data_loader, maps
 
 
 def test_chicago_region_has_visual_data():
