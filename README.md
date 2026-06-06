@@ -107,7 +107,9 @@ BroomBuster/
 │       ├── registry.py           Active plugin list; for_city() lookup
 │       └── sweeping.py           Street-sweeping plugin + compose_message
 ├── frontend/
-│   ├── index.html       Single-page PWA
+│   ├── index.html       PWA shell (markup only)
+│   ├── styles.css       Extracted styles
+│   ├── js/app.js        Application logic
 │   ├── manifest.json    PWA manifest
 │   ├── sw.js            Service worker
 │   └── icon-*.png/svg   App icons

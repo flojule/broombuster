@@ -4,7 +4,7 @@ returning to the frontend.
 
 After Step 1 of the re-architecture, the canonical address is produced by
 the backend and rendered verbatim by the frontend. Several patterns must
-not reappear in `frontend/index.html`:
+not reappear in the frontend source (`index.html` + `js/app.js`):
 
   - `car.address = ...`         — writes to a client-side address field
   - `reverseGeocode(`            — client-side reverse geocoding
@@ -14,15 +14,23 @@ The forward-geocode (typed-address-to-coordinates) Nominatim call is
 allowed: it converts user input into lat/lon to move the pin, and does
 not write `car.address`.
 """
+import glob
 import os
 import re
 
-_FRONTEND = os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html")
+_FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
 
 def _read():
-    with open(_FRONTEND, encoding="utf-8") as f:
-        return f.read()
+    """Concatenate the HTML shell and every frontend JS file."""
+    paths = [os.path.join(_FRONTEND_DIR, "index.html")]
+    paths += sorted(glob.glob(os.path.join(_FRONTEND_DIR, "js", "*.js")))
+    out = []
+    for p in paths:
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                out.append(f.read())
+    return "\n".join(out)
 
 
 def test_no_car_address_writes():

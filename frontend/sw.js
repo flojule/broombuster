@@ -1,8 +1,8 @@
 // Minimal service worker — caches the app shell for instant load.
 // API calls (/check, /prefs) are always fetched from the network.
 
-const CACHE = 'broombuster-v34';
-const SHELL = ['/', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const CACHE = 'broombuster-v35';
+const SHELL = ['/', '/styles.css', '/js/app.js', '/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(

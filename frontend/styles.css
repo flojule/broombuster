@@ -1,0 +1,251 @@
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --blue: #2563eb; --red: #ef4444;
+      --bg: #f8fafc; --card: #ffffff; --text: #1e293b;
+      --muted: #64748b; --border: #e2e8f0;
+    }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Auth ── */
+    #auth-screen {
+      position: relative; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; min-height: 100dvh; padding: 24px;
+      background: url('/grim_sweeper_rect.webp') center center / cover no-repeat #0f172a;
+    }
+    #auth-screen::before {
+      content: ''; position: absolute; inset: 0; background: rgba(0,0,0,0.52); pointer-events: none; z-index: 0;
+    }
+    #auth-screen > * { position: relative; z-index: 1; }
+    #auth-screen h1 { font-size: 1.8rem; font-weight: 800; margin-bottom: 4px; color: #f1f5f9; letter-spacing: -.02em; }
+    #auth-screen p.tagline { color: #94a3b8; margin-bottom: 24px; text-align: center; font-size: .9rem; }
+    .card {
+      background: rgba(10,16,30,0.82); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px; padding: 24px; width: 100%; max-width: 320px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.45);
+    }
+    .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: #e2e8f0; }
+    label { display: block; font-size: .82rem; font-weight: 500; color: #64748b; margin-bottom: 4px; margin-top: 12px; }
+    input[type=email], input[type=password] {
+      width: 100%; padding: 9px 11px;
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 8px; font-size: .95rem; outline: none; color: #f1f5f9;
+      transition: border-color .15s;
+    }
+    input::placeholder { color: #475569; }
+    input:focus { border-color: #059669; }
+    button { display: block; width: 100%; padding: 10px; margin-top: 16px; background: var(--blue); color: #fff; border: none; border-radius: 10px; font-size: .95rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+    button:disabled { opacity: .5; cursor: default; }
+    button:not(:disabled):hover { opacity: .9; }
+    #btn-login { background: #059669; }
+    .btn-ghost { background: transparent; color: #64748b; border: 1px solid rgba(255,255,255,0.13); margin-top: 8px; font-weight: 500; }
+    #auth-error { color: #f87171; font-size: .82rem; margin-top: 8px; min-height: 16px; }
+
+    /* ── App ── */
+    #app-screen { display: none; flex-direction: column; height: 100dvh; }
+
+    /* ── Topbar ── */
+    #topbar {
+      display: flex; align-items: center; gap: 5px;
+      padding: 6px 10px; background: var(--card);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+      overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;
+    }
+    .app-title { font-size: .88rem; font-weight: 700; flex-shrink: 0; }
+    .tb-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; align-self: center; margin: 0 3px; }
+    .tb-select, .tb-btn {
+      display: inline-flex; align-items: center; width: auto;
+      height: 26px; box-sizing: border-box; padding: 0 8px; margin: 0;
+      font-size: .78rem; font-weight: 600; border-radius: 6px; flex-shrink: 0;
+    }
+    .tb-select { border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; }
+    #region-select { max-width: 90px; }
+    #sel-map-style { min-width: 80px; }
+    #status-text   { flex: 1; font-size: .78rem; font-weight: 600; text-align: center; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; min-width: 60px; }
+    #status-text.today    { color: #b91c1c; }
+    #status-text.tomorrow { color: #c2410c; }
+    #status-text.safe     { color: #1d4ed8; }
+    #status-text.idle     { color: var(--muted); }
+    #btn-logout  { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 500; }
+    #btn-locate        { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
+    #btn-locate.ip     { background: #eef1f7; color: #94a3b8; border-color: #d1d9ea; }
+    #btn-locate.gps    { background: var(--blue); color: #fff; border-color: var(--blue); }
+    #locate-info { font-size: .72rem; color: var(--muted); flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+
+    /* ── Map container ── */
+    #map-container { flex: 1; min-height: 0; position: relative; }
+    #map { width: 100%; height: 100%; }
+
+    /* ── MapLibre attribution ── */
+    .maplibregl-ctrl-bottom-right,
+    .maplibregl-ctrl-bottom-left { display: none !important; }
+
+    /* ── Place banner (tap-to-place mode) ── */
+    #place-banner {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      z-index: 20; display: none; align-items: center; gap: 8px;
+      background: rgba(37,99,235,.92); color: #fff;
+      border-radius: 20px; padding: 7px 14px;
+      font-size: .82rem; font-weight: 600;
+      box-shadow: 0 2px 12px rgba(0,0,0,.25);
+      white-space: nowrap; pointer-events: auto;
+    }
+    #place-banner.active { display: flex; }
+    #btn-cancel-place {
+      width: auto; margin: 0; padding: 3px 10px;
+      background: rgba(255,255,255,.2); color: #fff;
+      border: 1px solid rgba(255,255,255,.4); border-radius: 12px;
+      font-size: .75rem; font-weight: 500;
+    }
+
+    /* ── Context menu (right-click) ── */
+    #ctx-menu {
+      position: fixed; z-index: 200; display: none;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.14);
+      overflow: hidden; min-width: 140px;
+    }
+    .ctx-item { padding: 7px 14px; cursor: pointer; font-size: .85rem; }
+    .ctx-item:hover { background: var(--bg); }
+
+    /* ── Cars panel (persistent top-right info card) ── */
+    #cars-panel {
+      position: absolute; top: 10px; right: 10px; z-index: 20;
+      display: flex; flex-direction: column; gap: 8px;
+      max-height: calc(100% - 20px); overflow-y: auto;
+      pointer-events: auto; scrollbar-gutter: stable;
+    }
+    .cars-legend {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 10px; overflow: hidden;
+      font-size: .7rem; display: flex; gap: 8px; flex-wrap: wrap;
+      box-shadow: 0 2px 6px rgba(0,0,0,.08);
+      user-select: none; width: 200px; flex-shrink: 0;
+    }
+    .cars-legend span { white-space: nowrap; font-weight: 500; }
+    .car-entry {
+      background: var(--urg-bg, var(--card)); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px; overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,.10);
+      width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 5px;
+      cursor: pointer; transition: border .12s, background .12s;
+    }
+    .car-entry.selected {
+      border: 2px solid var(--car-color);
+      padding: 9px 11px;
+    }
+    .ce-header { display: flex; align-items: center; gap: 6px; }
+    .ce-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--car-color, #3b82f6); flex-shrink: 0;
+    }
+    .ce-name {
+      flex: 1; font-weight: 600; font-size: .84rem; outline: none;
+      cursor: default; border-bottom: 1px solid transparent; min-width: 0;
+      user-select: none;
+    }
+    .ce-name[contenteditable="true"] { cursor: text; border-bottom-color: var(--blue); user-select: text; }
+    .ce-remove {
+      width: auto; margin: 0; padding: 1px 5px; flex-shrink: 0;
+      background: transparent; border: none; color: var(--muted);
+      font-size: .8rem; cursor: pointer; opacity: .55; line-height: 1;
+    }
+    .ce-remove:hover { opacity: 1; color: var(--red); }
+    .ce-addr {
+      font-size: .75rem; color: var(--muted); outline: none;
+      cursor: default; border-bottom: 1px solid transparent; min-height: 1em;
+      user-select: none;
+    }
+    .ce-addr[contenteditable="true"] { cursor: text; color: var(--text); border-bottom-color: var(--blue); user-select: text; }
+    .ce-addr:empty::before { content: 'double-click to set address'; opacity: .45; font-size: .7rem; }
+    .ce-sched { font-size: .73rem; line-height: 1.45; }
+    .ce-sched-urgency { font-weight: 600; }
+    .ce-sched-header  { font-size: .68rem; font-weight: 600; color: var(--muted); margin-top: 4px; white-space: nowrap; }
+    .ce-sched-item    { font-size: .73rem; color: var(--muted); padding-left: 4px; line-height: 1.4; }
+    .ce-actions { display: flex; gap: 5px; margin-top: 3px; }
+    .ce-btn {
+      flex: 1; width: auto; margin: 0; padding: 4px 6px;
+      font-size: .71rem; font-weight: 500; border-radius: 6px; white-space: nowrap;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); cursor: pointer; text-align: center;
+    }
+    .ce-btn:hover { background: var(--bg); }
+
+    /* ── GPS pin popup (add car here) ── */
+    #gps-pin-popup {
+      position: absolute; z-index: 30; display: none;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 5px 8px; box-shadow: 0 2px 10px rgba(0,0,0,.14);
+      transform: translate(-50%, calc(-100% - 24px));
+      white-space: nowrap; overflow: hidden;
+    }
+    #btn-gps-add { width: auto; margin: 0; padding: 4px 10px; font-size: .76rem; font-weight: 600; border-radius: 6px; }
+
+    /* ── Inline name panel ── */
+    #name-panel {
+      position: fixed; z-index: 200; display: none;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 6px 10px; overflow: hidden;
+      box-shadow: 0 4px 14px rgba(0,0,0,.14); white-space: nowrap;
+    }
+    .np-row { display: flex; gap: 6px; align-items: center; }
+    #name-panel-input { flex: 1; padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; min-width: 0; width: 0; background: var(--bg); color: var(--text); }
+    #name-panel-input:focus { border-color: var(--blue); }
+    #btn-np-save { margin: 0; padding: 4px 10px; width: auto; border-radius: 6px; font-size: .8rem; font-weight: 600; }
+
+    /* ── Custom hover tooltip ── */
+    #custom-hover {
+      position: fixed; z-index: 90; display: none; pointer-events: none;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 7px 10px; max-width: 240px; line-height: 1.45;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: .76rem; color: var(--text);
+      box-shadow: 0 3px 10px rgba(0,0,0,.12);
+    }
+
+    /* ── Car marker (MapLibre HTML element) ── */
+    .car-marker {
+      border-radius: 50%; border: 3px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,.45);
+      cursor: pointer; transition: width .12s, height .12s, border-color .12s;
+    }
+    .car-marker.selected { border-color: var(--marker-color, white); }
+
+    /* ── Spinner ── */
+    .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Dark mode ── */
+    body.dark {
+      --bg: #0f172a; --card: #1e293b; --text: #e2e8f0;
+      --muted: #94a3b8; --border: #334155;
+    }
+    body.dark .maplibregl-map { filter: brightness(.92); }
+
+    /* ── Toast notifications ── */
+    #toast-container {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      z-index: 9999; display: flex; flex-direction: column; gap: 8px;
+      pointer-events: none; align-items: center;
+    }
+    .toast {
+      background: #1e293b; color: #f1f5f9; padding: 9px 16px;
+      border-radius: 20px; font-size: .82rem; font-weight: 500;
+      box-shadow: 0 4px 14px rgba(0,0,0,.35); pointer-events: none;
+      animation: toast-in .2s ease, toast-out .3s ease 2.7s forwards;
+      white-space: nowrap;
+    }
+    .toast.error { background: #7f1d1d; }
+    @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
+
+    /* ── Snap chip ── */
+    #snap-chip {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      z-index: 20; display: none; align-items: center; gap: 6px;
+      background: rgba(15,23,42,.82); color: #e2e8f0;
+      border-radius: 14px; padding: 5px 12px;
+      font-size: .74rem; font-weight: 500;
+      box-shadow: 0 2px 8px rgba(0,0,0,.28); white-space: nowrap;
+      pointer-events: none; backdrop-filter: blur(4px);
+    }
+    #snap-chip.visible { display: flex; }
