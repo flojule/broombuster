@@ -229,6 +229,75 @@ def time_display(raw: str) -> str:
     return f"{_fmt_part(h1, m1, ap1)}–{_fmt_part(h2, m2, ap2)}"
 
 
+# ── Sweep schedule display ────────────────────────────────────────────────────
+
+# Canonical weekday tokens. Source data mixes forms (Tue/Tues, Thu/Thurs); we
+# unify every surface to Mon/Tue/Wed/Thu/Fri/Sat/Sun. Value = (Mon..Sun rank,
+# display form).
+_WEEKDAY_CANON = {
+    "MON": (0, "Mon"), "MONDAY": (0, "Mon"),
+    "TUE": (1, "Tue"), "TUES": (1, "Tue"), "TUESDAY": (1, "Tue"),
+    "WED": (2, "Wed"), "WEDS": (2, "Wed"), "WEDNESDAY": (2, "Wed"),
+    "THU": (3, "Thu"), "THUR": (3, "Thu"), "THURS": (3, "Thu"), "THURSDAY": (3, "Thu"),
+    "FRI": (4, "Fri"), "FRIDAY": (4, "Fri"),
+    "SAT": (5, "Sat"), "SATURDAY": (5, "Sat"),
+    "SUN": (6, "Sun"), "SUNDAY": (6, "Sun"),
+}
+
+_EVERY_PAREN_RE = re.compile(r"\s*\(every\)", re.IGNORECASE)
+_OF_MONTH_RE = re.compile(r"\s*\bof\s+(?:the\s+)?month\b", re.IGNORECASE)
+_AND_RE = re.compile(r"\band\b", re.IGNORECASE)
+_TRIM_EDGE_RE = re.compile(r"^[\s,]+|[\s,]+$")
+
+
+def _weekday_first(desc: str) -> str:
+    """Move a trailing/embedded weekday token to the front, canonicalized.
+
+    "1st & 3rd Wed" -> "Wed 1st & 3rd"; "Mon 1st & 3rd" -> "Mon 1st & 3rd";
+    "Every Wed" -> "Every Wed". Leaves descriptors with no weekday untouched.
+    """
+    toks = desc.split()
+    if not toks:
+        return desc
+    every = toks[0].lower() == "every"
+    body = toks[1:] if every else toks
+    wd_idx = None
+    for i, t in enumerate(body):
+        if t.strip(".,").upper() in _WEEKDAY_CANON:
+            wd_idx = i
+            break
+    if wd_idx is None:
+        return desc
+    disp = _WEEKDAY_CANON[body[wd_idx].strip(".,").upper()][1]
+    rest = body[:wd_idx] + body[wd_idx + 1:]
+    parts = (["Every"] if every else []) + [disp] + rest
+    return " ".join(parts).strip()
+
+
+def sweep_body(desc: str, time: str = "") -> str:
+    """Canonical schedule line from a raw desc + time, e.g. "Wed 1st & 3rd, 9AM-12PM".
+
+    Rules (unified across card, hover, zone popup): drop "(every)" and
+    "of month", "and" -> "&", weekday first, time via time_display (minutes
+    only when non-zero) appended once. Returns "" for empty input.
+    """
+    d = desc if isinstance(desc, str) else ""
+    d = _EVERY_PAREN_RE.sub("", d)
+    d = _TIME_RANGE_RE.sub("", d)          # drop time embedded in desc (SF)
+    d = _OF_MONTH_RE.sub("", d)
+    d = _AND_RE.sub("&", d)
+    d = _WHITESPACE_RE.sub(" ", d)
+    d = _TRIM_EDGE_RE.sub("", d)           # strip dangling commas/space
+    d = _WHITESPACE_RE.sub(" ", d).strip()
+    d = _weekday_first(d)
+    if not d or d.upper() == "N/A":
+        return ""
+    t = time_display(time or "")
+    if t in ("", "N/A") or t in d:
+        return d
+    return f"{d}, {t}"
+
+
 # ── House number ──────────────────────────────────────────────────────────────
 
 _NUM_SEP_RE = re.compile(r"[-;,/\s]")

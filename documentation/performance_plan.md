@@ -57,6 +57,27 @@ freshness refresh cannot see one CRS post-swap and the other pre-swap.
 GDF once, branching on geometry type. The previous
 `_row_color` pre-pass and separate polygon/line passes are gone.
 
+### 10. GZip middleware
+[`GZipMiddleware`](../src/broombuster/api/app.py) compresses responses over
+1 KB; the verbose `/check` GeoJSON gzips ~5-8x (interim SF win before tiles).
+
+### 11. Style-ready render gate
+[`whenStyleReady()`](../frontend/js/app.js) replaces a one-shot
+`map.once('style.load')` that could miss, leaving Chicago zones unpainted
+until a pan. Now gates on `styledata` + `isStyleLoaded()`.
+
+### 12. PMTiles vector tiles (item D) — DEFAULT
+Renders zones from static per-region
+[`frontend/tiles/*.pmtiles`](../frontend/tiles) built by
+[`build_pmtiles.py`](../scripts/build_pmtiles.py); `/check` drops `geojson`.
+Urgency colour is computed client-side in
+[`urgency.js`](../frontend/js/urgency.js) (JS port of `analysis`, parity-tested)
+and pushed via `feature-state`. Tiles are date-independent; `_hot_swap_city`
+triggers a rebuild on data refresh. On by default; `PMTILES_MODE=0` restores the
+legacy GeoJSON path (the test suite forces it off via `tests/conftest.py`).
+Deploy note: the build step must run `scripts/build_pmtiles.py` so the archives
+exist, and the host needs `tippecanoe` for the auto-refresh rebuild.
+
 ---
 
 ## On deck
@@ -104,26 +125,11 @@ snappier on slow pans.
 Files: [`frontend/index.html`](../frontend/index.html) (`moveend`
 handler in `attachMapListeners`).
 
-### D — PMTiles vector tiles
+### D — PMTiles vector tiles — SHIPPED (see Shipped #12)
 
-For wide-zoom views (especially Chicago) the bbox response is still
-hundreds of KB even after `simplify`.
-[PMTiles](https://protomaps.com) is a single-file tile archive served
-from any HTTP host; MapLibre renders it incrementally as the user
-pans. `/check` shrinks to the resolver fields only (urgency, schedule,
-snap, address) — no GeoJSON returned. Urgency colouring moves into a
-Mapbox-style `case` expression that compares schedule fields against
-today/tomorrow client-side.
-
-Trade-off: `tippecanoe` is a one-time install dependency, and SF /
-Chicago auto-refresh in-place needs a tile-rebuild flow rather than a
-direct GeoDataFrame swap.
-
-Files: new `scripts/build_pmtiles.py`,
-[`frontend/index.html`](../frontend/index.html) (PMTiles source +
-expression-based paint),
-[`src/broombuster/api/app.py`](../src/broombuster/api/app.py) (slim
-`/check` response).
+Behind `PMTILES_MODE`. Urgency uses `feature-state` set from a JS port of
+`analysis` rather than a pure style expression, because sweep-code expansion
+and the time-of-day window cannot be expressed in MapLibre expressions.
 
 ### E — Persistent compute / FGB mmap across restarts
 

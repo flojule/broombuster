@@ -1,5 +1,8 @@
 """Tests for Chicago zone click-detail: full upcoming schedule + ward PDF link."""
 import datetime
+import os
+
+os.environ.setdefault("DEV_MODE", "1")
 
 import geopandas
 import pandas as pd
@@ -73,7 +76,8 @@ def test_zone_detail_shows_full_year_with_pdf_link():
     assert "<span class='zd-past'>Apr 17</span>" in html  # past row dimmed incl. month
     assert "Jun 19" in html and "Jul 3" in html
     assert "<span class='zd-past'>Jun 19</span>" not in html  # future row not dimmed
-    assert "Street sweeping 2026:" in html
+    assert "Street sweeping 2026:" not in html  # redundant label removed
+    assert "2026 schedule" in html               # renamed PDF link
     assert "05th-Ward-Sweeping-Schedule-2026.pdf" in html
     assert "Ward 05, Section 03" in html
 
@@ -170,6 +174,28 @@ class _Car:
     lon = -87.66
     street_name = ""
     _city = "chicago_all"
+
+
+def test_zone_detail_endpoint_returns_same_html():
+    """GET /zone/detail (PMTILES mode) returns the same popup HTML as _zone_detail."""
+    from fastapi.testclient import TestClient
+
+    from broombuster.api import app as api_mod
+
+    with TestClient(api_mod.app) as client:
+        resp = client.get("/zone/detail", params={
+            "code": "DATES:2026-06-19,2026-07-03",
+            "street": "Ward 05, Section 03",
+            "city": "chicago_all",
+            "region": "chicago",
+        })
+    assert resp.status_code == 200, resp.text
+    html = resp.json()["detail_html"]
+    assert "Jun 19" in html and "Jul 3" in html
+    assert "2026 schedule" in html
+    assert "Street sweeping 2026:" not in html
+    assert "05th-Ward-Sweeping-Schedule-2026.pdf" in html
+    assert "Ward 05, Section 03" in html
 
 
 def test_polygon_feature_includes_detail_html():

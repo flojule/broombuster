@@ -557,12 +557,11 @@ def cluster_dates(dates, max_gap_days: int = _CLUSTER_GAP_DAYS) -> list:
     return clusters
 
 
-def next_dates_desc(code, local_now=None, max_dates: int = 3) -> str | None:
-    """Next upcoming sweep cluster (the next date plus same-occurrence dates).
+def next_cluster_dates(code, local_now=None, max_dates: int = 3) -> list | None:
+    """Dates of the next upcoming sweep cluster for a 'DATES:' code.
 
-    Chicago sweeps a section's two sides a few days apart, so the next
-    occurrence is a small cluster, e.g. "Jun 19" or "Jun 13, 16". Capped at
-    `max_dates`. None for non-DATES codes; "" when none remain.
+    None for non-DATES codes; [] when no future dates remain. Capped at
+    `max_dates`.
     """
     dates = parse_dates_code(code)
     if dates is None:
@@ -570,8 +569,118 @@ def next_dates_desc(code, local_now=None, max_dates: int = 3) -> str | None:
     today = local_now.date() if local_now else datetime.date.today()
     future = [d for d in dates if d >= today]
     if not future:
+        return []
+    return cluster_dates(future)[0][:max_dates]
+
+
+def next_dates_desc(code, local_now=None, max_dates: int = 3) -> str | None:
+    """Next upcoming sweep cluster (the next date plus same-occurrence dates).
+
+    Chicago sweeps a section's two sides a few days apart, so the next
+    occurrence is a small cluster, e.g. "Jun 19" or "Jun 13, 16". Capped at
+    `max_dates`. None for non-DATES codes; "" when none remain.
+    """
+    cl = next_cluster_dates(code, local_now, max_dates)
+    if cl is None:
+        return None
+    if not cl:
         return ""
-    return format_dates_by_month(cluster_dates(future)[0][:max_dates])
+    return format_dates_by_month(cl)
+
+
+# Weekday letters a sweep code can start with, longest-first so "TH"/"SU" win
+# over "T"/"S". Value = (Mon..Sun rank, display) — mirrors normalize._WEEKDAY_CANON.
+_CODE_WEEKDAY = [
+    ("TH", (3, "Thu")), ("SU", (6, "Sun")),
+    ("M", (0, "Mon")), ("T", (1, "Tue")), ("W", (2, "Wed")),
+    ("F", (4, "Fri")), ("S", (5, "Sat")),
+]
+
+
+def _code_weekday(code: str):
+    """(rank, display) from a sweep code's leading weekday letters, or None."""
+    c = code.strip().upper()
+    for pre, val in _CODE_WEEKDAY:
+        if c.startswith(pre):
+            return val
+    return None
+
+
+def _code_ordinals(code: str) -> set:
+    """Week-of-month ordinals from a code's trailing digits ('13' -> {1,3})."""
+    m = re.search(r"(\d+)$", code.strip())
+    return {int(ch) for ch in m.group(1)} if m else set()
+
+
+def format_schedule_side(entries, local_now=None) -> list:
+    """Canonical display lines for one side's (code, desc, time) entries.
+
+    Unifies every surface (card, hover, zone): weekday-codes are grouped by
+    (weekday, time); a 1st&3rd + 2nd&4th pair on the same time collapses to
+    "Every <Wd>"; lines are ordered Mon->Sun. 'DATES:' codes (Berkeley/Chicago)
+    contribute their next sweep dates, merged across codes into one
+    chronological line. No-sweep codes are dropped.
+    """
+    clean = [
+        e for e in (entries or [])
+        if e and len(e) >= 1 and isinstance(e[0], str) and not is_no_sweep_code(e[0])
+    ]
+
+    dates_entries = [e for e in clean if parse_dates_code(e[0]) is not None]
+    weekly = [e for e in clean if parse_dates_code(e[0]) is None]
+
+    # Group weekday entries by (rank, normalized time); union their ordinals.
+    groups: dict = {}
+    loose: list = []
+    for e in weekly:
+        code = e[0]
+        desc = e[1] if len(e) >= 2 else ""
+        time = e[2] if len(e) >= 3 else ""
+        wk = _code_weekday(code)
+        if wk is None:
+            loose.append((desc, time))
+            continue
+        rank, disp = wk
+        key = (rank, normalize.time_display(time or ""))
+        g = groups.setdefault(key, {"rank": rank, "disp": disp,
+                                    "ords": set(), "time": time, "items": []})
+        g["ords"] |= _code_ordinals(code)
+        g["items"].append((desc, time))
+
+    ranked: list = []  # (rank, ord_key, body)
+    for (rank, _td), g in groups.items():
+        if {1, 2, 3, 4} <= g["ords"]:
+            ranked.append((rank, -1, normalize.sweep_body(f"Every {g['disp']}", g["time"])))
+        else:
+            for desc, time in g["items"]:
+                body = normalize.sweep_body(desc, time)
+                ranked.append((rank, 0, body))
+    ranked.sort(key=lambda x: (x[0], x[1]))
+
+    lines: list = []
+    seen: set = set()
+    for _r, _o, body in ranked:
+        if body and body not in seen:
+            seen.add(body)
+            lines.append(body)
+    for desc, time in loose:
+        body = normalize.sweep_body(desc, time)
+        if body and body not in seen:
+            seen.add(body)
+            lines.append(body)
+
+    # DATES codes: merge each code's next cluster into one chronological line.
+    if dates_entries:
+        merged: list = []
+        for code, *_ in dates_entries:
+            merged += next_cluster_dates(code, local_now) or []
+        merged = sorted(set(merged))
+        if merged:
+            line = format_dates_by_month(merged)
+            if line not in seen:
+                lines.append(line)
+
+    return lines
 
 
 def parse_sweeping_code(code: str) -> list:

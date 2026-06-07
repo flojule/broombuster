@@ -131,10 +131,10 @@ REGIONS = {
         "name": "Bay Area",
         # Add piedmont/emeryville/santa_cruz here once their data files are built.
         "cities": ["oakland", "san_francisco", "berkeley", "alameda"],
-        # Wider center / zoom used for the overview inset only
+        # Default overview frames SF + Oakland + Berkeley (their extreme ends).
         "center": {"lat": 37.820, "lon": -122.295},
         "manual_default": {"lat": 37.821326, "lon": -122.280705},
-        "overview_zoom": 9,
+        "overview_zoom": 11.5,
         "tz": "America/Los_Angeles",
     },
     "chicago": {

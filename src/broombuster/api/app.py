@@ -1,6 +1,9 @@
 import json
 import logging
 import os
+import shutil
+import subprocess
+import sys
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -13,6 +16,7 @@ import pandas as pd
 import shapely.geometry as _shp_geom
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -111,6 +115,7 @@ def _hot_swap_city(city_key: str) -> None:
         # under the lock so a concurrent /check never sees mixed CRS versions.
         new_4326 = gdf.to_crs("EPSG:4326")
         new_3857 = gdf.to_crs("EPSG:3857")
+        affected_regions = []
         with _swap_lock:
             _city_gdfs[city_key]      = new_4326
             _city_gdfs_3857[city_key] = new_3857
@@ -119,9 +124,32 @@ def _hot_swap_city(city_key: str) -> None:
             for rk, rv in REGIONS.items():
                 if city_key in rv["cities"]:
                     _region_combined.pop(rk, None)
+                    affected_regions.append(rk)
         logger.info("[freshness] %s refreshed successfully", city["name"])
+        # Refreshed data must flow into the static tiles (PMTILES mode only).
+        _rebuild_region_tiles(affected_regions)
     except (OSError, ValueError, RuntimeError) as exc:
         logger.warning("[freshness] could not refresh '%s': %s", city_key, exc)
+
+
+def _rebuild_region_tiles(region_keys) -> None:
+    """Kick off a detached PMTiles rebuild per region (PMTILES mode only)."""
+    if not _PMTILES_MODE or not region_keys:
+        return
+    if not shutil.which("tippecanoe"):
+        logger.warning("[tiles] tippecanoe not on PATH; skipping tile rebuild")
+        return
+    script = os.path.join(_REPO_ROOT, "scripts", "build_pmtiles.py")
+    for rk in region_keys:
+        try:
+            subprocess.Popen(
+                [sys.executable, script, "--region", rk, "--force"],
+                cwd=_REPO_ROOT,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            logger.info("[tiles] rebuild started for region %s", rk)
+        except OSError as exc:
+            logger.warning("[tiles] could not start rebuild for %s: %s", rk, exc)
 
 
 def _freshness_checker_bg() -> None:
@@ -202,6 +230,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Compress responses over 1 KB. The /check GeoJSON is verbose text and gzips
+# ~5-8x; this is the interim win for SF before PMTiles removes the payload.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(auth_router)
 init_rate_limiting(app)
@@ -601,27 +633,32 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
                 if resolved is not None:
                     message = result.extras.get("message") or ""
 
-    # Clip the region to the requested view (tiles / full_region / bbox /
-    # radius) and derive the sub-pixel simplify tolerance. See
-    # _clip_region_for_request.
-    myCity_display, simplify_tolerance = _clip_region_for_request(req, myCity_4326)
+    # In PMTILES mode the map renders from static vector tiles, so /check skips
+    # the per-request clip + GeoJSON build entirely and returns no `geojson`.
+    if _PMTILES_MODE:
+        geojson = None
+    else:
+        # Clip the region to the requested view (tiles / full_region / bbox /
+        # radius) and derive the sub-pixel simplify tolerance. See
+        # _clip_region_for_request.
+        myCity_display, simplify_tolerance = _clip_region_for_request(req, myCity_4326)
 
-    geojson = maps.build_map_geojson(
-        myCar, myCity_display,
-        schedule_even=schedule_even,
-        schedule_odd=schedule_odd,
-        message=message,
-        local_now=local_now,
-        simplify_tolerance=simplify_tolerance,
-    )
-
-    geojson_size = len(json.dumps(geojson).encode())
-    if geojson_size > _RESPONSE_SIZE_WARN_BYTES:
-        logger.warning(
-            "/check geojson exceeds 200 KB (%d B) — region=%s lat=%.4f lon=%.4f clip=%s",
-            geojson_size, region, req.lat, req.lon,
-            "tiles" if req.tiles else ("full" if req.full_region else "radius"),
+        geojson = maps.build_map_geojson(
+            myCar, myCity_display,
+            schedule_even=schedule_even,
+            schedule_odd=schedule_odd,
+            message=message,
+            local_now=local_now,
+            simplify_tolerance=simplify_tolerance,
         )
+
+        geojson_size = len(json.dumps(geojson).encode())
+        if geojson_size > _RESPONSE_SIZE_WARN_BYTES:
+            logger.warning(
+                "/check geojson exceeds 200 KB (%d B) — region=%s lat=%.4f lon=%.4f clip=%s",
+                geojson_size, region, req.lat, req.lon,
+                "tiles" if req.tiles else ("full" if req.full_region else "radius"),
+            )
 
     return {
         "message": message,
@@ -673,13 +710,36 @@ def save_prefs(req: PrefsRequest, user_id: str = Depends(verify_jwt)):
 # ---------------------------------------------------------------------------
 
 _DEV_MODE_API = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
+# PMTILES_MODE (default ON): render the map from static vector tiles
+# (frontend/tiles/*.pmtiles) and slim /check to resolver fields. Set
+# PMTILES_MODE=0 to fall back to the legacy server-built GeoJSON path.
+_PMTILES_MODE = os.environ.get("PMTILES_MODE", "1").lower() in ("1", "true", "yes")
 
 
 @app.get("/config.js", include_in_schema=False)
 def config_js():
-    """Serve runtime config as a JS snippet so the frontend knows DEV_MODE."""
-    js = f"window.DEV_MODE = {'true' if _DEV_MODE_API else 'false'};\n"
+    """Serve runtime config as a JS snippet so the frontend knows runtime flags."""
+    js = (
+        f"window.DEV_MODE = {'true' if _DEV_MODE_API else 'false'};\n"
+        f"window.PMTILES_MODE = {'true' if _PMTILES_MODE else 'false'};\n"
+        "window.REGION_TZ = " + json.dumps(
+            {rk: rv.get("tz", "UTC") for rk, rv in REGIONS.items()}
+        ) + ";\n"
+    )
     return Response(content=js, media_type="application/javascript")
+
+
+@app.get("/zone/detail", include_in_schema=False)
+def zone_detail(code: str = "", street: str = "", city: str = "", region: str = ""):
+    """Full-year zone schedule HTML + PDF link for a clicked tile (PMTILES mode).
+
+    Reuses maps._zone_detail so the popup matches the legacy server-rendered one.
+    """
+    tz = REGIONS.get(region, {}).get("tz", "UTC")
+    local_now = datetime.now(ZoneInfo(tz))
+    row = {"STREET_DISPLAY": street, "STREET_NAME": street,
+           "DAY_EVEN": code, "DESC_EVEN": "", "_city": city}
+    return {"detail_html": maps._zone_detail(row, local_now)}
 
 
 # ---------------------------------------------------------------------------

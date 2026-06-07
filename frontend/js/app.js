@@ -1,5 +1,9 @@
 // ── Config ────────────────────────────────────────────────────────────────────
 const DEV_MODE      = window.DEV_MODE === true || window.DEV_MODE === 'true';
+// PMTILES_MODE: render zones from static vector tiles + client-side urgency,
+// instead of per-request GeoJSON from /check. See js/urgency.js.
+const PMTILES_MODE  = window.PMTILES_MODE === true || window.PMTILES_MODE === 'true';
+const REGION_TZ     = window.REGION_TZ || {};
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
@@ -33,11 +37,40 @@ let _tempPinMarker = null;
 let _zonePopup     = null;  // MapLibre popup for clicked zone detail
 
 const ZONES_SOURCE = 'sweeping-zones';
-const ZONE_LAYERS  = ['zones-fill', 'zones-outline', 'zones-line'];
+const ZONE_LAYERS  = ['zones-fill', 'zones-outline', 'zones-ward', 'zones-line'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
-let _mapStyle = 'https://tiles.openfreemap.org/styles/positron';
-function getMapboxStyle() { return _mapStyle; }
+// PMTILES mode: vector source + per-feature urgency via feature-state. Layer ids
+// match the GeoJSON path so hover/click (HOVER_LAYERS) work unchanged. Colours
+// mirror maps.py (_URGENCY_RGB / _zone_fill_color / _color_meta).
+const TILES_SOURCE     = 'zones-tiles';
+const TILES_SRC_LAYER  = 'zones';
+const URGENCY_COLORS = {
+  today:    { fill: 'rgba(220,60,60,0.55)',   border: 'rgba(220,60,60,0.90)',  line: 'tomato' },
+  tomorrow: { fill: 'rgba(230,130,20,0.40)',  border: 'rgba(230,130,20,0.80)', line: 'orange' },
+  clear:    { fill: 'rgba(80,110,180,0.18)',  border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
+};
+function _urgCase(prop) {
+  // MapLibre expression: pick colour from feature-state 'urgency' (default clear).
+  return [
+    'case',
+    ['==', ['feature-state', 'urgency'], 'today'],    URGENCY_COLORS.today[prop],
+    ['==', ['feature-state', 'urgency'], 'tomorrow'], URGENCY_COLORS.tomorrow[prop],
+    URGENCY_COLORS.clear[prop],
+  ];
+}
+// Street line width scales with zoom so it stays thin on city-wide views.
+const ZONE_LINE_WIDTH = ['interpolate', ['linear'], ['zoom'], 11, 0.8, 14, 1.5, 16, 2.5, 18, 4];
+
+const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/positron';
+const DARK_STYLE  = 'https://tiles.openfreemap.org/styles/dark';
+// Night ~= 7pm–7am local time; picks the default basemap + UI chrome.
+function _isNight() { const h = new Date().getHours(); return h >= 19 || h < 7; }
+function _wantDark() {
+  const stored = localStorage.getItem('bb_dark');
+  return stored !== null ? stored === '1' : _isNight();
+}
+let _mapStyle = _wantDark() ? DARK_STYLE : LIGHT_STYLE;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const authScreen     = document.getElementById('auth-screen');
@@ -221,17 +254,36 @@ function showToast(msg, isError = false) {
 
 // ── Dark mode ─────────────────────────────────────────────────────────────────
 const _btnDark = document.getElementById('btn-dark-mode');
-function _applyDark(on) {
+// Switch UI chrome AND basemap together. persist=true pins an explicit override
+// (the toggle); otherwise the choice follows local time (night -> dark).
+function _applyDark(on, persist) {
   document.body.classList.toggle('dark', on);
   _btnDark.textContent = on ? '☀️' : '🌙';
-  localStorage.setItem('bb_dark', on ? '1' : '0');
+  _btnDark.title = on ? 'Switch to light' : 'Switch to dark';
+  if (persist) localStorage.setItem('bb_dark', on ? '1' : '0');
+  const style = on ? DARK_STYLE : LIGHT_STYLE;
+  if (map && _mapStyle !== style) {
+    _mapStyle = style;
+    map.setStyle(_mapStyle);
+    // Re-mount only after the NEW style settles. whenStyleReady() can't be used:
+    // right after setStyle() isStyleLoaded() still reports the OLD style as
+    // loaded, so the re-add fires early and the new style then wipes it (street/
+    // zone layers vanishing on toggle). 'style.load' is unreliable on setStyle
+    // here; 'idle' fires once the swapped style + basemap have settled.
+    map.once('idle', () => {
+      map.dragRotate.disable();
+      map.touchZoomRotate.disableRotation();
+      // setStyle() drops all sources/layers; force the tile source to remount.
+      if (PMTILES_MODE) { _tilesRegion = null; ensureTiles(); }
+      else if (_currentGeojson) addZoneLayers(_currentGeojson);
+      updateCarMarkers();
+    });
+  } else {
+    _mapStyle = style;
+  }
 }
-(function _initDark() {
-  const stored = localStorage.getItem('bb_dark');
-  const prefer = stored !== null ? stored === '1' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-  _applyDark(prefer);
-})();
-_btnDark.addEventListener('click', () => _applyDark(!document.body.classList.contains('dark')));
+(function _initDark() { _applyDark(_wantDark(), false); })();
+_btnDark.addEventListener('click', () => _applyDark(!document.body.classList.contains('dark'), true));
 
 // ── Snap chip ─────────────────────────────────────────────────────────────────
 const _snapChip = document.getElementById('snap-chip');
@@ -338,6 +390,9 @@ function _bboxKey(b, region) {
 }
 
 async function fetchViewport(bounds) {
+  // PMTILES mode: the map data comes from tiles, not /check. Just ensure the
+  // tile source is mounted and refresh urgency for the new viewport.
+  if (PMTILES_MODE) { ensureTiles(); scheduleUrgencyUpdate(); return; }
   const region = regionSelect.value || _renderedRegion;
   if (!region || !map) return;
   const key = _bboxKey(bounds, region);
@@ -399,30 +454,43 @@ function attachMapListeners() {
     if (_hoverSuppressed) return;
     const features = map.queryRenderedFeatures(e.point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
     if (!features.length) { customHoverEl.style.display = 'none'; return; }
-    const html = features[0].properties?.hover_html;
+    const html = PMTILES_MODE
+      ? tileHoverHtml(features[0].properties || {})
+      : features[0].properties?.hover_html;
     if (!html) { customHoverEl.style.display = 'none'; return; }
     customHoverEl.innerHTML = html;
-    const x = Math.min(e.originalEvent.clientX + 14, window.innerWidth  - 250);
-    const y = Math.max(e.originalEvent.clientY - 10, 10);
-    customHoverEl.style.left = x + 'px';
-    customHoverEl.style.top  = y + 'px';
     customHoverEl.style.display = 'block';
+    // Clamp using the box's actual width (it now sizes to its widest line).
+    const w = customHoverEl.offsetWidth;
+    const x = Math.min(e.originalEvent.clientX + 14, window.innerWidth - w - 10);
+    const y = Math.max(e.originalEvent.clientY - 10, 10);
+    customHoverEl.style.left = Math.max(x, 6) + 'px';
+    customHoverEl.style.top  = y + 'px';
   });
 
   map.getCanvas().addEventListener('mouseleave', () => { customHoverEl.style.display = 'none'; });
   map.on('movestart', () => { customHoverEl.style.display = 'none'; });
 
   // Click → show zone detail (Chicago section schedule + PDF link) when a
-  // zone is hit; otherwise deselect the car and close any open detail.
+  // zone is hit; a click anywhere away from a zone dismisses any open window
+  // (zone popup, GPS pin popup, car selection) — same as pressing Esc.
   map.on('click', (e) => {
     if (placingCar) {
       commitPlacement(e.lngLat.lat, e.lngLat.lng);
       return;
     }
     const features = map.queryRenderedFeatures(e.point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
-    if (!features.length) { clearCarSelection(); closeZoneDetail(); return; }
+    if (PMTILES_MODE) {
+      // Tiles carry no detail_html; fetch the full-year popup for clicked zones.
+      const poly = features.find(f => f.properties && f.properties.render_type === 'polygon');
+      if (poly) { fetchZoneDetail(poly.properties, e.lngLat); return; }
+      dismissMapWindows();
+      return;
+    }
+    if (!features.length) { dismissMapWindows(); return; }
     const detailed = features.find(f => f.properties && f.properties.detail_html);
     if (detailed) showZoneDetail(e.lngLat, detailed.properties.detail_html);
+    else dismissMapWindows();
   });
 
   // GPS popup position update on move
@@ -438,6 +506,12 @@ function attachMapListeners() {
       fetchViewport(map.getBounds());
     }, 200);
   });
+
+  // PMTILES: recolour newly loaded tile features once the map settles.
+  if (PMTILES_MODE) {
+    map.on('idle', scheduleUrgencyUpdate);
+    ensureTiles();
+  }
 }
 
 // ── Zone layer management ─────────────────────────────────────────────────────
@@ -488,23 +562,174 @@ function addZoneLayers(geojson) {
     },
     paint: {
       'line-color': ['get', 'line_color'],
-      'line-width': ['get', 'line_width'],
+      'line-width': ZONE_LINE_WIDTH,
     },
   });
 }
 
+// Run `cb` once the style can accept sources/layers. `style.load` is a one-shot
+// event: if it already fired before we register, map.once() never calls back.
+// isStyleLoaded() can also be briefly false AFTER style.load while the basemap
+// loads sprites/tiles. Gating on a styledata listener that re-checks
+// isStyleLoaded() covers both cases — the fix for Chicago zones not appearing
+// until the user pans/zooms.
+function whenStyleReady(cb) {
+  if (!map) return;
+  if (map.isStyleLoaded()) { cb(); return; }
+  const onData = () => {
+    if (map.isStyleLoaded()) { map.off('styledata', onData); cb(); }
+  };
+  map.on('styledata', onData);
+}
+
 function renderZones(geojson) {
+  // In PMTILES mode the map renders from vector tiles, not per-request GeoJSON.
+  if (PMTILES_MODE) { ensureTiles(); return; }
   _currentGeojson = geojson || null;
   if (!map) return;
-  const apply = () => {
+  whenStyleReady(() => {
     if (geojson) addZoneLayers(geojson);
     else removeZoneLayers();
-  };
-  if (map.isStyleLoaded()) {
-    apply();
-  } else {
-    map.once('style.load', apply);
+  });
+}
+
+// ── PMTILES vector-tile rendering ─────────────────────────────────────────────
+let _tilesRegion      = null;   // region currently mounted as a tile source
+let _pmtilesProtocol  = false;  // pmtiles:// protocol registered once
+let _featStateCache   = new Map();  // feature id -> urgency (for current day)
+let _featStateDay     = null;
+let _urgencyTimer     = null;
+
+function _archiveUrl(region) {
+  return 'pmtiles://' + window.location.origin + '/tiles/' + region + '.pmtiles';
+}
+
+function removeTileLayers() {
+  for (const id of ZONE_LAYERS) if (map.getLayer(id)) map.removeLayer(id);
+  if (map.getSource(TILES_SOURCE)) map.removeSource(TILES_SOURCE);
+}
+
+// Ward outline colour: light on the dark basemap, dark on the light basemap.
+function _wardLineColor() {
+  return document.body.classList.contains('dark')
+    ? 'rgba(245,248,252,0.75)'
+    : 'rgba(20,28,46,0.7)';
+}
+
+function addTilePaintLayers() {
+  map.addLayer({
+    id: 'zones-fill', type: 'fill', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+    filter: ['==', ['get', 'render_type'], 'polygon'],
+    paint: { 'fill-color': _urgCase('fill') },
+  });
+  map.addLayer({
+    id: 'zones-outline', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+    filter: ['==', ['get', 'render_type'], 'polygon'],
+    paint: { 'line-color': _urgCase('border'), 'line-width': 1.5 },
+  });
+  // Dissolved ward outlines: a clear neutral line over the urgency fills, kept
+  // distinct from (and heavier than) the per-section outlines above. Colour is
+  // theme-aware (light line on the dark basemap, dark line on the light one) so
+  // it stays visible in both; recomputed when the basemap switches.
+  map.addLayer({
+    id: 'zones-ward', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+    filter: ['==', ['get', 'render_type'], 'ward_boundary'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': _wardLineColor(),
+      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.0, 13, 2.0, 16, 3.2, 18, 4.5],
+    },
+  });
+  map.addLayer({
+    id: 'zones-line', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+    filter: ['==', ['get', 'render_type'], 'line'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': _urgCase('line'), 'line-width': ZONE_LINE_WIDTH },
+  });
+}
+
+function ensureTiles() {
+  if (!PMTILES_MODE || !map) return;
+  const region = regionSelect.value || _renderedRegion;
+  if (!region) return;
+  whenStyleReady(() => {
+    if (!_pmtilesProtocol) {
+      try { maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile); } catch (_) {}
+      _pmtilesProtocol = true;
+    }
+    if (_tilesRegion !== region) {
+      removeTileLayers();
+      _featStateCache.clear(); _featStateDay = null;
+      map.addSource(TILES_SOURCE, { type: 'vector', url: _archiveUrl(region) });
+      addTilePaintLayers();
+      _tilesRegion = region;
+    }
+    scheduleUrgencyUpdate();
+  });
+}
+
+function scheduleUrgencyUpdate() {
+  if (!PMTILES_MODE) return;
+  if (_urgencyTimer) clearTimeout(_urgencyTimer);
+  _urgencyTimer = setTimeout(applyUrgencyStates, 150);
+}
+
+// Compute urgency for every in-view tile feature and push it to feature-state,
+// which drives the paint expressions. Cached per feature id for the current day.
+function applyUrgencyStates() {
+  if (!PMTILES_MODE || !map || !_tilesRegion || !map.getSource(TILES_SOURCE)) return;
+  const tz  = REGION_TZ[_tilesRegion] || 'UTC';
+  const now = BroomUrgency.nowForTimeZone(tz);
+  const dayStamp = now.y + '-' + now.m + '-' + now.d;
+  if (dayStamp !== _featStateDay) { _featStateCache.clear(); _featStateDay = dayStamp; }
+  let feats;
+  try { feats = map.querySourceFeatures(TILES_SOURCE, { sourceLayer: TILES_SRC_LAYER }); }
+  catch (_) { return; }
+  for (const f of feats) {
+    if (f.id === undefined || f.id === null) continue;
+    if (_featStateCache.has(f.id)) continue;
+    const u = BroomUrgency.urgencyForSched(f.properties.sched, now);
+    _featStateCache.set(f.id, u);
+    map.setFeatureState(
+      { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id },
+      { urgency: u },
+    );
   }
+}
+
+function tileHoverHtml(props) {
+  let sched = [];
+  try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}
+  const tz  = REGION_TZ[_tilesRegion] || 'UTC';
+  const now = BroomUrgency.nowForTimeZone(tz);
+  // Canonical formatting (day-first, "Every <Wd>" merge, Mon->Sun order, merged
+  // next-cluster dates) — identical to the card and the server hover.
+  const evens = BroomUrgency.formatScheduleSide(sched.filter(e => e.side === 'even'), now);
+  const odds  = BroomUrgency.formatScheduleSide(sched.filter(e => e.side === 'odd'), now);
+  let sched_html;
+  if (evens.length && odds.length && evens.join('|') === odds.join('|')) {
+    sched_html = evens.join('<br>');             // both sides identical → no label
+  } else if (!evens.length && !odds.length) {
+    sched_html = '';
+  } else {
+    sched_html = [...evens.map(e => 'Even: ' + e), ...odds.map(o => 'Odd: ' + o)].join('<br>');
+  }
+  // No real schedule (only N/A / no-sweep) → no hover at all.
+  return sched_html ? `<b>${esc(props.street || '')}</b><br>${sched_html}` : '';
+}
+
+async function fetchZoneDetail(props, lngLat) {
+  let code = '';
+  try { code = (JSON.parse(props.sched || '[]')[0] || {}).code || ''; } catch (_) {}
+  if (!code) return;
+  const region = regionSelect.value || _renderedRegion || '';
+  const qs = new URLSearchParams({ code, street: props.street || '', city: props.city || '', region });
+  try {
+    const res = await apiFetch('/zone/detail?' + qs.toString());
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.detail_html) showZoneDetail(lngLat, data.detail_html);
+  } catch (_) {}
 }
 
 // ── Car markers (MapLibre HTML markers) ──────────────────────────────────────
@@ -604,7 +829,7 @@ function updateGpsPinPopup() {
   const rect = mapDiv.getBoundingClientRect();
   popup.style.left = Math.round(rect.left + px.x) + 'px';
   popup.style.top  = Math.round(rect.top  + px.y) + 'px';
-  popup.style.display = 'block';
+  popup.style.display = 'flex';
 }
 
 function hideGpsPinPopup() {
@@ -635,6 +860,13 @@ function showZoneDetail(lngLat, html) {
 
 function closeZoneDetail() {
   if (_zonePopup) { _zonePopup.remove(); _zonePopup = null; }
+}
+
+// Dismiss whatever transient map window is open — the click-away analogue of Esc.
+function dismissMapWindows() {
+  if (_gpsLocPin) hideGpsPinPopup();
+  closeZoneDetail();
+  clearCarSelection();
 }
 
 // ── Map contextmenu (right-click to add car) ──────────────────────────────────
@@ -677,20 +909,6 @@ document.addEventListener('keydown', e => {
 
 carsPanel.addEventListener('mouseenter', () => { _hoverSuppressed = true;  customHoverEl.style.display = 'none'; });
 carsPanel.addEventListener('mouseleave', () => { _hoverSuppressed = false; });
-
-// ── Map style picker ──────────────────────────────────────────────────────────
-document.getElementById('sel-map-style').addEventListener('change', function () {
-  _mapStyle = this.value;
-  if (!map) return;
-  map.setStyle(_mapStyle);
-  map.once('style.load', () => {
-    map.dragRotate.disable();
-    map.touchZoomRotate.disableRotation();
-    // Do NOT call attachMapListeners() here — listeners survive setStyle().
-    if (_currentGeojson) addZoneLayers(_currentGeojson);
-    updateCarMarkers();
-  });
-});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function abbreviate(s) {
@@ -972,7 +1190,8 @@ function showNamePanel(rect) {
   namePanelInput.value    = defaultCarName();
   namePanel.style.left    = rect.left  + 'px';
   namePanel.style.top     = rect.top   + 'px';
-  namePanel.style.width   = rect.width + 'px';
+  // Widen so the car name has room regardless of how narrow the anchor is.
+  namePanel.style.width   = Math.max(rect.width, 240) + 'px';
   namePanel.style.display = 'block';
   setTimeout(() => { namePanelInput.focus(); namePanelInput.select(); }, 30);
 }
@@ -1026,11 +1245,6 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function normDesc(s) {
-  if (!s) return s;
-  return s.replace(/\s*\(every\)/gi, '').replace(/\s+/g, ' ').trim();
-}
-
 function scheduleHTML(sched) {
   if (!sched) return '<span style="color:var(--muted)">Loading…</span>';
   const urgency  = sched.urgency || 'safe';
@@ -1040,26 +1254,12 @@ function scheduleHTML(sched) {
                  : urgency === 'tomorrow' ? '⚠️ Move car tomorrow'
                  : '✅ All clear';
 
-  const NO_SWEEP_RE = /^(no\s+(signage|sweeping|parking|stopping)|n\/a)\b/i;
-  const fmt = arr => {
-    const valid = (arr || []).filter(e => {
-      if (!e || e.length < 2) return false;
-      const d = (e[1] || '').trim();
-      return d && d.toUpperCase() !== 'N/A' && !NO_SWEEP_RE.test(d);
-    });
-    if (!valid.length) return ['No sweeping scheduled'];
-    const seen = new Set(), lines = [];
-    for (const e of valid) {
-      const desc = (e[1] || '').trim();
-      const time = (e[2] || '').trim();
-      const line = (time && time !== 'N/A' && !desc.includes(time)) ? `${normDesc(desc)} – ${time}` : normDesc(desc);
-      if (line && !seen.has(line)) { seen.add(line); lines.push(line); }
-      if (lines.length >= 4) break;
-    }
-    return lines.length ? lines : ['No sweeping'];
-  };
+  const now   = BroomUrgency.nowForTimeZone(REGION_TZ[regionSelect.value] || 'UTC');
   const side  = sched.car_side || 'even';
-  const lines = fmt(side === 'even' ? sched.schedule_even : sched.schedule_odd).map(abbreviate);
+  let lines   = BroomUrgency.formatScheduleSide(
+    side === 'even' ? sched.schedule_even : sched.schedule_odd, now);
+  if (!lines.length) lines = ['No sweeping scheduled'];
+  lines = lines.slice(0, 4);
   const itemsHTML = lines.map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
 
   return `<div class="ce-sched-urgency" style="color:${urgColor}">${urgLabel}</div>`

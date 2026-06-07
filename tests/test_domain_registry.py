@@ -25,7 +25,6 @@ from broombuster.domains import DomainPlugin, max_urgency
 from broombuster.domains.registry import for_city, iter_plugins
 from broombuster.domains.sweeping import (
     SweepingPlugin,
-    _future_filtered,
     compose_message,
 )
 
@@ -189,14 +188,12 @@ class TestPluginEquivalence:
         ) else False
         plugin_message = result.extras["message"]
 
-        # Inline path (what /check did before Step 3). The plugin rewrites
-        # 'DATES:' descriptions to today-or-later dates, so apply the same
-        # filter here to keep this an apples-to-apples equivalence check.
+        # Inline path (what /check did before Step 3). compose_message now does
+        # the 'DATES:' next-cluster collapse internally via format_schedule_side,
+        # so pass raw entries + the clock to keep this apples-to-apples.
         se, so = analysis.schedules_for_segment(seg)
-        se = _future_filtered(se, now)
-        so = _future_filtered(so, now)
         inline_urgency = analysis.compute_urgency(seg, local_now=now)
-        inline_message = compose_message(se, so, side)
+        inline_message = compose_message(se, so, side, now)
         return plugin_urgency_legacy, plugin_message, inline_urgency, inline_message
 
     def test_today_equivalence(self):

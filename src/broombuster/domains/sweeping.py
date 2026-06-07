@@ -13,46 +13,30 @@ sweeping-shaped and would not transfer to other domains.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Any, Optional
 
-from broombuster import analysis, normalize, resolve
+from broombuster import analysis, resolve
 from broombuster.cities import CITIES
 from broombuster.domains.base import DomainResult
-
-# Mirrors the cleanup maps._clean_desc does on the hover text — keeps the
-# card and hover formatting in lock-step. See maps.py for the original.
-_DESC_REDUNDANT_RE = re.compile(r"\s*\(every\)", flags=re.IGNORECASE)
-_WS_RE = re.compile(r"\s+")
-
-
-def _clean_desc(s: str) -> str:
-    if not s or s == "N/A":
-        return s
-    s = _DESC_REDUNDANT_RE.sub("", s)
-    return _WS_RE.sub(" ", s).strip()
-
 
 # ---------------------------------------------------------------------------
 # Output formatter (used by /check legacy `message` field and the CLI)
 # ---------------------------------------------------------------------------
 
 
-def compose_message(schedule_even, schedule_odd, car_side):
-    """Return a plain-text schedule summary matching the map info panel layout."""
+def compose_message(schedule_even, schedule_odd, car_side, local_now=None):
+    """Return a plain-text schedule summary matching the map info panel layout.
 
-    def _dedup_parts(entries):
-        valid = [e for e in entries if e and len(e) >= 3]
-        seen, parts = set(), []
-        for entry in valid:
-            key = (entry[1], entry[2])
-            if key not in seen:
-                t = entry[2]
-                body = entry[1] if not t else f"{entry[1]} — {t}"
-                parts.append(body)
-                seen.add(key)
-        return parts
+    Both sides go through analysis.format_schedule_side, so the message, the
+    card lines, and the map hover all read identically (canonical day-first,
+    "Every <Wd>" merge, Mon->Sun order, next-cluster dates).
+    """
+    even = analysis.format_schedule_side(schedule_even, local_now)
+    odd  = analysis.format_schedule_side(schedule_odd, local_now)
+
+    if even and even == odd:
+        return f"► Street: {' / '.join(even)}"
 
     def _fmt_plain(parts, label, highlight):
         prefix = "►" if highlight else " "
@@ -60,14 +44,8 @@ def compose_message(schedule_even, schedule_odd, car_side):
             return f"{prefix} {label}: no sweeping"
         return f"{prefix} {label}: {' / '.join(parts)}"
 
-    even_parts = _dedup_parts(schedule_even)
-    odd_parts  = _dedup_parts(schedule_odd)
-
-    if even_parts and even_parts == odd_parts:
-        return f"► Street: {' / '.join(even_parts)}"
-
-    even_line = _fmt_plain(even_parts, "Even side", highlight=(car_side == "even"))
-    odd_line  = _fmt_plain(odd_parts,  "Odd side",  highlight=(car_side == "odd"))
+    even_line = _fmt_plain(even, "Even side", highlight=(car_side == "even"))
+    odd_line  = _fmt_plain(odd,  "Odd side",  highlight=(car_side == "odd"))
     return f"{even_line}\n{odd_line}"
 
 
@@ -81,72 +59,30 @@ def compose_message(schedule_even, schedule_odd, car_side):
 _SUPPORTED_SCHEMAS = frozenset({"oakland", "sf", "chicago", "berkeley", "alameda"})
 
 
-def _schedule_lines(schedule_even, schedule_odd, car_side: Optional[str]) -> list[str]:
-    """Bullet lines for the per-domain card body.
+def _schedule_lines(schedule_even, schedule_odd, car_side: Optional[str],
+                    local_now=None) -> list[str]:
+    """Bullet lines for the per-domain card body — one display line per entry.
 
-    Mirrors the plain-text in compose_message but returned as a list so the
-    frontend can render each line as its own DOM node. Highlight rule:
-    when both sides have the same schedule, return one line; otherwise two
-    (`Even: …` / `Odd: …`), with the car's side first.
+    Uses analysis.format_schedule_side (canonical day-first formatting,
+    "Every <Wd>" merge, Mon->Sun order, merged next-cluster dates). When both
+    sides match, the Even/Odd labels are dropped; otherwise each line is
+    prefixed, car's side first.
     """
-
-    def _dedup(entries):
-        seen, out = set(), []
-        for e in entries or []:
-            if not e or len(e) < 2:
-                continue
-            desc = _clean_desc((e[1] or "").strip())
-            time = normalize.time_display((e[2] if len(e) >= 3 else "").strip())
-            if not desc:
-                continue
-            # Avoid duplicating the time when the desc already mentions it.
-            # Compare canonical forms to be robust against en-dash vs hyphen.
-            if not time or time == "N/A" or time in desc:
-                body = desc
-            else:
-                body = f"{desc} — {time}"
-            if body in seen:
-                continue
-            seen.add(body)
-            out.append(body)
-        return out
-
-    even = _dedup(schedule_even)
-    odd  = _dedup(schedule_odd)
+    even = analysis.format_schedule_side(schedule_even, local_now)
+    odd  = analysis.format_schedule_side(schedule_odd, local_now)
 
     if even and even == odd:
-        return [" / ".join(even)]
+        return even
 
     lines: list[str] = []
     primary = ("even", even) if car_side == "even" else ("odd", odd)
     other   = ("odd",  odd)  if car_side == "even" else ("even", even)
     for label, parts in (primary, other):
-        if parts:
-            lines.append(f"{label.capitalize()}: {' / '.join(parts)}")
+        for p in parts:
+            lines.append(f"{label.capitalize()}: {p}")
     if not lines:
         lines.append("No sweeping scheduled")
     return lines
-
-
-def _future_filtered(entries, local_now):
-    """Replace each entry's desc with today-or-later dates for 'DATES:' codes.
-
-    Non-DATES codes are returned unchanged. DATES entries with no remaining
-    future dates are dropped so the card shows "no sweeping" rather than past.
-    """
-    out = []
-    for e in entries or []:
-        if not e:
-            continue
-        code = e[0]
-        time = e[2] if len(e) >= 3 else ""
-        fut = analysis.future_dates_desc(code, local_now)
-        if fut is None:
-            out.append(e)
-        elif fut:
-            out.append((code, fut, time))
-        # fut == "" → DATES code with no future dates → drop entry
-    return out
 
 
 class SweepingPlugin:
@@ -205,14 +141,13 @@ class SweepingPlugin:
         )
         urgency = raw_urgency if raw_urgency in ("today", "tomorrow") else "safe"
 
-        # Rewrite explicit-date descriptions to show only today-or-later dates
-        # (Chicago's 'DATES:' codes). Past dates must never reach the card.
-        schedule_even = _future_filtered(schedule_even, local_now)
-        schedule_odd  = _future_filtered(schedule_odd,  local_now)
-
+        # schedule_even/odd stay RAW (code, desc, time) tuples in the response;
+        # the client formats them via the JS port. Date-dependent collapsing
+        # (next sweep cluster for 'DATES:' codes) happens inside
+        # format_schedule_side, keyed off local_now.
         car_side = resolved.side or "odd"
-        message = compose_message(schedule_even, schedule_odd, car_side)
-        lines = _schedule_lines(schedule_even, schedule_odd, car_side)
+        message = compose_message(schedule_even, schedule_odd, car_side, local_now)
+        lines = _schedule_lines(schedule_even, schedule_odd, car_side, local_now)
 
         return DomainResult(
             domain_id=self.domain_id,

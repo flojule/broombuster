@@ -292,6 +292,9 @@ def _explode_schedule_atoms(side_texts):
             chunk = chunk.strip()
             if not chunk:
                 continue
+            # Canonicalize the day/time separator so the hover (", ") and the
+            # card (" — ") compare equal on content, not punctuation.
+            chunk = chunk.replace(" — ", ", ")
             if _PLACEHOLDER_RE.match(chunk):
                 continue
             out.append(chunk)

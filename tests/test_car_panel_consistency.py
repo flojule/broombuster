@@ -405,12 +405,14 @@ class TestComposeMessage:
         # Should not have " / Mon sweeping / Mon sweeping"
         assert even_line.count("Mon sweeping") == 1, f"Duplicate not deduped: {even_line!r}"
 
-    def test_desc_and_time_joined_with_dash(self):
+    def test_desc_and_time_joined_with_comma(self):
+        # Unified formatting: desc and (normalized) time on one line, comma
+        # separated. Time goes through time_display, so the range uses an en-dash.
         se = self._make("ME", "Mon sweeping", "8AM-10AM")
         msg = compose_message(se, [], car_side="even")
         assert "Mon sweeping" in msg
-        assert "8AM-10AM" in msg
-        assert "—" in msg  # em-dash separator
+        assert "8AM–10AM" in msg  # normalized, en-dash range
+        assert "Mon sweeping, 8AM–10AM" in msg
 
     def test_desc_only_no_dash_when_no_time(self):
         se = self._make("ME", "Mon sweeping", "")

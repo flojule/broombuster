@@ -1,0 +1,12 @@
+{
+  "chicago": {
+    "archive": "chicago.pmtiles",
+    "features": 850,
+    "source_mtime": 1780788445.7385304
+  },
+  "bay_area": {
+    "archive": "bay_area.pmtiles",
+    "features": 36904,
+    "source_mtime": 1780700462.9036026
+  }
+}

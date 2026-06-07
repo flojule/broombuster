@@ -14,6 +14,7 @@
   <script src="/config.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css">
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pmtiles@3/dist/pmtiles.js"></script>
 
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -42,11 +43,6 @@
     <span class="tb-sep"></span>
     <select id="region-select" class="tb-select"></select>
     <span class="tb-sep"></span>
-    <select id="sel-map-style" class="tb-select">
-      <option value="https://tiles.openfreemap.org/styles/bright">🗺 Standard</option>
-      <option value="https://tiles.openfreemap.org/styles/positron" selected>☀️ Light</option>
-      <option value="https://tiles.openfreemap.org/styles/dark-matter">🌙 Dark</option>
-    </select>
     <span id="status-text" class="idle">—</span>
     <span id="locate-info"></span>
     <button id="btn-locate" class="tb-btn" title="Use GPS location">📍</button>
@@ -80,7 +76,7 @@
     <!-- GPS "you are here" pin popup -->
     <div id="gps-pin-popup">
       <button id="btn-gps-add">📍 Add car here</button>
-      <button id="btn-gps-close" class="popup-close" title="Close (Esc)" aria-label="Close">✕</button>
+      <button id="btn-gps-close" class="popup-close inline-close" title="Close (Esc)" aria-label="Close">✕</button>
     </div>
 
     <!-- Snap chip: shown after /check resolves a segment -->
@@ -93,16 +89,17 @@
 
 <!-- ══════════════════ INLINE NAME PANEL ══════════════════ -->
 <div id="name-panel">
-  <button id="btn-np-close" class="popup-close" title="Close (Esc)" aria-label="Close">✕</button>
   <div class="np-row">
     <input type="text" id="name-panel-input" placeholder="Car name…" maxlength="32">
-    <button id="btn-np-save">Save</button>
+    <button id="btn-np-save" title="Save" aria-label="Save">✓</button>
+    <button id="btn-np-close" class="popup-close inline-close" title="Close (Esc)" aria-label="Close">✕</button>
   </div>
 </div>
 
 <!-- ══════════════════ CUSTOM HOVER ══════════════════ -->
 <div id="custom-hover"></div>
 
+<script src="js/urgency.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

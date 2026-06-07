@@ -35,10 +35,19 @@ Know before the grim sweeper comes. An interactive map that shows your parked ca
 
 ```bash
 pip install '.[api]'
-DEV_MODE=true uvicorn broombuster.api.app:app --host 0.0.0.0 --port 8000
+./run.sh
 ```
 
-Open `http://localhost:8000` in a browser. `DEV_MODE=true` skips JWT verification so you can use the app without setting `JWT_SECRET`.
+`./run.sh` starts the server (`DEV_MODE=true`, so no `JWT_SECRET` needed), opens
+`http://localhost:8000`, and builds the map tiles on first run. Override with
+`PORT=8080 ./run.sh` or `PYTHON=/path/to/python ./run.sh`.
+
+The map renders from PMTiles vector tiles by default; if `tippecanoe` isn't
+installed it falls back to the legacy GeoJSON renderer. Plain manual start:
+
+```bash
+DEV_MODE=true uvicorn broombuster.api.app:app --host 0.0.0.0 --port 8000
+```
 
 ### Developer install (with tests, ruff, build scripts)
 
