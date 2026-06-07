@@ -30,6 +30,7 @@ let map = null;
 const _carMarkers  = new Map();  // carId → maplibregl.Marker
 let _gpsMarker     = null;
 let _tempPinMarker = null;
+let _zonePopup     = null;  // MapLibre popup for clicked zone detail
 
 const ZONES_SOURCE = 'sweeping-zones';
 const ZONE_LAYERS  = ['zones-fill', 'zones-outline', 'zones-line'];
@@ -411,14 +412,17 @@ function attachMapListeners() {
   map.getCanvas().addEventListener('mouseleave', () => { customHoverEl.style.display = 'none'; });
   map.on('movestart', () => { customHoverEl.style.display = 'none'; });
 
-  // Background click → deselect car (only when not on a zone and not placing)
+  // Click → show zone detail (Chicago section schedule + PDF link) when a
+  // zone is hit; otherwise deselect the car and close any open detail.
   map.on('click', (e) => {
     if (placingCar) {
       commitPlacement(e.lngLat.lat, e.lngLat.lng);
       return;
     }
     const features = map.queryRenderedFeatures(e.point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
-    if (!features.length) clearCarSelection();
+    if (!features.length) { clearCarSelection(); closeZoneDetail(); return; }
+    const detailed = features.find(f => f.properties && f.properties.detail_html);
+    if (detailed) showZoneDetail(e.lngLat, detailed.properties.detail_html);
   });
 
   // GPS popup position update on move
@@ -603,6 +607,13 @@ function updateGpsPinPopup() {
   popup.style.display = 'block';
 }
 
+function hideGpsPinPopup() {
+  if (_gpsLocPinTimer) { clearTimeout(_gpsLocPinTimer); _gpsLocPinTimer = null; }
+  _gpsLocPin = null;
+  document.getElementById('gps-pin-popup').style.display = 'none';
+  updateCarMarkers();
+}
+
 document.getElementById('btn-gps-add').addEventListener('click', () => {
   if (!_gpsLocPin) return;
   pendingLat = _gpsLocPin.lat; pendingLon = _gpsLocPin.lon;
@@ -610,6 +621,21 @@ document.getElementById('btn-gps-add').addEventListener('click', () => {
   const popup = document.getElementById('gps-pin-popup');
   showNamePanel(popup.getBoundingClientRect());
 });
+
+document.getElementById('btn-gps-close').addEventListener('click', hideGpsPinPopup);
+
+// ── Zone detail popup (click a section) ─────────────────────────────────────────
+function showZoneDetail(lngLat, html) {
+  if (_zonePopup) _zonePopup.remove();
+  _zonePopup = new maplibregl.Popup({
+    closeButton: true, closeOnClick: false, maxWidth: '300px', className: 'zone-detail-popup',
+  }).setLngLat(lngLat).setHTML(html).addTo(map);
+  _zonePopup.on('close', () => { _zonePopup = null; });
+}
+
+function closeZoneDetail() {
+  if (_zonePopup) { _zonePopup.remove(); _zonePopup = null; }
+}
 
 // ── Map contextmenu (right-click to add car) ──────────────────────────────────
 mapDiv.addEventListener('contextmenu', e => {
@@ -631,11 +657,22 @@ document.addEventListener('click', e => {
   }
 });
 
+// Holistic Escape: dismiss whichever transient UI is open (one layer per
+// press), and if nothing is open, deselect the selected car card.
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    hideCtxMenu();
-    if (namePanel.style.display !== 'none') hideNamePanel();
-  }
+  if (e.key !== 'Escape') return;
+  // Editable fields own Escape locally (cancel rename / close name input);
+  // don't cascade into dismissing layers or deselecting the card.
+  const ae = document.activeElement;
+  if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+  let dismissed = false;
+  if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
+  if (namePanel.style.display !== 'none')       { hideNamePanel();    dismissed = true; }
+  if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
+  if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
+  if (placingCar)                               { stopPlacing();      dismissed = true; }
+  if (dismissed) return;
+  if (_selectedCarId) clearCarSelection();
 });
 
 carsPanel.addEventListener('mouseenter', () => { _hoverSuppressed = true;  customHoverEl.style.display = 'none'; });
@@ -947,6 +984,7 @@ function hideNamePanel() {
 }
 
 btnNpSave.addEventListener('click', savePendingCar);
+document.getElementById('btn-np-close').addEventListener('click', hideNamePanel);
 namePanelInput.addEventListener('keydown', e => {
   if (e.key === 'Enter')  savePendingCar();
   if (e.key === 'Escape') hideNamePanel();
@@ -1039,14 +1077,15 @@ function renderCarsPanel() {
     const urgency = sched?.urgency || 'safe';
     const urgColor = urgency === 'today'    ? '#ef4444'
                    : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
-    const urgBg    = urgency === 'today'    ? '#fee2e2'
-                   : urgency === 'tomorrow' ? '#ffedd5' : '#ffffff';
     const addrText = abbreviate(sched?.address || '');
 
     const entry = document.createElement('div');
     entry.className = 'car-entry' + (car.id === _selectedCarId ? ' selected' : '');
     entry.dataset.id = car.id;
-    entry.style.cssText = `--car-color:${color};--urg-color:${urgColor};--urg-bg:${urgBg}`;
+    // Urgency tint is theme-aware via [data-urgency] CSS (dark mode needs
+    // different backgrounds), so set the attribute instead of a hardcoded hex.
+    entry.dataset.urgency = urgency;
+    entry.style.cssText = `--car-color:${color};--urg-color:${urgColor}`;
     entry.addEventListener('click', e => {
       if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
       setSelectedCar(car.id);

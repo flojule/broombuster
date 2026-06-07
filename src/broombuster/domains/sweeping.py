@@ -128,6 +128,27 @@ def _schedule_lines(schedule_even, schedule_odd, car_side: Optional[str]) -> lis
     return lines
 
 
+def _future_filtered(entries, local_now):
+    """Replace each entry's desc with today-or-later dates for 'DATES:' codes.
+
+    Non-DATES codes are returned unchanged. DATES entries with no remaining
+    future dates are dropped so the card shows "no sweeping" rather than past.
+    """
+    out = []
+    for e in entries or []:
+        if not e:
+            continue
+        code = e[0]
+        time = e[2] if len(e) >= 3 else ""
+        fut = analysis.future_dates_desc(code, local_now)
+        if fut is None:
+            out.append(e)
+        elif fut:
+            out.append((code, fut, time))
+        # fut == "" → DATES code with no future dates → drop entry
+    return out
+
+
 class SweepingPlugin:
     """Street-sweeping domain plugin (the first concrete DomainPlugin)."""
 
@@ -183,6 +204,11 @@ class SweepingPlugin:
             all_schedules, local_now=local_now
         )
         urgency = raw_urgency if raw_urgency in ("today", "tomorrow") else "safe"
+
+        # Rewrite explicit-date descriptions to show only today-or-later dates
+        # (Chicago's 'DATES:' codes). Past dates must never reach the card.
+        schedule_even = _future_filtered(schedule_even, local_now)
+        schedule_odd  = _future_filtered(schedule_odd,  local_now)
 
         car_side = resolved.side or "odd"
         message = compose_message(schedule_even, schedule_odd, car_side)

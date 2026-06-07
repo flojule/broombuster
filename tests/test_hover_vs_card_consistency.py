@@ -219,26 +219,54 @@ def _run_invariants(client, lat: float, lon: float, region: str) -> list[Violati
     sweeping = next((d for d in domains if d.get("id") == "sweeping"), None)
     if sweeping is not None:
         card_lines = sweeping.get("schedule_lines") or []
-        hover_set = set(_explode_schedule_atoms(_split_hover_sides(hover_body)))
-        card_set  = set(_explode_schedule_atoms([
-            _HOVER_PREFIX_RE.sub("", ln).strip() for ln in card_lines
-        ]))
-        only_in_hover = hover_set - card_set
-        only_in_card  = card_set - hover_set
-        if only_in_hover:
-            violations.append(Violation(
-                (lat, lon), region, "I3-hover-extra",
-                f"hover shows {sorted(only_in_hover)!r} not in card "
-                f"{sorted(card_set)!r}",
-            ))
-        if only_in_card:
-            violations.append(Violation(
-                (lat, lon), region, "I3-card-extra",
-                f"card shows {sorted(only_in_card)!r} not in hover "
-                f"{sorted(hover_set)!r}",
-            ))
+        if region == "chicago":
+            # Chicago hover shows only the NEXT date/cluster; the card shows
+            # the next ~2 months. So hover dates must be a SUBSET of card
+            # dates (a strict superset on the card is expected, not a bug).
+            hover_dates = _date_atoms(hover_body)
+            card_dates  = _date_atoms(" ".join(card_lines))
+            only_in_hover = hover_dates - card_dates
+            if only_in_hover:
+                violations.append(Violation(
+                    (lat, lon), region, "I3-hover-extra",
+                    f"hover dates {sorted(only_in_hover)!r} not in card "
+                    f"{sorted(card_dates)!r}",
+                ))
+        else:
+            hover_set = set(_explode_schedule_atoms(_split_hover_sides(hover_body)))
+            card_set  = set(_explode_schedule_atoms([
+                _HOVER_PREFIX_RE.sub("", ln).strip() for ln in card_lines
+            ]))
+            only_in_hover = hover_set - card_set
+            only_in_card  = card_set - hover_set
+            if only_in_hover:
+                violations.append(Violation(
+                    (lat, lon), region, "I3-hover-extra",
+                    f"hover shows {sorted(only_in_hover)!r} not in card "
+                    f"{sorted(card_set)!r}",
+                ))
+            if only_in_card:
+                violations.append(Violation(
+                    (lat, lon), region, "I3-card-extra",
+                    f"card shows {sorted(only_in_card)!r} not in hover "
+                    f"{sorted(hover_set)!r}",
+                ))
 
     return violations
+
+
+# Month-abbrev + day tokens for Chicago date-style schedules, e.g.
+# "Jun 11, 12; Aug 28, 29" -> {("Jun",11),("Jun",12),("Aug",28),("Aug",29)}.
+_DATE_TOKEN_RE = re.compile(r"([A-Z][a-z]{2})\s+([\d,\s]+)")
+
+
+def _date_atoms(text: str) -> set:
+    out: set = set()
+    for m in _DATE_TOKEN_RE.finditer(text or ""):
+        mon = m.group(1)
+        for day in re.findall(r"\d+", m.group(2)):
+            out.add((mon, int(day)))
+    return out
 
 
 _PLACEHOLDER_RE = re.compile(

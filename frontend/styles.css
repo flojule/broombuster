@@ -123,7 +123,8 @@
     }
     .cars-legend span { white-space: nowrap; font-weight: 500; }
     .car-entry {
-      background: var(--urg-bg, var(--card)); border: 1px solid var(--border);
+      position: relative;
+      background: var(--card); border: 1px solid var(--border);
       border-radius: 10px; padding: 10px 12px; overflow: hidden;
       box-shadow: 0 2px 10px rgba(0,0,0,.10);
       width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 5px;
@@ -133,7 +134,12 @@
       border: 2px solid var(--car-color);
       padding: 9px 11px;
     }
-    .ce-header { display: flex; align-items: center; gap: 6px; }
+    /* Urgency tint — theme-aware (light vs dark) so text stays readable. */
+    .car-entry[data-urgency="today"]    { background: #fee2e2; }
+    .car-entry[data-urgency="tomorrow"] { background: #ffedd5; }
+    body.dark .car-entry[data-urgency="today"]    { background: #3b2020; }
+    body.dark .car-entry[data-urgency="tomorrow"] { background: #3b2e1a; }
+    .ce-header { display: flex; align-items: center; gap: 6px; padding-right: 16px; }
     .ce-dot {
       width: 10px; height: 10px; border-radius: 50%;
       background: var(--car-color, #3b82f6); flex-shrink: 0;
@@ -145,7 +151,9 @@
     }
     .ce-name[contenteditable="true"] { cursor: text; border-bottom-color: var(--blue); user-select: text; }
     .ce-remove {
-      width: auto; margin: 0; padding: 1px 5px; flex-shrink: 0;
+      position: absolute; top: 6px; right: 8px;
+      width: 18px; height: 18px; margin: 0; padding: 0;
+      display: flex; align-items: center; justify-content: center;
       background: transparent; border: none; color: var(--muted);
       font-size: .8rem; cursor: pointer; opacity: .55; line-height: 1;
     }
@@ -174,17 +182,26 @@
     #gps-pin-popup {
       position: absolute; z-index: 30; display: none;
       background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-      padding: 5px 8px; box-shadow: 0 2px 10px rgba(0,0,0,.14);
+      padding: 22px 10px 8px; box-shadow: 0 2px 10px rgba(0,0,0,.14);
       transform: translate(-50%, calc(-100% - 24px));
-      white-space: nowrap; overflow: hidden;
+      white-space: nowrap; overflow: visible;
     }
     #btn-gps-add { width: auto; margin: 0; padding: 4px 10px; font-size: .76rem; font-weight: 600; border-radius: 6px; }
+    /* Shared top-right corner close button for popups/boxes. */
+    .popup-close {
+      position: absolute; top: 4px; right: 4px;
+      width: 20px; height: 20px; margin: 0; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; border: none; color: var(--muted);
+      font-size: .85rem; line-height: 1; cursor: pointer; border-radius: 5px;
+    }
+    .popup-close:hover { background: var(--bg); color: var(--text); }
 
     /* ── Inline name panel ── */
     #name-panel {
       position: fixed; z-index: 200; display: none;
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 10px; padding: 6px 10px; overflow: hidden;
+      border-radius: 10px; padding: 22px 10px 8px; overflow: visible;
       box-shadow: 0 4px 14px rgba(0,0,0,.14); white-space: nowrap;
     }
     .np-row { display: flex; gap: 6px; align-items: center; }
@@ -201,6 +218,29 @@
       font-size: .76rem; color: var(--text);
       box-shadow: 0 3px 10px rgba(0,0,0,.12);
     }
+
+    /* ── Zone detail popup (click a section) ── */
+    .zone-detail-popup .maplibregl-popup-content {
+      background: var(--card); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 22px 14px 12px; font-size: .78rem; line-height: 1.5;
+      box-shadow: 0 4px 14px rgba(0,0,0,.18);
+    }
+    .zone-detail-popup .maplibregl-popup-tip {
+      border-top-color: var(--card); border-bottom-color: var(--card);
+    }
+    .zone-detail-popup .maplibregl-popup-close-button {
+      position: absolute; top: 4px; right: 6px; left: auto; bottom: auto;
+      width: 22px; height: 22px; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.05rem; line-height: 1; color: var(--muted); border-radius: 5px;
+    }
+    .zone-detail-popup .maplibregl-popup-close-button:hover { color: var(--text); background: var(--bg); }
+    .zd-label { font-size: .68rem; font-weight: 600; color: var(--muted); }
+    .zd-dates { color: var(--text); }
+    .zd-past  { opacity: .4; }
+    .zd-link  { display: inline-block; margin-top: 6px; color: var(--blue); font-weight: 600; text-decoration: none; }
+    .zd-link:hover { text-decoration: underline; }
 
     /* ── Car marker (MapLibre HTML element) ── */
     .car-marker {

@@ -110,6 +110,14 @@ CITIES = {
         # Also update the dataset URL in this file when that happens.
         "stale_after_days": 90,
         "fgb_path": "data/chicago/StreetSweepingZones.fgb",
+        # Per-ward official PDF schedule. {ward} is the zero-padded ordinal
+        # ward number (e.g. "07th", "22nd", "47th"). Chicago changes this path
+        # and year each spring — update it when the dataset URL above changes.
+        "schedule_pdf_url": (
+            "https://www.chicago.gov/content/dam/city/depts/streets/supp_info/"
+            "2026-Street-Sweeping/2026-Sweeping-Schedules/"
+            "{ward}-Ward-Sweeping-Schedule-2026.pdf"
+        ),
     },
 
 }

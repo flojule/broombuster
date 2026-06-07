@@ -1,3 +1,4 @@
+import datetime as _dt
 import re as _re
 
 import shapely
@@ -5,6 +6,7 @@ import shapely.geometry
 
 from broombuster import analysis as _analysis
 from broombuster import normalize as _normalize
+from broombuster.cities import CITIES as _CITIES
 
 
 def _clean_desc(s: str) -> str:
@@ -56,30 +58,7 @@ def _geom_lines(geom):
 # Zone colour palette
 # ---------------------------------------------------------------------------
 
-_ZONE_PALETTE = [
-    ("Crimson",    220, 50,  60),
-    ("Coral",      255, 100, 80),
-    ("Tomato",     255, 70,  47),
-    ("Salmon",     248, 138, 105),
-    ("Amber",      255, 185, 15),
-    ("Goldenrod",  218, 160, 30),
-    ("Tangerine",  255, 145, 0),
-    ("Khaki",      195, 170, 65),
-    ("Lime",       128, 190, 48),
-    ("Olive",      120, 150, 52),
-    ("Teal",       38,  155, 140),
-    ("Turquoise",  52,  182, 168),
-    ("Sky",        75,  175, 215),
-    ("Steelblue",  70,  130, 180),
-    ("Royalblue",  60,  100, 220),
-    ("Periwinkle", 118, 138, 218),
-    ("Lavender",   148, 112, 202),
-    ("Plum",       172, 72,  168),
-    ("Orchid",     192, 92,  172),
-    ("Rose",       225, 82,  112),
-]
-
-# Urgency-color RGB values used for border and urgent fill.
+# Urgency-color RGB values used for both zone fill and border.
 _URGENCY_RGB = {
     "tomato":         (220, 60,  60),
     "orange":         (230, 130, 20),
@@ -93,38 +72,27 @@ _URGENCY_BORDER_ALPHA = {
     "cornflowerblue": 0.40,
 }
 
-# Fill alpha: urgent zones get higher opacity; non-urgent stay subtle.
+# Fill alpha: urgent zones get higher opacity; clear zones stay subtle.
 _URGENCY_FILL_ALPHA = {
     "tomato":         0.55,
     "orange":         0.40,
-    "cornflowerblue": 0.18,  # palette fill for non-urgent
+    "cornflowerblue": 0.18,
 }
 
 
-def _zone_fill_color(w: int, s: int, urgency: str):
-    """Return (fill_rgba, border_rgba, color_name) for a polygon zone.
+def _zone_fill_color(urgency: str):
+    """Return (fill_rgba, border_rgba) for a polygon zone.
 
-    Border: always urgency color so roads clearly signal sweep day.
-    Fill: urgency color for today/tomorrow; palette color for non-urgent
-          (helps distinguish adjacent zones visually).
+    Both fill and border use the urgency colour (red/orange/blue) so each
+    zone's background signals its sweep status. Fill alpha is lighter for
+    clear zones and heavier for today/tomorrow; border alpha stays high.
     """
     ur, ug, ub = _URGENCY_RGB[urgency]
     ba = _URGENCY_BORDER_ALPHA[urgency]
     fa = _URGENCY_FILL_ALPHA[urgency]
-
+    fill   = f"rgba({ur},{ug},{ub},{fa:.2f})"
     border = f"rgba({ur},{ug},{ub},{ba:.2f})"
-
-    if urgency == "cornflowerblue":
-        # Non-urgent: fill with palette colour so zones are distinguishable.
-        idx = (w * 100 + s) % len(_ZONE_PALETTE)
-        name, r, g, b = _ZONE_PALETTE[idx]
-        fill = f"rgba({r},{g},{b},{fa:.2f})"
-    else:
-        # Urgent: fill with the urgency colour itself.
-        name = "Urgent"
-        fill = f"rgba({ur},{ug},{ub},{fa:.2f})"
-
-    return fill, border, name
+    return fill, border
 
 
 # ---------------------------------------------------------------------------
@@ -138,13 +106,102 @@ def _hover_side(desc, time, label):
     return f"{label}: {body}"
 
 
-def _zone_hover(row):
+def _zone_hover(row, local_now=None):
     # Prefer the human-friendly display name for UI; fall back to stored STREET_NAME
     name = _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME"))
+    # Chicago 'DATES:' zones: hover shows only the next sweep date/cluster.
+    nxt = _analysis.next_dates_desc(row.get("DAY_EVEN"), local_now)
+    desc = nxt if nxt is not None else row.get("DESC_EVEN")
     return (
         f"<b>{name}</b><br>"
-        + _hover_side(row.get("DESC_EVEN"), row.get("TIME_EVEN"), "Sweeping") + "<br>"
+        + _hover_side(desc, row.get("TIME_EVEN"), "Sweeping") + "<br>"
     )
+
+
+# Ward number lives in the readable name ("Ward 05, Section 03"); the raw
+# ward/section columns are not persisted to the FGB, so parse it from there.
+_WARD_RE = _re.compile(r"ward\s*0*(\d+)", _re.IGNORECASE)
+
+
+def _ward_ordinal(n: int) -> str:
+    """Zero-padded ordinal ward number, e.g. 7 -> '07th', 22 -> '22nd'."""
+    suffix = "th" if 10 <= (n % 100) <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n:02d}{suffix}"
+
+
+def _zone_pdf_url(row):
+    """Per-ward official PDF schedule URL for a zone, or None when unavailable."""
+    tmpl = (_CITIES.get(row.get("_city")) or {}).get("schedule_pdf_url")
+    if not tmpl:
+        return None
+    m = _WARD_RE.search(str(row.get("STREET_DISPLAY") or row.get("STREET_NAME") or ""))
+    if not m:
+        return None
+    return tmpl.format(ward=_ward_ordinal(int(m.group(1))))
+
+
+def _format_cluster(cluster, today):
+    """One line for a back-to-back date cluster, e.g. "Apr 17, 18".
+
+    Past day numbers are dimmed individually; if the whole cluster is past,
+    the entire line (month included) is wrapped for dimming.
+    """
+    all_past = all(d < today for d in cluster)
+    cells, last_month = [], None
+    for d in cluster:
+        day_txt = str(d.day)
+        if not all_past and d < today:
+            day_txt = f"<span class='zd-past'>{day_txt}</span>"
+        if d.month != last_month:
+            cells.append(f"{_analysis._MONTH_ABBR[d.month]} {day_txt}")
+            last_month = d.month
+        else:
+            cells.append(day_txt)
+    line = ", ".join(cells)
+    return f"<span class='zd-past'>{line}</span>" if all_past else line
+
+
+def _zone_year_html(code, local_now=None):
+    """Full-year schedule for a 'DATES:' code: one cluster per line, past dimmed.
+
+    Dates within a few days (analysis.cluster_dates) are grouped onto one line
+    as a single sweeping occurrence. Returns None for non-DATES codes; "" when
+    the code has no dates.
+    """
+    dates = _analysis.parse_dates_code(code)
+    if dates is None:
+        return None
+    if not dates:
+        return ""
+    today = local_now.date() if local_now else _dt.date.today()
+    clusters = _analysis.cluster_dates(dates)
+    return "<br>".join(_format_cluster(cl, today) for cl in clusters)
+
+
+def _zone_detail(row, local_now=None):
+    """Click popup HTML: full-year schedule (past dimmed) plus a PDF link."""
+    name = _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME"))
+    code = row.get("DAY_EVEN")
+    year_html = _zone_year_html(code, local_now)
+    if year_html is None:
+        year_html = _clean_desc(_safe(row.get("DESC_EVEN")))
+    body = year_html if year_html and year_html != "N/A" else "No sweeping scheduled"
+
+    dates = _analysis.parse_dates_code(code)
+    label = f"Street sweeping {dates[0].year}:" if dates else "Street sweeping schedule:"
+
+    html = (
+        f"<b>{name}</b><br>"
+        f"<span class='zd-label'>{label}</span><br>"
+        f"<span class='zd-dates'>{body}</span>"
+    )
+    pdf = _zone_pdf_url(row)
+    if pdf:
+        html += (
+            f"<br><a class='zd-link' href='{pdf}' target='_blank' "
+            f"rel='noopener'>Official ward schedule (PDF) ↗</a>"
+        )
+    return html
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +270,9 @@ def build_map_geojson(
         # if it were a schedule. Cornflowerblue colour still surfaces them.
         if _analysis.is_no_sweep_code(code):
             return None
+        fut = _analysis.future_dates_desc(code, local_now)
+        if fut is not None:
+            desc = fut
         d = _clean_desc(_safe(desc))
         t = _normalize.time_display(_safe(time))
         if d in ("N/A", ""):
@@ -229,14 +289,9 @@ def build_map_geojson(
         color = _sweeping_color(row, local_now=local_now)
 
         if isinstance(geom, _POLY_TYPES):
-            try:
-                w = int(float(row.get("ward_id") or row.get("ward") or 0))
-                s = int(float(row.get("section_id") or row.get("section") or 0))
-            except (TypeError, ValueError):
-                w, s = 0, 0
-
-            fill_color, border_color, _name = _zone_fill_color(w, s, color)
-            hover = _zone_hover(row)
+            fill_color, border_color = _zone_fill_color(color)
+            hover  = _zone_hover(row, local_now)
+            detail = _zone_detail(row, local_now)
 
             out_geom = _simplify(geom)
             if out_geom is None or out_geom.is_empty:
@@ -252,6 +307,7 @@ def build_map_geojson(
                     "fill_color":   fill_color,
                     "border_color": border_color,
                     "hover_html":   hover,
+                    "detail_html":  detail,
                 },
             })
             continue

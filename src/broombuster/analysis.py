@@ -476,6 +476,104 @@ def _parse_sweeping_code_cached(code: str, year: int, month: int) -> tuple:
     return ()  # Unknown code
 
 
+_MONTH_ABBR = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
+}
+
+
+def parse_dates_code(code) -> list | None:
+    """Sorted list of dates for a 'DATES:' code, or None for any other code."""
+    if not isinstance(code, str) or not code.upper().startswith("DATES:"):
+        return None
+    out = []
+    for ds in code[6:].split(","):
+        ds = ds.strip()
+        if not ds:
+            continue
+        try:
+            out.append(datetime.date.fromisoformat(ds))
+        except ValueError:
+            pass
+    return sorted(out)
+
+
+def format_dates_by_month(dates) -> str:
+    """Group sorted dates into "Apr 17, 18; May 15" (preserving date order)."""
+    grouped: dict = {}
+    order: list = []
+    for d in dates:
+        key = (d.year, d.month)
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(d.day)
+    return "; ".join(
+        f"{_MONTH_ABBR[m]} " + ", ".join(str(day) for day in grouped[(y, m)])
+        for (y, m) in order
+    )
+
+
+def future_dates_desc(code, local_now=None, max_months: int = 2) -> str | None:
+    """Human-readable upcoming-dates string for a Chicago-style 'DATES:' code.
+
+    Filters to dates today-or-later, groups by month, e.g. "Apr 17, 18; May 15".
+    Returns None for non-DATES codes (caller keeps the original desc); returns
+    "" when the code is a DATES code with no remaining future dates.
+    """
+    dates = parse_dates_code(code)
+    if dates is None:
+        return None
+    today = local_now.date() if local_now else datetime.date.today()
+    future = [d for d in dates if d >= today]
+    if not future:
+        return ""
+    months: list = []
+    for d in future:
+        key = (d.year, d.month)
+        if key not in months:
+            months.append(key)
+    keep = set(months[:max_months])
+    return format_dates_by_month([d for d in future if (d.year, d.month) in keep])
+
+
+# A section's two sides are swept a few days apart (e.g. Jun 13 & 16); dates
+# within this gap belong to the same sweeping occurrence. Bi-weekly sections
+# sweep ~14 days apart, so this stays well below that and never over-merges.
+_CLUSTER_GAP_DAYS = 4
+
+
+def cluster_dates(dates, max_gap_days: int = _CLUSTER_GAP_DAYS) -> list:
+    """Group sorted dates into clusters; a gap > max_gap_days starts a new one."""
+    clusters: list = []
+    cur: list = []
+    for d in dates:
+        if cur and (d - cur[-1]).days > max_gap_days:
+            clusters.append(cur)
+            cur = []
+        cur.append(d)
+    if cur:
+        clusters.append(cur)
+    return clusters
+
+
+def next_dates_desc(code, local_now=None, max_dates: int = 3) -> str | None:
+    """Next upcoming sweep cluster (the next date plus same-occurrence dates).
+
+    Chicago sweeps a section's two sides a few days apart, so the next
+    occurrence is a small cluster, e.g. "Jun 19" or "Jun 13, 16". Capped at
+    `max_dates`. None for non-DATES codes; "" when none remain.
+    """
+    dates = parse_dates_code(code)
+    if dates is None:
+        return None
+    today = local_now.date() if local_now else datetime.date.today()
+    future = [d for d in dates if d >= today]
+    if not future:
+        return ""
+    return format_dates_by_month(cluster_dates(future)[0][:max_dates])
+
+
 def parse_sweeping_code(code: str) -> list:
     """
     Expand a sweep code into a list of dates.

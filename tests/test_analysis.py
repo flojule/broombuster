@@ -65,6 +65,35 @@ def test_unknown_code_returns_empty():
     assert analysis.parse_sweeping_code("XYZ") == []
 
 
+# ---------------------------------------------------------------------------
+# future_dates_desc — display string for Chicago 'DATES:' codes
+# ---------------------------------------------------------------------------
+
+_FD_NOW = datetime.datetime(2026, 6, 6, 9, 0)
+
+
+def test_future_dates_desc_drops_past_dates():
+    code = "DATES:2026-04-17,2026-05-15,2026-06-05,2026-06-19,2026-07-03"
+    out = analysis.future_dates_desc(code, _FD_NOW)
+    assert "Apr" not in out and "May" not in out
+    assert "5" not in out.split(";")[0]  # Jun 5 is past, excluded
+    assert out == "Jun 19; Jul 3"
+
+
+def test_future_dates_desc_includes_today():
+    code = "DATES:2026-06-06,2026-06-20"
+    assert analysis.future_dates_desc(code, _FD_NOW) == "Jun 6, 20"
+
+
+def test_future_dates_desc_non_dates_returns_none():
+    assert analysis.future_dates_desc("MWF", _FD_NOW) is None
+    assert analysis.future_dates_desc(None, _FD_NOW) is None
+
+
+def test_future_dates_desc_all_past_returns_empty():
+    assert analysis.future_dates_desc("DATES:2026-04-17,2026-05-15", _FD_NOW) == ""
+
+
 def test_no_sweep_codes_return_list():
     """N / NS / O are non-sweep markers; parse should not crash."""
     for code in ("N", "NS", "O"):
