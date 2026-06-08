@@ -9,7 +9,7 @@ REPO="$(pwd)"
 
 if [ ! -x "$REPO/.venv/bin/python" ]; then
   echo "No .venv found at $REPO/.venv -- create it first:" >&2
-  echo "    python3 -m venv .venv && .venv/bin/pip install '.[api]'" >&2
+  echo "    python3 -m venv .venv && .venv/bin/pip install -e '.[api]'" >&2
   exit 1
 fi
 

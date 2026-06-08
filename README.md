@@ -91,7 +91,7 @@ laptop share one saved-car set) and fronts it with `tailscale serve` at
 
 ### Always-on Raspberry Pi 5 (Ubuntu 24.04)
 
-Run it 24/7 on a Pi while keeping the Mac usable independently. Same no-login +
+Run it 24/7 on a Pi. Same no-login +
 Tailscale-HTTPS model, started by `systemd` so it survives reboots. Full steps
 and the `sync-data.sh` / `install-service.sh` helpers: [`deploy/README.md`](deploy/README.md).
 

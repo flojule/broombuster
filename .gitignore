@@ -3,33 +3,10 @@ __pycache__
 .pytest_cache
 .ruff_cache
 .venv
+.claude
 
-# Build artifacts from `pip install -e .`
 *.egg-info/
 build/
 dist/
 
-# macOS clutter
 .DS_Store
-
-# Runtime database — local sqlite holding user accounts and prefs.
-# Created on first server start; should not be committed.
-data/app.sqlite
-data/app.sqlite-journal
-data/app.sqlite-wal
-data/app.sqlite-shm
-
-# Stray runtime DB location — db.py uses data/app.sqlite, never this path.
-src/broombuster/data/
-
-# Raw city inputs — recreate locally with scripts/rebuild_city_data.py.
-# Only the normalised .fgb files in data/<city>/ are committed.
-data/oakland/StreetSweeping.shp
-data/oakland/StreetSweeping.dbf
-data/oakland/StreetSweeping.shx
-data/oakland/StreetSweeping.prj
-data/oakland/StreetSweeping.cpg
-data/oakland/_.txt
-data/*/StreetSweeping.geojson
-data/*/StreetSweepingZones.geojson
-data/*/*.pdf
