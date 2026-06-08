@@ -66,6 +66,7 @@
 
     <!-- Persistent cars info panel (top-right) -->
     <div id="cars-panel">
+      <button id="btn-add-car" class="add-car-btn">+ Add car</button>
       <div id="map-legend" class="cars-legend">
         <span style="color:#ef4444">■ Today</span>
         <span style="color:#f97316">■ Tomorrow</span>
@@ -87,13 +88,11 @@
 <!-- Toast container -->
 <div id="toast-container"></div>
 
-<!-- ══════════════════ INLINE NAME PANEL ══════════════════ -->
-<div id="name-panel">
-  <div class="np-row">
-    <input type="text" id="name-panel-input" placeholder="Car name…" maxlength="32">
-    <button id="btn-np-save" title="Save" aria-label="Save">✓</button>
-    <button id="btn-np-close" class="popup-close inline-close" title="Close (Esc)" aria-label="Close">✕</button>
-  </div>
+<!-- ══════════════════ CARD SCHEDULE DETAIL WINDOW ══════════════════ -->
+<!-- Same content as a street/ward click, shown without a map-anchored arrow. -->
+<div id="card-detail">
+  <button id="btn-card-detail-close" class="popup-close" title="Close (Esc)" aria-label="Close">✕</button>
+  <div id="card-detail-body"></div>
 </div>
 
 <!-- ══════════════════ CUSTOM HOVER ══════════════════ -->

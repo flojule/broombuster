@@ -558,6 +558,7 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
     car_side: str = "odd"
     address:  str = ""
     snap: Optional[dict] = None
+    detail_html: str = ""
 
     # Per-domain results, populated below. The /check response carries
     # `domains[]` for forward compatibility (Step 3+) AND the legacy
@@ -632,6 +633,24 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
                 urgency       = result.urgency if result.urgency in ("today", "tomorrow") else False
                 if resolved is not None:
                     message = result.extras.get("message") or ""
+                    # Full-year detail HTML for the resolved segment so the car
+                    # card can open the same window a street/ward click shows.
+                    # Same row shape the /zone/detail route builds; picks the
+                    # car-side's first entry (code, desc, time), else the other.
+                    primary = schedule_even if car_side == "even" else schedule_odd
+                    other   = schedule_odd  if car_side == "even" else schedule_even
+                    entry = (primary[0] if primary else (other[0] if other else None))
+                    if entry:
+                        detail_html = maps._zone_detail(
+                            {
+                                "STREET_DISPLAY": resolved.street_display or resolved.street_name,
+                                "STREET_NAME":    resolved.street_name,
+                                "DAY_EVEN":       entry[0],
+                                "DESC_EVEN":      entry[1] if len(entry) > 1 else "",
+                                "_city":          city_key,
+                            },
+                            local_now,
+                        )
 
     # In PMTILES mode the map renders from static vector tiles, so /check skips
     # the per-request clip + GeoJSON build entirely and returns no `geojson`.
@@ -667,6 +686,7 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         "schedule_odd": schedule_odd,
         "car_side": car_side,
         "address": address,
+        "detail_html": detail_html,
         "geojson": geojson,
         # `snap` tells the frontend which segment the resolver chose and how
         # far the car is from it — powers the "snapped to 5th St — 12 m"

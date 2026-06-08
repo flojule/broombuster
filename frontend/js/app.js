@@ -20,7 +20,6 @@ let pendingLat     = null, pendingLon = null;
 let carSchedules   = {};
 let _currentGeojson = null;   // last zone GeoJSON from /check
 let _tempPin        = null;   // {lat,lon} while naming a new car
-let _ctxScreenX     = 0, _ctxScreenY = 0;
 let _selectedCarId  = null;
 let _locSource = null, _locLat = null, _locLon = null, _locCity = null;
 let _gpsLocPin = null;
@@ -35,6 +34,8 @@ const _carMarkers  = new Map();  // carId → maplibregl.Marker
 let _gpsMarker     = null;
 let _tempPinMarker = null;
 let _zonePopup     = null;  // MapLibre popup for clicked zone detail
+let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
+let _nameInput     = null;  // <input> inside the active name popup
 
 const ZONES_SOURCE = 'sweeping-zones';
 const ZONE_LAYERS  = ['zones-fill', 'zones-outline', 'zones-ward', 'zones-line'];
@@ -90,9 +91,6 @@ const btnCancelPlace = document.getElementById('btn-cancel-place');
 const ctxMenu        = document.getElementById('ctx-menu');
 const ctxAddCar      = document.getElementById('ctx-add-car');
 const carsPanel      = document.getElementById('cars-panel');
-const namePanel      = document.getElementById('name-panel');
-const namePanelInput = document.getElementById('name-panel-input');
-const btnNpSave      = document.getElementById('btn-np-save');
 const customHoverEl  = document.getElementById('custom-hover');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -262,8 +260,9 @@ function _applyDark(on, persist) {
   _btnDark.title = on ? 'Switch to light' : 'Switch to dark';
   if (persist) localStorage.setItem('bb_dark', on ? '1' : '0');
   const style = on ? DARK_STYLE : LIGHT_STYLE;
-  if (map && _mapStyle !== style) {
-    _mapStyle = style;
+  const styleChanged = _mapStyle !== style;
+  _mapStyle = style;
+  if (map && styleChanged) {
     map.setStyle(_mapStyle);
     // Re-mount only after the NEW style settles. whenStyleReady() can't be used:
     // right after setStyle() isStyleLoaded() still reports the OLD style as
@@ -278,8 +277,6 @@ function _applyDark(on, persist) {
       else if (_currentGeojson) addZoneLayers(_currentGeojson);
       updateCarMarkers();
     });
-  } else {
-    _mapStyle = style;
   }
 }
 (function _initDark() { _applyDark(_wantDark(), false); })();
@@ -442,6 +439,25 @@ async function fetchViewport(bounds) {
 }
 
 let _mapListenersAttached = false;
+let _tapTimer = null;  // deferred single-tap (cancelled by a double-tap zoom)
+
+// Resolve a settled single tap: open the zone detail popup for a hit feature,
+// else dismiss any open transient window. Split out of the click listener so the
+// double-tap defer can call it after the timer fires.
+function handleMapTap(point, lngLat) {
+  const features = map.queryRenderedFeatures(point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
+  if (PMTILES_MODE) {
+    // Tiles carry no detail_html; fetch the full-year popup for clicked zones.
+    const poly = features.find(f => f.properties && f.properties.render_type === 'polygon');
+    if (poly) { fetchZoneDetail(poly.properties, lngLat); return; }
+    dismissMapWindows();
+    return;
+  }
+  if (!features.length) { dismissMapWindows(); return; }
+  const detailed = features.find(f => f.properties && f.properties.detail_html);
+  if (detailed) showZoneDetail(lngLat, detailed.properties.detail_html);
+  else dismissMapWindows();
+}
 
 function attachMapListeners() {
   // Event listeners live on the map instance and survive style changes, so only
@@ -471,27 +487,19 @@ function attachMapListeners() {
   map.getCanvas().addEventListener('mouseleave', () => { customHoverEl.style.display = 'none'; });
   map.on('movestart', () => { customHoverEl.style.display = 'none'; });
 
-  // Click → show zone detail (Chicago section schedule + PDF link) when a
-  // zone is hit; a click anywhere away from a zone dismisses any open window
-  // (zone popup, GPS pin popup, car selection) — same as pressing Esc.
+  // Tap → show zone detail (Chicago section schedule + PDF link) when a zone is
+  // hit; a tap away from a zone dismisses any open window (zone popup, GPS pin
+  // popup, car selection) — same as pressing Esc. The schedule/dismiss action is
+  // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
+  // placement commits immediately, and a tap while the name box is open cancels it.
   map.on('click', (e) => {
-    if (placingCar) {
-      commitPlacement(e.lngLat.lat, e.lngLat.lng);
-      return;
-    }
-    const features = map.queryRenderedFeatures(e.point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
-    if (PMTILES_MODE) {
-      // Tiles carry no detail_html; fetch the full-year popup for clicked zones.
-      const poly = features.find(f => f.properties && f.properties.render_type === 'polygon');
-      if (poly) { fetchZoneDetail(poly.properties, e.lngLat); return; }
-      dismissMapWindows();
-      return;
-    }
-    if (!features.length) { dismissMapWindows(); return; }
-    const detailed = features.find(f => f.properties && f.properties.detail_html);
-    if (detailed) showZoneDetail(e.lngLat, detailed.properties.detail_html);
-    else dismissMapWindows();
+    if (placingCar) { commitPlacement(e.lngLat.lat, e.lngLat.lng); return; }
+    if (_namePopup) { closeNameBox(); return; }
+    if (_tapTimer) clearTimeout(_tapTimer);
+    const point = e.point, lngLat = e.lngLat;
+    _tapTimer = setTimeout(() => { _tapTimer = null; handleMapTap(point, lngLat); }, 280);
   });
+  map.on('dblclick', () => { if (_tapTimer) { clearTimeout(_tapTimer); _tapTimer = null; } });
 
   // GPS popup position update on move
   map.on('move', updateGpsPinPopup);
@@ -841,10 +849,9 @@ function hideGpsPinPopup() {
 
 document.getElementById('btn-gps-add').addEventListener('click', () => {
   if (!_gpsLocPin) return;
-  pendingLat = _gpsLocPin.lat; pendingLon = _gpsLocPin.lon;
-  addTempPin(pendingLat, pendingLon);
-  const popup = document.getElementById('gps-pin-popup');
-  showNamePanel(popup.getBoundingClientRect());
+  const { lat, lon } = _gpsLocPin;
+  hideGpsPinPopup();
+  openNameBox(lat, lon);
 });
 
 document.getElementById('btn-gps-close').addEventListener('click', hideGpsPinPopup);
@@ -862,10 +869,31 @@ function closeZoneDetail() {
   if (_zonePopup) { _zonePopup.remove(); _zonePopup = null; }
 }
 
+// ── Card schedule detail window (toggle, no arrow) ─────────────────────────────
+// Same content as a street/ward click, shown as a fixed panel instead of a
+// map-anchored popup. Clicking the same card's header again closes it.
+let _cardDetailCarId = null;
+function openCardDetail(carId, html) {
+  const panel = document.getElementById('card-detail');
+  document.getElementById('card-detail-body').innerHTML = html;
+  panel.style.display = 'block';
+  _cardDetailCarId = carId;
+}
+function closeCardDetail() {
+  document.getElementById('card-detail').style.display = 'none';
+  _cardDetailCarId = null;
+}
+function toggleCardDetail(carId, html) {
+  if (_cardDetailCarId === carId) closeCardDetail();
+  else openCardDetail(carId, html);
+}
+document.getElementById('btn-card-detail-close').addEventListener('click', closeCardDetail);
+
 // Dismiss whatever transient map window is open — the click-away analogue of Esc.
 function dismissMapWindows() {
   if (_gpsLocPin) hideGpsPinPopup();
   closeZoneDetail();
+  closeCardDetail();
   clearCarSelection();
 }
 
@@ -881,11 +909,15 @@ mapDiv.addEventListener('contextmenu', e => {
 
 document.addEventListener('click', e => {
   if (!e.target.closest('#ctx-menu')) hideCtxMenu();
-  if (namePanel.style.display !== 'none'
-      && !e.target.closest('#name-panel')
+  // Click outside the name box cancels it. Map-canvas clicks are excluded here
+  // and handled by the map 'click' listener so the opening tap can't self-close.
+  if (_namePopup
+      && !e.target.closest('.maplibregl-popup')
       && !e.target.closest('#ctx-menu')
-      && !e.target.closest('#gps-pin-popup')) {
-    hideNamePanel();
+      && !e.target.closest('#gps-pin-popup')
+      && !e.target.closest('#btn-add-car')
+      && !e.target.closest('#map')) {
+    closeNameBox();
   }
 });
 
@@ -899,7 +931,8 @@ document.addEventListener('keydown', e => {
   if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
   let dismissed = false;
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
-  if (namePanel.style.display !== 'none')       { hideNamePanel();    dismissed = true; }
+  if (_namePopup)                               { closeNameBox();     dismissed = true; }
+  if (_cardDetailCarId)                         { closeCardDetail();  dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
   if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
   if (placingCar)                               { stopPlacing();      dismissed = true; }
@@ -920,13 +953,6 @@ function abbreviate(s) {
     .replace(/\bLane\b/gi, 'Ln').replace(/\bRoad\b/gi, 'Rd')
     .replace(/\bNorth\b/gi, 'N').replace(/\bSouth\b/gi, 'S')
     .replace(/\bEast\b/gi, 'E').replace(/\bWest\b/gi, 'W');
-}
-
-function latLonToScreen(lat, lon) {
-  if (!map) return null;
-  const rect = mapDiv.getBoundingClientRect();
-  const px   = map.project([lon, lat]);
-  return { x: rect.left + px.x, y: rect.top + px.y };
 }
 
 function nearestRegionNameByCoords(lat, lon) {
@@ -1156,21 +1182,20 @@ async function commitPlacement(lat, lon) {
       checkCarSilently(car);
     }
   } else {
-    pendingLat = lat; pendingLon = lon;
-    addTempPin(lat, lon);
-    const sc      = latLonToScreen(lat, lon);
-    const mapRect = mapDiv.getBoundingClientRect();
-    const anchorX = sc ? sc.x : mapRect.left + mapRect.width  / 2;
-    const anchorY = sc ? sc.y : mapRect.top  + mapRect.height / 2;
-    showNamePanel({ left: anchorX, top: anchorY, width: ctxMenu.offsetWidth || 160 });
+    openNameBox(lat, lon);
   }
 }
 
 btnCancelPlace.addEventListener('click', stopPlacing);
 
+// "+ Add car" — enters tap-to-place mode (works on touch where right-click can't).
+document.getElementById('btn-add-car').addEventListener('click', () => {
+  closeNameBox();
+  startPlacing(null);
+});
+
 // ── Context menu ──────────────────────────────────────────────────────────────
 function showCtxMenu(x, y) {
-  _ctxScreenX = x; _ctxScreenY = y;
   const mw = 170, mh = 44;
   ctxMenu.style.left = Math.min(x, window.innerWidth  - mw) + 'px';
   ctxMenu.style.top  = Math.min(y, window.innerHeight - mh) + 'px';
@@ -1179,48 +1204,69 @@ function showCtxMenu(x, y) {
 function hideCtxMenu() { ctxMenu.style.display = 'none'; }
 
 ctxAddCar.addEventListener('click', () => {
-  const rect = ctxMenu.getBoundingClientRect();
   hideCtxMenu();
-  addTempPin(pendingLat, pendingLon);
-  showNamePanel(rect);
+  openNameBox(pendingLat, pendingLon);
 });
 
-// ── Inline name panel ─────────────────────────────────────────────────────────
-function showNamePanel(rect) {
-  namePanelInput.value    = defaultCarName();
-  namePanel.style.left    = rect.left  + 'px';
-  namePanel.style.top     = rect.top   + 'px';
-  // Widen so the car name has room regardless of how narrow the anchor is.
-  namePanel.style.width   = Math.max(rect.width, 240) + 'px';
-  namePanel.style.display = 'block';
-  setTimeout(() => { namePanelInput.focus(); namePanelInput.select(); }, 30);
+// ── Name box (arrow popup at the pending location) ─────────────────────────────
+// Anchored MapLibre popup whose tip points at the spot the car will sit, matching
+// the ward/street detail box style. Drops a temp pin under the tip.
+function openNameBox(lat, lon) {
+  if (!map) return;
+  pendingLat = lat; pendingLon = lon;
+  addTempPin(lat, lon);
+  closeNameBox(true);  // clear any prior box without wiping the pending coords
+
+  const row = document.createElement('div');
+  row.className = 'np-row';
+  const input = document.createElement('input');
+  input.type = 'text'; input.id = 'name-panel-input';
+  input.placeholder = 'Car name…'; input.maxLength = 32;
+  input.value = defaultCarName();
+  const save = document.createElement('button');
+  save.id = 'btn-np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
+  save.textContent = '✓';
+  const close = document.createElement('button');
+  close.className = 'popup-close inline-close';
+  close.title = 'Close (Esc)'; close.setAttribute('aria-label', 'Close');
+  close.textContent = '✕';
+  row.append(input, save, close);
+
+  save.addEventListener('click', savePendingCar);
+  close.addEventListener('click', () => closeNameBox());
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); savePendingCar(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeNameBox(); }
+  });
+
+  _nameInput = input;
+  _namePopup = new maplibregl.Popup({
+    closeButton: false, closeOnClick: false, anchor: 'bottom', offset: 22,
+    className: 'name-popup',
+  }).setLngLat([lon, lat]).setDOMContent(row).addTo(map);
+  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; });
+  setTimeout(() => { input.focus(); input.select(); }, 30);
 }
 
-function hideNamePanel() {
-  namePanel.style.display = 'none';
-  removeTempPin();
-  pendingLat = pendingLon = null;
+// keepPending=true tears down the popup/pin but leaves pendingLat/Lon set (used
+// when re-opening or right before savePendingCar consumes them).
+function closeNameBox(keepPending = false) {
+  if (_namePopup) { _namePopup.remove(); _namePopup = null; }
+  _nameInput = null;
+  if (!keepPending) {
+    removeTempPin();
+    pendingLat = pendingLon = null;
+  }
 }
-
-btnNpSave.addEventListener('click', savePendingCar);
-document.getElementById('btn-np-close').addEventListener('click', hideNamePanel);
-namePanelInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter')  savePendingCar();
-  if (e.key === 'Escape') hideNamePanel();
-});
 
 async function savePendingCar() {
   if (pendingLat === null) return;
-  const name = namePanelInput.value.trim() || 'My car';
+  const name = (_nameInput?.value.trim()) || 'My car';
   const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
   cars.push({ id, name, lat: pendingLat, lon: pendingLon });
   removeTempPin();
-  namePanel.style.display = 'none';
-  if (_gpsLocPin) {
-    _gpsLocPin = null;
-    if (_gpsLocPinTimer) { clearTimeout(_gpsLocPinTimer); _gpsLocPinTimer = null; }
-    document.getElementById('gps-pin-popup').style.display = 'none';
-  }
+  closeNameBox(true);
+  if (_gpsLocPin) hideGpsPinPopup();
   await savePrefs();
   activeCarId = id;
   setNearestRegion(pendingLat, pendingLon);
@@ -1235,7 +1281,7 @@ function removeTempPin()      { _tempPin = null;         updateCarMarkers(); }
 function defaultCarName() {
   const used = new Set(cars.map(c => c.name));
   if (!used.has('Car')) return 'Car';
-  let i = 2;
+  let i = 1;
   while (used.has(`Car ${i}`)) i++;
   return `Car ${i}`;
 }
@@ -1262,8 +1308,12 @@ function scheduleHTML(sched) {
   lines = lines.slice(0, 4);
   const itemsHTML = lines.map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
 
+  // Header opens the full-year detail window when the server supplied one.
+  const hasDetail = !!sched.detail_html;
+  const headerCls = 'ce-sched-header' + (hasDetail ? ' clickable' : '');
+  const chevron   = hasDetail ? ' <span class="ce-sched-chevron">▸</span>' : '';
   return `<div class="ce-sched-urgency" style="color:${urgColor}">${urgLabel}</div>`
-       + `<div class="ce-sched-header">Street sweeping schedule:</div>`
+       + `<div class="${headerCls}">Street sweeping schedule:${chevron}</div>`
        + itemsHTML;
 }
 
@@ -1287,7 +1337,8 @@ function renderCarsPanel() {
     entry.dataset.urgency = urgency;
     entry.style.cssText = `--car-color:${color};--urg-color:${urgColor}`;
     entry.addEventListener('click', e => {
-      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
+      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')
+          || e.target.closest('.ce-sched-header.clickable')) return;
       setSelectedCar(car.id);
     });
 
@@ -1303,6 +1354,15 @@ function renderCarsPanel() {
         <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">📍 GPS</button>
         <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">📌 Set location</button>
       </div>`;
+
+    // ── Schedule header → toggle full-year detail window ──
+    if (sched?.detail_html) {
+      const hdr = entry.querySelector('.ce-sched-header.clickable');
+      hdr?.addEventListener('click', e => {
+        e.stopPropagation();
+        toggleCardDetail(car.id, sched.detail_html);
+      });
+    }
 
     // ── Name editing ──
     const nameEl = entry.querySelector('.ce-name');
@@ -1380,6 +1440,7 @@ function renderCarsPanel() {
       cars = cars.filter(c => c.id !== car.id);
       if (activeCarId === car.id) activeCarId = cars[0]?.id ?? null;
       if (_selectedCarId === car.id) _selectedCarId = null;
+      if (_cardDetailCarId === car.id) closeCardDetail();
       await savePrefs();
       updateCarMarkers();
       renderCarsPanel();
@@ -1401,8 +1462,8 @@ function apiFetch(path, opts = {}) {
 }
 
 // ── Locate button (GPS) ───────────────────────────────────────────────────────
-document.getElementById('btn-locate').addEventListener('click', () => {
-  const btn = document.getElementById('btn-locate');
+btnLocate.addEventListener('click', () => {
+  const btn = btnLocate;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner" style="border-top-color:#2563eb;border-color:rgba(0,0,0,.15)"></span>';
   getGPS(async (lat, lon) => {
@@ -1413,7 +1474,6 @@ document.getElementById('btn-locate').addEventListener('click', () => {
     _gpsLocPin = { lat, lon };
     if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
     updateCarMarkers();
-    updateGpsPinPopup();
     loadAreaMap(lat, lon, 16);
     updateGpsPinPopup();
     _gpsLocPinTimer = setTimeout(() => {
