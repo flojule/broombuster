@@ -1,0 +1,9 @@
+# Built by scripts/build_alameda_geojson.py from the city's PDF schedule.
+name: "Alameda, CA"
+center: {lat: 37.7652, lon: -122.2416}
+manual_default: {lat: 37.7652, lon: -122.2416}
+local_path: data/alameda/StreetSweeping.geojson
+url: null
+schema: alameda
+bbox: [37.73, -122.33, 37.79, -122.21]
+fgb_path: data/alameda/StreetSweeping.fgb

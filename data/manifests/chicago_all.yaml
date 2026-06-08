@@ -1,0 +1,12 @@
+# Chicago Data Portal Street Sweeping Zones (utb4-q645); polygon zones, month-date cols.
+# Update the dataset id in url and the year in schedule_pdf_url each spring.
+name: "Chicago, IL"
+center: {lat: 41.8781, lon: -87.6298}
+manual_default: {lat: 41.9951, lon: -87.6593}
+local_path: data/chicago/StreetSweepingZones.geojson
+url: "https://data.cityofchicago.org/resource/utb4-q645.geojson?$limit=50000"
+schema: chicago
+bbox: [41.644, -87.848, 42.024, -87.524]
+stale_after_days: 90
+fgb_path: data/chicago/StreetSweepingZones.fgb
+schedule_pdf_url: "https://www.chicago.gov/content/dam/city/depts/streets/supp_info/2026-Street-Sweeping/2026-Sweeping-Schedules/{ward}-Ward-Sweeping-Schedule-2026.pdf"

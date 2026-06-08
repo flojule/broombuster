@@ -313,14 +313,39 @@
     @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
     @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
 
-    /* ── Snap chip ── */
+    /* ── Center banner (live readout of the street at viewport center) ── */
     #snap-chip {
       position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
-      z-index: 20; display: none; align-items: center; gap: 6px;
+      z-index: 20; display: none; align-items: baseline; gap: 6px;
+      max-width: 92vw; box-sizing: border-box;
       background: rgba(15,23,42,.82); color: #e2e8f0;
       border-radius: 14px; padding: 5px 12px;
       font-size: .74rem; font-weight: 500;
-      box-shadow: 0 2px 8px rgba(0,0,0,.28); white-space: nowrap;
-      pointer-events: none; backdrop-filter: blur(4px);
+      box-shadow: 0 2px 8px rgba(0,0,0,.28);
+      pointer-events: auto; cursor: pointer; backdrop-filter: blur(4px);
     }
     #snap-chip.visible { display: flex; }
+    #snap-chip .sc-head { flex: 0 0 auto; font-weight: 600; white-space: nowrap; }
+    #snap-chip .sc-sched {
+      flex: 0 1 auto; min-width: 0; opacity: .82;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* Collapsed shows one line; tap to wrap the full schedule. */
+    #snap-chip.expanded { flex-wrap: wrap; }
+    #snap-chip.expanded .sc-sched { white-space: normal; overflow: visible; flex-basis: 100%; }
+
+    /* ── Center crosshair (marks the point the banner reads) ── */
+    #center-crosshair {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 15; display: none; width: 26px; height: 26px; pointer-events: none;
+    }
+    #center-crosshair.visible { display: block; }
+    #center-crosshair::before, #center-crosshair::after {
+      content: ""; position: absolute; background: rgba(15,23,42,.55);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.6);
+    }
+    #center-crosshair::before { top: 50%; left: 0; width: 100%; height: 2px; transform: translateY(-50%); }
+    #center-crosshair::after  { left: 50%; top: 0; height: 100%; width: 2px; transform: translateX(-50%); }
+    body.dark #center-crosshair::before, body.dark #center-crosshair::after {
+      background: rgba(226,232,240,.75); box-shadow: 0 0 0 1px rgba(0,0,0,.5);
+    }

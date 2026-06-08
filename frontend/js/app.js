@@ -282,15 +282,75 @@ function _applyDark(on, persist) {
 (function _initDark() { _applyDark(_wantDark(), false); })();
 _btnDark.addEventListener('click', () => _applyDark(!document.body.classList.contains('dark'), true));
 
-// ── Snap chip ─────────────────────────────────────────────────────────────────
-const _snapChip = document.getElementById('snap-chip');
-function showSnap(snap) {
-  if (!snap) { _snapChip.classList.remove('visible'); return; }
-  const dist = snap.distance_m < 1 ? '<1 m' : `${snap.distance_m} m`;
-  _snapChip.textContent = snap.is_polygon
-    ? `📍 Zone: ${snap.street_name}`
-    : `📍 ${snap.street_name} — ${dist}`;
+// ── Center banner ─────────────────────────────────────────────────────────────
+// Always-on pill that reports the street under the viewport center (the
+// mobile-friendly equivalent of hovering). Same headline format as the old snap
+// chip, plus the schedule lines the hover tooltip shows; one line, tap to expand.
+const _snapChip   = document.getElementById('snap-chip');
+const _crosshair  = document.getElementById('center-crosshair');
+_snapChip.addEventListener('click', () => _snapChip.classList.toggle('expanded'));
+
+// Meters from a {lng,lat} point to a line/multiline geometry; null for polygons.
+// Short-range equirectangular approximation (cos-scaled longitude).
+function _segDistM(p, a, b) {
+  const R = 6371000, rad = Math.PI / 180, k = Math.cos(p.lat * rad);
+  const px = p.lng * rad * k * R, py = p.lat * rad * R;
+  const ax = a[0] * rad * k * R, ay = a[1] * rad * R;
+  const bx = b[0] * rad * k * R, by = b[1] * rad * R;
+  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+  let t = L2 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+function _geomDistM(center, geom) {
+  if (!geom) return null;
+  let lines = [];
+  if (geom.type === 'LineString') lines = [geom.coordinates];
+  else if (geom.type === 'MultiLineString') lines = geom.coordinates;
+  else return null;
+  let best = Infinity;
+  for (const line of lines)
+    for (let i = 0; i + 1 < line.length; i++)
+      best = Math.min(best, _segDistM(center, line[i], line[i + 1]));
+  return isFinite(best) ? best : null;
+}
+
+// Query the feature under the viewport center (small pixel box so thin street
+// lines are forgiving on touch). Returns the topmost hit or null.
+function _centerFeature() {
+  if (!map) return null;
+  const layers = HOVER_LAYERS.filter(l => !!map.getLayer(l));
+  if (!layers.length) return null;
+  const c = map.project(map.getCenter()), pad = 9;
+  let feats;
+  try {
+    feats = map.queryRenderedFeatures(
+      [[c.x - pad, c.y - pad], [c.x + pad, c.y + pad]], { layers });
+  } catch (_) { return null; }
+  return feats.length ? feats[0] : null;
+}
+
+function updateCenterBanner() {
+  if (!map) { _snapChip.classList.remove('visible'); _crosshair.classList.remove('visible'); return; }
+  const f = _centerFeature();
+  if (!f) { _snapChip.classList.remove('visible'); _crosshair.classList.remove('visible'); return; }
+  const props = f.properties || {};
+  const isPoly = props.render_type === 'polygon';
+  const street = props.street || '';
+  const lines  = PMTILES_MODE ? tileSchedLines(props) : [];
+  let head;
+  if (isPoly) {
+    head = `📍 Zone: ${esc(street)}`;
+  } else {
+    const d = _geomDistM(map.getCenter(), f.geometry);
+    const dtxt = d == null ? '' : (d < 1 ? '<1 m' : `${Math.round(d)} m`);
+    head = `📍 ${esc(street)}${dtxt ? ' — ' + dtxt : ''}`;
+  }
+  const sched = lines.join('  ·  ');
+  _snapChip.innerHTML = `<span class="sc-head">${head}</span>`
+    + (sched ? `<span class="sc-sched">${sched}</span>` : '');
   _snapChip.classList.add('visible');
+  _crosshair.classList.add('visible');
 }
 
 // ── Map init ──────────────────────────────────────────────────────────────────
@@ -515,6 +575,11 @@ function attachMapListeners() {
     }, 200);
   });
 
+  // Center banner: re-read the street under the viewport center when panning
+  // stops, and once more after tiles finish streaming in (idle).
+  map.on('moveend', updateCenterBanner);
+  map.on('idle', updateCenterBanner);
+
   // PMTILES: recolour newly loaded tile features once the map settles.
   if (PMTILES_MODE) {
     map.on('idle', scheduleUrgencyUpdate);
@@ -705,25 +770,25 @@ function applyUrgencyStates() {
   }
 }
 
-function tileHoverHtml(props) {
+// Canonical schedule lines for a tile feature (day-first, "Every <Wd>" merge,
+// Mon->Sun order, merged next-cluster dates) — identical to the card and the
+// server hover. Shared by the hover tooltip and the center banner.
+function tileSchedLines(props) {
   let sched = [];
   try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}
   const tz  = REGION_TZ[_tilesRegion] || 'UTC';
   const now = BroomUrgency.nowForTimeZone(tz);
-  // Canonical formatting (day-first, "Every <Wd>" merge, Mon->Sun order, merged
-  // next-cluster dates) — identical to the card and the server hover.
   const evens = BroomUrgency.formatScheduleSide(sched.filter(e => e.side === 'even'), now);
   const odds  = BroomUrgency.formatScheduleSide(sched.filter(e => e.side === 'odd'), now);
-  let sched_html;
-  if (evens.length && odds.length && evens.join('|') === odds.join('|')) {
-    sched_html = evens.join('<br>');             // both sides identical → no label
-  } else if (!evens.length && !odds.length) {
-    sched_html = '';
-  } else {
-    sched_html = [...evens.map(e => 'Even: ' + e), ...odds.map(o => 'Odd: ' + o)].join('<br>');
-  }
+  if (evens.length && odds.length && evens.join('|') === odds.join('|')) return evens.slice();
+  if (!evens.length && !odds.length) return [];
+  return [...evens.map(e => 'Even: ' + e), ...odds.map(o => 'Odd: ' + o)];
+}
+
+function tileHoverHtml(props) {
+  const lines = tileSchedLines(props);
   // No real schedule (only N/A / no-sweep) → no hover at all.
-  return sched_html ? `<b>${esc(props.street || '')}</b><br>${sched_html}` : '';
+  return lines.length ? `<b>${esc(props.street || '')}</b><br>${lines.join('<br>')}` : '';
 }
 
 async function fetchZoneDetail(props, lngLat) {
@@ -1109,7 +1174,6 @@ async function checkCarWithRender(car) {
     const data = await res.json();
     carSchedules[car.id] = data;
     renderZones(data.geojson);
-    showSnap(data.snap || null);
     if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
     updateCarMarkers();
     updateStatusFromSchedules();

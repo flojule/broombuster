@@ -1,0 +1,16 @@
+# City groupings loaded together when SINGLE_CITY_MODE = False. Each region
+# carries its own timezone and overview frame.
+bay_area:
+  name: "Bay Area"
+  cities: [oakland, san_francisco, berkeley, alameda]
+  center: {lat: 37.820, lon: -122.295}
+  manual_default: {lat: 37.821326, lon: -122.280705}
+  overview_zoom: 11.5
+  tz: "America/Los_Angeles"
+chicago:
+  name: "Chicago"
+  cities: [chicago_all]
+  center: {lat: 41.975, lon: -87.660}
+  manual_default: {lat: 41.996593, lon: -87.665282}
+  overview_zoom: 13
+  tz: "America/Chicago"

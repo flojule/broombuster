@@ -261,16 +261,11 @@ def _download(url: str, local_path: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _normalise(gdf: geopandas.GeoDataFrame, schema: str) -> geopandas.GeoDataFrame:
-    dispatch = {
-        "oakland":  _normalise_oakland,
-        "sf":       _normalise_sf,
-        "chicago":  _normalise_chicago,
-        "berkeley": _normalise_prebuilt,
-        "alameda":  _normalise_prebuilt,
-    }
-    fn = dispatch.get(schema)
+    fn = SCHEMA_PROFILES.get(schema)
     if fn is None:
-        raise ValueError(f"Unknown schema '{schema}'")
+        raise ValueError(
+            f"Unknown schema '{schema}'. Known profiles: {sorted(SCHEMA_PROFILES)}"
+        )
     return fn(gdf)
 
 
@@ -590,4 +585,19 @@ def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         out["STREET_KEY"] = ""
         out["STREET_DISPLAY"] = ""
     return out
+
+
+# ---------------------------------------------------------------------------
+# Schema profiles — named normalisers selected by a city manifest's `schema`.
+# Each keeps its source format distinct; manifests never remap columns.
+# Add an entry here when a new city introduces a novel source format.
+# ---------------------------------------------------------------------------
+
+SCHEMA_PROFILES = {
+    "oakland":  _normalise_oakland,
+    "sf":       _normalise_sf,
+    "chicago":  _normalise_chicago,
+    "berkeley": _normalise_prebuilt,
+    "alameda":  _normalise_prebuilt,
+}
 

@@ -1,0 +1,9 @@
+# Oakland street-sweeping shapefile (schema: oakland). Bundled; no auto-download.
+name: "Oakland, CA"
+center: {lat: 37.8044, lon: -122.2712}
+manual_default: {lat: 37.821326, lon: -122.280705}
+local_path: data/oakland/StreetSweeping.shp
+url: null
+schema: oakland
+bbox: [37.69, -122.38, 37.90, -122.11]
+fgb_path: data/oakland/StreetSweeping.fgb

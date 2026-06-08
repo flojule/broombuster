@@ -1,0 +1,9 @@
+# Built by scripts/build_berkeley_geojson.py from the city's PDF schedules.
+name: "Berkeley, CA"
+center: {lat: 37.8716, lon: -122.2727}
+manual_default: {lat: 37.8716, lon: -122.2727}
+local_path: data/berkeley/StreetSweeping.geojson
+url: null
+schema: berkeley
+bbox: [37.84, -122.32, 37.91, -122.23]
+fgb_path: data/berkeley/StreetSweeping.fgb
