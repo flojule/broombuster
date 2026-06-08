@@ -90,13 +90,15 @@ class SweepingPlugin:
 
     domain_id: str = "sweeping"
     label: str = "Street sweeping"
+    subject: str = "car"
 
     def supports_city(self, city_key: str) -> bool:
         city = CITIES.get(city_key) or {}
         return city.get("schema") in _SUPPORTED_SCHEMAS
 
     def resolve_for(self, gdf_3857, lat: float, lon: float,
-                    city_key: str) -> Optional[resolve.ResolvedCar]:
+                    city_key: str, address: Optional[str] = None
+                    ) -> Optional[resolve.ResolvedCar]:
         try:
             return resolve.resolve_car_segment(
                 gdf_3857, lat, lon,

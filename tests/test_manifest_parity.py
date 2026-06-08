@@ -11,7 +11,8 @@ from broombuster import data_loader
 from broombuster.cities import CITIES, REGIONS
 from broombuster.manifest import load_all
 
-# Frozen copy of cities.py as it stood before the manifest refactor.
+# Expected CITIES: the pre-refactor config plus intentional post-refactor
+# additions (Oakland's `trash` ReCollect block). Guards against accidental drift.
 _EXPECTED_CITIES = {
     "oakland": {
         "name": "Oakland, CA",
@@ -22,6 +23,7 @@ _EXPECTED_CITIES = {
         "schema": "oakland",
         "bbox": [37.69, -122.38, 37.90, -122.11],
         "fgb_path": "data/oakland/StreetSweeping.fgb",
+        "trash": {"kind": "recollect", "area": "OaklandCA", "service_id": 608},
     },
     "san_francisco": {
         "name": "San Francisco, CA",

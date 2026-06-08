@@ -7,3 +7,8 @@ url: null
 schema: oakland
 bbox: [37.69, -122.38, 37.90, -122.11]
 fgb_path: data/oakland/StreetSweeping.fgb
+# Curbside collection (garbage/compost) via ReCollect — oaklandrecycles.com.
+trash:
+  kind: recollect
+  area: OaklandCA
+  service_id: 608

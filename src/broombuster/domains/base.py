@@ -55,26 +55,33 @@ class DomainResult:
 class DomainPlugin(Protocol):
     """Structural type for a domain plugin.
 
-    Implementations attach `domain_id` and `label` as class attributes and
-    define the methods below. They are constructed once at import time
-    (in `registry.py`) and reused for every request.
+    Implementations attach `domain_id`, `label`, and `subject` as class
+    attributes and define the methods below. They are constructed once at
+    import time (in `registry.py`) and reused for every request.
+
+    `subject` is what the domain is located against: "car" (parked location,
+    e.g. street sweeping) or "home" (residence, e.g. trash collection). The
+    runtime resolves car-subject plugins at the car coordinate and
+    home-subject plugins at the saved home coordinate.
     """
 
     domain_id: str
     label: str
+    subject: str  # "car" | "home"
 
     def supports_city(self, city_key: str) -> bool:
         """Whether the plugin has data for this city."""
         ...
 
     def resolve_for(self, gdf_3857: Any, lat: float, lon: float,
-                    city_key: str) -> Optional[Any]:
-        """Resolve the car coordinate to a per-domain row, or None.
+                    city_key: str, address: Optional[str] = None) -> Optional[Any]:
+        """Resolve a coordinate (and optional address) to a per-domain row, or None.
 
-        Most plugins delegate to `broombuster.resolve.resolve_car_segment`.
-        The return type is intentionally `Any` — each plugin can pick the
-        shape that's most natural for its `format` step. Sweeping returns
-        a `resolve.ResolvedCar`; trash will likely do the same.
+        Car-subject plugins delegate to `broombuster.resolve.resolve_car_segment`.
+        `address` is supplied for home-subject lookups that need a postal
+        address (e.g. the ReCollect trash adapter); other plugins ignore it.
+        The return type is intentionally `Any` — each plugin picks the shape
+        most natural for its `format` step.
         """
         ...
 

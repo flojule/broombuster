@@ -5,7 +5,9 @@ import re
 import weakref
 
 from broombuster import normalize
-from broombuster.domains.sweeping import compose_message
+
+# compose_message is imported lazily inside analyze_car to avoid a circular
+# import (domains.sweeping imports analysis at module load).
 
 
 # Canonical street-name comparison key — delegates to normalize module.
@@ -90,6 +92,7 @@ def analyze_car(gdf_3857, lat, lon, *, city_key=None, max_distance_m=50.0):
     side is geometric (resolved.side), not house-number parity.
     """
     from broombuster import resolve  # local import: resolve has no broombuster deps
+    from broombuster.domains.sweeping import compose_message  # local: breaks import cycle
 
     try:
         resolved = resolve.resolve_car_segment(

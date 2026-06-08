@@ -285,6 +285,13 @@
     }
     .car-marker.selected { border-color: var(--marker-color, white); }
 
+    /* Home pin — emoji marker, distinct from the round car dots. */
+    .home-marker {
+      font-size: 22px; line-height: 1; cursor: pointer;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
+    }
+    .ce-dot-home { background: transparent !important; font-size: 14px; line-height: 1; }
+
     /* ── Spinner ── */
     .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
     @keyframes spin { to { transform: rotate(360deg); } }

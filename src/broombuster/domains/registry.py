@@ -15,12 +15,17 @@ from typing import Iterable
 
 from broombuster.domains.base import DomainPlugin
 from broombuster.domains.sweeping import SweepingPlugin
+from broombuster.domains.trash import ReCollectTrashPlugin, ZoneTrashPlugin
 
 # Order matters: plugins listed first appear first in /check responses.
 # The frontend renders cards in this order, so put the most safety-critical
-# domain (street sweeping) at the top.
+# domain (street sweeping) at the top. Trash plugins are inert until a city
+# opts in via a `trash:` manifest block; the zone vs recollect kinds are
+# mutually exclusive, so at most one trash plugin runs per city.
 _REGISTRY: list[DomainPlugin] = [
     SweepingPlugin(),
+    ZoneTrashPlugin(),
+    ReCollectTrashPlugin(),
 ]
 
 

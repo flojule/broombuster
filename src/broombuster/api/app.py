@@ -602,6 +602,10 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
         # The sweeping plugin's output is also mirrored into the legacy
         # top-level response fields below.
         for plugin in plugins_for_city(city_key):
+            # /check is the car flow — only car-subject domains (sweeping).
+            # Home-subject domains (trash) are served by /check-home.
+            if getattr(plugin, "subject", "car") != "car":
+                continue
             # Plugins may re-resolve with their own parameters in the future;
             # for now sweeping shares the same resolved segment we already
             # computed. Calling resolve_for ensures plugins that DO need a
@@ -700,9 +704,46 @@ def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
     }
 
 
+class CheckHomeRequest(BaseModel):
+    lat: float = Field(..., ge=-90.0, le=90.0)
+    lon: float = Field(..., ge=-180.0, le=180.0)
+    region: Optional[str] = None
+    # Postal address for address-keyed lookups (e.g. ReCollect trash).
+    address: Optional[str] = None
+
+
+@app.post("/check-home")
+def check_home(req: CheckHomeRequest, user_id: str = Depends(verify_jwt)):
+    """Home flow: run home-subject domains (trash) at a saved residence.
+
+    Separate from /check (the car flow) because a home is located by address,
+    not by the parked-car coordinate, and uses a different plugin subject.
+    """
+    region, local_now = _resolve_region(req)
+    city_key = _nearest_city_key(req.lat, req.lon, region)
+
+    domain_results: list[dict] = []
+    for plugin in plugins_for_city(city_key):
+        if getattr(plugin, "subject", "car") != "home":
+            continue
+        resolved = plugin.resolve_for(None, req.lat, req.lon, city_key,
+                                      address=req.address)
+        result = plugin.format(resolved, None, local_now)
+        domain_results.append({
+            "id":             result.domain_id,
+            "label":          result.label,
+            "urgency":        result.urgency,
+            "schedule_lines": list(result.schedule_lines),
+            "extras":         dict(result.extras),
+        })
+
+    return {"city": city_key, "region": region, "domains": domain_results}
+
+
 class PrefsRequest(BaseModel):
     home_lat: Optional[float] = None
     home_lon: Optional[float] = None
+    home_address: Optional[str] = None
     preferred_region: Optional[str] = "bay_area"
     notify_email: Optional[bool] = False
     cars: Optional[list] = []
@@ -718,6 +759,7 @@ def save_prefs(req: PrefsRequest, user_id: str = Depends(verify_jwt)):
     db.save_prefs(user_id, {
         "home_lat":          req.home_lat,
         "home_lon":          req.home_lon,
+        "home_address":      req.home_address,
         "preferred_region":  req.preferred_region,
         "notify_email":      req.notify_email,
         "cars":              req.cars,

@@ -31,6 +31,9 @@ let _settingRegion   = false;  // true while setNearestRegion() is updating the 
 // ── Map (MapLibre) ────────────────────────────────────────────────────────────
 let map = null;
 const _carMarkers  = new Map();  // carId → maplibregl.Marker
+let home           = null;       // { lat, lon, address } — the saved residence
+let homeSchedule   = null;       // /check-home response (home-subject domains[])
+let _homeMarker    = null;       // maplibregl.Marker for the home pin
 let _gpsMarker     = null;
 let _tempPinMarker = null;
 let _zonePopup     = null;  // MapLibre popup for clicked zone detail
@@ -91,6 +94,7 @@ const btnCancelPlace = document.getElementById('btn-cancel-place');
 const ctxMenu        = document.getElementById('ctx-menu');
 const ctxAddCar      = document.getElementById('ctx-add-car');
 const carsPanel      = document.getElementById('cars-panel');
+const homePanel      = document.getElementById('home-panel');
 const customHoverEl  = document.getElementById('custom-hover');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -167,6 +171,11 @@ async function initApp() {
     ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 }
     : DEFAULT_CENTER;
   initMap(initCenter);
+
+  // Render the home card + pin and refresh its trash schedule (if saved).
+  renderHomePanel();
+  updateHomeMarker();
+  if (home) checkHome();
 
   // Fetch IP location in parallel with the first car check.
   const ipLocPromise = getIPLocation();
@@ -1113,7 +1122,13 @@ async function loadPrefs() {
   if (!session) return;
   try {
     const res = await apiFetch('/prefs');
-    if (res.ok) { const prefs = await res.json(); cars = prefs.cars || []; }
+    if (res.ok) {
+      const prefs = await res.json();
+      cars = prefs.cars || [];
+      if (prefs.home_lat != null && prefs.home_lon != null) {
+        home = { lat: prefs.home_lat, lon: prefs.home_lon, address: prefs.home_address || '' };
+      }
+    }
   } catch (_) {}
 }
 
@@ -1123,7 +1138,12 @@ async function savePrefs() {
     await apiFetch('/prefs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cars }),
+      body: JSON.stringify({
+        cars,
+        home_lat: home?.lat ?? null,
+        home_lon: home?.lon ?? null,
+        home_address: home?.address ?? null,
+      }),
     });
   } catch (_) {}
 }
@@ -1355,30 +1375,70 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Worst-case urgency across all domains (today > tomorrow > safe). Drives the
+// card tint/dot so a trash-today still flags a car whose sweeping is clear.
+const _URG_RANK = { today: 2, tomorrow: 1, safe: 0 };
+function panelUrgency(sched) {
+  let best = (sched?.urgency && sched.urgency !== false) ? sched.urgency : 'safe';
+  for (const d of (sched?.domains || [])) {
+    if ((_URG_RANK[d.urgency] || 0) > (_URG_RANK[best] || 0)) best = d.urgency;
+  }
+  return best;
+}
+
+// One card block for a non-sweeping domain (trash, events, …): server-formatted
+// schedule_lines under the domain label, with its own urgency line.
+function domainBlockHTML(d) {
+  const u = d.urgency || 'safe';
+  const color = u === 'today' ? '#ef4444' : u === 'tomorrow' ? '#f97316' : '#2563eb';
+  const label = u === 'today' ? '🚨 Today' : u === 'tomorrow' ? '⚠️ Tomorrow' : '✅ Clear';
+  let lines = (d.schedule_lines || []).slice(0, 4);
+  if (!lines.length) lines = ['No schedule'];
+  const items = lines.map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
+  return `<div class="ce-sched-urgency" style="color:${color}">${esc(label)}</div>`
+       + `<div class="ce-sched-header">${esc(d.label)}:</div>`
+       + items;
+}
+
 function scheduleHTML(sched) {
   if (!sched) return '<span style="color:var(--muted)">Loading…</span>';
-  const urgency  = sched.urgency || 'safe';
-  const urgColor = urgency === 'today'    ? '#ef4444'
-                 : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
-  const urgLabel = urgency === 'today'    ? '🚨 Move car today!'
-                 : urgency === 'tomorrow' ? '⚠️ Move car tomorrow'
-                 : '✅ All clear';
 
-  const now   = BroomUrgency.nowForTimeZone(REGION_TZ[regionSelect.value] || 'UTC');
-  const side  = sched.car_side || 'even';
-  let lines   = BroomUrgency.formatScheduleSide(
-    side === 'even' ? sched.schedule_even : sched.schedule_odd, now);
-  if (!lines.length) lines = ['No sweeping scheduled'];
-  lines = lines.slice(0, 4);
-  const itemsHTML = lines.map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
+  const domains = sched.domains || null;
+  // Legacy server (no domains[]) always carries sweeping in the top-level fields.
+  const hasSweeping = !domains || domains.some(d => d.id === 'sweeping');
+  let html = '';
 
-  // Header opens the full-year detail window when the server supplied one.
-  const hasDetail = !!sched.detail_html;
-  const headerCls = 'ce-sched-header' + (hasDetail ? ' clickable' : '');
-  const chevron   = hasDetail ? ' <span class="ce-sched-chevron">▸</span>' : '';
-  return `<div class="ce-sched-urgency" style="color:${urgColor}">${urgLabel}</div>`
-       + `<div class="${headerCls}">Street sweeping schedule:${chevron}</div>`
-       + itemsHTML;
+  if (hasSweeping) {
+    const urgency  = sched.urgency || 'safe';
+    const urgColor = urgency === 'today'    ? '#ef4444'
+                   : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
+    const urgLabel = urgency === 'today'    ? '🚨 Move car today!'
+                   : urgency === 'tomorrow' ? '⚠️ Move car tomorrow'
+                   : '✅ All clear';
+
+    const now   = BroomUrgency.nowForTimeZone(REGION_TZ[regionSelect.value] || 'UTC');
+    const side  = sched.car_side || 'even';
+    let lines   = BroomUrgency.formatScheduleSide(
+      side === 'even' ? sched.schedule_even : sched.schedule_odd, now);
+    if (!lines.length) lines = ['No sweeping scheduled'];
+    lines = lines.slice(0, 4);
+    const itemsHTML = lines.map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
+
+    // Header opens the full-year detail window when the server supplied one.
+    const hasDetail = !!sched.detail_html;
+    const headerCls = 'ce-sched-header' + (hasDetail ? ' clickable' : '');
+    const chevron   = hasDetail ? ' <span class="ce-sched-chevron">▸</span>' : '';
+    html += `<div class="ce-sched-urgency" style="color:${urgColor}">${urgLabel}</div>`
+          + `<div class="${headerCls}">Street sweeping schedule:${chevron}</div>`
+          + itemsHTML;
+  }
+
+  for (const d of (domains || [])) {
+    if (d.id === 'sweeping') continue;
+    html += domainBlockHTML(d);
+  }
+
+  return html || '<span style="color:var(--muted)">No schedule</span>';
 }
 
 function renderCarsPanel() {
@@ -1388,7 +1448,7 @@ function renderCarsPanel() {
   cars.forEach((car, i) => {
     const color   = carColor(i);
     const sched   = carSchedules[car.id];
-    const urgency = sched?.urgency || 'safe';
+    const urgency = panelUrgency(sched);
     const urgColor = urgency === 'today'    ? '#ef4444'
                    : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
     const addrText = abbreviate(sched?.address || '');
@@ -1514,6 +1574,113 @@ function renderCarsPanel() {
 
     carsPanel.appendChild(entry);
   });
+}
+
+// ── Home (residence) — trash/recycling day ─────────────────────────────────────
+function homeScheduleHTML() {
+  if (!home) {
+    return '<div class="ce-sched-item" style="color:var(--muted)">'
+         + 'Add your home address to see trash &amp; recycling day.</div>';
+  }
+  if (!homeSchedule) return '<span style="color:var(--muted)">Loading…</span>';
+  const domains = homeSchedule.domains || [];
+  if (!domains.length) {
+    return '<div class="ce-sched-item" style="color:var(--muted)">'
+         + 'No collection info for this address.</div>';
+  }
+  return domains.map(domainBlockHTML).join('');
+}
+
+function renderHomePanel() {
+  if (!homePanel) return;
+  homePanel.innerHTML = '';
+  const urgency = home ? panelUrgency(homeSchedule) : 'safe';
+  const addrText = home?.address ? abbreviate(home.address) : '';
+
+  const entry = document.createElement('div');
+  entry.className = 'car-entry home-entry';
+  entry.dataset.urgency = urgency;
+  entry.style.cssText = '--car-color:#16a34a;--urg-color:#16a34a';
+  entry.innerHTML = `
+    <div class="ce-header">
+      <span class="ce-dot ce-dot-home">🏠</span>
+      <span class="ce-name">Home</span>
+      ${home ? '<button class="ce-remove" title="Remove home">✕</button>' : ''}
+    </div>
+    <div class="ce-addr" contenteditable="false" title="Double-click to edit your address">${esc(addrText || 'Set home address…')}</div>
+    <div class="ce-sched">${homeScheduleHTML()}</div>`;
+
+  // ── Address entry / editing → geocode + refresh trash ──
+  const addrEl = entry.querySelector('.ce-addr');
+  addrEl.addEventListener('dblclick', () => {
+    addrEl.contentEditable = 'true';
+    if (!home) addrEl.textContent = '';
+    addrEl.focus();
+    const r = document.createRange(); r.selectNodeContents(addrEl);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  });
+  addrEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addrEl.blur(); }
+    if (e.key === 'Escape') { addrEl.textContent = addrText || 'Set home address…'; addrEl.blur(); }
+  });
+  addrEl.addEventListener('blur', async () => {
+    addrEl.contentEditable = 'false';
+    const q = addrEl.textContent.trim();
+    if (!q || q === addrText) { renderHomePanel(); return; }
+    await setHomeFromAddress(q);
+  });
+
+  entry.querySelector('.ce-remove')?.addEventListener('click', removeHome);
+
+  homePanel.appendChild(entry);
+}
+
+// Geocode a typed address → home pin + ReCollect lookup (keeps the typed text
+// as home.address since ReCollect matches the user's address string best).
+async function setHomeFromAddress(query) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
+    const hits = await res.json();
+    if (!hits.length) { showToast('Address not found', true); renderHomePanel(); return; }
+    home = { lat: parseFloat(hits[0].lat), lon: parseFloat(hits[0].lon), address: query };
+  } catch (_) { showToast('Could not look up address', true); renderHomePanel(); return; }
+  await savePrefs();
+  updateHomeMarker();
+  renderHomePanel();
+  await checkHome();
+}
+
+async function removeHome() {
+  home = null; homeSchedule = null;
+  if (_homeMarker) { _homeMarker.remove(); _homeMarker = null; }
+  await savePrefs();
+  renderHomePanel();
+}
+
+function updateHomeMarker() {
+  if (!map) return;
+  if (!home) { if (_homeMarker) { _homeMarker.remove(); _homeMarker = null; } return; }
+  if (_homeMarker) { _homeMarker.setLngLat([home.lon, home.lat]); return; }
+  const el = document.createElement('div');
+  el.className = 'home-marker';
+  el.textContent = '🏠';
+  el.title = 'Home';
+  _homeMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+    .setLngLat([home.lon, home.lat]).addTo(map);
+}
+
+async function checkHome() {
+  if (!home) return;
+  try {
+    // Region is derived server-side from the home coordinate — a home can sit
+    // in a different region than the map's currently selected one.
+    const res = await apiFetch('/check-home', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: home.lat, lon: home.lon, address: home.address }),
+    });
+    if (res.ok) { homeSchedule = await res.json(); renderHomePanel(); }
+  } catch (_) {}
 }
 
 // ── API fetch ─────────────────────────────────────────────────────────────────
