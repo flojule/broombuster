@@ -5,11 +5,9 @@
 #   PORT=8080 ./deploy.sh   # proxy a different local port
 #   PYTHON=/path ./deploy.sh
 #
-# DEV_MODE=true => no account / no sign-in. The phone and the laptop share the
-# same saved cars (one local user). The app listens only on 127.0.0.1; the
-# tailnet is the only way in, so Tailscale device auth is the access control.
-# Real HTTPS from Tailscale is what makes one-tap GPS and PWA install work on
-# the phone (browsers block geolocation on insecure origins).
+# DEV_MODE=true => single shared local user, sign-in skipped. Phone + laptop
+# see the same saved cars. App listens on 127.0.0.1; Tailscale device auth gates
+# access. Real HTTPS from Tailscale enables one-tap GPS and PWA install.
 set -euo pipefail
 cd "$(dirname "$0")"
 

@@ -1,9 +1,7 @@
 # Raspberry Pi 5 deployment (Ubuntu 24.04)
 
-Always-on, no-login, tailnet-only. The Mac stays usable independently via
-`./run.sh` or `./deploy.sh`.
-
-Map data (`.fgb` + `.pmtiles`) is committed to git, so a clone has everything.
+Always-on, no-login, tailnet-only; map data ships in git so a clone is
+self-contained. The Mac runs independently via `./run.sh` / `./deploy.sh`.
 
 | File | Runs on | Purpose |
 |------|---------|---------|
@@ -27,9 +25,7 @@ cd ~/ws/BroomBuster
 python3 -m venv .venv
 .venv/bin/pip install -e '.[api]'
 ```
-The `-e` (editable) is required: the app finds `data/` and `frontend/`
-relative to the source tree, so a non-editable install resolves them inside
-`.venv/lib/...` and the map data won't load.
+`-e` (editable) keeps path resolution on the source tree's `data/` + `frontend/`.
 
 **3. On the Pi — install the service + expose over HTTPS**
 ```bash
@@ -50,5 +46,4 @@ URL: `https://<pi-name>.tailf5051f.ts.net` (the Pi's own MagicDNS name).
 | Stop / disable | `sudo systemctl disable --now broombuster` |
 | Refresh map data | commit + push the rebuilt `.fgb`/tiles, then `./deploy/update.sh` |
 
-The service starts at boot and restarts on crash; `tailscale serve` persists, so
-nothing else needs re-running after a reboot.
+Service auto-starts at boot and restarts on crash; `tailscale serve` persists across reboots.

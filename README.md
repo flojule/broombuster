@@ -34,7 +34,7 @@ Know before the grim sweeper comes. An interactive map that shows your parked ca
 ### Web app (local)
 
 ```bash
-pip install '.[api]'
+pip install -e '.[api]'
 ./run.sh
 ```
 
@@ -85,15 +85,14 @@ laptop share one saved-car set) and fronts it with `tailscale serve` at
 | Item | Detail |
 |------|--------|
 | Mobile setup | Install Tailscale app, log into same tailnet, open the URL, "Add to Home Screen". |
-| Why HTTPS | One-tap GPS and PWA install need a secure origin; plain LAN HTTP blocks both. |
+| Why HTTPS | One-tap GPS and PWA install require a secure (HTTPS) origin. |
 | Access control | App binds localhost only; tailnet device auth is the gate. |
 | Prereq | HTTPS + MagicDNS enabled in the [admin console](https://login.tailscale.com/admin/dns). |
 
 ### Always-on Raspberry Pi 5 (Ubuntu 24.04)
 
-Run it 24/7 on a Pi. Same no-login +
-Tailscale-HTTPS model, started by `systemd` so it survives reboots. Full steps
-and the `sync-data.sh` / `install-service.sh` helpers: [`deploy/README.md`](deploy/README.md).
+Same no-login Tailscale-HTTPS model under `systemd`, surviving reboots. Setup,
+`update.sh`, and `install-service.sh`: [`deploy/README.md`](deploy/README.md).
 
 ### Public domain or LAN (Docker + Caddy)
 
