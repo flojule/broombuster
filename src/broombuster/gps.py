@@ -33,7 +33,8 @@ def reverse_address(lat: float, lon: float) -> str | None:
     when available, falling back to road, then the full display name.
     """
     try:
-        location = _GEOLOCATOR.reverse((round(lat, 5), round(lon, 5)), exactly_one=True)
+        location = _GEOLOCATOR.reverse(
+            (round(lat, 5), round(lon, 5)), exactly_one=True, timeout=5)
     except Exception:
         return None
     if location is None:

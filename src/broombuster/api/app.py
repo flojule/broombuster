@@ -749,6 +749,7 @@ class PrefsRequest(BaseModel):
     home_lat: Optional[float] = None
     home_lon: Optional[float] = None
     home_address: Optional[str] = None
+    homes: Optional[list] = []
     preferred_region: Optional[str] = "bay_area"
     notify_email: Optional[bool] = False
     cars: Optional[list] = []
@@ -765,6 +766,7 @@ def save_prefs(req: PrefsRequest, user_id: str = Depends(verify_jwt)):
         "home_lat":          req.home_lat,
         "home_lon":          req.home_lon,
         "home_address":      req.home_address,
+        "homes":             req.homes,
         "preferred_region":  req.preferred_region,
         "notify_email":      req.notify_email,
         "cars":              req.cars,

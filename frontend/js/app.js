@@ -32,9 +32,9 @@ let _settingRegion   = false;  // true while setNearestRegion() is updating the 
 // ── Map (MapLibre) ────────────────────────────────────────────────────────────
 let map = null;
 const _carMarkers  = new Map();  // carId → maplibregl.Marker
-let home           = null;       // { lat, lon, address } — the saved residence
-let homeSchedule   = null;       // /check-home response (home-subject domains[])
-let _homeMarker    = null;       // maplibregl.Marker for the home pin
+let homes          = [];         // [{ id, lat, lon, address }] — saved residences
+let homeSchedules  = {};         // homeId → /check-home response (home-subject domains[])
+const _homeMarkers = new Map();  // homeId → maplibregl.Marker for the home pin
 let _gpsMarker     = null;
 let _tempPinMarker = null;
 let _zonePopup     = null;  // MapLibre popup for clicked zone detail
@@ -194,10 +194,10 @@ async function initApp() {
     : DEFAULT_CENTER;
   initMap(initCenter);
 
-  // Render the home card + pin and refresh its trash schedule (if saved).
+  // Render the home cards + pins and refresh their trash schedules (if saved).
   renderHomePanel();
-  updateHomeMarker();
-  if (home) checkHome();
+  updateHomeMarkers();
+  checkAllHomes();
 
   // Fetch IP location in parallel with the first car check.
   const ipLocPromise = getIPLocation();
@@ -231,15 +231,14 @@ async function _finishAuth() {
   location.reload();
 }
 
-// Merge the guest's cars/home (in-memory + sessionStorage) into the account,
-// keeping anything the account already had. New cars dedupe by name.
+// Merge the guest's cars/homes (in-memory + sessionStorage) into the account,
+// keeping anything the account already had. Cars dedupe by name, homes by coord.
 async function _migrateGuestToServer() {
   const g = _loadGuestPrefs();
   const guestCars = [...(g.cars || [])];
   for (const c of cars) if (!guestCars.find(x => x.id === c.id)) guestCars.push(c);
-  const guestHome = home
-    || (g.home_lat != null && g.home_lon != null
-        ? { lat: g.home_lat, lon: g.home_lon, address: g.home_address || '' } : null);
+  const guestHomes = _homesFromPrefs(g);
+  for (const h of homes) if (!guestHomes.find(x => x.id === h.id)) guestHomes.push(h);
 
   let acct = {};
   try { const r = await apiFetch('/prefs'); if (r.ok) acct = await r.json(); } catch (_) {}
@@ -248,20 +247,19 @@ async function _migrateGuestToServer() {
   const names = new Set(merged.map(c => c.name));
   for (const c of guestCars) if (!names.has(c.name)) { merged.push(c); names.add(c.name); }
 
-  const finalHome = guestHome
-    || (acct.home_lat != null ? { lat: acct.home_lat, lon: acct.home_lon, address: acct.home_address || '' } : null);
+  const mergedHomes = _homesFromPrefs(acct);
+  const coords = new Set(mergedHomes.map(h => `${h.lat},${h.lon}`));
+  for (const h of guestHomes) {
+    const k = `${h.lat},${h.lon}`;
+    if (!coords.has(k)) { mergedHomes.push(h); coords.add(k); }
+  }
 
-  if (merged.length === 0 && !finalHome) return;  // nothing to persist
+  if (merged.length === 0 && mergedHomes.length === 0) return;  // nothing to persist
   try {
     await apiFetch('/prefs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cars: merged,
-        home_lat: finalHome?.lat ?? null,
-        home_lon: finalHome?.lon ?? null,
-        home_address: finalHome?.address ?? null,
-      }),
+      body: JSON.stringify({ cars: merged, ..._homePrefsPayload(mergedHomes) }),
     });
   } catch (_) {}
 }
@@ -635,7 +633,7 @@ function attachMapListeners() {
   // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
   // placement commits immediately, and a tap while the name box is open cancels it.
   map.on('click', (e) => {
-    if (placingHome) { stopPlacing(); setHomeFromCoords(e.lngLat.lat, e.lngLat.lng); return; }
+    if (placingHome) { stopPlacing(); addHome(e.lngLat.lat, e.lngLat.lng); return; }
     if (placingCar) { commitPlacement(e.lngLat.lat, e.lngLat.lng); return; }
     if (_namePopup) { closeNameBox(); return; }
     if (_tapTimer) clearTimeout(_tapTimer);
@@ -1193,6 +1191,36 @@ function setNearestRegion(lat, lon) {
 }
 
 // ── Cars ──────────────────────────────────────────────────────────────────────
+function _newId() {
+  return crypto.randomUUID ? crypto.randomUUID()
+                           : Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+// Read the homes array from a prefs object, backfilling a legacy single home
+// (home_lat/lon/address) so accounts saved before multi-home keep working.
+function _homesFromPrefs(p) {
+  if (Array.isArray(p.homes) && p.homes.length) {
+    return p.homes
+      .filter(h => h && h.lat != null && h.lon != null)
+      .map(h => ({ id: h.id || _newId(), lat: h.lat, lon: h.lon, address: h.address || '' }));
+  }
+  if (p.home_lat != null && p.home_lon != null) {
+    return [{ id: _newId(), lat: p.home_lat, lon: p.home_lon, address: p.home_address || '' }];
+  }
+  return [];
+}
+
+// Prefs payload for homes: the array plus a legacy single-home mirror (homes[0])
+// so an older cached client still reads a home.
+function _homePrefsPayload(list) {
+  return {
+    homes: list,
+    home_lat: list[0]?.lat ?? null,
+    home_lon: list[0]?.lon ?? null,
+    home_address: list[0]?.address ?? null,
+  };
+}
+
 async function loadPrefs() {
   if (session) {
     try {
@@ -1200,9 +1228,7 @@ async function loadPrefs() {
       if (res.ok) {
         const prefs = await res.json();
         cars = prefs.cars || [];
-        if (prefs.home_lat != null && prefs.home_lon != null) {
-          home = { lat: prefs.home_lat, lon: prefs.home_lon, address: prefs.home_address || '' };
-        }
+        homes = _homesFromPrefs(prefs);
       }
     } catch (_) {}
     return;
@@ -1210,18 +1236,11 @@ async function loadPrefs() {
   // Guest — restore from sessionStorage (cleared when the tab closes).
   const g = _loadGuestPrefs();
   cars = g.cars || [];
-  if (g.home_lat != null && g.home_lon != null) {
-    home = { lat: g.home_lat, lon: g.home_lon, address: g.home_address || '' };
-  }
+  homes = _homesFromPrefs(g);
 }
 
 async function savePrefs() {
-  const payload = {
-    cars,
-    home_lat: home?.lat ?? null,
-    home_lon: home?.lon ?? null,
-    home_address: home?.address ?? null,
-  };
+  const payload = { cars, ..._homePrefsPayload(homes) };
   if (!session) { _saveGuestPrefs(payload); return; }  // guest — sessionStorage only
   try {
     await apiFetch('/prefs', {
@@ -1377,9 +1396,7 @@ document.getElementById('btn-add-car').addEventListener('click', () => {
 
 // ── Context menu ──────────────────────────────────────────────────────────────
 function showCtxMenu(x, y) {
-  // Hide "Set home here" when a home is already saved — edit it via its card.
-  ctxAddHome.style.display = home ? 'none' : '';
-  const mw = 170, mh = home ? 44 : 80;
+  const mw = 170, mh = 80;
   ctxMenu.style.left = Math.min(x, window.innerWidth  - mw) + 'px';
   ctxMenu.style.top  = Math.min(y, window.innerHeight - mh) + 'px';
   ctxMenu.style.display = 'block';
@@ -1393,7 +1410,7 @@ ctxAddCar.addEventListener('click', () => {
 
 ctxAddHome.addEventListener('click', () => {
   hideCtxMenu();
-  setHomeFromCoords(pendingLat, pendingLon);
+  addHome(pendingLat, pendingLon);
 });
 
 // ── Name box (arrow popup at the pending location) ─────────────────────────────
@@ -1680,14 +1697,10 @@ function renderCarsPanel() {
   });
 }
 
-// ── Home (residence) — trash/recycling day ─────────────────────────────────────
-function homeScheduleHTML() {
-  if (!home) {
-    return '<div class="ce-sched-item" style="color:var(--muted)">'
-         + 'Add your home address to see trash &amp; recycling day.</div>';
-  }
-  if (!homeSchedule) return '<span style="color:var(--muted)">Loading…</span>';
-  const domains = homeSchedule.domains || [];
+// ── Homes (residences) — trash/recycling day ───────────────────────────────────
+function homeScheduleHTML(sched) {
+  if (!sched) return '<span style="color:var(--muted)">Loading…</span>';
+  const domains = sched.domains || [];
   if (!domains.length) {
     return '<div class="ce-sched-item" style="color:var(--muted)">'
          + 'No collection info for this address.</div>';
@@ -1697,129 +1710,142 @@ function homeScheduleHTML() {
 
 function renderHomePanel() {
   if (!homePanel) return;
-  // Don't wipe an open address editor (inline input or contenteditable) mid-type.
+  // Don't wipe an address editor (contenteditable) mid-type on a re-render.
   const ae = document.activeElement;
   if (homePanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT')) return;
   homePanel.innerHTML = '';
 
-  // No home yet → a single "Add home" button (mirrors "+ Add car": tap-to-place
-  // mode). The map equivalent is the right-click "Set home here" item; the
-  // address can be typed afterward in the card's address field.
-  if (!home) {
-    const btn = document.createElement('button');
-    btn.id = 'btn-add-home';
-    btn.className = 'add-car-btn add-home-btn';
-    btn.textContent = '🏠 Add home';
-    btn.title = 'Add your home to see trash & recycling day';
-    btn.addEventListener('click', startPlacingHome);
-    homePanel.appendChild(btn);
-    return;
-  }
+  // "Add home" button — always available (multiple homes allowed, like cars).
+  // Tap-to-place mode; the map equivalent is the right-click "Set home here".
+  const btn = document.createElement('button');
+  btn.id = 'btn-add-home';
+  btn.className = 'add-car-btn add-home-btn';
+  btn.textContent = '🏠 Add home';
+  btn.title = 'Add a home to see trash & recycling day';
+  btn.addEventListener('click', startPlacingHome);
+  homePanel.appendChild(btn);
 
-  const urgency  = panelUrgency(homeSchedule);
-  const addrText = home.address ? abbreviate(home.address) : '';
+  homes.forEach((h, i) => {
+    const sched    = homeSchedules[h.id];
+    const urgency  = panelUrgency(sched);
+    const addrText = h.address ? abbreviate(h.address) : '';
+    const label    = homes.length > 1 ? `Home ${i + 1}` : 'Home';
 
-  const entry = document.createElement('div');
-  entry.className = 'car-entry home-entry';
-  entry.dataset.urgency = urgency;
-  entry.style.cssText = '--car-color:#16a34a;--urg-color:#16a34a';
-  entry.innerHTML = `
-    <div class="ce-header">
-      <span class="ce-dot ce-dot-home">🏠</span>
-      <span class="ce-name">Home</span>
-      <button class="ce-remove" title="Remove home">✕</button>
-    </div>
-    <div class="ce-addr" contenteditable="false" title="Double-click to edit your address">${esc(addrText)}</div>
-    <div class="ce-sched">${homeScheduleHTML()}</div>`;
+    const entry = document.createElement('div');
+    entry.className = 'car-entry home-entry';
+    entry.dataset.id = h.id;
+    entry.dataset.urgency = urgency;
+    entry.style.cssText = '--car-color:#16a34a;--urg-color:#16a34a';
+    entry.innerHTML = `
+      <div class="ce-header">
+        <span class="ce-dot ce-dot-home">🏠</span>
+        <span class="ce-name">${esc(label)}</span>
+        <button class="ce-remove" title="Remove home">✕</button>
+      </div>
+      <div class="ce-addr" contenteditable="false" title="Double-click to edit this address">${esc(addrText)}</div>
+      <div class="ce-sched">${homeScheduleHTML(sched)}</div>`;
 
-  // ── Address editing → geocode + refresh trash ──
-  const addrEl = entry.querySelector('.ce-addr');
-  addrEl.addEventListener('dblclick', () => {
-    addrEl.contentEditable = 'true';
-    addrEl.focus();
-    const r = document.createRange(); r.selectNodeContents(addrEl);
-    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    // ── Address editing → geocode + trash refresh ──
+    const addrEl = entry.querySelector('.ce-addr');
+    addrEl.addEventListener('dblclick', () => {
+      addrEl.contentEditable = 'true';
+      addrEl.focus();
+      const r = document.createRange(); r.selectNodeContents(addrEl);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    });
+    addrEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); addrEl.blur(); }
+      if (e.key === 'Escape') { addrEl.textContent = addrText; addrEl.blur(); }
+    });
+    addrEl.addEventListener('blur', async () => {
+      addrEl.contentEditable = 'false';
+      const q = addrEl.textContent.trim();
+      if (!q || q === addrText) { renderHomePanel(); return; }
+      await setHomeAddress(h.id, q);
+    });
+
+    entry.querySelector('.ce-remove').addEventListener('click', () => removeHome(h.id));
+
+    homePanel.appendChild(entry);
   });
-  addrEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); addrEl.blur(); }
-    if (e.key === 'Escape') { addrEl.textContent = addrText; addrEl.blur(); }
-  });
-  addrEl.addEventListener('blur', async () => {
-    addrEl.contentEditable = 'false';
-    const q = addrEl.textContent.trim();
-    if (!q || q === addrText) { renderHomePanel(); return; }
-    await setHomeFromAddress(q);
-  });
-
-  entry.querySelector('.ce-remove').addEventListener('click', removeHome);
-
-  homePanel.appendChild(entry);
 }
 
-// Geocode a typed address → home pin + ReCollect lookup (keeps the typed text
-// as home.address since ReCollect matches the user's address string best).
-async function setHomeFromAddress(query) {
+// Add a home at a coordinate (map tap / right-click). Zone-based trash resolves
+// straight from the coordinate; for address-based (ReCollect) cities the backend
+// reverse-geocodes an address (or the user types one into the card afterward),
+// since reverse geocoding lives in the backend, not the frontend.
+async function addHome(lat, lon, address = '') {
+  const h = { id: _newId(), lat, lon, address };
+  homes.push(h);
+  await savePrefs();
+  updateHomeMarkers();
+  renderHomePanel();
+  await checkHome(h.id);
+  return h;
+}
+
+// Geocode a typed address → move that home's pin + refresh trash. Keeps the
+// typed text as the address (ReCollect matches the user's address string best).
+async function setHomeAddress(id, query) {
+  const h = homes.find(x => x.id === id);
+  if (!h) return;
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
     const hits = await res.json();
     if (!hits.length) { showToast('Address not found', true); renderHomePanel(); return; }
-    home = { lat: parseFloat(hits[0].lat), lon: parseFloat(hits[0].lon), address: query };
+    h.lat = parseFloat(hits[0].lat); h.lon = parseFloat(hits[0].lon); h.address = query;
   } catch (_) { showToast('Could not look up address', true); renderHomePanel(); return; }
   await savePrefs();
-  updateHomeMarker();
+  updateHomeMarkers();
   renderHomePanel();
-  await checkHome();
+  await checkHome(id);
 }
 
-// Right-click "Set home here" → drop the home pin at the clicked point. Zone-based
-// trash resolves straight from the coordinate; address-based (ReCollect) cities
-// need the user to type the address into the card afterward, since reverse
-// geocoding lives in the backend, not the frontend.
-async function setHomeFromCoords(lat, lon) {
-  home = { lat, lon, address: '' };
-  await savePrefs();
-  updateHomeMarker();
-  renderHomePanel();
-  await checkHome();
-}
-
-async function removeHome() {
-  home = null; homeSchedule = null;
-  if (_homeMarker) { _homeMarker.remove(); _homeMarker = null; }
+async function removeHome(id) {
+  homes = homes.filter(h => h.id !== id);
+  delete homeSchedules[id];
+  const m = _homeMarkers.get(id);
+  if (m) { m.remove(); _homeMarkers.delete(id); }
   await savePrefs();
   renderHomePanel();
 }
 
-function updateHomeMarker() {
+function updateHomeMarkers() {
   if (!map) return;
-  if (!home) { if (_homeMarker) { _homeMarker.remove(); _homeMarker = null; } return; }
-  if (_homeMarker) { _homeMarker.setLngLat([home.lon, home.lat]); return; }
-  const el = document.createElement('div');
-  el.className = 'home-marker';
-  el.textContent = '🏠';
-  el.title = 'Home';
-  _homeMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
-    .setLngLat([home.lon, home.lat]).addTo(map);
+  for (const [id, marker] of _homeMarkers) {
+    if (!homes.find(h => h.id === id)) { marker.remove(); _homeMarkers.delete(id); }
+  }
+  homes.forEach(h => {
+    if (_homeMarkers.has(h.id)) { _homeMarkers.get(h.id).setLngLat([h.lon, h.lat]); return; }
+    const el = document.createElement('div');
+    el.className = 'home-marker';
+    el.textContent = '🏠';
+    el.title = 'Home';
+    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([h.lon, h.lat]).addTo(map);
+    _homeMarkers.set(h.id, marker);
+  });
 }
 
-async function checkHome() {
-  if (!home) return;
+function checkAllHomes() { for (const h of homes) checkHome(h.id); }
+
+async function checkHome(id) {
+  const h = homes.find(x => x.id === id);
+  if (!h) return;
   try {
     // Region is derived server-side from the home coordinate — a home can sit
     // in a different region than the map's currently selected one.
     const res = await apiFetch('/check-home', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat: home.lat, lon: home.lon, address: home.address }),
+      body: JSON.stringify({ lat: h.lat, lon: h.lon, address: h.address }),
     });
     if (res.ok) {
-      homeSchedule = await res.json();
+      const data = await res.json();
+      homeSchedules[h.id] = data;
       // A home dropped by tap/right-click has no address; adopt the one the
       // backend reverse-geocoded so the card shows a real street address.
-      if (!home.address && homeSchedule.address) {
-        home.address = homeSchedule.address;
-        await savePrefs();
-      }
+      if (!h.address && data.address) { h.address = data.address; await savePrefs(); }
       renderHomePanel();
     }
   } catch (_) {}

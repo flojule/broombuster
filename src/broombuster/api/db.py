@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS user_prefs (
     preferred_region TEXT NOT NULL DEFAULT 'bay_area',
     notify_email     INTEGER NOT NULL DEFAULT 0,
     cars             TEXT NOT NULL DEFAULT '[]',  -- JSON array
+    homes            TEXT NOT NULL DEFAULT '[]',  -- JSON array of {id,lat,lon,address}
     updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -86,11 +87,15 @@ def init_db() -> None:
     """
     with get_db() as conn:
         conn.executescript(_SCHEMA)
-        # Migration: add home_address to pre-existing user_prefs tables.
-        try:
-            conn.execute("ALTER TABLE user_prefs ADD COLUMN home_address TEXT")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Migration: add columns to pre-existing user_prefs tables.
+        for ddl in (
+            "ALTER TABLE user_prefs ADD COLUMN home_address TEXT",
+            "ALTER TABLE user_prefs ADD COLUMN homes TEXT NOT NULL DEFAULT '[]'",
+        ):
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         if os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes"):
             conn.execute(
                 "INSERT OR IGNORE INTO users (id, email, pw_hash) VALUES (?, ?, ?)",
@@ -139,10 +144,25 @@ _PREFS_DEFAULT = {
     "home_lat": None,
     "home_lon": None,
     "home_address": None,
+    "homes": [],
     "preferred_region": "bay_area",
     "notify_email": False,
     "cars": [],
 }
+
+
+def _homes_with_backfill(row: sqlite3.Row) -> list:
+    """Homes list, synthesising a legacy single home when the array is empty."""
+    keys = row.keys()
+    homes = json.loads(row["homes"] or "[]") if "homes" in keys else []
+    if not homes and row["home_lat"] is not None and row["home_lon"] is not None:
+        homes = [{
+            "id":      "legacy-home",
+            "lat":     row["home_lat"],
+            "lon":     row["home_lon"],
+            "address": row["home_address"] if "home_address" in keys else None,
+        }]
+    return homes
 
 
 def get_prefs(user_id: str) -> dict:
@@ -156,6 +176,7 @@ def get_prefs(user_id: str) -> dict:
         "home_lat":          row["home_lat"],
         "home_lon":          row["home_lon"],
         "home_address":      row["home_address"] if "home_address" in row.keys() else None,
+        "homes":             _homes_with_backfill(row),
         "preferred_region":  row["preferred_region"] or "bay_area",
         "notify_email":      bool(row["notify_email"]),
         "cars":              json.loads(row["cars"] or "[]"),
@@ -166,13 +187,14 @@ def save_prefs(user_id: str, prefs: dict) -> None:
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO user_prefs (user_id, home_lat, home_lon, home_address,
+            INSERT INTO user_prefs (user_id, home_lat, home_lon, home_address, homes,
                                     preferred_region, notify_email, cars, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             ON CONFLICT(user_id) DO UPDATE SET
                 home_lat         = excluded.home_lat,
                 home_lon         = excluded.home_lon,
                 home_address     = excluded.home_address,
+                homes            = excluded.homes,
                 preferred_region = excluded.preferred_region,
                 notify_email     = excluded.notify_email,
                 cars             = excluded.cars,
@@ -183,6 +205,7 @@ def save_prefs(user_id: str, prefs: dict) -> None:
                 prefs.get("home_lat"),
                 prefs.get("home_lon"),
                 prefs.get("home_address"),
+                json.dumps(prefs.get("homes") or []),
                 prefs.get("preferred_region", "bay_area"),
                 int(bool(prefs.get("notify_email", False))),
                 json.dumps(prefs.get("cars") or []),
