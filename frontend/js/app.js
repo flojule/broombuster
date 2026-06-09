@@ -95,6 +95,7 @@ const placeBanner    = document.getElementById('place-banner');
 const btnCancelPlace = document.getElementById('btn-cancel-place');
 const ctxMenu        = document.getElementById('ctx-menu');
 const ctxAddCar      = document.getElementById('ctx-add-car');
+const ctxAddHome     = document.getElementById('ctx-add-home');
 const carsPanel      = document.getElementById('cars-panel');
 const homePanel      = document.getElementById('home-panel');
 const customHoverEl  = document.getElementById('custom-hover');
@@ -409,8 +410,11 @@ function _centerFeature() {
 
 function updateCenterBanner() {
   if (!map) { _snapChip.classList.remove('visible'); _crosshair.classList.remove('visible'); return; }
+  // The center target is always on once the map is up — it marks the point the
+  // banner reads (the nearest projected street), independent of any hit.
+  _crosshair.classList.add('visible');
   const f = _centerFeature();
-  if (!f) { _snapChip.classList.remove('visible'); _crosshair.classList.remove('visible'); return; }
+  if (!f) { _snapChip.classList.remove('visible'); return; }
   const props = f.properties || {};
   const isPoly = props.render_type === 'polygon';
   const street = props.street || '';
@@ -427,7 +431,6 @@ function updateCenterBanner() {
   _snapChip.innerHTML = `<span class="sc-head">${head}</span>`
     + (sched ? `<span class="sc-sched">${sched}</span>` : '');
   _snapChip.classList.add('visible');
-  _crosshair.classList.add('visible');
 }
 
 // ── Map init ──────────────────────────────────────────────────────────────────
@@ -1357,7 +1360,9 @@ document.getElementById('btn-add-car').addEventListener('click', () => {
 
 // ── Context menu ──────────────────────────────────────────────────────────────
 function showCtxMenu(x, y) {
-  const mw = 170, mh = 44;
+  // Hide "Set home here" when a home is already saved — edit it via its card.
+  ctxAddHome.style.display = home ? 'none' : '';
+  const mw = 170, mh = home ? 44 : 80;
   ctxMenu.style.left = Math.min(x, window.innerWidth  - mw) + 'px';
   ctxMenu.style.top  = Math.min(y, window.innerHeight - mh) + 'px';
   ctxMenu.style.display = 'block';
@@ -1367,6 +1372,11 @@ function hideCtxMenu() { ctxMenu.style.display = 'none'; }
 ctxAddCar.addEventListener('click', () => {
   hideCtxMenu();
   openNameBox(pendingLat, pendingLon);
+});
+
+ctxAddHome.addEventListener('click', () => {
+  hideCtxMenu();
+  setHomeFromCoords(pendingLat, pendingLon);
 });
 
 // ── Name box (arrow popup at the pending location) ─────────────────────────────
@@ -1670,9 +1680,26 @@ function homeScheduleHTML() {
 
 function renderHomePanel() {
   if (!homePanel) return;
+  // Don't wipe an open address editor (inline input or contenteditable) mid-type.
+  const ae = document.activeElement;
+  if (homePanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT')) return;
   homePanel.innerHTML = '';
-  const urgency = home ? panelUrgency(homeSchedule) : 'safe';
-  const addrText = home?.address ? abbreviate(home.address) : '';
+
+  // No home yet → a single "Add home" button (mirrors "+ Add car"). The map
+  // equivalent is the right-click "Set home here" context-menu item.
+  if (!home) {
+    const btn = document.createElement('button');
+    btn.id = 'btn-add-home';
+    btn.className = 'add-car-btn add-home-btn';
+    btn.textContent = '🏠 Add home';
+    btn.title = 'Add your home to see trash & recycling day';
+    btn.addEventListener('click', openHomeAddressInput);
+    homePanel.appendChild(btn);
+    return;
+  }
+
+  const urgency  = panelUrgency(homeSchedule);
+  const addrText = home.address ? abbreviate(home.address) : '';
 
   const entry = document.createElement('div');
   entry.className = 'car-entry home-entry';
@@ -1682,23 +1709,22 @@ function renderHomePanel() {
     <div class="ce-header">
       <span class="ce-dot ce-dot-home">🏠</span>
       <span class="ce-name">Home</span>
-      ${home ? '<button class="ce-remove" title="Remove home">✕</button>' : ''}
+      <button class="ce-remove" title="Remove home">✕</button>
     </div>
-    <div class="ce-addr" contenteditable="false" title="Double-click to edit your address">${esc(addrText || 'Set home address…')}</div>
+    <div class="ce-addr" contenteditable="false" title="Double-click to edit your address">${esc(addrText)}</div>
     <div class="ce-sched">${homeScheduleHTML()}</div>`;
 
-  // ── Address entry / editing → geocode + refresh trash ──
+  // ── Address editing → geocode + refresh trash ──
   const addrEl = entry.querySelector('.ce-addr');
   addrEl.addEventListener('dblclick', () => {
     addrEl.contentEditable = 'true';
-    if (!home) addrEl.textContent = '';
     addrEl.focus();
     const r = document.createRange(); r.selectNodeContents(addrEl);
     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
   });
   addrEl.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); addrEl.blur(); }
-    if (e.key === 'Escape') { addrEl.textContent = addrText || 'Set home address…'; addrEl.blur(); }
+    if (e.key === 'Escape') { addrEl.textContent = addrText; addrEl.blur(); }
   });
   addrEl.addEventListener('blur', async () => {
     addrEl.contentEditable = 'false';
@@ -1707,9 +1733,41 @@ function renderHomePanel() {
     await setHomeFromAddress(q);
   });
 
-  entry.querySelector('.ce-remove')?.addEventListener('click', removeHome);
+  entry.querySelector('.ce-remove').addEventListener('click', removeHome);
 
   homePanel.appendChild(entry);
+}
+
+// "Add home" button → inline address input in the panel (mirrors the car name
+// box; typing an address geocodes it and runs the trash lookup).
+function openHomeAddressInput() {
+  homePanel.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'home-input-row';
+  const input = document.createElement('input');
+  input.type = 'text'; input.id = 'home-addr-input';
+  input.placeholder = 'Home address…';
+  const save = document.createElement('button');
+  save.className = 'ce-btn'; save.textContent = '✓'; save.title = 'Save';
+  const cancel = document.createElement('button');
+  cancel.className = 'popup-close inline-close';
+  cancel.textContent = '✕'; cancel.title = 'Cancel';
+  row.append(input, save, cancel);
+
+  const submit = async () => {
+    const q = input.value.trim();
+    if (!q) { renderHomePanel(); return; }
+    await setHomeFromAddress(q);
+  };
+  save.addEventListener('click', submit);
+  cancel.addEventListener('click', renderHomePanel);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); submit(); }
+    if (e.key === 'Escape') { e.preventDefault(); renderHomePanel(); }
+  });
+
+  homePanel.appendChild(row);
+  setTimeout(() => input.focus(), 30);
 }
 
 // Geocode a typed address → home pin + ReCollect lookup (keeps the typed text
@@ -1721,6 +1779,18 @@ async function setHomeFromAddress(query) {
     if (!hits.length) { showToast('Address not found', true); renderHomePanel(); return; }
     home = { lat: parseFloat(hits[0].lat), lon: parseFloat(hits[0].lon), address: query };
   } catch (_) { showToast('Could not look up address', true); renderHomePanel(); return; }
+  await savePrefs();
+  updateHomeMarker();
+  renderHomePanel();
+  await checkHome();
+}
+
+// Right-click "Set home here" → drop the home pin at the clicked point. Zone-based
+// trash resolves straight from the coordinate; address-based (ReCollect) cities
+// need the user to type the address into the card afterward, since reverse
+// geocoding lives in the backend, not the frontend.
+async function setHomeFromCoords(lat, lon) {
+  home = { lat, lon, address: '' };
   await savePrefs();
   updateHomeMarker();
   renderHomePanel();
