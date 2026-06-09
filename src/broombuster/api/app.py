@@ -722,12 +722,16 @@ def check_home(req: CheckHomeRequest):
     region, local_now = _resolve_region(req)
     city_key = _nearest_city_key(req.lat, req.lon, region)
 
+    # Home pins dropped by tap/right-click carry no address; reverse-geocode the
+    # coordinate so the card can show one (and address-based plugins can match).
+    address = req.address or gps.reverse_address(req.lat, req.lon)
+
     domain_results: list[dict] = []
     for plugin in plugins_for_city(city_key):
         if getattr(plugin, "subject", "car") != "home":
             continue
         resolved = plugin.resolve_for(None, req.lat, req.lon, city_key,
-                                      address=req.address)
+                                      address=address)
         result = plugin.format(resolved, None, local_now)
         domain_results.append({
             "id":             result.domain_id,
@@ -737,7 +741,8 @@ def check_home(req: CheckHomeRequest):
             "extras":         dict(result.extras),
         })
 
-    return {"city": city_key, "region": region, "domains": domain_results}
+    return {"city": city_key, "region": region, "address": address,
+            "domains": domain_results}
 
 
 class PrefsRequest(BaseModel):

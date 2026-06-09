@@ -233,22 +233,6 @@
     /* "Add home" shares the add-car shape but takes the home green. */
     .add-home-btn { background: #16a34a; }
 
-    /* Inline address input shown when adding a home from the panel. */
-    .home-input-row {
-      display: flex; align-items: center; gap: 4px;
-      width: 200px; flex-shrink: 0; box-sizing: border-box;
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 10px; padding: 6px 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.10);
-    }
-    #home-addr-input {
-      flex: 1; min-width: 0; margin: 0; padding: 5px 8px;
-      border: 1px solid var(--border); border-radius: 6px;
-      background: var(--bg); color: var(--text); font-size: .78rem;
-    }
-    #home-addr-input:focus { border-color: var(--blue); outline: none; }
-    .home-input-row .ce-btn { flex: 0 0 auto; width: auto; padding: 4px 8px; }
-
     /* ── Card schedule detail window (toggled from a car card; no arrow) ── */
     #card-detail {
       position: fixed; z-index: 210; display: none;
@@ -363,8 +347,8 @@
     /* ── Center target (tiny always-on dot marking the point the banner reads) ── */
     #center-crosshair {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      z-index: 15; display: none; width: 7px; height: 7px; border-radius: 50%;
-      background: rgba(15,23,42,.7); box-shadow: 0 0 0 2px rgba(255,255,255,.85);
+      z-index: 15; display: none; width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(15,23,42,.75); box-shadow: 0 0 0 1.5px rgba(255,255,255,.85);
       pointer-events: none;
     }
     #center-crosshair.visible { display: block; }

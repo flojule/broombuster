@@ -56,7 +56,7 @@
 
     <!-- Floating pill shown during tap-to-place mode -->
     <div id="place-banner">
-      📍 Tap the map to place your car
+      <span id="place-banner-text">📍 Tap the map to place your car</span>
       <button id="btn-cancel-place">Cancel</button>
     </div>
 
@@ -66,15 +66,16 @@
       <div class="ctx-item" id="ctx-add-home">🏠 Set home here</div>
     </div>
 
-    <!-- Persistent cars info panel (top-right) -->
+    <!-- Persistent cars info panel (top-right). Order: legend, home, add-car,
+         then car cards (appended by renderCarsPanel). -->
     <div id="cars-panel">
-      <button id="btn-add-car" class="add-car-btn">+ Add car</button>
-      <div id="home-panel"></div>
       <div id="map-legend" class="cars-legend">
         <span style="color:#ef4444">■ Today</span>
         <span style="color:#f97316">■ Tomorrow</span>
         <span style="color:#2563eb">■ Clear</span>
       </div>
+      <div id="home-panel"></div>
+      <button id="btn-add-car" class="add-car-btn">+ Add car</button>
     </div>
 
     <!-- GPS "you are here" pin popup -->

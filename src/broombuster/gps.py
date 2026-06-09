@@ -24,6 +24,30 @@ def _reverse_geocode(lat: float, lon: float):
     return myStreetName, myNumber
 
 
+@lru_cache(maxsize=1024)
+def reverse_address(lat: float, lon: float) -> str | None:
+    """Human-readable street address for a coordinate, or None.
+
+    Backend reverse geocode for home pins dropped by map tap / right-click, where
+    the frontend supplies no address string. Returns "<number> <road>, <city>"
+    when available, falling back to road, then the full display name.
+    """
+    try:
+        location = _GEOLOCATOR.reverse((round(lat, 5), round(lon, 5)), exactly_one=True)
+    except Exception:
+        return None
+    if location is None:
+        return None
+    addr = location.raw.get('address', {})  # type: ignore[union-attr]
+    street = ' '.join(p for p in (addr.get('house_number'), addr.get('road')) if p)
+    city = (addr.get('city') or addr.get('town') or addr.get('village')
+            or addr.get('suburb'))
+    parts = [p for p in (street, city) if p]
+    if parts:
+        return ', '.join(parts)
+    return location.address or None  # type: ignore[union-attr]
+
+
 def maybe_house_number(lat: float, lon: float, expected_street: str) -> int | None:
     """Return a Nominatim house number ONLY when the geocoded road matches
     `expected_street` under street_name() canonicalisation.

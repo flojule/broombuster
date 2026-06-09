@@ -15,6 +15,7 @@ let cars           = [];
 let activeCarId    = null;
 let regions        = {};
 let placingCar     = false;
+let placingHome    = false;
 let placingEditId  = null;
 let pendingLat     = null, pendingLon = null;
 let carSchedules   = {};
@@ -92,6 +93,7 @@ const regionSelect   = document.getElementById('region-select');
 const statusText     = document.getElementById('status-text');
 const mapDiv         = document.getElementById('map');
 const placeBanner    = document.getElementById('place-banner');
+const placeBannerText = document.getElementById('place-banner-text');
 const btnCancelPlace = document.getElementById('btn-cancel-place');
 const ctxMenu        = document.getElementById('ctx-menu');
 const ctxAddCar      = document.getElementById('ctx-add-car');
@@ -633,6 +635,7 @@ function attachMapListeners() {
   // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
   // placement commits immediately, and a tap while the name box is open cancels it.
   map.on('click', (e) => {
+    if (placingHome) { stopPlacing(); setHomeFromCoords(e.lngLat.lat, e.lngLat.lng); return; }
     if (placingCar) { commitPlacement(e.lngLat.lat, e.lngLat.lng); return; }
     if (_namePopup) { closeNameBox(); return; }
     if (_tapTimer) clearTimeout(_tapTimer);
@@ -655,8 +658,9 @@ function attachMapListeners() {
     }, 200);
   });
 
-  // Center banner: re-read the street under the viewport center when panning
-  // stops, and once more after tiles finish streaming in (idle).
+  // Center banner: live-read the street under the viewport center while the map
+  // moves (drag/zoom), and once more after tiles finish streaming in (idle).
+  map.on('move', updateCenterBanner);
   map.on('moveend', updateCenterBanner);
   map.on('idle', updateCenterBanner);
 
@@ -1080,7 +1084,7 @@ document.addEventListener('keydown', e => {
   if (_cardDetailCarId)                         { closeCardDetail();  dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
   if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
-  if (placingCar)                               { stopPlacing();      dismissed = true; }
+  if (placingCar || placingHome)                { stopPlacing();      dismissed = true; }
   if (dismissed) return;
   if (_selectedCarId) clearCarSelection();
 });
@@ -1321,13 +1325,26 @@ function updateStatusFromSchedules() {
 // ── Car placement ─────────────────────────────────────────────────────────────
 function startPlacing(editCarId = null) {
   placingCar    = true;
+  placingHome   = false;
   placingEditId = editCarId;
+  placeBannerText.textContent = '📍 Tap the map to place your car';
+  placeBanner.classList.add('active');
+  if (map) map.getCanvas().style.cursor = 'crosshair';
+}
+
+// Same tap-to-place flow as a car, for the home pin (top banner + map tap).
+function startPlacingHome() {
+  placingHome   = true;
+  placingCar    = false;
+  placingEditId = null;
+  placeBannerText.textContent = '🏠 Tap the map to place your home';
   placeBanner.classList.add('active');
   if (map) map.getCanvas().style.cursor = 'crosshair';
 }
 
 function stopPlacing() {
   placingCar    = false;
+  placingHome   = false;
   placingEditId = null;
   placeBanner.classList.remove('active');
   if (map) map.getCanvas().style.cursor = '';
@@ -1685,15 +1702,16 @@ function renderHomePanel() {
   if (homePanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT')) return;
   homePanel.innerHTML = '';
 
-  // No home yet → a single "Add home" button (mirrors "+ Add car"). The map
-  // equivalent is the right-click "Set home here" context-menu item.
+  // No home yet → a single "Add home" button (mirrors "+ Add car": tap-to-place
+  // mode). The map equivalent is the right-click "Set home here" item; the
+  // address can be typed afterward in the card's address field.
   if (!home) {
     const btn = document.createElement('button');
     btn.id = 'btn-add-home';
     btn.className = 'add-car-btn add-home-btn';
     btn.textContent = '🏠 Add home';
     btn.title = 'Add your home to see trash & recycling day';
-    btn.addEventListener('click', openHomeAddressInput);
+    btn.addEventListener('click', startPlacingHome);
     homePanel.appendChild(btn);
     return;
   }
@@ -1736,38 +1754,6 @@ function renderHomePanel() {
   entry.querySelector('.ce-remove').addEventListener('click', removeHome);
 
   homePanel.appendChild(entry);
-}
-
-// "Add home" button → inline address input in the panel (mirrors the car name
-// box; typing an address geocodes it and runs the trash lookup).
-function openHomeAddressInput() {
-  homePanel.innerHTML = '';
-  const row = document.createElement('div');
-  row.className = 'home-input-row';
-  const input = document.createElement('input');
-  input.type = 'text'; input.id = 'home-addr-input';
-  input.placeholder = 'Home address…';
-  const save = document.createElement('button');
-  save.className = 'ce-btn'; save.textContent = '✓'; save.title = 'Save';
-  const cancel = document.createElement('button');
-  cancel.className = 'popup-close inline-close';
-  cancel.textContent = '✕'; cancel.title = 'Cancel';
-  row.append(input, save, cancel);
-
-  const submit = async () => {
-    const q = input.value.trim();
-    if (!q) { renderHomePanel(); return; }
-    await setHomeFromAddress(q);
-  };
-  save.addEventListener('click', submit);
-  cancel.addEventListener('click', renderHomePanel);
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  { e.preventDefault(); submit(); }
-    if (e.key === 'Escape') { e.preventDefault(); renderHomePanel(); }
-  });
-
-  homePanel.appendChild(row);
-  setTimeout(() => input.focus(), 30);
 }
 
 // Geocode a typed address → home pin + ReCollect lookup (keeps the typed text
@@ -1826,7 +1812,16 @@ async function checkHome() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lat: home.lat, lon: home.lon, address: home.address }),
     });
-    if (res.ok) { homeSchedule = await res.json(); renderHomePanel(); }
+    if (res.ok) {
+      homeSchedule = await res.json();
+      // A home dropped by tap/right-click has no address; adopt the one the
+      // backend reverse-geocoded so the card shows a real street address.
+      if (!home.address && homeSchedule.address) {
+        home.address = homeSchedule.address;
+        await savePrefs();
+      }
+      renderHomePanel();
+    }
   } catch (_) {}
 }
 
