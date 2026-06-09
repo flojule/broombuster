@@ -1,7 +1,12 @@
 # Raspberry Pi 5 deployment (Ubuntu 24.04)
 
-Always-on, no-login, tailnet-only; map data ships in git so a clone is
+Always-on, tailnet-only; guest-by-default with optional login (prefs persist
+server-side only when signed in). Map data ships in git so a clone is
 self-contained. The Mac runs independently via `./run.sh` / `./deploy.sh`.
+
+`install-service.sh` writes a random `JWT_SECRET` into `.env` (gitignored) on
+first run, which the unit reads via `EnvironmentFile`. The runtime DB
+(`data/app.sqlite`) is gitignored and built on first boot.
 
 | File | Runs on | Purpose |
 |------|---------|---------|

@@ -526,7 +526,7 @@ class CheckRequest(BaseModel):
 
 
 @app.post("/check")
-def check(req: CheckRequest, user_id: str = Depends(verify_jwt)):
+def check(req: CheckRequest):
     region, local_now = _resolve_region(req)
 
     # If client explicitly requested the full region, synchronously load
@@ -713,7 +713,7 @@ class CheckHomeRequest(BaseModel):
 
 
 @app.post("/check-home")
-def check_home(req: CheckHomeRequest, user_id: str = Depends(verify_jwt)):
+def check_home(req: CheckHomeRequest):
     """Home flow: run home-subject domains (trash) at a saved residence.
 
     Separate from /check (the car flow) because a home is located by address,

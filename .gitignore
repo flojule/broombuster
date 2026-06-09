@@ -10,3 +10,8 @@ build/
 dist/
 
 .DS_Store
+
+# Runtime SQLite DB (user accounts/prefs) — built on first boot, machine-local.
+data/app.sqlite
+data/app.sqlite-wal
+data/app.sqlite-shm

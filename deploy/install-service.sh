@@ -13,6 +13,17 @@ if [ ! -x "$REPO/.venv/bin/python" ]; then
   exit 1
 fi
 
+# Generate a production JWT secret on first install. The unit reads this via
+# EnvironmentFile; .env is gitignored so the secret never enters git. An existing
+# .env is left untouched so issued tokens survive reinstalls.
+ENV_FILE="$REPO/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "Writing $ENV_FILE with a fresh JWT_SECRET..."
+  SECRET="$("$REPO/.venv/bin/python" -c 'import secrets; print(secrets.token_hex(32))')"
+  printf 'JWT_SECRET=%s\n' "$SECRET" > "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+fi
+
 UNIT=/etc/systemd/system/broombuster.service
 sed -e "s#__USER__#$USER#g" -e "s#__REPO__#$REPO#g" \
   deploy/broombuster.service | sudo tee "$UNIT" >/dev/null

@@ -20,12 +20,12 @@
 </head>
 <body>
 
-<!-- ══════════════════ AUTH SCREEN ══════════════════ -->
-<div id="auth-screen">
-  <h1>🧹 BroomBuster</h1>
-  <p class="tagline">Know before the grim sweeper comes.</p>
+<!-- ══════════════════ AUTH OVERLAY (optional) ══════════════════ -->
+<div id="auth-screen" hidden>
   <div class="card">
-    <h2>Sign in</h2>
+    <button id="btn-auth-close" class="popup-close" title="Close (Esc)" aria-label="Close">✕</button>
+    <h2>Sign in to save your setup</h2>
+    <p class="auth-sub">Without an account, your cars and home are kept only until you close the tab.</p>
     <label for="email">Email</label>
     <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
     <label for="password">Password</label>
@@ -48,7 +48,8 @@
     <button id="btn-locate" class="tb-btn" title="Use GPS location">📍</button>
     <span class="tb-sep"></span>
     <button id="btn-dark-mode" class="tb-btn" title="Toggle dark mode">🌙</button>
-    <button id="btn-logout" class="tb-btn">Sign out</button>
+    <button id="btn-signin" class="tb-btn">Sign in</button>
+    <button id="btn-logout" class="tb-btn" hidden>Sign out</button>
   </div>
   <div id="map-container">
     <div id="map"></div>

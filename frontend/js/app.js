@@ -85,6 +85,8 @@ const authError      = document.getElementById('auth-error');
 const btnLogin       = document.getElementById('btn-login');
 const btnSignup      = document.getElementById('btn-signup');
 const btnLogout      = document.getElementById('btn-logout');
+const btnSignin      = document.getElementById('btn-signin');
+const authClose      = document.getElementById('btn-auth-close');
 const btnLocate      = document.getElementById('btn-locate');
 const regionSelect   = document.getElementById('region-select');
 const statusText     = document.getElementById('status-text');
@@ -110,6 +112,16 @@ function _clearTokens() {
   session = null;
 }
 
+// Guest prefs live in sessionStorage — discarded when the tab/window closes.
+const GUEST_PREFS_KEY = 'bb_guest_prefs';
+function _loadGuestPrefs() {
+  try { return JSON.parse(sessionStorage.getItem(GUEST_PREFS_KEY)) || {}; }
+  catch (_) { return {}; }
+}
+function _saveGuestPrefs(p) {
+  try { sessionStorage.setItem(GUEST_PREFS_KEY, JSON.stringify(p)); } catch (_) {}
+}
+
 async function _tryRefresh() {
   const rt = localStorage.getItem('bb_refresh');
   if (!rt) return false;
@@ -133,17 +145,14 @@ if (DEV_MODE) {
   const stored = localStorage.getItem('bb_access');
   if (stored) {
     session = { access_token: stored };
-    // Validate by attempting a prefs fetch; if 401 try refresh.
+    // Validate the stored token; on 401 try refresh, else drop to guest mode.
     fetch('/prefs', { headers: { Authorization: `Bearer ${stored}` } }).then(async r => {
-      if (r.status === 401) {
-        const ok = await _tryRefresh();
-        ok ? initApp() : showAuth();
-      } else {
-        initApp();
-      }
-    }).catch(() => showAuth());
+      if (r.status === 401 && !await _tryRefresh()) _clearTokens();
+      initApp();
+    }).catch(() => initApp());
   } else {
-    showAuth();
+    // Guest by default — no gate. Prefs live in sessionStorage until tab close.
+    initApp();
   }
 }
 
@@ -151,13 +160,23 @@ if (DEV_MODE) {
 setInterval(async () => { if (session && !DEV_MODE) await _tryRefresh(); }, 14 * 60 * 1000);
 
 function showAuth() {
-  authScreen.style.display = 'flex';
-  appScreen.style.display  = 'none';
+  authError.textContent = '';
+  authScreen.hidden = false;
+  emailEl.focus();
+}
+function hideAuth() { authScreen.hidden = true; }
+
+// Toggle the toolbar's Sign in / Sign out buttons to match auth state.
+function _updateAuthUI() {
+  if (DEV_MODE) { btnSignin.hidden = true; btnLogout.hidden = true; return; }
+  btnSignin.hidden = !!session;
+  btnLogout.hidden = !session;
 }
 
 async function initApp() {
-  authScreen.style.display = 'none';
+  authScreen.hidden = true;
   appScreen.style.display  = 'flex';
+  _updateAuthUI();
   // Wait one animation frame so the browser can lay out #app-screen
   // before MapLibre reads the container dimensions.
   await new Promise(r => requestAnimationFrame(r));
@@ -200,6 +219,50 @@ async function initApp() {
 }
 
 // ── Auth forms ────────────────────────────────────────────────────────────────
+
+// After a successful login/signup: adopt the guest's setup into the account,
+// then reload so the app comes back signed in with server-backed prefs.
+async function _finishAuth() {
+  await _migrateGuestToServer();
+  sessionStorage.removeItem(GUEST_PREFS_KEY);
+  location.reload();
+}
+
+// Merge the guest's cars/home (in-memory + sessionStorage) into the account,
+// keeping anything the account already had. New cars dedupe by name.
+async function _migrateGuestToServer() {
+  const g = _loadGuestPrefs();
+  const guestCars = [...(g.cars || [])];
+  for (const c of cars) if (!guestCars.find(x => x.id === c.id)) guestCars.push(c);
+  const guestHome = home
+    || (g.home_lat != null && g.home_lon != null
+        ? { lat: g.home_lat, lon: g.home_lon, address: g.home_address || '' } : null);
+
+  let acct = {};
+  try { const r = await apiFetch('/prefs'); if (r.ok) acct = await r.json(); } catch (_) {}
+
+  const merged = [...(acct.cars || [])];
+  const names = new Set(merged.map(c => c.name));
+  for (const c of guestCars) if (!names.has(c.name)) { merged.push(c); names.add(c.name); }
+
+  const finalHome = guestHome
+    || (acct.home_lat != null ? { lat: acct.home_lat, lon: acct.home_lon, address: acct.home_address || '' } : null);
+
+  if (merged.length === 0 && !finalHome) return;  // nothing to persist
+  try {
+    await apiFetch('/prefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cars: merged,
+        home_lat: finalHome?.lat ?? null,
+        home_lon: finalHome?.lon ?? null,
+        home_address: finalHome?.address ?? null,
+      }),
+    });
+  } catch (_) {}
+}
+
 async function login() {
   authError.textContent = '';
   btnLogin.disabled = true;
@@ -213,7 +276,7 @@ async function login() {
     const data = await res.json();
     if (!res.ok) { authError.textContent = data.detail || 'Sign in failed'; return; }
     _saveTokens(data.access_token, data.refresh_token);
-    initApp();
+    await _finishAuth();
   } catch (e) {
     authError.textContent = 'Network error — is the server running?';
   } finally {
@@ -235,7 +298,7 @@ async function signup() {
     const data = await res.json();
     if (!res.ok) { authError.textContent = data.detail || 'Registration failed'; return; }
     _saveTokens(data.access_token, data.refresh_token);
-    initApp();
+    await _finishAuth();
   } catch (e) {
     authError.textContent = 'Network error — is the server running?';
   } finally {
@@ -247,7 +310,12 @@ async function signup() {
 btnLogin.addEventListener('click', login);
 btnSignup.addEventListener('click', signup);
 [emailEl, passwordEl].forEach(el => el.addEventListener('keydown', e => { if (e.key === 'Enter') login(); }));
-btnLogout.addEventListener('click', () => { _clearTokens(); showAuth(); });
+btnSignin.addEventListener('click', showAuth);
+authClose.addEventListener('click', hideAuth);
+authScreen.addEventListener('click', e => { if (e.target === authScreen) hideAuth(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !authScreen.hidden) hideAuth(); });
+// Logout returns to guest mode (server data stays on the account).
+btnLogout.addEventListener('click', () => { _clearTokens(); location.reload(); });
 
 // ── Toast notifications ────────────────────────────────────────────────────────
 const _toastContainer = document.getElementById('toast-container');
@@ -1119,31 +1187,40 @@ function setNearestRegion(lat, lon) {
 
 // ── Cars ──────────────────────────────────────────────────────────────────────
 async function loadPrefs() {
-  if (!session) return;
-  try {
-    const res = await apiFetch('/prefs');
-    if (res.ok) {
-      const prefs = await res.json();
-      cars = prefs.cars || [];
-      if (prefs.home_lat != null && prefs.home_lon != null) {
-        home = { lat: prefs.home_lat, lon: prefs.home_lon, address: prefs.home_address || '' };
+  if (session) {
+    try {
+      const res = await apiFetch('/prefs');
+      if (res.ok) {
+        const prefs = await res.json();
+        cars = prefs.cars || [];
+        if (prefs.home_lat != null && prefs.home_lon != null) {
+          home = { lat: prefs.home_lat, lon: prefs.home_lon, address: prefs.home_address || '' };
+        }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+    return;
+  }
+  // Guest — restore from sessionStorage (cleared when the tab closes).
+  const g = _loadGuestPrefs();
+  cars = g.cars || [];
+  if (g.home_lat != null && g.home_lon != null) {
+    home = { lat: g.home_lat, lon: g.home_lon, address: g.home_address || '' };
+  }
 }
 
 async function savePrefs() {
-  if (!session) return;
+  const payload = {
+    cars,
+    home_lat: home?.lat ?? null,
+    home_lon: home?.lon ?? null,
+    home_address: home?.address ?? null,
+  };
+  if (!session) { _saveGuestPrefs(payload); return; }  // guest — sessionStorage only
   try {
     await apiFetch('/prefs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cars,
-        home_lat: home?.lat ?? null,
-        home_lon: home?.lon ?? null,
-        home_address: home?.address ?? null,
-      }),
+      body: JSON.stringify(payload),
     });
   } catch (_) {}
 }
