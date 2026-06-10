@@ -86,13 +86,14 @@ cities:
       then run scripts/rebuild_city_data.py alameda.
 
   chicago_all:
-    url: https://data.cityofchicago.org/resource/utb4-q645.geojson?$limit=50000
+    url: https://data.cityofchicago.org/resource/2r7q-emq3.geojson?$limit=50000
     files:
       - data/chicago/StreetSweepingZones.geojson
     sha256: {}  # Auto-refreshing dataset; SHA changes when Chicago re-publishes (annually).
     notes: |
-      Chicago Data Portal "Street Sweeping Zones" dataset. Republished each
-      March/April when the city publishes the new year's calendar. The dataset
-      ID changes year-to-year — when the rebuild fails, search the portal for
-      "street sweeping zones" and update the URL in cities.py. Then bump
-      stale_after_days if necessary.
+      Chicago Data Portal "Street Sweeping Zones - 2026" dataset (2r7q-emq3).
+      Republished under a new dataset id each March/April for the new year's
+      calendar (2025 was utb4-q645). When the rebuild fails or shows past dates,
+      search the portal for "street sweeping zones <year>" and update url here
+      and in data/manifests/chicago_all.yaml. The schedule year is inferred from
+      the data (data_loader._infer_chicago_year).

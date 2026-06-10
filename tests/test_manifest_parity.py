@@ -61,7 +61,7 @@ _EXPECTED_CITIES = {
         "center": {"lat": 41.8781, "lon": -87.6298},
         "manual_default": {"lat": 41.9951, "lon": -87.6593},
         "local_path": "data/chicago/StreetSweepingZones.geojson",
-        "url": "https://data.cityofchicago.org/resource/utb4-q645.geojson?$limit=50000",
+        "url": "https://data.cityofchicago.org/resource/2r7q-emq3.geojson?$limit=50000",
         "schema": "chicago",
         "bbox": [41.644, -87.848, 42.024, -87.524],
         "stale_after_days": 90,

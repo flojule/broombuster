@@ -269,21 +269,24 @@ class TestNormaliseChicago:
         assert isinstance(code, str) and code.startswith("DATES:")
 
     def test_day_code_contains_valid_iso_dates(self):
+        # Year is inferred from the data, so assert the month/day are present
+        # regardless of which calendar year inference selects.
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17", "may": "15"}])
         out = data_loader._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
-        year = datetime.date.today().year
-        assert f"{year}-04-17" in code
-        assert f"{year}-05-15" in code
+        assert "-04-17" in code
+        assert "-05-15" in code
 
     def test_day_code_parseable_by_analysis(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
         out = data_loader._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
         result = analysis.parse_sweeping_code(code)
-        year = datetime.date.today().year
-        assert datetime.date(year, 4, 17) in result
-        assert datetime.date(year, 5, 15) in result
+        # Year-agnostic: every requested month/day is expanded, and inference
+        # lands them all on weekdays (Mon-Fri), never weekends.
+        md = {(d.month, d.day) for d in result}
+        assert {(4, 17), (4, 18), (5, 15), (5, 16)} <= md
+        assert all(d.weekday() < 5 for d in result)
 
     def test_even_odd_identical(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18"}])
@@ -299,10 +302,9 @@ class TestNormaliseChicago:
         gdf = _make_chicago_gdf([{"ward": 1, "section": 1, "april": "99,17"}])
         out = data_loader._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
-        year = datetime.date.today().year
         # day 99 is invalid so it should be absent; day 17 should be present
-        assert f"{year}-04-17" in code
-        assert f"{year}-04-99" not in code
+        assert "-04-17" in code
+        assert "-04-99" not in code
 
     def test_desc_contains_month_abbreviation(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
@@ -314,6 +316,42 @@ class TestNormaliseChicago:
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18"}])
         out = data_loader._normalise_chicago(gdf)
         _assert_schema(out, "_normalise_chicago")
+
+
+def _weekday_pairs_for(year: int) -> list:
+    """(month, day) pairs that all fall on weekdays in `year` (Apr-Jun sample)."""
+    import calendar
+    pairs = []
+    for m in (4, 5, 6):
+        for d in range(1, calendar.monthrange(year, m)[1] + 1):
+            if datetime.date(year, m, d).weekday() < 5:
+                pairs.append((m, d))
+    return pairs
+
+
+class TestInferChicagoYear:
+    def test_picks_year_with_weekday_alignment(self):
+        # Days that are all weekdays in 2025 (Wed-start) should resolve to 2025
+        # even when the reference year is 2026 (2025 is in the ±1 window).
+        pairs = _weekday_pairs_for(2025)
+        assert data_loader._infer_chicago_year(pairs, 2026) == 2025
+
+    def test_prefers_ref_year_on_tie(self):
+        # A single mid-week date is a weekday in several adjacent years; ties
+        # resolve to the reference year.
+        pairs = [(6, 15)]  # Jun 15: weekday in 2026 (Mon) — also other years
+        assert data_loader._infer_chicago_year(pairs, 2026) == 2026
+
+    def test_empty_pairs_returns_ref_year(self):
+        assert data_loader._infer_chicago_year([], 2026) == 2026
+
+    def test_raises_when_no_recent_year_fits(self):
+        # Every day of a month always includes ~2/7 weekend days in any year,
+        # so no candidate year clears the threshold -> fail fast, not silent.
+        import pytest
+        pairs = [(4, d) for d in range(1, 31)]  # all of April
+        with pytest.raises(ValueError, match="stale"):
+            data_loader._infer_chicago_year(pairs, 2026)
 
 
 # ---------------------------------------------------------------------------

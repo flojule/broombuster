@@ -1,10 +1,13 @@
-# Chicago Data Portal Street Sweeping Zones (utb4-q645); polygon zones, month-date cols.
-# Update the dataset id in url and the year in schedule_pdf_url each spring.
+# Chicago Data Portal "Street Sweeping Zones - 2026" (2r7q-emq3); polygon zones,
+# month-date cols. Each spring update the dataset id in url (and in
+# data/sources.yaml) and the year in schedule_pdf_url. The schedule year is
+# inferred from the data, so a one-year-stale id self-corrects but shows past
+# dates; a >1-year-stale id fails the build (see data_loader._infer_chicago_year).
 name: "Chicago, IL"
 center: {lat: 41.8781, lon: -87.6298}
 manual_default: {lat: 41.9951, lon: -87.6593}
 local_path: data/chicago/StreetSweepingZones.geojson
-url: "https://data.cityofchicago.org/resource/utb4-q645.geojson?$limit=50000"
+url: "https://data.cityofchicago.org/resource/2r7q-emq3.geojson?$limit=50000"
 schema: chicago
 bbox: [41.644, -87.848, 42.024, -87.524]
 stale_after_days: 90

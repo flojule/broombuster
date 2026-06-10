@@ -456,88 +456,135 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 # Chicago  (zones from geospatial export + schedule from Socrata JSON API)
 # ---------------------------------------------------------------------------
 
-def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    """
-    Chicago normaliser for the 2025+ schema (dataset utb4-q645).
+# Chicago sweep months present in the dataset (no Jan-Mar / Dec sweeping).
+_CHICAGO_MONTHS = {
+    "april": 4, "may": 5, "june": 6, "july": 7,
+    "august": 8, "september": 9, "october": 10, "november": 11,
+}
+_CHICAGO_MONTH_ABBR = {
+    4: "Apr", 5: "May", 6: "Jun", 7: "Jul",
+    8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov",
+}
 
-    The zones GeoJSON embeds the sweeping schedule directly as month columns
-    (april, may, …, november), each containing comma-separated day numbers.
-    No separate schedule API call is needed.
+# A year whose sweep days exceed this share on weekends is rejected by year
+# inference. Chicago sweeps Mon-Fri by ordinance; the correct year sits far
+# below this (~0.3% observed), a mislabelled year far above (~20%).
+_CHICAGO_MAX_WEEKEND_RATIO = 0.10
 
-    Chicago publishes new datasets each year (typically March/April).
-    Update the 'url' ID in cities.py when that happens.
+
+def _infer_chicago_year(month_day_pairs, ref_year: int) -> int:
+    """Calendar year the sweep day-numbers belong to, by weekday alignment.
+
+    The dataset gives day-of-month numbers but no year. Chicago street sweeping
+    runs Mon-Fri, so each number lands on a weekday in exactly one recent year.
+    Among ref_year-1 .. ref_year+1, pick the year placing the fewest dates on
+    weekends (ties favour ref_year). Raise when no recent year fits — that means
+    the dataset lags more than a year and the manifest id needs updating, rather
+    than silently emitting sweep dates on the wrong weekdays.
+
+    ``month_day_pairs`` is an iterable of ``(month_int, day_int)``.
     """
     import datetime as _dt
 
-    MONTHS = {
-        "april": 4, "may": 5, "june": 6, "july": 7,
-        "august": 8, "september": 9, "october": 10, "november": 11,
-    }
-    MONTH_ABBR = {
-        4: "Apr", 5: "May", 6: "Jun", 7: "Jul",
-        8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov",
-    }
-    today_year = _dt.date.today().year
-    today      = _dt.date.today()
+    pairs = list(month_day_pairs)
+    if not pairs:
+        return ref_year
+    scored = []
+    for year in (ref_year, ref_year - 1, ref_year + 1):
+        total = weekend = 0
+        for m, d in pairs:
+            try:
+                when = _dt.date(year, m, d)
+            except ValueError:
+                continue  # e.g. day 31 in a 30-day month — invalid every year
+            total += 1
+            weekend += when.weekday() >= 5
+        if total:
+            scored.append((weekend / total, abs(year - ref_year), year))
+    if not scored:
+        return ref_year
+    scored.sort()  # lowest weekend share, then closest to ref_year
+    best_ratio, _dist, best_year = scored[0]
+    if best_ratio > _CHICAGO_MAX_WEEKEND_RATIO:
+        raise ValueError(
+            f"Chicago sweep dates align with no recent year (best {best_year}: "
+            f"{best_ratio:.0%} on weekends). The dataset id in "
+            f"data/manifests/chicago_all.yaml is stale — update it."
+        )
+    return best_year
+
+
+def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+    """
+    Chicago normaliser for the zones schema (e.g. dataset 2r7q-emq3).
+
+    The zones GeoJSON embeds the sweeping schedule directly as month columns
+    (april, may, …, november), each holding comma-separated day-of-month
+    numbers. No separate schedule API call is needed.
+
+    The numbers carry no year, so the calendar year is inferred from the data
+    by weekday alignment (see _infer_chicago_year) rather than assumed to be the
+    current year — a lagging dataset must not be mislabelled. Chicago publishes
+    a new dataset each spring; update the id in data/manifests/chicago_all.yaml
+    (and data/sources.yaml) when that happens.
+    """
+    import datetime as _dt
 
     # Normalise column names to lowercase for consistent access.
     out = gdf.copy()
     out.columns = [c.lower() for c in out.columns]
 
-    def _build_schedule(row):
-        iso_parts, desc_parts = [], []
-        for col, m in MONTHS.items():
+    def _row_pairs(row):
+        """[(month, day), ...] from a row's month columns; skips blanks/junk."""
+        pairs = []
+        for col, m in _CHICAGO_MONTHS.items():
             val = str(row.get(col, "") or "").strip()
             if not val:
                 continue
-            valid_days = []
-            for d in val.split(","):
-                d = d.strip()
+            for tok in val.split(","):
+                tok = tok.strip()
+                if not tok:
+                    continue
                 try:
-                    valid_days.append(
-                        _dt.date(today_year, m, int(d)).isoformat()
-                    )
-                except (ValueError, TypeError):
-                    pass
-            if valid_days:
-                iso_parts.extend(valid_days)
-                desc_parts.append((m, MONTH_ABBR[m], val))
-        if not iso_parts:
+                    pairs.append((m, int(tok)))
+                except ValueError:
+                    pass  # non-numeric day token (data artifact)
+        return pairs
+
+    rows = list(out.iterrows())
+    per_row = [_row_pairs(row) for _, row in rows]
+    schedule_year = _infer_chicago_year(
+        (md for pairs in per_row for md in pairs), _dt.date.today().year
+    )
+
+    def _schedule(pairs):
+        dates = []
+        for m, d in sorted(pairs):
+            try:
+                dates.append(_dt.date(schedule_year, m, d))
+            except ValueError:
+                pass  # invalid day for this month (e.g. Apr 31)
+        if not dates:
             return None, None
-        code = f"DATES:{','.join(iso_parts)}"
-        # Build DESC: show every date that falls within the next 2 months
-        # that have sweeping (typically 4 dates, e.g. "Apr 17, 18; May 15, 16").
-        future_months: list = []
-        for ds in sorted(iso_parts):
-            d = _dt.date.fromisoformat(ds)
-            if d >= today and (d.year, d.month) not in future_months:
-                future_months.append((d.year, d.month))
-        target_months = set(future_months[:2])
-        shown: dict = {}
-        for ds in sorted(iso_parts):
-            d = _dt.date.fromisoformat(ds)
-            if (d.year, d.month) in target_months:
-                shown.setdefault(d.month, []).append(str(d.day))
-        if not shown:
-            # Off-season: show first 2 months' dates
-            first_months: list = []
-            for ds in sorted(iso_parts):
-                d = _dt.date.fromisoformat(ds)
-                if (d.year, d.month) not in first_months:
-                    first_months.append((d.year, d.month))
-            for ds in sorted(iso_parts):
-                d = _dt.date.fromisoformat(ds)
-                if (d.year, d.month) in set(first_months[:2]):
-                    shown.setdefault(d.month, []).append(str(d.day))
+        code = "DATES:" + ",".join(d.isoformat() for d in dates)
+        # Stable full-season description grouped by month (e.g. "Apr 1, 2;
+        # May 13"). The UI recomputes upcoming dates from the code at render
+        # time (analysis.format_schedule_side), so this is storage/debug only.
+        grouped: dict = {}
+        order: list = []
+        for d in dates:
+            if d.month not in grouped:
+                grouped[d.month] = []
+                order.append(d.month)
+            grouped[d.month].append(str(d.day))
         desc = "; ".join(
-            f"{MONTH_ABBR[m]} {', '.join(days)}"
-            for m, days in sorted(shown.items())
+            f"{_CHICAGO_MONTH_ABBR[m]} " + ", ".join(grouped[m]) for m in order
         )
         return code, desc
 
     day_codes, descs, names = [], [], []
-    for _, row in out.iterrows():
-        code, desc = _build_schedule(row)
+    for pairs, (_, row) in zip(per_row, rows):
+        code, desc = _schedule(pairs)
         day_codes.append(code)
         descs.append(desc)
         w = str(row.get("ward", "?")).zfill(2)
