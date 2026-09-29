@@ -160,6 +160,12 @@ def test_sweep_body_parity():
         ("Mon 135", "8AM-10AM"),
         ("Thu 13", "8AM-10AM"),
         ("Tue 24", ""),
+        # Weekday lists, non-weekday numbers, "NA" time (real Oakland/Chicago).
+        ("Every Mon, Wed, Fri", "12AM-3AM"),
+        ("Every Tues and Thurs", "3AM-6AM"),
+        ("Major street uses 2 lines, not center line.", "NA"),
+        ("Apr 13, 14; May 11, 12", "None"),
+        ("2nd Fri: Mar 13; Apr 10", "AM"),
     ]
     cases, expected = [], {}
     for i, (d, t) in enumerate(cases_in):

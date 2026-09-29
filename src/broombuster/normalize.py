@@ -220,7 +220,7 @@ def time_display(raw: str) -> str:
     if not isinstance(raw, str):
         return "N/A"
     s = raw.strip()
-    if s.upper() in ("", "N/A", "NONE", "NAN"):
+    if s.upper() in ("", "N/A", "NA", "NONE", "NAN"):
         return "N/A"
     match = _TIME_RANGE_RE.search(s)
     if not match:
@@ -271,27 +271,32 @@ def _pretty_ordinals(text: str) -> str:
 
 
 def _weekday_first(desc: str) -> str:
-    """Move a trailing/embedded weekday token to the front, canonicalized.
+    """Move the weekday (or weekday list) to the front, canonicalized.
 
-    "1st & 3rd Wed" -> "Wed 1st & 3rd"; "Mon 1st & 3rd" -> "Mon 1st & 3rd";
-    "Every Wed" -> "Every Wed". Leaves descriptors with no weekday untouched.
+    "1st & 3rd Wed" -> "Wed 1st & 3rd"; "Every Mon, Wed, Fri" -> "Every Mon,
+    Wed & Fri"; "Every Tues & Thurs" -> "Every Tue & Thu". Leaves descriptors
+    with no weekday untouched.
     """
     toks = desc.split()
     if not toks:
         return desc
     every = toks[0].lower() == "every"
     body = toks[1:] if every else toks
-    wd_idx = None
-    for i, t in enumerate(body):
-        if t.strip(".,").upper() in _WEEKDAY_CANON:
-            wd_idx = i
-            break
-    if wd_idx is None:
+    wd = [i for i, t in enumerate(body) if t.strip(".,").upper() in _WEEKDAY_CANON]
+    if not wd:
         return desc
-    disp = _WEEKDAY_CANON[body[wd_idx].strip(".,").upper()][1]
-    rest = body[:wd_idx] + body[wd_idx + 1:]
-    parts = (["Every"] if every else []) + [disp] + rest
-    return " ".join(parts).strip()
+    lo, hi = wd[0], wd[-1]
+    # Only a contiguous run of weekdays joined by "&" moves as one list.
+    if any(i not in wd and body[i] != "&" for i in range(lo, hi + 1)):
+        hi = lo
+    days = [_WEEKDAY_CANON[body[i].strip(".,").upper()][1] for i in range(lo, hi + 1) if i in wd]
+    days_s = days[0] if len(days) == 1 else ", ".join(days[:-1]) + " & " + days[-1]
+    rest = body[:lo] + body[hi + 1:]
+    return " ".join((["Every"] if every else []) + [days_s] + rest).strip()
+
+
+def _has_weekday(desc: str) -> bool:
+    return any(t.strip(".,").upper() in _WEEKDAY_CANON for t in desc.split())
 
 
 def sweep_body(desc: str, time: str = "") -> str:
@@ -310,8 +315,9 @@ def sweep_body(desc: str, time: str = "") -> str:
     d = _WHITESPACE_RE.sub(" ", d)
     d = _TRIM_EDGE_RE.sub("", d)           # strip dangling commas/space
     d = _WHITESPACE_RE.sub(" ", d).strip()
-    d = _weekday_first(d)
-    d = _pretty_ordinals(d)
+    # Weekday schedules only: "2 lines" must not become "2nd lines".
+    if _has_weekday(d):
+        d = _pretty_ordinals(_weekday_first(d))
     if not d or d.upper() == "N/A":
         return ""
     t = time_display(time or "")

@@ -248,25 +248,34 @@
   function timeDisplay(raw) {
     if (typeof raw !== 'string') return 'N/A';
     var s = raw.trim();
-    if (s === '' || /^(n\/a|none|nan)$/i.test(s)) return 'N/A';
+    if (s === '' || /^(n\/a|na|none|nan)$/i.test(s)) return 'N/A';
     var m = TIME_RANGE_DISP_RE.exec(s);
     if (!m) return s;
     return _fmtPart(m[1], m[2], m[3]) + '–' + _fmtPart(m[4], m[5], m[6]);
   }
+
+  function _wdCanon(tok) { return WEEKDAY_CANON[tok.replace(/[.,]/g, '').toUpperCase()]; }
+  function hasWeekday(desc) { return desc.split(' ').some(function (t) { return !!_wdCanon(t); }); }
 
   function weekdayFirst(desc) {
     var toks = desc.split(' ').filter(Boolean);
     if (!toks.length) return desc;
     var every = toks[0].toLowerCase() === 'every';
     var body = every ? toks.slice(1) : toks;
-    var wi = -1;
-    for (var i = 0; i < body.length; i++) {
-      if (WEEKDAY_CANON[body[i].replace(/[.,]/g, '').toUpperCase()]) { wi = i; break; }
+    var wd = [];
+    for (var i = 0; i < body.length; i++) if (_wdCanon(body[i])) wd.push(i);
+    if (!wd.length) return desc;
+    var lo = wd[0], hi = wd[wd.length - 1];
+    // Only a contiguous run of weekdays joined by "&" moves as one list.
+    for (var j = lo; j <= hi; j++) {
+      if (wd.indexOf(j) < 0 && body[j] !== '&') { hi = lo; break; }
     }
-    if (wi < 0) return desc;
-    var disp = WEEKDAY_CANON[body[wi].replace(/[.,]/g, '').toUpperCase()][1];
-    var rest = body.slice(0, wi).concat(body.slice(wi + 1));
-    return (every ? ['Every'] : []).concat([disp]).concat(rest).join(' ').trim();
+    var days = [];
+    for (var k = lo; k <= hi; k++) if (wd.indexOf(k) >= 0) days.push(_wdCanon(body[k])[1]);
+    var daysS = days.length === 1 ? days[0]
+              : days.slice(0, -1).join(', ') + ' & ' + days[days.length - 1];
+    var rest = body.slice(0, lo).concat(body.slice(hi + 1));
+    return (every ? ['Every'] : []).concat([daysS]).concat(rest).join(' ').trim();
   }
 
   // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". Mirrors
@@ -292,8 +301,8 @@
     d = d.replace(/\s*\bof\s+(?:the\s+)?month\b/ig, '');
     d = d.replace(/\band\b/ig, '&');
     d = d.replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '').trim();
-    d = weekdayFirst(d);
-    d = _prettyOrdinals(d);
+    // Weekday schedules only: "2 lines" must not become "2nd lines".
+    if (hasWeekday(d)) d = _prettyOrdinals(weekdayFirst(d));
     if (!d || d.toUpperCase() === 'N/A') return '';
     var t = timeDisplay(time || '');
     if (t === '' || t === 'N/A' || d.indexOf(t) !== -1) return d;

@@ -382,6 +382,18 @@ class TestSweepBody:
     def test_empty_desc(self):
         assert normalize.sweep_body("", "") == ""
 
+    def test_weekday_list_keeps_separators(self):
+        # Oakland multi-day rows: every weekday canonical, list punctuation kept.
+        assert normalize.sweep_body("Every Mon, Wed, Fri", "12AM-3AM") == (
+            "Every Mon, Wed & Fri, 12AM–3AM")
+        assert normalize.sweep_body("Every Tues and Thurs", "") == "Every Tue & Thu"
+
+    def test_numbers_outside_weekday_schedules_untouched(self):
+        # Free text and Chicago date lists must not gain ordinal suffixes.
+        assert normalize.sweep_body("Major street uses 2 lines, not center line.", "NA") == (
+            "Major street uses 2 lines, not center line.")
+        assert normalize.sweep_body("Apr 13, 14; May 11, 12", "None") == "Apr 13, 14; May 11, 12"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # house_number()

@@ -8,6 +8,7 @@ import datetime
 
 import geopandas
 import pandas as pd
+import pytest
 import shapely.geometry
 
 from broombuster import analysis, data_loader
@@ -451,3 +452,53 @@ class TestNormalisePrebuilt:
             "L_F_ADD": 1, "L_T_ADD": 99, "R_F_ADD": 2, "R_T_ADD": 98,
         }])
         _assert_schema(data_loader._normalise_prebuilt(gdf), "_normalise_prebuilt")
+
+
+# ---------------------------------------------------------------------------
+# force_refresh keeps existing files until the rebuild succeeds
+# ---------------------------------------------------------------------------
+
+class TestForceRefreshAtomic:
+    def _setup(self, tmp_path, monkeypatch):
+        city = {"name": "Testville", "local_path": "raw/src.geojson",
+                "fgb_path": "out/test.fgb", "url": "http://example.invalid/x",
+                "schema": "berkeley"}
+        monkeypatch.setitem(data_loader.CITIES, "testville", city)
+        monkeypatch.setattr(data_loader, "_ROOT", str(tmp_path))
+        raw = tmp_path / "raw" / "src.geojson"
+        raw.parent.mkdir()
+        gdf = geopandas.GeoDataFrame(
+            {"STREET_NAME": ["A ST"], "DAY_EVEN": ["ME"], "DAY_ODD": ["TE"],
+             "DESC_EVEN": ["Every Mon"], "DESC_ODD": ["Every Tue"],
+             "TIME_EVEN": ["8AM-10AM"], "TIME_ODD": ["8AM-10AM"]},
+            geometry=[_LINE], crs="EPSG:4326")
+        gdf.to_file(raw, driver="GeoJSON")
+        return raw, gdf
+
+    def test_failed_download_keeps_old_data(self, tmp_path, monkeypatch):
+        raw, _ = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setattr(data_loader, "_download", lambda url, p: None)
+        data_loader.load_city_data("testville")
+        fgb = tmp_path / "out" / "test.fgb"
+        before = (raw.read_bytes(), fgb.read_bytes())
+
+        def _fail(url, path):
+            raise OSError("network down")
+        monkeypatch.setattr(data_loader, "_download", _fail)
+        with pytest.raises(OSError):
+            data_loader.load_city_data("testville", force_refresh=True)
+        assert (raw.read_bytes(), fgb.read_bytes()) == before
+        assert sorted(p.name for p in raw.parent.iterdir()) == ["src.geojson"]
+
+    def test_successful_refresh_replaces_raw_and_fgb(self, tmp_path, monkeypatch):
+        raw, gdf = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setattr(data_loader, "_download", lambda url, p: None)
+        data_loader.load_city_data("testville")
+        new = gdf.assign(STREET_NAME=["B ST"])
+        monkeypatch.setattr(data_loader, "_download",
+                            lambda url, p: new.to_file(p, driver="GeoJSON"))
+        out = data_loader.load_city_data("testville", force_refresh=True)
+        assert list(out["STREET_NAME"]) == ["B ST"]
+        assert list(geopandas.read_file(raw)["STREET_NAME"]) == ["B ST"]
+        data_loader._GDF_CACHE.clear()
+        assert list(data_loader.load_city_data("testville")["STREET_NAME"]) == ["B ST"]
