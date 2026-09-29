@@ -109,6 +109,48 @@ def test_expansion_parity():
     )
 
 
+def test_sweep_days_parity():
+    """JS sweepDays must match analysis.sweep_days (calendar strip / grid / .ics)."""
+    start, end = datetime.date(2026, 9, 1), datetime.date(2026, 11, 30)
+    scenarios = {
+        "two_sides": ([("TTHE", "", "6AM-8AM")], [("MWF", "", "6AM-8AM")]),
+        "same_day_both": ([("ME", "", "8AM-10AM")], [("M13", "", "8AM-10AM")]),
+        "two_windows": ([("ME", "", "8AM-10AM"), ("ME", "", "12PM-2PM")], []),
+        "dup_and_untimed": ([("W5", "", ""), ("W135", "", None)], [("NS", "", "")]),
+        "dates": ([("DATES:2026-10-01,2026-12-01", "", "9AM-11AM")], []),
+        "empty": ([], []),
+    }
+    cases, expected = [], {}
+    for cid, (ev, od) in scenarios.items():
+        expected[cid] = [[d.isoformat(), [list(i) for i in items]]
+                         for d, items in analysis.sweep_days(ev, od, start, end).items()]
+        cases.append({"id": cid, "kind": "days", "start": _ymd(start), "end": _ymd(end),
+                      "even": [list(e) for e in ev], "odd": [list(e) for e in od]})
+    js = _run_js(cases)
+    assert {c: js[c]["days"] for c in expected} == expected
+    # 5th Wed from both W5 and W135 (None time -> "") collapses to one item.
+    assert ["2026-09-30", [["even", ""]]] in expected["dup_and_untimed"]
+
+
+def test_verdict_parity_malformed_end_times():
+    """Out-of-range end hours are unparseable (untimed) in both ports."""
+    day = datetime.date(2026, 9, 30)  # Wed
+    scenarios = [("end_13am", "8AM-13AM", 23), ("end_0am", "8AM-0AM", 23),
+                 ("end_noon", "10AM-12PM", 13), ("end_midnight", "10PM-12AM", 23)]
+    cases, expected = [], {}
+    for label, t, hh in scenarios:
+        expected[label] = analysis.compute_urgency(
+            _row("WE", t, "", ""), local_now=datetime.datetime(2026, 9, 30, hh))
+        cases.append({"id": label, "kind": "verdict", "now": _now(day, hh),
+                      "sched": _sched([{"code": "WE", "time": t, "side": "even"}])})
+    js = _run_js(cases)
+    norm = {False: "clear", "today": "today", "tomorrow": "tomorrow"}
+    got = {k: js[k]["urgency"] for k in expected}
+    assert got == {k: norm[v] for k, v in expected.items()}
+    assert got == {"end_13am": "today", "end_0am": "today",
+                   "end_noon": "clear", "end_midnight": "today"}
+
+
 def test_both_sides_parity():
     """JS formatBothSides must match analysis.side_lines."""
     ln = datetime.datetime(2026, 6, 7, 12, 0)

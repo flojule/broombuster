@@ -21,7 +21,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import data_loader, gps, maps, resolve
+from broombuster import data_loader, gps, ics, maps, resolve
 from broombuster.cities import CITIES, REGIONS, city_for_point, in_bbox, region_for_point, region_of
 from broombuster.domains import for_city as plugins_for_city
 
@@ -607,6 +607,41 @@ def check_home(req: CheckHomeRequest, request: Request):
     ]
     return {"city": city_key, "region": region, "address": address,
             "domains": domain_results}
+
+
+_CALENDAR_SIDES = {"both": ("even", "odd"), "even": ("even",), "odd": ("odd",)}
+
+
+@app.get("/calendar.ics")
+@rate_limit(_CHECK_RATE)
+def calendar_ics(request: Request,
+                 lat: float = Query(..., ge=-90.0, le=90.0),
+                 lon: float = Query(..., ge=-180.0, le=180.0),
+                 side: str = Query("auto", pattern="^(auto|both|even|odd)$"),
+                 region: Optional[str] = None):
+    """Subscribable iCalendar feed of the sweeping windows at a parked spot.
+
+    side=auto publishes the car's side when known, else both sides.
+    """
+    req = CheckRequest(lat=lat, lon=lon, region=region)
+    region, local_now = _resolve_region(req)
+    _, gdf_3857 = _get_region_gdfs(lat, lon, region)
+    if gdf_3857 is None:
+        raise HTTPException(503, f"No data available for region '{region}' yet.")
+    resolved, city_key = resolve.locate(gdf_3857, lat, lon, region)
+    if resolved is None:
+        raise HTTPException(404, "No mapped street near this location.")
+    plugin = next(p for p in plugins_for_city(city_key) if p.domain_id == "sweeping")
+    extras = plugin.format(resolved, gdf_3857, local_now).extras
+    if side == "auto":
+        side = extras["car_side"] or "both"
+    body = ics.build_calendar(
+        extras["schedule_even"], extras["schedule_odd"], _CALENDAR_SIDES[side],
+        tuple(extras["side_labels"]), resolved.street_display or resolved.street_name,
+        REGIONS[region].get("tz", "UTC"), f"{lat:.5f},{lon:.5f},{side}", local_now.date(),
+    )
+    return Response(content=body, media_type="text/calendar; charset=utf-8",
+                    headers={"Content-Disposition": 'inline; filename="street-sweeping.ics"'})
 
 
 # ---------------------------------------------------------------------------

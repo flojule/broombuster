@@ -269,9 +269,42 @@
       border: 1px solid var(--border); border-radius: 10px;
       padding: 12px 30px 14px 14px; font-size: .82rem; line-height: 1.5;
       box-shadow: 0 6px 24px rgba(0,0,0,.28);
-      max-width: min(320px, 90vw); max-height: 70vh; overflow-y: auto;
+      width: min(320px, 90vw); max-height: 80vh; overflow-y: auto;
     }
     #card-detail .zd-link { margin-top: 8px; }
+
+    /* ── Sweep calendar: card strip + detail-window month grid ── */
+    .sw-strip { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; margin-top: 5px; cursor: pointer; }
+    .sw-cell, .cal-day {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      border-radius: 4px; font-size: .62rem; line-height: 1.15; color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .sw-cell { padding: 1px 0; }
+    .sw-cell i { font-style: normal; font-size: .52rem; color: var(--muted); }
+    .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .cal-nav, .cal-day {
+      width: auto; margin: 0; padding: 0; border: none; border-radius: 4px;
+      background: transparent; cursor: pointer; font: inherit; color: inherit;
+    }
+    .cal-nav { font-size: 1.1rem; padding: 0 8px; color: var(--muted); }
+    .cal-nav:hover { color: var(--text); }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
+    .cal-wd { font-size: .62rem; color: var(--muted); font-weight: 600; }
+    .cal-day { font-size: .75rem; aspect-ratio: 1; min-width: 28px; }
+    .cal-day.cal-out { opacity: .4; }
+    .cal-day.cal-sel { text-decoration: underline; text-underline-offset: 2px; font-weight: 700; }
+    .sw-car { background: var(--red); color: #fff; }
+    .sw-car i { color: #fff; opacity: .85; }
+    .sw-other { box-shadow: inset 0 0 0 1.5px var(--red); }
+    .sw-today { font-weight: 700; outline: 2px solid var(--blue); outline-offset: -1px; }
+    .cal-detail { margin-top: 6px; font-weight: 600; }
+    .cal-legend { font-size: .68rem; color: var(--muted); margin-top: 2px; }
+    .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-left: 4px; }
+    .cal-info { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .cal-feed .zd-link { margin-top: 0; }
+    .cal-feed { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .cal-note { font-size: .68rem; color: var(--muted); }
 
     /* ── Custom hover tooltip ── */
     #custom-hover {
