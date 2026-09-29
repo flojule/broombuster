@@ -3,8 +3,8 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from broombuster import car, data_loader, email_alerts, maps
-from broombuster.cities import CITIES, REGIONS
+from broombuster import car, data_loader, email_alerts, maps, resolve
+from broombuster.cities import CITIES, REGIONS, region_of
 from broombuster.domains import for_city
 
 # ---------------------------------------------------------------------------
@@ -93,47 +93,28 @@ def main() -> None:
 
     myCar = car.Car(lat=lat, lon=lon)
 
-    # City key closest to the car — restricts cross-city name collisions.
-    def _nearest_city(lat, lon):
-        active = [_city] if _single else REGIONS[_region]["cities"]
-        best, best_d = active[0], float("inf")
-        for ck in active:
-            c = CITIES[ck]["center"]
-            d = (c["lat"] - lat) ** 2 + (c["lon"] - lon) ** 2
-            if d < best_d:
-                best, best_d = ck, d
-        return best
-
-    def _region_of(city_key):
-        for rk, rv in REGIONS.items():
-            if city_key in rv["cities"]:
-                return rk
-        return _region
+    region_key = region_of(_city) if _single else _region
+    if region_key is None:
+        raise SystemExit(f"City '{_city}' is not in any region (data/manifests/regions.yaml).")
+    tz = ZoneInfo(REGIONS[region_key]["tz"])
 
     try:
         while True:
             myCar.set_location(lat, lon)
-            city_key = _nearest_city(myCar.lat, myCar.lon)
+            local_now = datetime.now(tz)
+            # Same locate + sweeping plugin the /check endpoint uses.
+            resolved, city_key = resolve.locate(myCity_3857, myCar.lat, myCar.lon, region_key)
             myCar._city = city_key
-            tz = REGIONS.get(_region_of(city_key), {}).get("tz", "UTC")
-            local_now = datetime.now(ZoneInfo(tz))
-
-            # Same resolver + sweeping plugin the /check endpoint uses.
             sweeping = next(
                 (p for p in for_city(city_key) if p.domain_id == "sweeping"), None
             )
             if sweeping is None:
                 print(f"No sweeping data for {CITIES[city_key]['name']}.")
                 break
-            resolved = sweeping.resolve_for(myCity_3857, myCar.lat, myCar.lon, city_key)
             result = sweeping.format(resolved, myCity_3857, local_now)
             if resolved is not None:
                 myCar.street_name = resolved.street_display or resolved.street_name
-            schedule_even = result.extras.get("schedule_even", [])
-            schedule_odd = result.extras.get("schedule_odd", [])
-            message = result.extras.get("message") or (
-                "Car not near a mapped street." if resolved is None else ""
-            )
+            message = result.extras.get("message") or "Car not near a mapped street."
             urgency = result.urgency if result.urgency in ("today", "tomorrow") else False
 
             print()
@@ -141,8 +122,7 @@ def main() -> None:
             print(message)
 
             if _plot:
-                maps.plot_map(myCar, myCity, schedule_even=schedule_even,
-                              schedule_odd=schedule_odd, message=message, local_now=local_now)
+                maps.plot_map(myCar, myCity, local_now=local_now)
 
             if _send_notif and urgency:
                 email_alerts.send_email(message, urgency=urgency)

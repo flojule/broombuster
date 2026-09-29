@@ -1,21 +1,25 @@
 // Client-side port of broombuster.analysis urgency logic. Tiles carry raw
-// schedule codes (sched property); this computes today/tomorrow/clear against a
+// schedule codes (sched property); checkDaySweeping computes today/tomorrow/clear against a
 // region-local "now" so colour matches the server. Must stay behaviour-identical
-// to analysis.compute_urgency / parse_sweeping_code (tests/test_urgency_parity.py).
+// to analysis.compute_urgency / sweeps_on (tests/test_urgency_parity.py).
 (function (global) {
   'use strict';
 
-  // Mirror analysis.py tables.
-  var WEEKDAY_MAP = { M: 0, T: 1, W: 2, TH: 3, F: 4, S: 5, SU: 6 };
-  var COMPOUND_MAP = {
-    MWF: [0, 2, 4], TTH: [1, 3], TTHS: [1, 3, 5], MF: [0, 4],
-    TF: [1, 4], THF: [3, 4], E: [0, 1, 2, 3, 4, 5, 6],
+  // Mirror analysis.WEEKDAY_CODES / NO_SWEEP_CODES (parity-tested).
+  var WEEKDAY_CODES = {
+    M: [0, 'Mon'], T: [1, 'Tue'], W: [2, 'Wed'], TH: [3, 'Thu'],
+    F: [4, 'Fri'], S: [5, 'Sat'], SU: [6, 'Sun'],
   };
-  var ORDINALS = { '1': [1], '2': [2], '3': [3], '4': [4], '13': [1, 3], '24': [2, 4] };
-  var NO_SWEEP = {
-    N: 1, NS: 1, O: 1, 'N-S': 1, 'N-E': 1, 'N-O': 1,
-    'NS-UC': 1, 'NS-H': 1, 'NS-O': 1, 'NS-A': 1,
-  };
+  var NO_SWEEP_CODES = [
+    'N', 'NS', 'O', 'N-S', 'N-E', 'N-O',
+    'NS-UC', 'NS-H', 'NS-O', 'NS-A',
+    'MS', 'DM', 'MISSING',
+  ];
+  var NO_SWEEP = {};
+  NO_SWEEP_CODES.forEach(function (c) { NO_SWEEP[c] = 1; });
+  // Mirror analysis._CODE_RE / _DAY_TOKEN_RE (see the grammar there).
+  var CODE_RE = /^((?:TH|SU|M|T|W|F|S)*)(E?|[1-5]+)$/;
+  var DAY_TOKEN_RE = /TH|SU|M|T|W|F|S/g;
   var TIME_RANGE_RE =
     /(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*(?:[-–—]|to)\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i;
 
@@ -24,8 +28,6 @@
   }
 
   // ── Date helpers (calendar arithmetic only; no JS Date tz pitfalls) ──────────
-  function daysInMonth(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
-
   // Python weekday(): Mon=0..Sun=6. JS getUTCDay(): Sun=0..Sat=6.
   function pyWeekday(y, m, d) { return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; }
 
@@ -36,28 +38,9 @@
     return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
   }
 
-  function getAllDatesForWeekday(weekday, year, month) {
-    var out = [];
-    var n = daysInMonth(year, month);
-    for (var day = 1; day <= n; day++) {
-      if (pyWeekday(year, month, day) === weekday) out.push({ y: year, m: month, d: day });
-    }
-    return out;
-  }
-
-  function getWeekdaysByOrdinal(weekday, ordinalList, year, month) {
-    var dates = getAllDatesForWeekday(weekday, year, month);
-    var out = [];
-    for (var i = 0; i < ordinalList.length; i++) {
-      var idx = ordinalList[i];
-      if (idx <= dates.length) out.push(dates[idx - 1]);
-    }
-    return out;
-  }
-
-  // ── Time parsing (mirror _parse_time_range; returns end minutes-of-day) ──────
+  // ── Time parsing (mirror analysis._parse_end_time; end minutes-of-day) ──────
   function parseEndMinutes(timeStr) {
-    if (typeof timeStr !== 'string' || timeStr.trim() === '') return null;
+    if (typeof timeStr !== 'string') return null;
     var m = TIME_RANGE_RE.exec(timeStr);
     if (!m) return null;
     var h = parseInt(m[4], 10);
@@ -65,122 +48,88 @@
     var ap = m[6].toUpperCase();
     if (ap === 'PM' && h !== 12) h += 12;
     else if (ap === 'AM' && h === 12) h = 0;
-    return h * 60 + mn;
+    if (h > 23 || mn > 59) return null;
+    // A window ending at 12AM runs to the end of the day.
+    return (h || mn) ? h * 60 + mn : 24 * 60 - 1;
   }
 
-  // ── Sweep-code expansion (mirror _parse_sweeping_code_cached) ────────────────
-  var _expandCache = {};
-  function expandCode(code, year, month) {
-    var key = code + '|' + year + '|' + month;
-    if (_expandCache[key]) return _expandCache[key];
-    var out = _expand(code.toUpperCase(), year, month);
-    _expandCache[key] = out;
+  // ── Sweep-code rules (mirror analysis._code_parts / _rule / sweeps_on) ──────
+  var _partsCache = {};
+  // {days: [token...], suffix} for a weekly code, or null.
+  function codeParts(code) {
+    if (Object.prototype.hasOwnProperty.call(_partsCache, code)) return _partsCache[code];
+    var c = code.trim().toUpperCase(), out = null;
+    if (!NO_SWEEP[c]) {
+      var m = CODE_RE.exec(c);
+      if (m && (m[1] || m[2] === 'E')) out = { days: m[1].match(DAY_TOKEN_RE) || [], suffix: m[2] };
+    }
+    _partsCache[code] = out;
     return out;
   }
 
-  function _expand(code, year, month) {
-    var i, dd;
-    if (COMPOUND_MAP[code]) {
-      var res = [];
-      var wds = COMPOUND_MAP[code];
-      for (i = 0; i < wds.length; i++) res = res.concat(getAllDatesForWeekday(wds[i], year, month));
-      return res;
-    }
-    if (code.charAt(code.length - 1) === 'E') {
-      var dayCode = code.slice(0, -1);
-      var wd = WEEKDAY_MAP[dayCode];
-      if (wd !== undefined) return getAllDatesForWeekday(wd, year, month);
-      var cwds = COMPOUND_MAP[dayCode];
-      if (cwds !== undefined) {
-        var r2 = [];
-        for (i = 0; i < cwds.length; i++) r2 = r2.concat(getAllDatesForWeekday(cwds[i], year, month));
-        return r2;
+  var _ruleCache = {};
+  // {weekdays: {wd:1}, ordinals: {n:1}|null, dates: {dayKey:1}|null}, or null.
+  function codeRule(code) {
+    if (Object.prototype.hasOwnProperty.call(_ruleCache, code)) return _ruleCache[code];
+    var rule = null, i;
+    var dates = parseDatesCode(code);
+    if (dates !== null) {
+      var set = {};
+      for (i = 0; i < dates.length; i++) set[dayKey(dates[i].y, dates[i].m, dates[i].d)] = 1;
+      rule = { weekdays: null, ordinals: null, dates: set };
+    } else {
+      var p = codeParts(code);
+      if (p) {
+        var wds = {};
+        if (p.days.length) for (i = 0; i < p.days.length; i++) wds[WEEKDAY_CODES[p.days[i]][0]] = 1;
+        else for (i = 0; i < 7; i++) wds[i] = 1;
+        var ords = null;
+        if (/^[1-5]+$/.test(p.suffix)) {
+          ords = {};
+          for (i = 0; i < p.suffix.length; i++) ords[+p.suffix.charAt(i)] = 1;
+        }
+        rule = { weekdays: wds, ordinals: ords, dates: null };
       }
     }
-    if (code === 'S' || code === 'SU') {
-      return getAllDatesForWeekday(WEEKDAY_MAP[code], year, month);
-    }
-    for (var suffix in ORDINALS) {
-      if (Object.prototype.hasOwnProperty.call(ORDINALS, suffix)
-          && code.length > suffix.length
-          && code.slice(code.length - suffix.length) === suffix) {
-        var dc = code.slice(0, code.length - suffix.length);
-        var w2 = WEEKDAY_MAP[dc];
-        if (w2 !== undefined) return getWeekdaysByOrdinal(w2, ORDINALS[suffix], year, month);
-      }
-    }
-    if (code === 'E') {
-      var out = [];
-      var n = daysInMonth(year, month);
-      for (dd = 1; dd <= n; dd++) out.push({ y: year, m: month, d: dd });
-      return out;
-    }
-    return [];
+    _ruleCache[code] = rule;
+    return rule;
   }
 
-  // Mirror parse_sweeping_code: current month, plus next month when tomorrow
-  // (relative to `now`) crosses a month boundary.
-  function parseSweepingCode(code, now) {
-    if (code.toUpperCase().indexOf('DATES:') === 0) {
-      var out = [];
-      var parts = code.slice(6).split(',');
-      for (var i = 0; i < parts.length; i++) {
-        var s = parts[i].trim();
-        if (!s) continue;
-        var mm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-        if (mm) out.push({ y: +mm[1], m: +mm[2], d: +mm[3] });
-      }
-      return out;
+  function sweepsOn(code, y, m, d) {
+    if (typeof code !== 'string') return false;
+    var r = codeRule(code);
+    if (!r) return false;
+    if (r.dates) return r.dates[dayKey(y, m, d)] === 1;
+    if (!r.weekdays[pyWeekday(y, m, d)]) return false;
+    return !r.ordinals || r.ordinals[Math.floor((d - 1) / 7) + 1] === 1;
+  }
+
+  // Sweep dates of `code` in [start, end] inclusive ({y,m,d} objects).
+  function datesInRange(code, start, end) {
+    var out = [], cur = start, endK = dayKey(end.y, end.m, end.d);
+    while (dayKey(cur.y, cur.m, cur.d) <= endK) {
+      if (sweepsOn(code, cur.y, cur.m, cur.d)) out.push(cur);
+      cur = addOneDay(cur.y, cur.m, cur.d);
     }
-    var dates = expandCode(code, now.y, now.m).slice();
-    var tomorrow = addOneDay(now.y, now.m, now.d);
-    if (tomorrow.m !== now.m) dates = dates.concat(expandCode(code, tomorrow.y, tomorrow.m));
-    return dates;
+    return out;
   }
 
   // ── Urgency verdict (mirror check_day_street_sweeping) ───────────────────────
   // entries: [{code, time}, ...]; now: {y, m, d, min} (min = minutes since
   // region-local midnight). Returns 'today' | 'tomorrow' | 'clear'.
   function checkDaySweeping(entries, now) {
-    var sweptKeys = {};       // dayKey -> true
-    var dateTimes = {};       // dayKey -> [endMinutes|null, ...]
+    var tmr = addOneDay(now.y, now.m, now.d);
+    var todayEnds = [], sweptTomorrow = false;
     for (var i = 0; i < entries.length; i++) {
       var code = entries[i].code;
-      if (typeof code !== 'string' || isNoSweepCode(code)) continue;
-      var timeStr = entries[i].time || '';
-      var dates = parseSweepingCode(code, now);
-      for (var j = 0; j < dates.length; j++) {
-        var k = dayKey(dates[j].y, dates[j].m, dates[j].d);
-        sweptKeys[k] = true;
-        if (!dateTimes[k]) dateTimes[k] = [];
-        dateTimes[k].push(timeStr === '' ? null : parseEndMinutes(timeStr));
-      }
+      if (sweepsOn(code, now.y, now.m, now.d)) todayEnds.push(parseEndMinutes(entries[i].time || ''));
+      if (sweepsOn(code, tmr.y, tmr.m, tmr.d)) sweptTomorrow = true;
     }
-
-    var todayKey = dayKey(now.y, now.m, now.d);
-    var tmr = addOneDay(now.y, now.m, now.d);
-    var tomorrowKey = dayKey(tmr.y, tmr.m, tmr.d);
-
-    if (sweptKeys[todayKey]) {
-      var times = dateTimes[todayKey] || [];
-      if (times.length === 0) return 'today';
-      for (var t = 0; t < times.length; t++) {
-        // null end = untimed swept side (still active all day) or unparseable.
-        if (times[t] === null || now.min <= times[t]) return 'today';
-      }
-      // every timed side has closed and no untimed side — fall through.
+    for (var t = 0; t < todayEnds.length; t++) {
+      // null end = untimed or unparseable window: open all day.
+      if (todayEnds[t] === null || now.min <= todayEnds[t]) return 'today';
     }
-    if (sweptKeys[tomorrowKey]) return 'tomorrow';
-    return 'clear';
-  }
-
-  // sched: JSON string (tile property) of [{code,time,side}, ...].
-  function urgencyForSched(schedJson, now) {
-    var entries;
-    try { entries = JSON.parse(schedJson || '[]'); }
-    catch (e) { return 'clear'; }
-    if (!entries || !entries.length) return 'clear';
-    return checkDaySweeping(entries, now);
+    return sweptTomorrow ? 'tomorrow' : 'clear';
   }
 
   // Build a `now` from a JS Date interpreted in the region's IANA tz.
@@ -207,7 +156,7 @@
     };
   }
 
-  // ── Chicago DATES: next sweep cluster (mirror analysis.next_dates_desc) ───────
+  // ── 'DATES:' codes: parsing and next sweep cluster (mirror analysis) ────────
   var MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -263,14 +212,6 @@
     return clusterDates(future)[0].slice(0, maxDates);
   }
 
-  // Next upcoming cluster for a DATES code; null for non-DATES, '' when none remain.
-  function nextDatesDesc(code, now, maxDates) {
-    var cl = nextClusterDates(code, now, maxDates);
-    if (cl === null) return null;
-    if (!cl.length) return '';
-    return formatDatesByMonth(cl);
-  }
-
   // ── Canonical schedule display (mirror normalize.sweep_body + ───────────────
   //    analysis.format_schedule_side). Keeps card/hover identical to the server.
   // Display parsing is LENIENT (mirror normalize._TIME_RANGE_RE): tolerates the
@@ -292,10 +233,6 @@
     SAT: [5, 'Sat'], SATURDAY: [5, 'Sat'],
     SUN: [6, 'Sun'], SUNDAY: [6, 'Sun'],
   };
-  var CODE_WEEKDAY = [
-    ['TH', [3, 'Thu']], ['SU', [6, 'Sun']], ['M', [0, 'Mon']], ['T', [1, 'Tue']],
-    ['W', [2, 'Wed']], ['F', [4, 'Fri']], ['S', [5, 'Sat']],
-  ];
 
   // Mirror normalize._digits_only / _fmt_part: strip stray spaces from a
   // captured digit/AMPM group before formatting.
@@ -363,18 +300,17 @@
     return d + ', ' + t;
   }
 
+  // Mirror analysis._code_weekday / _code_ordinals.
   function codeWeekday(code) {
-    var c = code.trim().toUpperCase();
-    for (var i = 0; i < CODE_WEEKDAY.length; i++) {
-      if (c.indexOf(CODE_WEEKDAY[i][0]) === 0) return CODE_WEEKDAY[i][1];
-    }
-    return null;
+    var p = codeParts(code);
+    return (p && p.days.length) ? WEEKDAY_CODES[p.days[0]] : null;
   }
 
   function codeOrdinals(code) {
-    var m = /(\d+)$/.exec(code.trim());
-    var s = {};
-    if (m) for (var i = 0; i < m[1].length; i++) s[+m[1].charAt(i)] = 1;
+    var p = codeParts(code), s = {};
+    if (p && /^[1-5]+$/.test(p.suffix)) {
+      for (var i = 0; i < p.suffix.length; i++) s[+p.suffix.charAt(i)] = 1;
+    }
     return s;
   }
 
@@ -498,16 +434,32 @@
     return lines;
   }
 
+  // Mirror analysis.side_lines: both sides' lines, unlabelled when identical,
+  // else "<label>: <line>" with the car's side first. labels = [even, odd].
+  function formatBothSides(even, odd, now, carSide, labels) {
+    labels = labels || ['Even', 'Odd'];
+    var ev = formatScheduleSide(even, now), od = formatScheduleSide(odd, now);
+    if (ev.length && ev.join('\n') === od.join('\n')) return ev.slice();
+    var groups = [[labels[0], ev], [labels[1], od]];
+    if (carSide === 'odd') groups.reverse();
+    var out = [];
+    groups.forEach(function (g) {
+      g[1].forEach(function (ln) { out.push(g[0] + ': ' + ln); });
+    });
+    return out;
+  }
+
   global.BroomUrgency = {
-    urgencyForSched: urgencyForSched,
+    WEEKDAY_CODES: WEEKDAY_CODES,
+    NO_SWEEP_CODES: NO_SWEEP_CODES,
     checkDaySweeping: checkDaySweeping,
-    parseSweepingCode: parseSweepingCode,
-    nextDatesDesc: nextDatesDesc,
-    nextClusterDates: nextClusterDates,
+    sweepsOn: sweepsOn,
+    datesInRange: datesInRange,
     nowForTimeZone: nowForTimeZone,
     isNoSweepCode: isNoSweepCode,
     sweepBody: sweepBody,
     timeDisplay: timeDisplay,
     formatScheduleSide: formatScheduleSide,
+    formatBothSides: formatBothSides,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -338,8 +338,3 @@ def house_number(raw: str) -> int | None:
         return int(_NUM_SEP_RE.split(raw.strip())[0])
     except (ValueError, TypeError):
         return None
-
-
-def car_side(number: int | None) -> str:
-    """Return 'even' or 'odd' based on a street number (defaults to 'odd' when unknown)."""
-    return "even" if (number and number % 2 == 0) else "odd"

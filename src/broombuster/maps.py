@@ -1,4 +1,5 @@
 import datetime as _dt
+import html as _html
 import re as _re
 
 import shapely
@@ -6,15 +7,6 @@ import shapely.geometry
 
 from broombuster import analysis as _analysis
 from broombuster.cities import CITIES as _CITIES
-
-
-def _clean_desc(s: str) -> str:
-    """Remove redundant phrases from schedule descriptions (e.g. SF '(every)',
-    contradictory '(biweekly)')."""
-    if not s or s == "N/A":
-        return s
-    s = _re.sub(r"\s*\((?:every|bi-?weekly)\)", "", s, flags=_re.IGNORECASE)
-    return _re.sub(r"\s+", " ", s).strip()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,8 +101,9 @@ def _zone_hover(row, local_now=None):
         (row.get("DAY_ODD"),  _safe(row.get("DESC_ODD")),  _safe(row.get("TIME_ODD"))),
     ]
     lines = _analysis.format_schedule_side(entries, local_now)
-    body = "<br>".join(f"Sweeping: {ln}" for ln in lines) if lines else "Sweeping: N/A"
-    return f"<b>{name}</b><br>{body}<br>"
+    body = ("<br>".join(f"Sweeping: {_html.escape(ln)}" for ln in lines)
+            if lines else "Sweeping: N/A")
+    return f"<b>{_html.escape(name)}</b><br>{body}<br>"
 
 
 # Ward number lives in the readable name ("Ward 05, Section 03"); the raw
@@ -126,10 +119,15 @@ def _ward_ordinal(n: int) -> str:
 
 def _zone_pdf_url(row):
     """Per-ward official PDF schedule URL for a zone, or None when unavailable."""
-    tmpl = (_CITIES.get(row.get("_city")) or {}).get("schedule_pdf_url")
+    return _pdf_url(row.get("STREET_DISPLAY") or row.get("STREET_NAME"), row.get("_city"))
+
+
+def _pdf_url(name, city):
+    """Per-ward PDF URL from a zone name ("Ward 05, ...") and city key, or None."""
+    tmpl = (_CITIES.get(city) or {}).get("schedule_pdf_url")
     if not tmpl:
         return None
-    m = _WARD_RE.search(str(row.get("STREET_DISPLAY") or row.get("STREET_NAME") or ""))
+    m = _WARD_RE.search(str(name or ""))
     if not m:
         return None
     return tmpl.format(ward=_ward_ordinal(int(m.group(1))))
@@ -156,46 +154,49 @@ def _format_cluster(cluster, today):
     return f"<span class='zd-past'>{line}</span>" if all_past else line
 
 
-def _zone_year_html(code, local_now=None):
-    """Full-year schedule for a 'DATES:' code: one cluster per line, past dimmed.
-
-    Dates within a few days (analysis.cluster_dates) are grouped onto one line
-    as a single sweeping occurrence. Returns None for non-DATES codes; "" when
-    the code has no dates.
-    """
-    dates = _analysis.parse_dates_code(code)
-    if dates is None:
-        return None
-    if not dates:
-        return ""
+def _year_html(dates, local_now=None):
+    """Full-year dates, one cluster (analysis.cluster_dates) per line, past dimmed."""
     today = local_now.date() if local_now else _dt.date.today()
-    clusters = _analysis.cluster_dates(dates)
-    return "<br>".join(_format_cluster(cl, today) for cl in clusters)
+    return "<br>".join(_format_cluster(cl, today) for cl in _analysis.cluster_dates(dates))
+
+
+def zone_detail_html(name, even, odd, city=None, local_now=None, car_side=None,
+                     labels=_analysis.DEFAULT_SIDE_LABELS):
+    """Click / car-card detail HTML for every schedule entry on both sides.
+
+    'DATES:' codes render as the full year (past dimmed); weekly codes as the
+    canonical side lines. Adds the ward PDF link when the city has one.
+    """
+    dates = sorted({d for e in list(even) + list(odd)
+                    for d in (_analysis.parse_dates_code(e[0]) or [])})
+    weekly_even = [e for e in even if _analysis.parse_dates_code(e[0]) is None]
+    weekly_odd = [e for e in odd if _analysis.parse_dates_code(e[0]) is None]
+    parts = [_html.escape(ln) for ln in _analysis.side_lines(
+        weekly_even, weekly_odd, car_side, labels, local_now)]
+    if dates:
+        parts.append(_year_html(dates, local_now))
+    body = "<br>".join(parts) or "No sweeping scheduled"
+    html = (
+        f"<b>{_html.escape(_safe(name))}</b><br>"
+        f"<span class='zd-dates'>{body}</span>"
+    )
+    pdf = _pdf_url(name, city)
+    if pdf:
+        link = f"{dates[0].year} schedule" if dates else "schedule"
+        html += (
+            f"<br><a class='zd-link' href='{_html.escape(pdf, quote=True)}' "
+            f"target='_blank' rel='noopener'>{link} ↗</a>"
+        )
+    return html
 
 
 def _zone_detail(row, local_now=None):
-    """Click popup HTML: full-year schedule (past dimmed) plus a PDF link."""
-    name = _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME"))
-    code = row.get("DAY_EVEN")
-    year_html = _zone_year_html(code, local_now)
-    if year_html is None:
-        year_html = _clean_desc(_safe(row.get("DESC_EVEN")))
-    body = year_html if year_html and year_html != "N/A" else "No sweeping scheduled"
-
-    dates = _analysis.parse_dates_code(code)
-    html = (
-        f"<b>{name}</b><br>"
-        f"<span class='zd-dates'>{body}</span>"
+    """zone_detail_html for one GDF row."""
+    even, odd = _analysis.schedules_for_segment(row)
+    return zone_detail_html(
+        row.get("STREET_DISPLAY") or row.get("STREET_NAME"), even, odd,
+        row.get("_city"), local_now, labels=_analysis.side_labels(row),
     )
-    pdf = _zone_pdf_url(row)
-    if pdf:
-        year = dates[0].year if dates else ""
-        link = f"{year} schedule".strip()
-        html += (
-            f"<br><a class='zd-link' href='{pdf}' target='_blank' "
-            f"rel='noopener'>{link} ↗</a>"
-        )
-    return html
 
 
 # ---------------------------------------------------------------------------
@@ -212,178 +213,119 @@ _POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
 _PRIORITY   = {"tomato": 2, "orange": 1, "cornflowerblue": 0}
 
 
-def build_map_geojson(
-    myCar, myCity,
-    schedule_even=None, schedule_odd=None, message=None, local_now=None,
-    simplify_tolerance: float | None = None,
-) -> dict:
-    """Return zone data as a GeoJSON FeatureCollection for client-side rendering.
+def _side_entry(code, desc, time):
+    """Raw (code, desc, time) for one side, or None for missing / no-sweep codes."""
+    if not isinstance(code, str) or code.strip() == "" or _analysis.is_no_sweep_code(code):
+        return None
+    d, t = _safe(desc), _safe(time)
+    return (code, "" if d == "N/A" else d, "" if t == "N/A" else t)
 
-    `simplify_tolerance` is in degrees (the CRS the geometry is converted to
-    before serialization). When provided, every feature's geometry is run
-    through `geom.simplify(tolerance, preserve_topology=True)` before being
-    serialized to GeoJSON. The expected use is sub-pixel simplification at
-    the requested viewport — a typical browser viewport is ~1000 px wide,
-    so a tolerance of `viewport_width_deg / 2000` is invisible to the user
-    but can shrink Chicago polygon payloads from ~1.2 MB to ~100 KB at wide
-    zooms.
+
+def _merge_lines(myCity_4326, on_row=None):
+    """Merge line rows sharing endpoints (analysis.line_key) into one segment each.
+
+    SF emits one row per (segment x weekday x side), so a physical line is the
+    union of every row sharing its endpoints. Returns {key: segment dict} with
+    x/y, name, city, labels, even/odd raw entries, and whatever `on_row(sd,
+    row, x, y)` adds per contributing row.
     """
-    schedule_even = schedule_even or []
-    schedule_odd  = schedule_odd  or []
-
-    myCity_ = myCity.to_crs("EPSG:4326")
-
-    do_simplify = bool(simplify_tolerance and simplify_tolerance > 0)
-
-    def _simplify(geom):
-        if do_simplify and geom is not None:
-            try:
-                return geom.simplify(simplify_tolerance, preserve_topology=True)
-            except (ValueError, TypeError):
-                return geom
-        return geom
-
-    features = []
-
-    # ------------------------------------------------------------------
-    # Single pass over the (already clipped) GDF.
-    #   - Polygon rows (Chicago ward sections) are emitted directly.
-    #   - Line rows (Oakland / SF) accumulate into seg_data and are emitted
-    #     as deduplicated segments after the loop.
-    # No densification needed — MapLibre hit-tests along the full geometry.
-    # ------------------------------------------------------------------
-    def _seg_key(x, y):
-        return frozenset({
-            (round(x[0], 5), round(y[0], 5)),
-            (round(x[-1], 5), round(y[-1], 5)),
-        })
-
-    def _side_entry(code, desc, time):
-        # Raw (code, desc, time) tuple for one side, or None when there is no
-        # renderable code. analysis.format_schedule_side does the no-sweep
-        # filtering and canonical formatting later, so keep the raw values.
-        if not isinstance(code, str) or code.strip() == "":
-            return None
-        d = _safe(desc)
-        t = _safe(time)
-        return (code, "" if d == "N/A" else d, "" if t == "N/A" else t)
-
     seg_data: dict = {}
-
-    for _, row in myCity_.iterrows():
+    for _, row in myCity_4326.iterrows():
         geom = row["geometry"]
-        if not hasattr(geom, "is_empty") or geom.is_empty:
+        if geom is None or geom.is_empty or isinstance(geom, _POLY_TYPES):
             continue
-
-        color = _sweeping_color(row, local_now=local_now)
-
-        if isinstance(geom, _POLY_TYPES):
-            fill_color, border_color = _zone_fill_color(color)
-            hover  = _zone_hover(row, local_now)
-            detail = _zone_detail(row, local_now)
-
-            out_geom = _simplify(geom)
-            if out_geom is None or out_geom.is_empty:
-                continue
-
-            features.append({
-                "type": "Feature",
-                "geometry": shapely.geometry.mapping(out_geom),
-                "properties": {
-                    "render_type":  "polygon",
-                    "domain":       "sweeping",
-                    "urgency":      color,
-                    "fill_color":   fill_color,
-                    "border_color": border_color,
-                    "hover_html":   hover,
-                    "detail_html":  detail,
-                },
-            })
-            continue
-
-        # Line / multiline path
-        pri   = _PRIORITY[color]
-        be    = _side_entry(row.get("DAY_EVEN"), row.get("DESC_EVEN"), row.get("TIME_EVEN"))
-        bo    = _side_entry(row.get("DAY_ODD"),  row.get("DESC_ODD"),  row.get("TIME_ODD"))
-        # Use display name for UI rendering; fallback to stored STREET_NAME
-        name  = _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME"))
-
+        be = _side_entry(row.get("DAY_EVEN"), row.get("DESC_EVEN"), row.get("TIME_EVEN"))
+        bo = _side_entry(row.get("DAY_ODD"), row.get("DESC_ODD"), row.get("TIME_ODD"))
+        labels = _analysis.side_labels(row)
         for x, y in _geom_lines(geom):
             x, y = list(x), list(y)
-            k = _seg_key(x, y)
-            if k not in seg_data:
-                seg_data[k] = {
-                    "color": color, "pri": pri,
-                    "x": x, "y": y, "name": name,
-                    # Raw (code, desc, time) entries are ACCUMULATED across every
-                    # row that shares this physical segment. SF's normalizer emits
-                    # one row per (segment × weekday); without accumulation the
-                    # hover would show one weekday while the colour reflects the
-                    # union of all weekdays. format_schedule_side formats the
-                    # union once, below. Dedup on first append.
-                    "even": [be] if be else [],
-                    "odd":  [bo] if bo else [],
+            if len(x) < 2:
+                continue
+            k = _analysis.line_key(list(zip(x, y)))
+            sd = seg_data.get(k)
+            if sd is None:
+                sd = seg_data[k] = {
+                    "x": x, "y": y, "city": _safe(row.get("_city")),
+                    "name": _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
+                    "labels": labels, "even": [], "odd": [],
                 }
-            else:
-                sd = seg_data[k]
-                # Color (and the geometry it shows on hover-pick) follows the
-                # most-urgent row, but entries accumulate regardless of priority.
-                if pri > sd["pri"]:
-                    sd["pri"] = pri
-                    sd["color"] = color
-                    sd["x"] = x
-                    sd["y"] = y
-                if be and be not in sd["even"]:
-                    sd["even"].append(be)
-                if bo and bo not in sd["odd"]:
-                    sd["odd"].append(bo)
+            elif labels != _analysis.DEFAULT_SIDE_LABELS:
+                sd["labels"] = labels
+            if be and be not in sd["even"]:
+                sd["even"].append(be)
+            if bo and bo not in sd["odd"]:
+                sd["odd"].append(bo)
+            if on_row:
+                on_row(sd, row, x, y)
+    return seg_data
 
-    for sd in seg_data.values():
+
+def build_map_geojson(myCity, local_now=None, simplify_tolerance: float | None = None) -> dict:
+    """Return zone data as a GeoJSON FeatureCollection for client-side rendering.
+
+    `simplify_tolerance` (degrees) runs every geometry through `simplify`
+    before serialization; `viewport_width_deg / 2000` is sub-pixel for a
+    ~1000 px viewport.
+    """
+    myCity_ = myCity.to_crs("EPSG:4326")
+    do_simplify = bool(simplify_tolerance and simplify_tolerance > 0)
+    features = []
+
+    # Polygon rows (Chicago ward sections) pass through 1:1.
+    for _, row in myCity_.iterrows():
+        geom = row["geometry"]
+        if geom is None or geom.is_empty or not isinstance(geom, _POLY_TYPES):
+            continue
+        color = _sweeping_color(row, local_now=local_now)
+        fill_color, border_color = _zone_fill_color(color)
+        out_geom = (geom.simplify(simplify_tolerance, preserve_topology=True)
+                    if do_simplify else geom)
+        if out_geom.is_empty:
+            continue
+        features.append({
+            "type": "Feature",
+            "geometry": shapely.geometry.mapping(out_geom),
+            "properties": {
+                "render_type":  "polygon",
+                "domain":       "sweeping",
+                "urgency":      color,
+                "fill_color":   fill_color,
+                "border_color": border_color,
+                "hover_html":   _zone_hover(row, local_now),
+                "detail_html":  _zone_detail(row, local_now),
+            },
+        })
+
+    # Line rows: the colour (and drawn geometry) follow the most urgent row;
+    # schedule entries accumulate across every row of the segment.
+    def _on_row(sd, row, x, y):
+        color = _sweeping_color(row, local_now=local_now)
+        if _PRIORITY[color] > sd.get("pri", -1):
+            sd["pri"], sd["color"], sd["x"], sd["y"] = _PRIORITY[color], color, x, y
+
+    for sd in _merge_lines(myCity_, _on_row).values():
         color = sd["color"]
-        # Canonical formatting (day-first, "Every <Wd>" merge, Mon->Sun order,
-        # next-cluster dates) — identical to the card via format_schedule_side.
-        evens = _analysis.format_schedule_side(sd["even"], local_now)
-        odds  = _analysis.format_schedule_side(sd["odd"], local_now)
-        # One schedule entry per line. Drop the Even/Odd labels when both sides
-        # sweep identically; otherwise prefix each entry with its side.
-        if evens and odds and evens == odds:
-            sched_html = "<br>".join(evens)
-        elif not evens and not odds:
-            sched_html = "No sweeping data"
-        else:
-            lines = [f"Even: {e}" for e in evens] + [f"Odd: {o}" for o in odds]
-            sched_html = "<br>".join(lines)
-
-        hover      = f"<b>{sd['name']}</b><br>{sched_html}"
-        line_width = _color_meta[color][1]
-
-        # GeoJSON coords: [[lon, lat], ...]
-        if simplify_tolerance and simplify_tolerance > 0 and len(sd["x"]) > 2:
-            try:
-                ls = shapely.geometry.LineString(zip(sd["x"], sd["y"]))
-                ls_simple = ls.simplify(simplify_tolerance, preserve_topology=False)
-                coords = [[float(x), float(y)] for x, y in ls_simple.coords]
-            except (ValueError, TypeError):
-                coords = [[float(lon), float(lat)] for lon, lat in zip(sd["x"], sd["y"])]
-        else:
-            coords = [[float(lon), float(lat)] for lon, lat in zip(sd["x"], sd["y"])]
-
+        lines = _analysis.side_lines(sd["even"], sd["odd"], None, sd["labels"], local_now)
+        sched_html = "<br>".join(_html.escape(ln) for ln in lines) or "No sweeping data"
+        coords = list(zip(sd["x"], sd["y"]))
+        if do_simplify and len(coords) > 2:
+            coords = list(shapely.geometry.LineString(coords)
+                          .simplify(simplify_tolerance, preserve_topology=False).coords)
         if len(coords) < 2:
             continue
-
         features.append({
             "type": "Feature",
             "geometry": {
                 "type": "LineString",
-                "coordinates": coords,
+                "coordinates": [[float(x), float(y)] for x, y in coords],
             },
             "properties": {
                 "render_type": "line",
                 "domain":      "sweeping",
                 "urgency":     color,
                 "line_color":  color,
-                "line_width":  line_width,
-                "hover_html":  hover,
+                "line_width":  _color_meta[color][1],
+                "hover_html":  f"<b>{_html.escape(sd['name'])}</b><br>{sched_html}",
             },
         })
 
@@ -403,91 +345,51 @@ def build_map_geojson(
 # every row sharing its endpoints.
 
 
-def _sched_entry(code, time, desc, side):
-    """One raw schedule entry {code,time,desc,side}, or None for no-sweep codes."""
-    if not isinstance(code, str) or code.strip() == "":
-        return None
-    if _analysis.is_no_sweep_code(code):
-        return None
-    t = _safe(time)
-    d = _clean_desc(_safe(desc))
-    return {
-        "code": code,
-        "time": t if t != "N/A" else "",
-        "desc": d if d != "N/A" else "",
-        "side": side,
-    }
+def _tile_sched(even, odd):
+    """Tile schedule entries [{code,time,desc,side}] for raw even / odd entries."""
+    out = []
+    for side, entries in (("even", even), ("odd", odd)):
+        for entry in entries:
+            clean = _side_entry(*entry)
+            if clean is None:
+                continue
+            e = {"code": clean[0], "time": clean[2], "desc": clean[1], "side": side}
+            if e not in out:
+                out.append(e)
+    return out
 
 
 def merge_segment_rows(myCity):
-    """Yield one tile record per physical feature with raw schedule codes.
+    """One tile record per physical feature with raw schedule codes.
 
     Each record: {geometry (shapely, EPSG:4326), render_type, street, city,
-    schedule: [{code,time,side}, ...]}. Lines sharing endpoints are merged and
-    their schedule entries unioned; polygons pass through 1:1.
+    schedule: [{code,time,desc,side}, ...], labels: (even, odd)}. Lines
+    sharing endpoints are merged (_merge_lines); polygons pass through 1:1.
     """
     myCity_ = myCity.to_crs("EPSG:4326")
     records = []
-
-    def _seg_key(x, y):
-        return frozenset({
-            (round(x[0], 5), round(y[0], 5)),
-            (round(x[-1], 5), round(y[-1], 5)),
-        })
-
-    seg_data: dict = {}
-
     for _, row in myCity_.iterrows():
         geom = row["geometry"]
-        if not hasattr(geom, "is_empty") or geom.is_empty:
+        if geom is None or geom.is_empty or not isinstance(geom, _POLY_TYPES):
             continue
-        city = _safe(row.get("_city"))
-        name = _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME"))
-
-        if isinstance(geom, _POLY_TYPES):
-            sched = []
-            for entry in (
-                _sched_entry(row.get("DAY_EVEN"), row.get("TIME_EVEN"),
-                             row.get("DESC_EVEN"), "even"),
-                _sched_entry(row.get("DAY_ODD"), row.get("TIME_ODD"),
-                             row.get("DESC_ODD"), "odd"),
-            ):
-                if entry and entry not in sched:
-                    sched.append(entry)
-            records.append({
-                "geometry":    geom,
-                "render_type": "polygon",
-                "street":      name,
-                "city":        city,
-                "schedule":    sched,
-            })
-            continue
-
-        be = _sched_entry(row.get("DAY_EVEN"), row.get("TIME_EVEN"), row.get("DESC_EVEN"), "even")
-        bo = _sched_entry(row.get("DAY_ODD"),  row.get("TIME_ODD"),  row.get("DESC_ODD"),  "odd")
-        for x, y in _geom_lines(geom):
-            x, y = list(x), list(y)
-            k = _seg_key(x, y)
-            sd = seg_data.get(k)
-            if sd is None:
-                sd = {"x": x, "y": y, "name": name, "city": city, "schedule": []}
-                seg_data[k] = sd
-            for entry in (be, bo):
-                if entry and entry not in sd["schedule"]:
-                    sd["schedule"].append(entry)
-
-    for sd in seg_data.values():
-        if len(sd["x"]) < 2:
-            continue
-        coords = list(zip(sd["x"], sd["y"]))
+        even, odd = _analysis.schedules_for_segment(row)
         records.append({
-            "geometry":    shapely.geometry.LineString(coords),
+            "geometry":    geom,
+            "render_type": "polygon",
+            "street":      _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
+            "city":        _safe(row.get("_city")),
+            "schedule":    _tile_sched(even, odd),
+            "labels":      _analysis.side_labels(row),
+        })
+    for sd in _merge_lines(myCity_).values():
+        records.append({
+            "geometry":    shapely.geometry.LineString(list(zip(sd["x"], sd["y"]))),
             "render_type": "line",
             "street":      sd["name"],
             "city":        sd["city"],
-            "schedule":    sd["schedule"],
+            "schedule":    _tile_sched(sd["even"], sd["odd"]),
+            "labels":      sd["labels"],
         })
-
     return records
 
 
@@ -558,7 +460,7 @@ def ward_boundary_features(records):
 # Legacy offline preview (CLI only — not used by the API)
 # ---------------------------------------------------------------------------
 
-def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None, local_now=None):
+def plot_map(myCar, myCity, local_now=None):
     """Render the map in a browser tab (offline/CLI use only)."""
     try:
         import plotly.graph_objects as go
@@ -566,13 +468,11 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None,
         print("plotly not installed; cannot render offline preview.")
         return
 
-    geojson = build_map_geojson(myCar, myCity, schedule_even, schedule_odd, message, local_now)
+    geojson = build_map_geojson(myCity, local_now)
     lats, lons = [], []
     for f in geojson["features"]:
-        props = f["properties"]
-        geom  = f["geometry"]
-        if props["render_type"] == "line":
-            coords = geom["coordinates"]
+        if f["properties"]["render_type"] == "line":
+            coords = f["geometry"]["coordinates"]
             lats.extend([c[1] for c in coords] + [None])
             lons.extend([c[0] for c in coords] + [None])
 
@@ -582,10 +482,3 @@ def plot_map(myCar, myCity, schedule_even=None, schedule_odd=None, message=None,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
     )
     fig.show(config=dict(scrollZoom=True, displayModeBar=True, displaylogo=False))
-
-
-# Keep old name as alias so any external callers don't break immediately.
-def plot_map_dict(*args, **kwargs):
-    raise NotImplementedError(
-        "plot_map_dict() is removed. Use build_map_geojson() instead."
-    )

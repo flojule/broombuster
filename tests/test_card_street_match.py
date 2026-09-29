@@ -1,9 +1,9 @@
 """
 Nearest-segment invariants for the resolver path (resolve.resolve_car_segment),
-used by both the /check endpoint and the CLI via analysis.analyze_car.
+used by both the /check endpoint and the CLI via SweepingPlugin.
 
 Core invariant: the schedule of the segment the resolver picks must appear in
-analyze_car's output (the car card reflects the resolved segment). Snapping
+the plugin's schedules (the car card reflects the resolved segment). Snapping
 accuracy for controlled mid-block coordinates is covered in test_resolve.py.
 """
 import pytest
@@ -39,17 +39,17 @@ class TestNearestSegmentMatch:
             f"No segment within 50 m for {desc}"
         )
 
-    def test_analyze_car_includes_resolved_schedule(
+    def test_plugin_includes_resolved_schedule(
         self, desc, lat, lon, street, city, bay_area_3857
     ):
-        """The resolved segment's own schedule must surface in analyze_car output."""
+        """The resolved segment's own schedule must surface in the plugin output."""
         resolved = _resolve(bay_area_3857, lat, lon, city)
         if resolved is None:
             pytest.skip(f"No segment resolved for {desc}")
         seg_e = analysis.get_schedule(resolved.segment, 0)
         seg_o = analysis.get_schedule(resolved.segment, 1)
-        _, schedule_even, schedule_odd, _ = analysis.analyze_car(
-            bay_area_3857, lat, lon, city_key=city
+        schedule_even, schedule_odd = analysis.schedules_for_all_matching_rows(
+            bay_area_3857, resolved
         )
         if seg_e:
             assert seg_e in schedule_even, (

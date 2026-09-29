@@ -87,11 +87,19 @@ except ImportError:
     _RATE_LIMIT = None
 
 
-def _maybe_limit(func):
-    """Apply the slowapi limit decorator when a limiter is active; else no-op."""
-    if _limiter is not None and _RATE_LIMIT:
-        return _limiter.limit(_RATE_LIMIT)(func)
-    return func
+def rate_limit(rate: str | None):
+    """Per-IP slowapi limit decorator when a limiter is active; else no-op.
+
+    The decorated route must take a `request: Request` parameter.
+    """
+    def deco(func):
+        if _limiter is not None and rate:
+            return _limiter.limit(rate)(func)
+        return func
+    return deco
+
+
+_maybe_limit = rate_limit(_RATE_LIMIT)
 
 
 def init_rate_limiting(app) -> None:

@@ -31,7 +31,7 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
-from broombuster import data_loader, maps  # noqa: E402
+from broombuster import analysis, data_loader, maps  # noqa: E402
 from broombuster.cities import REGIONS  # noqa: E402
 
 _TILES_DIR = _ROOT / "frontend" / "tiles"
@@ -65,16 +65,21 @@ def _write_ndjson(region_key: str, path: Path) -> int:
             geom = rec["geometry"]
             if geom is None or geom.is_empty:
                 continue
+            props = {
+                "render_type": rec["render_type"],
+                "street":      rec["street"],
+                "city":        rec["city"],
+                # Raw schedule codes as a JSON string (MVT props are scalar).
+                "sched":       json.dumps(rec["schedule"], separators=(",", ":")),
+            }
+            # Side display labels (e.g. SF "North"/"South") when not Even/Odd.
+            labels = rec.get("labels")
+            if labels and tuple(labels) != analysis.DEFAULT_SIDE_LABELS:
+                props["side_even"], props["side_odd"] = labels
             feature = {
                 "type": "Feature",
                 "geometry": shapely.geometry.mapping(geom),
-                "properties": {
-                    "render_type": rec["render_type"],
-                    "street":      rec["street"],
-                    "city":        rec["city"],
-                    # Raw schedule codes as a JSON string (MVT props are scalar).
-                    "sched":       json.dumps(rec["schedule"], separators=(",", ":")),
-                },
+                "properties": props,
             }
             fh.write(json.dumps(feature, separators=(",", ":")))
             fh.write("\n")

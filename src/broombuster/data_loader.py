@@ -16,16 +16,17 @@ analysis.py and maps.py work identically regardless of the data source:
   L_T_ADD        Left-side to-address number
   R_F_ADD        Right-side from-address number
   R_T_ADD        Right-side to-address number
+  SIDE_EVEN      Optional display label of the even bucket (SF: compass side,
+  SIDE_ODD       e.g. "North"); absent / null means "Even" / "Odd"
 
-Oakland-style day codes understood by analysis.parse_sweeping_code():
-  ME / TE / WE / THE / FE / SE = every Mon/Tue/Wed/Thu/Fri/Sat
-  M13 / T24 / W13 / TH24 / F13 / F24 = 1st+3rd or 2nd+4th of month
-  MWF / TTH / TTHS / MF / E = compound / every-day codes
-  N / NS / O = no sweeping
+Day codes follow the grammar in analysis.py (e.g. "ME" every Mon, "M13"
+1st+3rd Mon, "T135" 1st+3rd+5th Tue, "MTHE" every Mon+Thu, "DATES:..."
+explicit dates); analysis.NO_SWEEP_CODES lists the no-sweeping markers.
 """
 
 import importlib.util
 import io
+import math
 import os
 import threading
 import zipfile
@@ -71,6 +72,7 @@ _SCHEMA_COLS = [
     "DESC_EVEN", "DESC_ODD",
     "TIME_EVEN", "TIME_ODD",
     "L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD",
+    "SIDE_EVEN", "SIDE_ODD",
 ]
 
 
@@ -319,7 +321,10 @@ def pd_series_none(ref_gdf):
 # ---------------------------------------------------------------------------
 # Key columns (from DataSF metadata):
 #   corridor       street name  e.g. "MARKET ST"
-#   blockside      "ODD", "EVEN", or "BOTH"
+#   cnn            centerline id; one geometry (and direction) per cnn
+#   cnnrightleft   "L" / "R": side of the centerline's digitized direction
+#   blockside      compass side ("North", "SouthEast", ...); "ODD" / "EVEN" /
+#                  "BOTH" also accepted
 #   week_day       integer 1–7  (1 = Monday … 7 = Sunday)
 #   from_hour      integer hour (24-h)
 #   to_hour        integer hour (24-h)
@@ -351,6 +356,37 @@ def _sf_desc(code, time) -> str:
                "13": "1st & 3rd", "24": "2nd & 4th"}.get(suffix, suffix)
     return f"Every {day_label} ({ordinal}), {time}" if ordinal == "every" else \
            f"{day_label} {ordinal} of month, {time}"
+
+
+_OPPOSITE_SIDE = {
+    "North": "South", "South": "North", "East": "West", "West": "East",
+    "NorthEast": "SouthWest", "SouthWest": "NorthEast",
+    "NorthWest": "SouthEast", "SouthEast": "NorthWest",
+}
+_COMPASS_CANON = {k.upper(): k for k in _OPPOSITE_SIDE}
+# 45° sectors counter-clockwise from east.
+_COMPASS_SECTORS = ("East", "NorthEast", "North", "NorthWest",
+                    "West", "SouthWest", "South", "SouthEast")
+
+
+def _left_compass(geom):
+    """8-way compass side left of a line's digitized direction (EPSG:4326), or None."""
+    if geom is None or geom.is_empty:
+        return None
+    line = geom if geom.geom_type == "LineString" else geom.geoms[0]
+    (x0, y0), (x1, y1) = line.coords[0][:2], line.coords[-1][:2]
+    dx = (x1 - x0) * math.cos(math.radians(y0))
+    dy = y1 - y0
+    if dx == 0 and dy == 0:
+        return None
+    # Left normal of (dx, dy) is (-dy, dx).
+    angle = math.degrees(math.atan2(dx, -dy))
+    return _COMPASS_SECTORS[round(angle / 45) % 8]
+
+
+def _side_label(compass):
+    """"NorthEast" -> "Northeast"; None stays None."""
+    return compass[0] + compass[1:].lower() if isinstance(compass, str) else None
 
 
 def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
@@ -436,10 +472,36 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     )
 
     # --- Side classification ---
-    raw_side = (out[side_col].fillna("").astype(str).str.upper() if side_col
+    raw_side = (out[side_col].fillna("").astype(str).str.strip().str.upper() if side_col
                 else pd.Series("", index=out.index))
     is_even = raw_side == "EVEN"
     is_odd  = raw_side == "ODD"
+
+    # Left of the centerline -> even bucket, right -> odd bucket. Synthetic
+    # address parity (left 0, right 1) lets resolve._determine_side map the
+    # car's geometric side onto the buckets; SIDE_EVEN / SIDE_ODD carry the
+    # compass labels shown instead of "Even" / "Odd".
+    lr_col = col("cnnrightleft")
+    if lr_col:
+        lr = out[lr_col].fillna("").astype(str).str.strip().str.upper()
+        is_l, is_r = lr == "L", lr == "R"
+        is_even, is_odd = is_even | is_l, is_odd | is_r
+        known = is_l | is_r
+        for cn, v in (("L_F_ADD", 0), ("L_T_ADD", 0), ("R_F_ADD", 1), ("R_T_ADD", 1)):
+            out[cn] = np.where(known, v, np.nan)
+        cnn_col = col("cnn")
+        cnn = out[cnn_col].astype(str) if cnn_col else pd.Series(out.index.astype(str),
+                                                                  index=out.index)
+        compass = raw_side.map(_COMPASS_CANON)
+        left = compass.where(is_l).groupby(cnn).transform("first")
+        right = compass.where(is_r).groupby(cnn).transform("first")
+        left = left.fillna(right.map(_OPPOSITE_SIDE))
+        right = right.fillna(left.map(_OPPOSITE_SIDE))
+        geo_left = out.geometry.map(_left_compass)
+        left = left.fillna(geo_left)
+        right = right.fillna(geo_left.map(_OPPOSITE_SIDE))
+        out["SIDE_EVEN"] = left.map(_side_label).where(known)
+        out["SIDE_ODD"] = right.map(_side_label).where(known)
     is_both = ~is_even & ~is_odd
 
     out["DAY_EVEN"]  = code_series.where(is_even | is_both, other=None)

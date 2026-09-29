@@ -24,12 +24,10 @@ def test_merge_segment_rows_chicago_shape():
 
 def test_merge_matches_build_map_geojson_count_chicago():
     """Chicago polygons are 1:1, so merge count == build_map_geojson feature count."""
-    import types
 
     gdf = data_loader.load_region_data("chicago")
     merged = maps.merge_segment_rows(gdf)
-    car = types.SimpleNamespace(lat=41.9, lon=-87.66)
-    geojson = maps.build_map_geojson(car, gdf)
+    geojson = maps.build_map_geojson(gdf)
     assert len(merged) == len(geojson["features"])
 
 

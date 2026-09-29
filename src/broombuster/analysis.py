@@ -1,13 +1,13 @@
-import calendar
 import datetime
 import functools
+import logging
 import re
 import weakref
+from typing import NamedTuple
 
 from broombuster import normalize
 
-# compose_message is imported lazily inside analyze_car to avoid a circular
-# import (domains.sweeping imports analysis at module load).
+logger = logging.getLogger(__name__)
 
 
 # Canonical street-name comparison key — delegates to normalize module.
@@ -23,117 +23,125 @@ _TIME_RANGE_RE = re.compile(
 )
 
 
-def _parse_time_range(time_str: str):
-    """Parse a time range to (start, end) datetime.time, or (None, None)."""
-    if not isinstance(time_str, str) or not time_str.strip():
-        return None, None
+def _parse_end_time(time_str) -> datetime.time | None:
+    """End of a time range as datetime.time, or None when unparseable."""
+    if not isinstance(time_str, str):
+        return None
     m = _TIME_RANGE_RE.search(time_str)
     if not m:
-        return None, None
-    h1, m1, ap1, h2, m2, ap2 = m.groups()
-
-    def _t(h, mn, ap):
-        h, mn = int(h), int(mn or 0)
-        ap = ap.upper()
-        if ap == 'PM' and h != 12:
-            h += 12
-        elif ap == 'AM' and h == 12:
-            h = 0
-        return datetime.time(h, mn)
-
-    try:
-        return _t(h1, m1, ap1), _t(h2, m2, ap2)
-    except Exception:
-        return None, None
+        return None
+    h, mn, ap = int(m.group(4)), int(m.group(5) or 0), m.group(6).upper()
+    if ap == 'PM' and h != 12:
+        h += 12
+    elif ap == 'AM' and h == 12:
+        h = 0
+    if h > 23 or mn > 59:
+        return None
+    # A window ending at 12AM runs to the end of the day.
+    return datetime.time(h, mn) if (h, mn) != (0, 0) else datetime.time(23, 59, 59)
 
 
-# Map sweeping letter codes to weekday integers
-weekday_map = {
-    'M': 0, 'T': 1, 'W': 2, 'TH': 3, 'F': 4, 'S': 5, 'SU': 6
+# ---------------------------------------------------------------------------
+# Sweep-code grammar (mirrored in frontend/js/urgency.js; tables checked by
+# tests/test_urgency_parity.py)
+#
+#   code     := DAYS [ "E" | ORDINALS ] | "E" | "DATES:" iso-date{,iso-date}
+#   DAYS     := one or more of TH SU M T W F S   (longest token first)
+#   ORDINALS := week-of-month digits 1..5        (e.g. "135" = 1st, 3rd, 5th)
+#
+# DAYS with no suffix or "E" sweep every week; "E" alone is every day.
+# ---------------------------------------------------------------------------
+
+# Code token -> (weekday Mon=0..Sun=6, display).
+WEEKDAY_CODES = {
+    "M": (0, "Mon"), "T": (1, "Tue"), "W": (2, "Wed"), "TH": (3, "Thu"),
+    "F": (4, "Fri"), "S": (5, "Sat"), "SU": (6, "Sun"),
 }
 
-# Handle combinations like 'MWF', 'TTHS', etc.
-compound_map = {
-    'MWF':  [0, 2, 4],
-    'TTH':  [1, 3],
-    'TTHS': [1, 3, 5],
-    'MF':   [0, 4],
-    # Oakland uses two-letter pairs for "Tue+Fri", "Thu+Fri", "Tue+Thu".
-    # The trailing 'E' (every) is added by the endswith-'E' branch below.
-    'TF':   [1, 4],
-    'THF':  [3, 4],
-    'E':    list(range(7)),  # Every day
-}
+# Codes that explicitly mean "no sweeping" (compared upper-cased, stripped).
+# Oakland: N-E / N-O = no even / odd addresses; MS = "major street uses 2
+# lines"; DM = "shown in a different map"; MISSING = no data.
+NO_SWEEP_CODES = frozenset({
+    "N", "NS", "O", "N-S", "N-E", "N-O",
+    "NS-UC", "NS-H", "NS-O", "NS-A",
+    "MS", "DM", "MISSING",
+})
 
-# Handle codes like M13, T2, F24
-ordinals = {
-    '1': [1],
-    '2': [2],
-    '3': [3],
-    '4': [4],
-    '13': [1, 3],
-    '24': [2, 4],
-}
-
-# Name-index cache keyed by id(gdf). Python recycles ids when objects are
-# garbage-collected, so each entry pairs the value with a weakref to the
-# original GDF; on lookup we verify the weakref still resolves to the same
-# object — if not, the entry is stale and we rebuild.
-#   id(gdf) → (weakref.ref(gdf), {normalized_street_name: [row_labels]})
-_name_index_cache: dict[int, tuple] = {}
+_CODE_RE = re.compile(r"((?:TH|SU|M|T|W|F|S)*)(E?|[1-5]+)")
+_DAY_TOKEN_RE = re.compile(r"TH|SU|M|T|W|F|S")
 
 
-def analyze_car(gdf_3857, lat, lon, *, city_key=None, max_distance_m=50.0):
-    """Resolve a car coordinate to its segment and return the legacy 4-tuple.
+def is_no_sweep_code(code) -> bool:
+    """True if the given DAY_* code is one of the explicit no-sweep markers."""
+    return isinstance(code, str) and code.strip().upper() in NO_SWEEP_CODES
 
-    Returns (schedule, schedule_even, schedule_odd, message) — the shape the
-    CLI and notifier consume — via the same resolve_car_segment path as the
-    /check endpoint, so the CLI and the API agree on the car's segment. The
-    side is geometric (resolved.side), not house-number parity.
-    """
-    from broombuster import resolve  # local import: resolve has no broombuster deps
-    from broombuster.domains.sweeping import compose_message  # local: breaks import cycle
 
-    try:
-        resolved = resolve.resolve_car_segment(
-            gdf_3857, lat, lon, city_key=city_key, max_distance_m=max_distance_m,
-        )
-    except resolve.NoSegmentNearby:
-        resolved = None
+@functools.lru_cache(maxsize=4096)
+def _code_parts(code: str) -> tuple[tuple[str, ...], str] | None:
+    """(day tokens, suffix) of a weekly code, or None when not weekly/no-sweep."""
+    c = code.strip().upper()
+    if c in NO_SWEEP_CODES:
+        return None
+    m = _CODE_RE.fullmatch(c)
+    if not m:
+        return None
+    days, suffix = m.groups()
+    if not days and suffix != "E":
+        return None
+    return tuple(_DAY_TOKEN_RE.findall(days)), suffix
 
-    if resolved is None:
-        return [], [], [], "Car not near a mapped street."
 
-    schedule_even, schedule_odd = schedules_for_all_matching_rows(gdf_3857, resolved)
-    schedule = list(set(schedule_even) | set(schedule_odd))
-    car_side = resolved.side or "odd"
-    message = compose_message(schedule_even, schedule_odd, car_side)
-    return schedule, schedule_even, schedule_odd, message
+class _Rule(NamedTuple):
+    weekdays: frozenset  # Mon=0..Sun=6; empty for DATES codes
+    ordinals: frozenset  # week-of-month 1..5; empty = every week
+    dates: frozenset     # explicit dates ('DATES:' codes only)
+
+
+@functools.lru_cache(maxsize=4096)
+def _rule(code: str) -> _Rule | None:
+    """Parsed sweep rule for a code, or None for no-sweep / unknown codes."""
+    dates = parse_dates_code(code)
+    if dates is not None:
+        return _Rule(frozenset(), frozenset(), frozenset(dates))
+    parts = _code_parts(code)
+    if parts is None:
+        return None
+    tokens, suffix = parts
+    weekdays = (frozenset(WEEKDAY_CODES[t][0] for t in tokens) if tokens
+                else frozenset(range(7)))
+    ordinals = frozenset(int(ch) for ch in suffix) if suffix.isdigit() else frozenset()
+    return _Rule(weekdays, ordinals, frozenset())
+
+
+def sweeps_on(code, day: datetime.date) -> bool:
+    """True if `code` schedules sweeping on `day`."""
+    if not isinstance(code, str):
+        return False
+    r = _rule(code)
+    if r is None:
+        return False
+    if r.dates:
+        return day in r.dates
+    if day.weekday() not in r.weekdays:
+        return False
+    return not r.ordinals or (day.day - 1) // 7 + 1 in r.ordinals
+
+
+def dates_in_range(code, start: datetime.date, end: datetime.date) -> list:
+    """Sorted sweep dates of `code` in [start, end] (inclusive)."""
+    out = []
+    d = start
+    while d <= end:
+        if sweeps_on(code, d):
+            out.append(d)
+        d += datetime.timedelta(days=1)
+    return out
+
 
 def compute_urgency(segment, local_now=None):
-    """Pure urgency function — no GDF, no spatial work, no Nominatim.
-
-    Given a resolved segment (pandas Series from a normalised GDF) and a
-    timezone-aware datetime, return "today" | "tomorrow" | False. Reads
-    DAY_EVEN/ODD, TIME_EVEN/ODD, DESC_EVEN/ODD directly from the segment.
-    The union of both sides is alerted on, matching the existing
-    "alert either side" policy — the car is at risk regardless of which
-    side is being swept.
-
-    This is the authoritative urgency function. The /check endpoint, the
-    notifier, and (in M3) the TypeScript port all call into this exact
-    shape. Behaviour must match check_day_street_sweeping() one-for-one.
-    """
-    if segment is None:
-        return False
-    schedules = []
-    e = get_schedule(segment, 0)
-    o = get_schedule(segment, 1)
-    if e:
-        schedules.append(e)
-    if o:
-        schedules.append(o)
-    return check_day_street_sweeping(schedules, local_now=local_now)
+    """Urgency ("today" | "tomorrow" | False) for one segment row, both sides."""
+    even, odd = schedules_for_segment(segment)
+    return check_day_street_sweeping(even + odd, local_now=local_now)
 
 
 def schedules_for_segment(segment):
@@ -231,93 +239,58 @@ def schedules_for_all_matching_rows(gdf_3857, resolved):
     return even_out, odd_out
 
 
+def line_key(coords) -> frozenset:
+    """Orientation-free endpoint key of a line (~1 m: 0 decimals in metres, 5 in degrees)."""
+    decimals = 0 if abs(coords[0][0]) > 180 else 5
+    a = (round(coords[0][0], decimals), round(coords[0][1], decimals))
+    b = (round(coords[-1][0], decimals), round(coords[-1][1], decimals))
+    return frozenset({a, b})
+
+
 def _segment_endpoints(geom):
-    """Return a frozenset of endpoint pairs for the geometry (~1m precision).
-
-    Each LineString contributes one (start, end) pair. A MultiLineString
-    contributes one pair per sub-line (Alameda's schema lumps every
-    Channing Way block into a single multiline row). The set comparison is
-    "any sub-line in common" so siblings that share at least one block of
-    geometry will match.
-
-    Coordinate rounding is CRS-aware: 0 decimals for meter-scale CRSs
-    (|coord| > 180), 5 decimals for degree-scale — both ~1m tolerance,
-    matching maps._seg_key.
-    """
+    """Frozenset of line_key per sub-line (MultiLineString rows span many blocks)."""
     if geom is None or geom.is_empty:
         return None
-    sub_lines: list = []
     if geom.geom_type == "LineString":
-        sub_lines = [list(geom.coords)]
+        parts = [geom]
     elif geom.geom_type == "MultiLineString":
-        for sub in geom.geoms:
-            if sub is None or sub.is_empty:
-                continue
-            sub_lines.append(list(sub.coords))
+        parts = list(geom.geoms)
     else:
         return None
-    out = set()
-    decimals = None
-    for coords in sub_lines:
-        if len(coords) < 2:
-            continue
-        if decimals is None:
-            decimals = 0 if abs(coords[0][0]) > 180 else 5
-        a = (round(coords[0][0],  decimals), round(coords[0][1],  decimals))
-        b = (round(coords[-1][0], decimals), round(coords[-1][1], decimals))
-        # Each sub-line is order-independent: store as a frozen pair so
-        # comparisons treat (a, b) and (b, a) as identical.
-        out.add(frozenset({a, b}))
+    out = {line_key(list(p.coords)) for p in parts if not p.is_empty and len(p.coords) >= 2}
     return frozenset(out) if out else None
 
 
 def check_day_street_sweeping(schedule, local_now=None):
-    myDay      = local_now.date() if local_now else datetime.date.today()
-    myTomorrow = myDay + datetime.timedelta(days=1)
-    schedule_ymd: set = set()
-    # date → list of time strings, INCLUDING empty strings. An empty entry
-    # means "this side sweeps today but has no time info" — which we treat
-    # as "still active" all day. Storing it makes the per-day window check
-    # consistent with maps._sweeping_color, which evaluates each side
-    # independently rather than filtering out empty times.
-    date_times: dict  = {}
+    """"today" | "tomorrow" | False for a list of (code, desc, time) entries.
 
-    for day in schedule:
-        if not day:
+    "today" only while at least one of today's windows is still open (an
+    untimed or unparseable window counts as open all day). Dates are taken in
+    the region-local clock `local_now`; without it, the server date and no
+    window check.
+    """
+    today = local_now.date() if local_now else datetime.date.today()
+    tomorrow = today + datetime.timedelta(days=1)
+    today_times: list = []
+    swept_tomorrow = False
+    for entry in schedule:
+        if not entry:
             continue
-        code     = day[0]
-        time_str = day[2] if len(day) >= 3 else ""
-        try:
-            dates = parse_sweeping_code(code)
-            for d in dates:
-                schedule_ymd.add(d)
-                date_times.setdefault(d, []).append(time_str)
-        except Exception:
-            pass
+        code = entry[0]
+        if sweeps_on(code, today):
+            today_times.append(entry[2] if len(entry) >= 3 else "")
+        if sweeps_on(code, tomorrow):
+            swept_tomorrow = True
 
-    def _day_active(d):
-        """True if sweeping is scheduled on d and at least one side is still active."""
-        if d not in schedule_ymd:
-            return False
+    if today_times:
         if local_now is None:
-            return True
-        times = date_times.get(d, [])
-        if not times:
-            return True  # day scheduled but no time entries — assume active
-        for ts in times:
-            if not ts:
-                return True  # an empty time on a swept side → that side is still active
-            _, end_t = _parse_time_range(ts)
-            if end_t is None or local_now.time() <= end_t:
-                return True  # at least one window still open
-        return False  # all sides with time info have closed; no untimed side either
-
-    if _day_active(myDay):
-        return "today"
-    elif myTomorrow in schedule_ymd:
-        return "tomorrow"
-    else:
-        return False
+            return "today"
+        now_t = local_now.time()
+        for ts in today_times:
+            end_t = _parse_end_time(ts)
+            if end_t is None or now_t <= end_t:
+                return "today"
+    return "tomorrow" if swept_tomorrow else False
 
 
 def _is_str(v):
@@ -325,36 +298,10 @@ def _is_str(v):
     return isinstance(v, str) and v.strip() != ""
 
 
-# Codes that explicitly mean "no sweeping" — these have parse_sweeping_code() == [],
-# but they are pre-listed here so the formatter doesn't render their descriptor
-# strings (e.g. "No Sweeping (HYW)", "No Signage", "No Sweeping (Uncontrol Condition)")
-# as if they were real schedule entries on the car card.
-# Compared case-insensitively after stripping. Includes Oakland's variants and
-# the SF "no sweeping" placeholder.
-_NO_SWEEP_CODES = frozenset({
-    "N", "NS", "O", "N-S",
-    "N-E", "N-O",   # Oakland: "No Even/Odd Addresses" — that side simply doesn't exist.
-    "NS-UC", "NS-H", "NS-O", "NS-A",
-})
-
-
-def is_no_sweep_code(code) -> bool:
-    """True if the given DAY_* code is one of the explicit no-sweep markers.
-
-    These codes have no associated sweep dates; their DESC fields describe
-    why (e.g. "No Sweeping (HYW)") and should not be rendered as schedules.
-    """
-    if not isinstance(code, str):
-        return False
-    return code.strip().upper() in _NO_SWEEP_CODES
-
-
-def _safe_int(v):
-    """Parse a value as int, returning None on failure (handles NaN)."""
-    try:
-        return int(float(v))
-    except (TypeError, ValueError):
-        return None
+# Name-index cache keyed by id(gdf); each entry holds a weakref so a recycled
+# id (GDF garbage-collected) is detected and rebuilt.
+#   id(gdf) -> (weakref.ref(gdf), {normalized_street_name: [row_labels]})
+_name_index_cache: dict[int, tuple] = {}
 
 
 def _get_name_index(gdf) -> dict:
@@ -390,99 +337,22 @@ def get_schedule(street_section, side):
     state — those rows still drive the urgency colour (cornflowerblue) but
     have no schedule to render in the card or hover.
     """
-    if side % 2 == 0:
-        code = street_section.get("DAY_EVEN")
-        if _is_str(code) and not is_no_sweep_code(code):
-            return (
-                code,
-                street_section.get("DESC_EVEN") or "",
-                street_section.get("TIME_EVEN") or "",
-            )
-    else:
-        code = street_section.get("DAY_ODD")
-        if _is_str(code) and not is_no_sweep_code(code):
-            return (
-                code,
-                street_section.get("DESC_ODD") or "",
-                street_section.get("TIME_ODD") or "",
-            )
-
-
-def get_all_dates_for_weekday(weekday, year, month):
-    """Get all dates in a month for a specific weekday."""
-    _, days_in_month = calendar.monthrange(year, month)
-    return [
-        datetime.date(year, month, day)
-        for day in range(1, days_in_month + 1)
-        if datetime.date(year, month, day).weekday() == weekday
-    ]
-
-def get_weekdays_by_ordinal(weekday, ordinals, year, month):
-    """Get list of dates for a specific weekday and ordinal(s)."""
-    dates = get_all_dates_for_weekday(weekday, year, month)
-    return [dates[i - 1] for i in ordinals if i <= len(dates)]
-
-@functools.lru_cache(maxsize=512)
-def _parse_sweeping_code_cached(code: str, year: int, month: int) -> tuple:
-    """
-    Expand a sweep code into a tuple of dates for (year, month).
-    Results are cached; since inputs include (year, month) the cache stays
-    correct across month boundaries.
-    """
-    code = code.upper()
-
-    # Handle compound sweep codes
-    if code in compound_map:
-        return tuple(
-            d for wd in compound_map[code]
-            for d in get_all_dates_for_weekday(wd, year, month)
-        )
-
-    # Handle every <day> (e.g., 'ME' = every Mon, 'TE' = every Tues).
-    # Also handles compound "every X and Y" codes Oakland uses (e.g., 'TFE'
-    # = every Tue+Fri, 'MFE' = every Mon+Fri) by falling back to compound_map
-    # for the prefix.
-    if code.endswith('E'):
-        day_code = code[:-1]
-        wd = weekday_map.get(day_code)
-        if wd is not None:
-            return tuple(get_all_dates_for_weekday(wd, year, month))
-        wds = compound_map.get(day_code)
-        if wds is not None:
-            return tuple(
-                d for w in wds
-                for d in get_all_dates_for_weekday(w, year, month)
-            )
-
-    # Bare weekend codes ('S' = every Saturday, 'SU' = every Sunday).
-    # Oakland uses these without the 'E' suffix that weekdays carry — treat
-    # them as "every Sat" / "every Sun". Without this branch the parser
-    # silently returns no dates and ~1000 Saturday/Sunday Oakland rows go
-    # un-rendered in the urgency colour and card.
-    if code in ('S', 'SU'):
-        wd = weekday_map[code]
-        return tuple(get_all_dates_for_weekday(wd, year, month))
-
-    # Try matching ordinal part
-    for suffix, ordinal_list in ordinals.items():
-        if code.endswith(suffix):
-            day_code = code[:len(code) - len(suffix)]
-            wd = weekday_map.get(day_code)
-            if wd is not None:
-                return tuple(get_weekdays_by_ordinal(wd, ordinal_list, year, month))
-
-    # 'E' = every day
-    if code == 'E':
-        _, days_in_month = calendar.monthrange(year, month)
-        return tuple(datetime.date(year, month, d) for d in range(1, days_in_month + 1))
-
-    return ()  # Unknown code
+    suffix = "EVEN" if side % 2 == 0 else "ODD"
+    code = street_section.get(f"DAY_{suffix}")
+    if not _is_str(code) or is_no_sweep_code(code):
+        return None
+    desc = street_section.get(f"DESC_{suffix}")
+    time = street_section.get(f"TIME_{suffix}")
+    return (code, desc if _is_str(desc) else "", time if _is_str(time) else "")
 
 
 _MONTH_ABBR = {
     1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
     7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
 }
+
+
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def parse_dates_code(code) -> list | None:
@@ -495,9 +365,12 @@ def parse_dates_code(code) -> list | None:
         if not ds:
             continue
         try:
+            # YYYY-MM-DD only (fromisoformat also takes "20260929"; JS does not).
+            if not _ISO_DATE_RE.fullmatch(ds):
+                raise ValueError(ds)
             out.append(datetime.date.fromisoformat(ds))
         except ValueError:
-            pass
+            logger.warning("skipping invalid date %r in sweep code", ds)
     return sorted(out)
 
 
@@ -515,29 +388,6 @@ def format_dates_by_month(dates) -> str:
         f"{_MONTH_ABBR[m]} " + ", ".join(str(day) for day in grouped[(y, m)])
         for (y, m) in order
     )
-
-
-def future_dates_desc(code, local_now=None, max_months: int = 2) -> str | None:
-    """Human-readable upcoming-dates string for a Chicago-style 'DATES:' code.
-
-    Filters to dates today-or-later, groups by month, e.g. "Apr 17, 18; May 15".
-    Returns None for non-DATES codes (caller keeps the original desc); returns
-    "" when the code is a DATES code with no remaining future dates.
-    """
-    dates = parse_dates_code(code)
-    if dates is None:
-        return None
-    today = local_now.date() if local_now else datetime.date.today()
-    future = [d for d in dates if d >= today]
-    if not future:
-        return ""
-    months: list = []
-    for d in future:
-        key = (d.year, d.month)
-        if key not in months:
-            months.append(key)
-    keep = set(months[:max_months])
-    return format_dates_by_month([d for d in future if (d.year, d.month) in keep])
 
 
 # A section's two sides are swept a few days apart (e.g. Jun 13 & 16); dates
@@ -576,43 +426,16 @@ def next_cluster_dates(code, local_now=None, max_dates: int = 3) -> list | None:
     return cluster_dates(future)[0][:max_dates]
 
 
-def next_dates_desc(code, local_now=None, max_dates: int = 3) -> str | None:
-    """Next upcoming sweep cluster (the next date plus same-occurrence dates).
-
-    Chicago sweeps a section's two sides a few days apart, so the next
-    occurrence is a small cluster, e.g. "Jun 19" or "Jun 13, 16". Capped at
-    `max_dates`. None for non-DATES codes; "" when none remain.
-    """
-    cl = next_cluster_dates(code, local_now, max_dates)
-    if cl is None:
-        return None
-    if not cl:
-        return ""
-    return format_dates_by_month(cl)
-
-
-# Weekday letters a sweep code can start with, longest-first so "TH"/"SU" win
-# over "T"/"S". Value = (Mon..Sun rank, display) — mirrors normalize._WEEKDAY_CANON.
-_CODE_WEEKDAY = [
-    ("TH", (3, "Thu")), ("SU", (6, "Sun")),
-    ("M", (0, "Mon")), ("T", (1, "Tue")), ("W", (2, "Wed")),
-    ("F", (4, "Fri")), ("S", (5, "Sat")),
-]
-
-
 def _code_weekday(code: str):
-    """(rank, display) from a sweep code's leading weekday letters, or None."""
-    c = code.strip().upper()
-    for pre, val in _CODE_WEEKDAY:
-        if c.startswith(pre):
-            return val
-    return None
+    """(rank, display) of a weekly code's first weekday, or None."""
+    parts = _code_parts(code)
+    return WEEKDAY_CODES[parts[0][0]] if parts and parts[0] else None
 
 
 def _code_ordinals(code: str) -> set:
-    """Week-of-month ordinals from a code's trailing digits ('13' -> {1,3})."""
-    m = re.search(r"(\d+)$", code.strip())
-    return {int(ch) for ch in m.group(1)} if m else set()
+    """Week-of-month ordinals of a weekly code ('M13' -> {1, 3})."""
+    parts = _code_parts(code)
+    return {int(ch) for ch in parts[1]} if parts and parts[1].isdigit() else set()
 
 
 def _contiguous_runs(ranks):
@@ -732,27 +555,35 @@ def format_schedule_side(entries, local_now=None) -> list:
     return lines
 
 
-def parse_sweeping_code(code: str) -> list:
-    """
-    Expand a sweep code into a list of dates.
-    Covers the current month, plus the next month on the last day of the
-    current month so the tomorrow-check is never silently missed.
-    """
-    # Chicago-style explicit date list: "DATES:2026-04-01,2026-04-02,..."
-    if code.upper().startswith("DATES:"):
-        return [
-            datetime.date.fromisoformat(ds.strip())
-            for ds in code[6:].split(",")
-            if ds.strip()
-        ]
 
-    today = datetime.date.today()
-    dates = list(_parse_sweeping_code_cached(code, today.year, today.month))
+DEFAULT_SIDE_LABELS = ("Even", "Odd")
 
-    # When today is the last day of the month, tomorrow falls in the next
-    # month — expand that month too so we never miss a next-day alert.
-    tomorrow = today + datetime.timedelta(days=1)
-    if tomorrow.month != today.month:
-        dates.extend(_parse_sweeping_code_cached(code, tomorrow.year, tomorrow.month))
 
-    return dates
+def side_labels(row) -> tuple[str, str]:
+    """(even, odd) display labels: the row's SIDE_EVEN / SIDE_ODD, else Even / Odd."""
+    if row is None:
+        return DEFAULT_SIDE_LABELS
+    e, o = row.get("SIDE_EVEN"), row.get("SIDE_ODD")
+    return (e if _is_str(e) else DEFAULT_SIDE_LABELS[0],
+            o if _is_str(o) else DEFAULT_SIDE_LABELS[1])
+
+
+def side_groups(even, odd, car_side=None, labels=DEFAULT_SIDE_LABELS, local_now=None):
+    """[(side, label, lines)] per side, car's side first; [(None, None, lines)]
+    when both sides read identically."""
+    ev = format_schedule_side(even, local_now)
+    od = format_schedule_side(odd, local_now)
+    if ev and ev == od:
+        return [(None, None, ev)]
+    groups = [("even", labels[0], ev), ("odd", labels[1], od)]
+    if car_side == "odd":
+        groups.reverse()
+    return groups
+
+
+def side_lines(even, odd, car_side=None, labels=DEFAULT_SIDE_LABELS, local_now=None) -> list:
+    """Display lines for both sides: unlabelled when identical, else '<label>: <line>'."""
+    out: list = []
+    for _side, label, lines in side_groups(even, odd, car_side, labels, local_now):
+        out += lines if label is None else [f"{label}: {ln}" for ln in lines]
+    return out

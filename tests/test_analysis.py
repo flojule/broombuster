@@ -1,119 +1,94 @@
-"""Unit tests for analysis.parse_sweeping_code and check_day_street_sweeping."""
+"""Unit tests for analysis sweep-code rules and check_day_street_sweeping."""
 import datetime
+from zoneinfo import ZoneInfo
 
 from broombuster import analysis
 
+# September 2026: Tue 1st .. Wed 30th; five Tuesdays (1, 8, 15, 22, 29).
+_SEP_START = datetime.date(2026, 9, 1)
+_SEP_END = datetime.date(2026, 9, 30)
+
+
+def _sep(code):
+    return analysis.dates_in_range(code, _SEP_START, _SEP_END)
+
+
 # ---------------------------------------------------------------------------
-# parse_sweeping_code
+# dates_in_range / sweeps_on
 # ---------------------------------------------------------------------------
 
 def test_every_monday():
-    dates = analysis.parse_sweeping_code("ME")
-    assert dates, "ME should return at least one date"
-    assert all(d.weekday() == 0 for d in dates), "ME should return only Mondays"
-    assert len(dates) >= 4
+    dates = _sep("ME")
+    assert dates and all(d.weekday() == 0 for d in dates)
+    assert len(dates) == 4
 
 
 def test_every_thursday():
-    dates = analysis.parse_sweeping_code("THE")
-    assert all(d.weekday() == 3 for d in dates), "THE should return only Thursdays"
+    assert all(d.weekday() == 3 for d in _sep("THE"))
 
 
 def test_first_and_third_monday():
-    dates = analysis.parse_sweeping_code("M13")
-    assert all(d.weekday() == 0 for d in dates), "M13 should be Mondays only"
-    assert len(dates) == 2, "M13 should return exactly 2 dates per month"
+    assert _sep("M13") == [datetime.date(2026, 9, 7), datetime.date(2026, 9, 21)]
 
 
 def test_second_and_fourth_friday():
-    dates = analysis.parse_sweeping_code("F24")
-    assert all(d.weekday() == 4 for d in dates), "F24 should be Fridays only"
-    assert len(dates) == 2, "F24 should return exactly 2 dates per month"
+    assert _sep("F24") == [datetime.date(2026, 9, 11), datetime.date(2026, 9, 25)]
+
+
+def test_fifth_week_ordinal():
+    """SF 'T135' / 'T245' include the 5th Tuesday (Sep 29)."""
+    assert _sep("T135") == [datetime.date(2026, 9, d) for d in (1, 15, 29)]
+    assert _sep("T245") == [datetime.date(2026, 9, d) for d in (8, 22, 29)]
 
 
 def test_mwf_compound():
-    dates = analysis.parse_sweeping_code("MWF")
-    weekdays = {d.weekday() for d in dates}
-    assert weekdays == {0, 2, 4}, "MWF should expand to Mon, Wed, Fri"
+    assert {d.weekday() for d in _sep("MWF")} == {0, 2, 4}
 
 
 def test_mf_is_monday_and_friday_only():
     """MF means Monday AND Friday — NOT the full work week."""
-    dates = analysis.parse_sweeping_code("MF")
-    weekdays = {d.weekday() for d in dates}
-    assert weekdays == {0, 4}, "MF should be Monday and Friday only"
-    assert 1 not in weekdays, "MF must not include Tuesday"
-    assert 2 not in weekdays, "MF must not include Wednesday"
-    assert 3 not in weekdays, "MF must not include Thursday"
+    assert {d.weekday() for d in _sep("MF")} == {0, 4}
 
 
 def test_tth_compound():
-    dates = analysis.parse_sweeping_code("TTH")
-    weekdays = {d.weekday() for d in dates}
-    assert weekdays == {1, 3}, "TTH should be Tuesday and Thursday"
+    assert {d.weekday() for d in _sep("TTH")} == {1, 3}
+
+
+def test_compound_every_codes():
+    """Oakland 'MTHE' = every Mon + Thu; 'TTHE' = every Tue + Thu."""
+    assert {d.weekday() for d in _sep("MTHE")} == {0, 3}
+    assert {d.weekday() for d in _sep("TTHE")} == {1, 3}
 
 
 def test_chicago_dates():
-    dates = analysis.parse_sweeping_code("DATES:2026-04-01,2026-04-15,2026-05-06")
-    assert datetime.date(2026, 4, 1) in dates
-    assert datetime.date(2026, 4, 15) in dates
-    assert datetime.date(2026, 5, 6) in dates
-    assert len(dates) == 3
+    dates = analysis.dates_in_range(
+        "DATES:2026-04-01,2026-04-15,2026-05-06",
+        datetime.date(2026, 1, 1), datetime.date(2026, 12, 31))
+    assert dates == [datetime.date(2026, 4, 1), datetime.date(2026, 4, 15),
+                     datetime.date(2026, 5, 6)]
+
+
+def test_invalid_date_in_dates_code_keeps_valid_dates():
+    assert analysis.sweeps_on("DATES:2026-09-29,bad", datetime.date(2026, 9, 29))
 
 
 def test_unknown_code_returns_empty():
-    assert analysis.parse_sweeping_code("XYZ") == []
+    assert _sep("XYZ") == []
+    assert _sep("W1357") == []
 
 
-# ---------------------------------------------------------------------------
-# future_dates_desc — display string for Chicago 'DATES:' codes
-# ---------------------------------------------------------------------------
-
-_FD_NOW = datetime.datetime(2026, 6, 6, 9, 0)
-
-
-def test_future_dates_desc_drops_past_dates():
-    code = "DATES:2026-04-17,2026-05-15,2026-06-05,2026-06-19,2026-07-03"
-    out = analysis.future_dates_desc(code, _FD_NOW)
-    assert "Apr" not in out and "May" not in out
-    assert "5" not in out.split(";")[0]  # Jun 5 is past, excluded
-    assert out == "Jun 19; Jul 3"
-
-
-def test_future_dates_desc_includes_today():
-    code = "DATES:2026-06-06,2026-06-20"
-    assert analysis.future_dates_desc(code, _FD_NOW) == "Jun 6, 20"
-
-
-def test_future_dates_desc_non_dates_returns_none():
-    assert analysis.future_dates_desc("MWF", _FD_NOW) is None
-    assert analysis.future_dates_desc(None, _FD_NOW) is None
-
-
-def test_future_dates_desc_all_past_returns_empty():
-    assert analysis.future_dates_desc("DATES:2026-04-17,2026-05-15", _FD_NOW) == ""
-
-
-def test_no_sweep_codes_return_list():
-    """N / NS / O are non-sweep markers; parse should not crash."""
-    for code in ("N", "NS", "O"):
-        result = analysis.parse_sweeping_code(code)
-        assert isinstance(result, list)
+def test_no_sweep_codes_have_no_dates():
+    for code in ("N", "NS", "O", "MS", "DM", "missing"):
+        assert _sep(code) == [], code
 
 
 def test_every_day():
-    dates = analysis.parse_sweeping_code("E")
-    today = datetime.date.today()
-    assert len(dates) >= 28, "E should return every day of the month"
-    assert all(d.month == today.month or d.month == (today + datetime.timedelta(days=1)).month
-               for d in dates)
+    assert len(_sep("E")) == 30
 
 
-def test_caching_consistent():
-    """Two calls with the same code should return equal results."""
-    a = analysis.parse_sweeping_code("WE")
-    b = analysis.parse_sweeping_code("WE")
-    assert a == b
+def test_range_crosses_month_boundary():
+    dates = analysis.dates_in_range("WE", datetime.date(2026, 9, 28), datetime.date(2026, 10, 8))
+    assert dates == [datetime.date(2026, 9, 30), datetime.date(2026, 10, 7)]
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +124,19 @@ def test_tomorrow_sweep_returns_tomorrow():
     result = analysis.check_day_street_sweeping(schedule)
     # Could be "today" if the code also matches today, but at minimum truthy
     assert result in ("today", "tomorrow")
+
+
+def test_urgency_uses_region_local_date_across_month_end():
+    """Wed Sep 30 18:00 in LA is Oct 1 UTC; urgency follows the local date."""
+    la = datetime.datetime(2026, 9, 30, 18, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
+    assert analysis.check_day_street_sweeping([("WE", "", "")], local_now=la) == "today"
+    assert analysis.check_day_street_sweeping([("THE", "", "")], local_now=la) == "tomorrow"
+
+
+def test_closed_window_falls_through_to_tomorrow():
+    now = datetime.datetime(2026, 9, 30, 11, 0)  # Wed
+    sched = [("WE", "", "8AM-10AM"), ("THE", "", "8AM-10AM")]
+    assert analysis.check_day_street_sweeping(sched, local_now=now) == "tomorrow"
 
 
 # ---------------------------------------------------------------------------

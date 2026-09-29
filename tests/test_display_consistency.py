@@ -10,7 +10,6 @@ import pyproj
 import pytest
 from shapely.geometry import Point
 
-from broombuster import car as car_module
 from broombuster import data_loader, gps, maps, normalize
 
 _CRS = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
@@ -113,11 +112,10 @@ def test_map_hover_uses_street_display(lat, lon, bay_area_3857):
     # local_now so date-sensitive hover text is deterministic and stable
     # across test runs (prevents flicker due to 'today' vs 'tomorrow').
     from datetime import datetime
-    myCar = car_module.Car(lat=lat, lon=lon)
     myCity = clipped
     fixed_now = datetime(2024, 6, 1, 12, 0)
 
-    geojson = maps.build_map_geojson(myCar, myCity, local_now=fixed_now)
+    geojson = maps.build_map_geojson(myCity, local_now=fixed_now)
     features = geojson.get("features", [])
     assert features, "Map geojson has no features"
 

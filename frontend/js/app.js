@@ -191,6 +191,19 @@ if (DEV_MODE) {
 // Auto-refresh access token 1 min before expiry (every 14 min).
 setInterval(async () => { if (session && !DEV_MODE) await _tryRefresh(); }, 14 * 60 * 1000);
 
+// Minute tick: map colours and car cards follow the clock (a window closes, a
+// day starts). Cards re-render only when some urgency or the date changed.
+let _liveUrgencySig = '';
+setInterval(() => {
+  scheduleUrgencyUpdate();
+  const sig = new Date().toDateString() + '|' + Object.entries(carSchedules)
+    .map(([id, s]) => id + ':' + panelUrgency(s)).join('|');
+  if (sig === _liveUrgencySig) return;
+  _liveUrgencySig = sig;
+  renderCarsPanel();
+  updateStatusFromSchedules();
+}, 60 * 1000);
+
 function showAuth() {
   authError.textContent = '';
   authScreen.hidden = false;
@@ -756,8 +769,8 @@ function renderZones(geojson) {
 // ── PMTILES vector-tile rendering ─────────────────────────────────────────────
 let _tilesRegion      = null;   // region currently mounted as a tile source
 let _pmtilesProtocol  = false;  // pmtiles:// protocol registered once
-let _featStateCache   = new Map();  // feature id -> urgency (for current day)
-let _featStateDay     = null;
+let _featStateCache   = new Map();  // feature id -> [urgency, y-m-d-minute it was computed]
+let _featSchedCache   = new Map();  // feature id -> parsed sched entries
 let _urgencyTimer     = null;
 
 function _archiveUrl(region) {
@@ -819,7 +832,7 @@ function ensureTiles() {
     }
     if (_tilesRegion !== region) {
       removeTileLayers();
-      _featStateCache.clear(); _featStateDay = null;
+      _featStateCache.clear(); _featSchedCache.clear();
       map.addSource(TILES_SOURCE, { type: 'vector', url: _archiveUrl(region) });
       addTilePaintLayers();
       _tilesRegion = region;
@@ -835,21 +848,29 @@ function scheduleUrgencyUpdate() {
 }
 
 // Compute urgency for every in-view tile feature and push it to feature-state,
-// which drives the paint expressions. Cached per feature id for the current day.
+// which drives the paint expressions. A verdict is reused only within the
+// region-local minute it was computed (a window may close at any minute), and
+// feature-state is written only when the verdict changed.
 function applyUrgencyStates() {
   if (!PMTILES_MODE || !map || !_tilesRegion || !map.getSource(TILES_SOURCE)) return;
   const tz  = REGION_TZ[_tilesRegion] || 'UTC';
   const now = BroomUrgency.nowForTimeZone(tz);
-  const dayStamp = now.y + '-' + now.m + '-' + now.d;
-  if (dayStamp !== _featStateDay) { _featStateCache.clear(); _featStateDay = dayStamp; }
+  const stamp = now.y + '-' + now.m + '-' + now.d + '-' + now.min;
   let feats;
   try { feats = map.querySourceFeatures(TILES_SOURCE, { sourceLayer: TILES_SRC_LAYER }); }
   catch (_) { return; }
   for (const f of feats) {
     if (f.id === undefined || f.id === null) continue;
-    if (_featStateCache.has(f.id)) continue;
-    const u = BroomUrgency.urgencyForSched(f.properties.sched, now);
-    _featStateCache.set(f.id, u);
+    const prev = _featStateCache.get(f.id);
+    if (prev && prev[1] === stamp) continue;
+    let entries = _featSchedCache.get(f.id);
+    if (entries === undefined) {
+      try { entries = JSON.parse(f.properties.sched || '[]') || []; } catch (_) { entries = []; }
+      _featSchedCache.set(f.id, entries);
+    }
+    const u = BroomUrgency.checkDaySweeping(entries, now);
+    _featStateCache.set(f.id, [u, stamp]);
+    if (prev && prev[0] === u) continue;
     map.setFeatureState(
       { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id },
       { urgency: u },
@@ -865,25 +886,24 @@ function tileSchedLines(props) {
   try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}
   const tz  = REGION_TZ[_tilesRegion] || 'UTC';
   const now = BroomUrgency.nowForTimeZone(tz);
-  const evens = BroomUrgency.formatScheduleSide(sched.filter(e => e.side === 'even'), now);
-  const odds  = BroomUrgency.formatScheduleSide(sched.filter(e => e.side === 'odd'), now);
-  if (evens.length && odds.length && evens.join('|') === odds.join('|')) return evens.slice();
-  if (!evens.length && !odds.length) return [];
-  return [...evens.map(e => 'Even: ' + e), ...odds.map(o => 'Odd: ' + o)];
+  const labels = [props.side_even || 'Even', props.side_odd || 'Odd'];
+  return BroomUrgency.formatBothSides(
+    sched.filter(e => e.side === 'even'), sched.filter(e => e.side === 'odd'), now, null, labels);
 }
 
 function tileHoverHtml(props) {
   const lines = tileSchedLines(props);
   // No real schedule (only N/A / no-sweep) → no hover at all.
-  return lines.length ? `<b>${esc(props.street || '')}</b><br>${lines.join('<br>')}` : '';
+  return lines.length ? `<b>${esc(props.street || '')}</b><br>${lines.map(esc).join('<br>')}` : '';
 }
 
 async function fetchZoneDetail(props, lngLat) {
-  let code = '';
-  try { code = (JSON.parse(props.sched || '[]')[0] || {}).code || ''; } catch (_) {}
-  if (!code) return;
+  let codes = [];
+  try { codes = JSON.parse(props.sched || '[]').map(e => e.code).filter(Boolean); } catch (_) {}
+  if (!codes.length) return;
   const region = regionSelect.value || _renderedRegion || '';
-  const qs = new URLSearchParams({ code, street: props.street || '', city: props.city || '', region });
+  const qs = new URLSearchParams({ street: props.street || '', city: props.city || '', region });
+  for (const c of new Set(codes)) qs.append('code', c);
   try {
     const res = await apiFetch('/zone/detail?' + qs.toString());
     if (!res.ok) return;
@@ -1331,8 +1351,9 @@ function updateStatusFromSchedules() {
   for (const [carId, s] of Object.entries(carSchedules)) {
     const car = cars.find(c => c.id === carId);
     if (!car) continue;
-    if (s.urgency === 'today')    todayNames.push(esc(car.name));
-    if (s.urgency === 'tomorrow') tomorrowNames.push(esc(car.name));
+    const u = sweepUrgency(s);
+    if (u === 'today')    todayNames.push(esc(car.name));
+    if (u === 'tomorrow') tomorrowNames.push(esc(car.name));
   }
   const dateSpan = `<span style="color:var(--muted);font-weight:400">${today}</span>&emsp;`;
   if (todayNames.length) {
@@ -1527,11 +1548,27 @@ function esc(s) {
 // card tint/dot so a trash-today still flags a car whose sweeping is clear.
 const _URG_RANK = { today: 2, tomorrow: 1, safe: 0 };
 function panelUrgency(sched) {
-  let best = (sched?.urgency && sched.urgency !== false) ? sched.urgency : 'safe';
+  let best = sweepUrgency(sched);
   for (const d of (sched?.domains || [])) {
+    if (d.id === 'sweeping') continue;
     if ((_URG_RANK[d.urgency] || 0) > (_URG_RANK[best] || 0)) best = d.urgency;
   }
   return best;
+}
+
+// Region-local clock for a /check response (the car's region, not the selected one).
+function schedNow(sched) {
+  return BroomUrgency.nowForTimeZone(REGION_TZ[sched?.region || regionSelect.value] || 'UTC');
+}
+
+// Live sweeping urgency from the raw schedules — the same verdict as the map
+// colour — so cards and banner roll over when a window closes or a day starts.
+function sweepUrgency(sched) {
+  if (!sched) return 'safe';
+  const entries = [...(sched.schedule_even || []), ...(sched.schedule_odd || [])]
+    .map(e => ({ code: e[0], time: e[2] || '' }));
+  const u = BroomUrgency.checkDaySweeping(entries, schedNow(sched));
+  return u === 'clear' ? 'safe' : u;
 }
 
 // One card block for a non-sweeping domain (trash, events, …): server-formatted
@@ -1557,17 +1594,17 @@ function scheduleHTML(sched) {
   let html = '';
 
   if (hasSweeping) {
-    const urgency  = sched.urgency || 'safe';
+    const urgency  = sweepUrgency(sched);
     const urgColor = urgency === 'today'    ? '#ef4444'
                    : urgency === 'tomorrow' ? '#f97316' : '#2563eb';
     const urgLabel = urgency === 'today'    ? '🚨 Move car today!'
                    : urgency === 'tomorrow' ? '⚠️ Move car tomorrow'
                    : '✅ All clear';
 
-    const now   = BroomUrgency.nowForTimeZone(REGION_TZ[regionSelect.value] || 'UTC');
-    const side  = sched.car_side || 'even';
-    let lines   = BroomUrgency.formatScheduleSide(
-      side === 'even' ? sched.schedule_even : sched.schedule_odd, now);
+    // Both sides (car's first), labelled when they differ — same as the map hover.
+    let lines = BroomUrgency.formatBothSides(
+      sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side,
+      sched.side_labels);
     if (!lines.length) lines = ['No sweeping scheduled'];
     lines = lines.slice(0, 4);
     const itemsHTML = lines.map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');

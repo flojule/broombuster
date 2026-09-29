@@ -493,36 +493,3 @@ class TestFGBSchemaAndKeys:
         ):
             if isinstance(n, str) and n.strip():
                 assert k == normalize.street_name(n)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# car_side() — determines which side of the street the car is on
-# Used in api.py, maps.py — must be consistent across all call sites.
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestCarSide:
-    def test_even_number(self):
-        assert normalize.car_side(1234) == "even"
-
-    def test_odd_number(self):
-        assert normalize.car_side(1235) == "odd"
-
-    def test_zero_treated_as_odd(self):
-        # 0 is even mathematically, but falsy → treated as unknown → "odd"
-        assert normalize.car_side(0) == "odd"
-
-    def test_none_defaults_to_odd(self):
-        assert normalize.car_side(None) == "odd"
-
-    def test_boundary_two(self):
-        assert normalize.car_side(2) == "even"
-
-    def test_boundary_one(self):
-        assert normalize.car_side(1) == "odd"
-
-    def test_large_even(self):
-        assert normalize.car_side(10000) == "even"
-
-    def test_large_odd(self):
-        assert normalize.car_side(9999) == "odd"
-

@@ -244,58 +244,45 @@ class TestComputeUrgency:
 
 
 # ---------------------------------------------------------------------------
-# D. _parse_time_range() — time-boundary building block
+# D. _parse_end_time() — time-boundary building block
 # ---------------------------------------------------------------------------
 
-class TestParseTimeRange:
+class TestParseEndTime:
     def _p(self, s):
-        return analysis._parse_time_range(s)
+        return analysis._parse_end_time(s)
 
     def test_basic_am_range(self):
-        start, end = self._p("8AM-10AM")
-        assert start == datetime.time(8, 0)
-        assert end   == datetime.time(10, 0)
+        assert self._p("8AM-10AM") == datetime.time(10, 0)
 
     def test_en_dash_separator(self):
-        # U+2013 en-dash
-        start, end = self._p("8AM\u201310AM")
-        assert start == datetime.time(8, 0)
-        assert end   == datetime.time(10, 0)
+        assert self._p("8AM\u201310AM") == datetime.time(10, 0)
 
     def test_with_minutes(self):
-        start, end = self._p("7:30AM-9AM")
-        assert start == datetime.time(7, 30)
-        assert end   == datetime.time(9, 0)
+        assert self._p("7:30AM-9:15AM") == datetime.time(9, 15)
 
     def test_to_keyword(self):
-        start, end = self._p("8AM to 10AM")
-        assert start == datetime.time(8, 0)
-        assert end   == datetime.time(10, 0)
+        assert self._p("8AM to 10AM") == datetime.time(10, 0)
 
     def test_pm_range(self):
-        start, end = self._p("1PM-3PM")
-        assert start == datetime.time(13, 0)
-        assert end   == datetime.time(15, 0)
+        assert self._p("1PM-3PM") == datetime.time(15, 0)
 
     def test_12pm_is_noon(self):
-        _, end = self._p("11AM-12PM")
-        assert end == datetime.time(12, 0)
+        assert self._p("11AM-12PM") == datetime.time(12, 0)
 
-    def test_12am_is_midnight(self):
-        start, _ = self._p("12AM-1AM")
-        assert start == datetime.time(0, 0)
+    def test_12am_end_is_end_of_day(self):
+        assert self._p("10PM-12AM") == datetime.time(23, 59, 59)
 
-    def test_empty_string_returns_none_pair(self):
-        assert self._p("") == (None, None)
+    def test_empty_string_returns_none(self):
+        assert self._p("") is None
 
-    def test_none_returns_none_pair(self):
-        assert self._p(None) == (None, None)
+    def test_none_returns_none(self):
+        assert self._p(None) is None
 
-    def test_garbage_string_returns_none_pair(self):
-        assert self._p("no time info") == (None, None)
+    def test_garbage_string_returns_none(self):
+        assert self._p("no time info") is None
 
-    def test_number_only_returns_none_pair(self):
-        assert self._p("12345") == (None, None)
+    def test_number_only_returns_none(self):
+        assert self._p("12345") is None
 
 
 # ---------------------------------------------------------------------------
@@ -457,9 +444,9 @@ class TestCrossFieldConsistency:
         assert urgency == "today"
 
         # Confirm: the even side contains today, odd side does not
-        from broombuster.analysis import parse_sweeping_code
-        today_in_even = _TODAY in parse_sweeping_code(se[0][0])
-        today_in_odd  = _TODAY in parse_sweeping_code(so[0][0])
+        from broombuster.analysis import sweeps_on
+        today_in_even = sweeps_on(se[0][0], _TODAY)
+        today_in_odd  = sweeps_on(so[0][0], _TODAY)
         assert today_in_even,  "Even side should contain today"
         assert not today_in_odd, "Odd side should not contain today"
 
@@ -625,11 +612,11 @@ class TestApiCheckIntegration:
         if urgency != "today":
             pytest.skip("urgency is not 'today' — skip consistency check")
 
-        from broombuster.analysis import parse_sweeping_code
+        from broombuster.analysis import sweeps_on
         today = datetime.date.today()
         all_sched = check_data["schedule_even"] + check_data["schedule_odd"]
         found_today = any(
-            today in parse_sweeping_code(entry[0])
+            sweeps_on(entry[0], today)
             for entry in all_sched
             if entry and entry[0]
         )

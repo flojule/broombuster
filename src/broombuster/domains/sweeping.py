@@ -25,28 +25,20 @@ from broombuster.domains.base import DomainResult
 # ---------------------------------------------------------------------------
 
 
-def compose_message(schedule_even, schedule_odd, car_side, local_now=None):
-    """Return a plain-text schedule summary matching the map info panel layout.
+def compose_message(schedule_even, schedule_odd, car_side, local_now=None,
+                    labels=analysis.DEFAULT_SIDE_LABELS):
+    """Plain-text schedule summary (CLI, email): one line per side, ► on the car's.
 
-    Both sides go through analysis.format_schedule_side, so the message, the
-    card lines, and the map hover all read identically (canonical day-first,
-    "Every <Wd>" merge, Mon->Sun order, next-cluster dates).
+    Built on analysis.side_groups, so it reads like the card and map hover.
     """
-    even = analysis.format_schedule_side(schedule_even, local_now)
-    odd  = analysis.format_schedule_side(schedule_odd, local_now)
-
-    if even and even == odd:
-        return f"► Street: {' / '.join(even)}"
-
-    def _fmt_plain(parts, label, highlight):
-        prefix = "►" if highlight else " "
-        if not parts:
-            return f"{prefix} {label}: no sweeping"
-        return f"{prefix} {label}: {' / '.join(parts)}"
-
-    even_line = _fmt_plain(even, "Even side", highlight=(car_side == "even"))
-    odd_line  = _fmt_plain(odd,  "Odd side",  highlight=(car_side == "odd"))
-    return f"{even_line}\n{odd_line}"
+    groups = analysis.side_groups(schedule_even, schedule_odd, car_side, labels, local_now)
+    if groups[0][0] is None:
+        return f"► Street: {' / '.join(groups[0][2])}"
+    return "\n".join(
+        f"{'►' if side == car_side else ' '} {label} side: "
+        f"{' / '.join(parts) if parts else 'no sweeping'}"
+        for side, label, parts in groups
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -57,32 +49,6 @@ def compose_message(schedule_even, schedule_odd, car_side, local_now=None):
 # GeoDataFrame carries DAY_EVEN / DAY_ODD columns. Any city configured with
 # a different schema should be handled by a different plugin.
 _SUPPORTED_SCHEMAS = frozenset({"oakland", "sf", "chicago", "berkeley", "alameda"})
-
-
-def _schedule_lines(schedule_even, schedule_odd, car_side: Optional[str],
-                    local_now=None) -> list[str]:
-    """Bullet lines for the per-domain card body — one display line per entry.
-
-    Uses analysis.format_schedule_side (canonical day-first formatting,
-    "Every <Wd>" merge, Mon->Sun order, merged next-cluster dates). When both
-    sides match, the Even/Odd labels are dropped; otherwise each line is
-    prefixed, car's side first.
-    """
-    even = analysis.format_schedule_side(schedule_even, local_now)
-    odd  = analysis.format_schedule_side(schedule_odd, local_now)
-
-    if even and even == odd:
-        return even
-
-    lines: list[str] = []
-    primary = ("even", even) if car_side == "even" else ("odd", odd)
-    other   = ("odd",  odd)  if car_side == "even" else ("even", even)
-    for label, parts in (primary, other):
-        for p in parts:
-            lines.append(f"{label.capitalize()}: {p}")
-    if not lines:
-        lines.append("No sweeping scheduled")
-    return lines
 
 
 class SweepingPlugin:
@@ -99,13 +65,7 @@ class SweepingPlugin:
     def resolve_for(self, gdf_3857, lat: float, lon: float,
                     city_key: str, address: Optional[str] = None
                     ) -> Optional[resolve.ResolvedCar]:
-        try:
-            return resolve.resolve_car_segment(
-                gdf_3857, lat, lon,
-                city_key=city_key, max_distance_m=50.0,
-            )
-        except resolve.NoSegmentNearby:
-            return None
+        return resolve.nearest_segment(gdf_3857, lat, lon)
 
     def format(self, resolved: Any, gdf_3857: Any,
                local_now: datetime) -> DomainResult:
@@ -117,6 +77,7 @@ class SweepingPlugin:
                 schedule_lines=["No sweeping data — car not near a mapped street"],
                 extras={
                     "car_side": None,
+                    "side_labels": list(analysis.DEFAULT_SIDE_LABELS),
                     "schedule_even": [],
                     "schedule_odd": [],
                 },
@@ -134,22 +95,19 @@ class SweepingPlugin:
         else:
             schedule_even, schedule_odd = analysis.schedules_for_segment(resolved.segment)
 
-        # Urgency now reflects the union too: if any row has today/tomorrow,
-        # the answer is today/tomorrow. We feed the union of both sides into
-        # check_day_street_sweeping which already knows how to merge codes.
-        all_schedules = list(schedule_even) + list(schedule_odd)
+        # Urgency is the union of both sides: warn whichever side is swept.
         raw_urgency = analysis.check_day_street_sweeping(
-            all_schedules, local_now=local_now
+            list(schedule_even) + list(schedule_odd), local_now=local_now
         )
         urgency = raw_urgency if raw_urgency in ("today", "tomorrow") else "safe"
 
         # schedule_even/odd stay RAW (code, desc, time) tuples in the response;
-        # the client formats them via the JS port. Date-dependent collapsing
-        # (next sweep cluster for 'DATES:' codes) happens inside
-        # format_schedule_side, keyed off local_now.
-        car_side = resolved.side or "odd"
-        message = compose_message(schedule_even, schedule_odd, car_side, local_now)
-        lines = _schedule_lines(schedule_even, schedule_odd, car_side, local_now)
+        # the client formats them via the JS port. side is None when unknown.
+        car_side = resolved.side
+        labels = analysis.side_labels(resolved.segment)
+        message = compose_message(schedule_even, schedule_odd, car_side, local_now, labels)
+        lines = (analysis.side_lines(schedule_even, schedule_odd, car_side, labels, local_now)
+                 or ["No sweeping scheduled"])
 
         return DomainResult(
             domain_id=self.domain_id,
@@ -158,6 +116,7 @@ class SweepingPlugin:
             schedule_lines=lines,
             extras={
                 "car_side": car_side,
+                "side_labels": list(labels),
                 "schedule_even": schedule_even,
                 "schedule_odd": schedule_odd,
                 "message": message,

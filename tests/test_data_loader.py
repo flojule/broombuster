@@ -39,6 +39,14 @@ def _assert_schema(gdf: geopandas.GeoDataFrame, label: str) -> None:
 # Integration – load real data files (no network calls required)
 # ---------------------------------------------------------------------------
 
+
+def _assert_codes_parse(gdf, city):
+    """Every real DAY_* code is a sweep rule or an explicit no-sweep marker."""
+    codes = set(gdf["DAY_EVEN"].dropna()) | set(gdf["DAY_ODD"].dropna())
+    bad = sorted(c for c in codes
+                 if not analysis.is_no_sweep_code(c) and analysis._rule(c) is None)
+    assert not bad, f"{city}: unparseable day codes {bad[:10]}"
+
 class TestLoadCityDataIntegration:
     """Load real bundled / cached data files and validate the schema contract."""
 
@@ -52,11 +60,7 @@ class TestLoadCityDataIntegration:
         assert non_empty.any(), "Oakland: expected at least some non-empty STREET_NAME values"
 
     def test_oakland_day_codes_parseable(self):
-        gdf = data_loader.load_city_data("oakland")
-        codes = gdf["DAY_EVEN"].dropna().unique()
-        for code in codes[:20]:  # sample to keep test fast
-            result = analysis.parse_sweeping_code(str(code))
-            assert isinstance(result, list), f"Oakland: parse_sweeping_code crashed on {code!r}"
+        _assert_codes_parse(data_loader.load_city_data("oakland"), "oakland")
 
     def test_san_francisco_schema(self):
         gdf = data_loader.load_city_data("san_francisco")
@@ -71,11 +75,7 @@ class TestLoadCityDataIntegration:
         assert len(even_rows) + len(odd_rows) + len(both_rows) > 0
 
     def test_san_francisco_day_codes_parseable(self):
-        gdf = data_loader.load_city_data("san_francisco")
-        codes = gdf["DAY_EVEN"].dropna().unique()
-        for code in codes[:20]:
-            result = analysis.parse_sweeping_code(str(code))
-            assert isinstance(result, list), f"SF: parse_sweeping_code crashed on {code!r}"
+        _assert_codes_parse(data_loader.load_city_data("san_francisco"), "san_francisco")
 
     def test_berkeley_schema(self):
         gdf = data_loader.load_city_data("berkeley")
@@ -99,9 +99,8 @@ class TestLoadCityDataIntegration:
         gdf = data_loader.load_city_data("chicago_all")
         codes = gdf["DAY_EVEN"].dropna().unique()
         for code in codes[:10]:
-            result = analysis.parse_sweeping_code(str(code))
-            assert isinstance(result, list), f"Chicago: parse_sweeping_code crashed on {code!r}"
-            assert len(result) > 0, f"Chicago: code {code!r} parsed to empty list"
+            result = analysis.parse_dates_code(str(code))
+            assert result, f"Chicago: code {code!r} parsed to empty list"
 
     def test_chicago_even_odd_identical(self):
         """Chicago zones apply the same schedule to every address, so DAY_EVEN == DAY_ODD."""
@@ -230,6 +229,35 @@ class TestNormaliseSF:
         out = data_loader._normalise_sf(gdf)
         assert pd.isna(out["DAY_EVEN"].iloc[0])
 
+    @staticmethod
+    def _lr_row(lr, blockside, week_day="1"):
+        return {
+            "corridor": "MARKET ST", "cnn": "100", "cnnrightleft": lr, "blockside": blockside,
+            "week_day": week_day, "from_hour": 8, "to_hour": 10,
+            "week_1_of_month": 1, "week_2_of_month": 0,
+            "week_3_of_month": 1, "week_4_of_month": 0, "week_5_of_month": 1,
+        }
+
+    def test_left_right_rows_fill_side_buckets_with_compass_labels(self):
+        gdf = _make_sf_gdf([self._lr_row("L", "North"), self._lr_row("R", "South", "2")])
+        out = data_loader._normalise_sf(gdf)
+        left, right = out.iloc[0], out.iloc[1]
+        assert left["DAY_EVEN"] == "M135" and pd.isna(left["DAY_ODD"])
+        assert right["DAY_ODD"] == "T135" and pd.isna(right["DAY_EVEN"])
+        # Synthetic parity maps the geometric side (left/right) to the buckets.
+        assert (left["L_F_ADD"], left["R_F_ADD"]) == (0, 1)
+        assert list(out["SIDE_EVEN"]) == ["North", "North"]
+        assert list(out["SIDE_ODD"]) == ["South", "South"]
+
+    def test_missing_blockside_uses_opposite_then_geometry(self):
+        # Only the right side is labelled -> left is its opposite.
+        out = data_loader._normalise_sf(_make_sf_gdf([
+            self._lr_row("L", None), self._lr_row("R", "SouthWest", "2")]))
+        assert out["SIDE_EVEN"].iloc[0] == "Northeast"
+        # No labels at all -> from geometry: an eastward line has north on its left.
+        out = data_loader._normalise_sf(_make_sf_gdf([self._lr_row("L", None)]))
+        assert (out["SIDE_EVEN"].iloc[0], out["SIDE_ODD"].iloc[0]) == ("North", "South")
+
     def test_schema_contract(self):
         gdf = _make_sf_gdf([{
             "corridor": "TEST ST", "blockside": "BOTH",
@@ -281,7 +309,7 @@ class TestNormaliseChicago:
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
         out = data_loader._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
-        result = analysis.parse_sweeping_code(code)
+        result = analysis.parse_dates_code(code)
         # Year-agnostic: every requested month/day is expanded, and inference
         # lands them all on weekdays (Mon-Fri), never weekends.
         md = {(d.month, d.day) for d in result}

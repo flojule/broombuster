@@ -9,7 +9,6 @@ Chicago polygon zones are present both at small and large clip boxes.
 import pytest
 from shapely.geometry import box
 
-from broombuster import car as car_module
 from broombuster import data_loader, maps
 
 
@@ -34,9 +33,8 @@ def test_build_geojson_stable_across_bbox_sizes():
     if small_gdf.empty:
         pytest.skip("No segments in small bbox to validate")
 
-    myCar = car_module.Car(lat=lat, lon=lon)
-    geo_small = maps.build_map_geojson(myCar, small_gdf, local_now=_fixed_now())
-    geo_large = maps.build_map_geojson(myCar, large_gdf, local_now=_fixed_now())
+    geo_small = maps.build_map_geojson(small_gdf, local_now=_fixed_now())
+    geo_large = maps.build_map_geojson(large_gdf, local_now=_fixed_now())
 
     names_small = set()
     for f in geo_small.get("features", []):
@@ -83,9 +81,8 @@ def test_chicago_zone_present_at_multiple_scales():
     small_gdf = gdf[gdf.geometry.intersects(small)]
     large_gdf = gdf[gdf.geometry.intersects(large)]
 
-    myCar = car_module.Car(lat=lat, lon=lon)
-    geo_small = maps.build_map_geojson(myCar, small_gdf, local_now=_fixed_now())
-    geo_large = maps.build_map_geojson(myCar, large_gdf, local_now=_fixed_now())
+    geo_small = maps.build_map_geojson(small_gdf, local_now=_fixed_now())
+    geo_large = maps.build_map_geojson(large_gdf, local_now=_fixed_now())
 
     # Count polygon features in both builds
     def poly_count(geo):
