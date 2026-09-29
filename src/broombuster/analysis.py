@@ -23,22 +23,32 @@ _TIME_RANGE_RE = re.compile(
 )
 
 
+def _clock(h: str, mn: str | None, ap: str) -> datetime.time | None:
+    """12-hour clock parts -> datetime.time, or None when out of range."""
+    hh, mm = int(h), int(mn or 0)
+    if not 1 <= hh <= 12 or mm > 59:
+        return None
+    hh = hh % 12 + (12 if ap.upper() == "PM" else 0)
+    return datetime.time(hh, mm)
+
+
+def _end_of(t: datetime.time) -> datetime.time:
+    """A window ending at 12AM runs to the end of the day."""
+    return t if t != datetime.time(0) else datetime.time(23, 59, 59)
+
+
+def parse_window(time_str) -> tuple[datetime.time, datetime.time] | None:
+    """(start, end) of a time range, or None when unparseable."""
+    m = _TIME_RANGE_RE.search(time_str) if isinstance(time_str, str) else None
+    start, end = (_clock(*m.group(1, 2, 3)), _clock(*m.group(4, 5, 6))) if m else (None, None)
+    return (start, _end_of(end)) if start and end else None
+
+
 def _parse_end_time(time_str) -> datetime.time | None:
     """End of a time range as datetime.time, or None when unparseable."""
-    if not isinstance(time_str, str):
-        return None
-    m = _TIME_RANGE_RE.search(time_str)
-    if not m:
-        return None
-    h, mn, ap = int(m.group(4)), int(m.group(5) or 0), m.group(6).upper()
-    if ap == 'PM' and h != 12:
-        h += 12
-    elif ap == 'AM' and h == 12:
-        h = 0
-    if h > 23 or mn > 59:
-        return None
-    # A window ending at 12AM runs to the end of the day.
-    return datetime.time(h, mn) if (h, mn) != (0, 0) else datetime.time(23, 59, 59)
+    m = _TIME_RANGE_RE.search(time_str) if isinstance(time_str, str) else None
+    end = _clock(*m.group(4, 5, 6)) if m else None
+    return _end_of(end) if end else None
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +269,21 @@ def _segment_endpoints(geom):
         return None
     out = {line_key(list(p.coords)) for p in parts if not p.is_empty and len(p.coords) >= 2}
     return frozenset(out) if out else None
+
+
+def sweep_days(even, odd, start: datetime.date, end: datetime.date) -> dict:
+    """{date: [(side, time), ...]} for both sides' sweeps in [start, end], date-sorted.
+
+    even / odd are (code, desc, time) entries; side is "even" or "odd".
+    """
+    out: dict = {}
+    for side, entries in (("even", even), ("odd", odd)):
+        for code, _desc, time in entries:
+            item = (side, time if _is_str(time) else "")
+            for d in dates_in_range(code, start, end):
+                if item not in out.setdefault(d, []):
+                    out[d].append(item)
+    return dict(sorted(out.items()))
 
 
 def check_day_street_sweeping(schedule, local_now=None):

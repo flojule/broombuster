@@ -20,6 +20,11 @@ const out = cases.map(function (c) {
   if (c.kind === 'both') {
     return { id: c.id, lines: U.formatBothSides(c.even, c.odd, c.now, c.carSide, c.labels) };
   }
+  if (c.kind === 'days') {
+    return { id: c.id, days: U.sweepDays(c.even, c.odd, c.start, c.end).map(function (d) {
+      return [iso(d), d.items.map(function (it) { return [it.side, it.time]; })];
+    }) };
+  }
   if (c.kind === 'body') {
     return { id: c.id, out: U.sweepBody(c.desc, c.time) };
   }

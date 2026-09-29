@@ -45,10 +45,8 @@
     if (!m) return null;
     var h = parseInt(m[4], 10);
     var mn = parseInt(m[5] || '0', 10);
-    var ap = m[6].toUpperCase();
-    if (ap === 'PM' && h !== 12) h += 12;
-    else if (ap === 'AM' && h === 12) h = 0;
-    if (h > 23 || mn > 59) return null;
+    if (h < 1 || h > 12 || mn > 59) return null;
+    h = h % 12 + (m[6].toUpperCase() === 'PM' ? 12 : 0);
     // A window ending at 12AM runs to the end of the day.
     return (h || mn) ? h * 60 + mn : 24 * 60 - 1;
   }
@@ -112,6 +110,25 @@
       cur = addOneDay(cur.y, cur.m, cur.d);
     }
     return out;
+  }
+
+  // Both sides' sweeps in [start, end] (mirror analysis.sweep_days):
+  // [{y, m, d, items: [{side: 'even'|'odd', time}]}] date-sorted.
+  function sweepDays(even, odd, start, end) {
+    var byKey = {};
+    [['even', even || []], ['odd', odd || []]].forEach(function (so) {
+      so[1].forEach(function (e) {
+        var time = (typeof e[2] === 'string' && e[2].trim()) ? e[2] : '';
+        datesInRange(e[0], start, end).forEach(function (d) {
+          var k = dayKey(d.y, d.m, d.d);
+          var day = byKey[k] || (byKey[k] = { y: d.y, m: d.m, d: d.d, items: [] });
+          var dup = day.items.some(function (it) { return it.side === so[0] && it.time === time; });
+          if (!dup) day.items.push({ side: so[0], time: time });
+        });
+      });
+    });
+    return Object.keys(byKey).map(Number).sort(function (a, b) { return a - b; })
+      .map(function (k) { return byKey[k]; });
   }
 
   // ── Urgency verdict (mirror check_day_street_sweeping) ───────────────────────
@@ -467,6 +484,7 @@
     nowForTimeZone: nowForTimeZone,
     isNoSweepCode: isNoSweepCode,
     sweepBody: sweepBody,
+    sweepDays: sweepDays,
     timeDisplay: timeDisplay,
     formatScheduleSide: formatScheduleSide,
     formatBothSides: formatBothSides,
