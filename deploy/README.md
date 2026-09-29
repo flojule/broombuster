@@ -68,7 +68,7 @@ hand — just push to the branch the Pi tracks.
 
 | Action | Command (on the Pi) |
 |--------|---------------------|
-| Roll out a new version | `./deploy/update.sh` (pull + reinstall + restart + health) — not needed if the auto-update timer is on |
+| Roll out a new version | `./deploy/update.sh` (reset to origin, discarding local edits to tracked files + reinstall + restart + health) — not needed if the auto-update timer is on |
 | Status / logs | `systemctl status broombuster` / `journalctl -u broombuster -f` |
 | Restart | `sudo systemctl restart broombuster` |
 | Stop / disable | `sudo systemctl disable --now broombuster` |
