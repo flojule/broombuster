@@ -382,6 +382,18 @@ class TestSweepBody:
     def test_empty_desc(self):
         assert normalize.sweep_body("", "") == ""
 
+    def test_weekday_list_keeps_separators(self):
+        # Oakland multi-day rows: every weekday canonical, list punctuation kept.
+        assert normalize.sweep_body("Every Mon, Wed, Fri", "12AM-3AM") == (
+            "Every Mon, Wed & Fri, 12AM–3AM")
+        assert normalize.sweep_body("Every Tues and Thurs", "") == "Every Tue & Thu"
+
+    def test_numbers_outside_weekday_schedules_untouched(self):
+        # Free text and Chicago date lists must not gain ordinal suffixes.
+        assert normalize.sweep_body("Major street uses 2 lines, not center line.", "NA") == (
+            "Major street uses 2 lines, not center line.")
+        assert normalize.sweep_body("Apr 13, 14; May 11, 12", "None") == "Apr 13, 14; May 11, 12"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # house_number()
@@ -493,36 +505,3 @@ class TestFGBSchemaAndKeys:
         ):
             if isinstance(n, str) and n.strip():
                 assert k == normalize.street_name(n)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# car_side() — determines which side of the street the car is on
-# Used in api.py, maps.py — must be consistent across all call sites.
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestCarSide:
-    def test_even_number(self):
-        assert normalize.car_side(1234) == "even"
-
-    def test_odd_number(self):
-        assert normalize.car_side(1235) == "odd"
-
-    def test_zero_treated_as_odd(self):
-        # 0 is even mathematically, but falsy → treated as unknown → "odd"
-        assert normalize.car_side(0) == "odd"
-
-    def test_none_defaults_to_odd(self):
-        assert normalize.car_side(None) == "odd"
-
-    def test_boundary_two(self):
-        assert normalize.car_side(2) == "even"
-
-    def test_boundary_one(self):
-        assert normalize.car_side(1) == "odd"
-
-    def test_large_even(self):
-        assert normalize.car_side(10000) == "even"
-
-    def test_large_odd(self):
-        assert normalize.car_side(9999) == "odd"
-

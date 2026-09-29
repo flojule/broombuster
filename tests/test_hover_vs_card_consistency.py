@@ -45,6 +45,7 @@ emits one row per (segment, weekday). Those bugs are hardest because
 the resolver picks one row but the map paints all of them.
 """
 
+import html
 import os
 
 os.environ.setdefault("DEV_MODE", "1")
@@ -105,12 +106,12 @@ def _grid_points(bbox, n_per_side=12):
 def _bold_name(hover_html: str) -> str:
     """Extract the street name from the <b>NAME</b> prefix of a hover string."""
     m = re.search(r"<b>([^<]+)</b>", hover_html or "")
-    return m.group(1).strip() if m else ""
+    return html.unescape(m.group(1).strip()) if m else ""
 
 
 def _hover_body(hover_html: str) -> str:
-    """The schedule portion of hover_html, excluding the bolded name."""
-    return re.sub(r"<b>[^<]+</b>\s*<br>", "", hover_html or "", count=1).strip()
+    """The schedule text of hover_html (entities decoded), excluding the bolded name."""
+    return html.unescape(re.sub(r"<b>[^<]+</b>\s*<br>", "", hover_html or "", count=1).strip())
 
 
 def _find_feature_for_snap(features, snap_name, lat, lon):

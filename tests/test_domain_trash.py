@@ -19,8 +19,7 @@ from broombuster.domains import DomainPlugin
 from broombuster.domains.trash import ZoneTrashPlugin
 
 _TZ = ZoneInfo("America/Los_Angeles")
-# parse_sweeping_code expands weekly codes around the REAL current month, so
-# date-sensitive assertions must anchor to today, not an arbitrary fixed date.
+# Fixture clock: today at 09:00 local.
 _TODAY = datetime.date.today()
 _TOMORROW = _TODAY + datetime.timedelta(days=1)
 _AFTER = _TODAY + datetime.timedelta(days=2)

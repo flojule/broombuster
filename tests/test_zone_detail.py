@@ -118,24 +118,27 @@ def test_zone_detail_mixed_cluster_dims_only_past_day():
 
 
 # ---------------------------------------------------------------------------
-# next_dates_desc — hover shows only the next date / back-to-back cluster
+# format_schedule_side — hover shows only the next date / back-to-back cluster
 # ---------------------------------------------------------------------------
 
-def test_next_dates_single():
+def _next(code):
     from broombuster import analysis
-    assert analysis.next_dates_desc("DATES:2026-06-19,2026-07-03", _NOW) == "Jun 19"
+    lines = analysis.format_schedule_side([(code, "", "")], _NOW)
+    return lines[0] if lines else ""
+
+
+def test_next_dates_single():
+    assert _next("DATES:2026-06-19,2026-07-03") == "Jun 19"
 
 
 def test_next_dates_back_to_back_pair():
-    from broombuster import analysis
-    out = analysis.next_dates_desc("DATES:2026-06-19,2026-06-20,2026-07-03", _NOW)
+    out = _next("DATES:2026-06-19,2026-06-20,2026-07-03")
     assert out == "Jun 19, 20"
 
 
 def test_next_dates_clusters_a_few_days_apart():
     # Two sides swept a few days apart (Jun 13 & 16) are one occurrence.
-    from broombuster import analysis
-    out = analysis.next_dates_desc("DATES:2026-06-13,2026-06-16,2026-07-03", _NOW)
+    out = _next("DATES:2026-06-13,2026-06-16,2026-07-03")
     assert out == "Jun 13, 16"
 
 
@@ -154,15 +157,12 @@ def test_full_schedule_clusters_a_few_days_apart():
 
 
 def test_next_dates_caps_at_three():
-    from broombuster import analysis
-    out = analysis.next_dates_desc(
-        "DATES:2026-06-18,2026-06-19,2026-06-20,2026-06-21", _NOW)
+    out = _next("DATES:2026-06-18,2026-06-19,2026-06-20,2026-06-21")
     assert out == "Jun 18, 19, 20"
 
 
 def test_next_dates_skips_past():
-    from broombuster import analysis
-    assert analysis.next_dates_desc("DATES:2026-04-01,2026-06-19", _NOW) == "Jun 19"
+    assert _next("DATES:2026-04-01,2026-06-19") == "Jun 19"
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ def test_polygon_feature_includes_detail_html():
         }],
         crs="EPSG:4326",
     )
-    gj = maps.build_map_geojson(_Car(), gdf, local_now=_NOW)
+    gj = maps.build_map_geojson(gdf, local_now=_NOW)
     polys = [f for f in gj["features"] if f["properties"]["render_type"] == "polygon"]
     assert len(polys) == 1
     props = polys[0]["properties"]

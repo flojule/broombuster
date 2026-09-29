@@ -10,7 +10,6 @@ Tests addressing reported Chicago UI problems and lazy-loading coverage.
 """
 import pytest
 
-from broombuster import car as car_module
 from broombuster import data_loader, maps
 
 
@@ -21,19 +20,11 @@ def test_chicago_region_has_visual_data():
     gdf = data_loader.load_region_data("chicago")
     assert not gdf.empty, "Chicago region GDF is empty — no data available"
 
-    # Pick a representative row and use its centroid as a sample location.
-    row = gdf.iloc[0]
-    geom = row.geometry
-    if geom is None or geom.is_empty:
-        pytest.skip("Sample row has no geometry")
-    centroid = geom.centroid
-    myCar = car_module.Car(lat=centroid.y, lon=centroid.x)
-
     # Use a fixed local_now to make hover content deterministic.
     from datetime import datetime
     fixed_now = datetime(2024, 6, 1, 12, 0)
 
-    geojson = maps.build_map_geojson(myCar, gdf.to_crs("EPSG:4326"), local_now=fixed_now)
+    geojson = maps.build_map_geojson(gdf.to_crs("EPSG:4326"), local_now=fixed_now)
     features = geojson.get("features", [])
     assert features, "build_map_geojson returned no features for Chicago region"
 
@@ -46,19 +37,11 @@ def test_build_map_geojson_is_stable_for_point():
     if gdf.empty:
         pytest.skip("Chicago GDF empty")
 
-    # Use centroid of first geometry as stable test point
-    row = gdf.iloc[0]
-    geom = row.geometry
-    if geom is None or geom.is_empty:
-        pytest.skip("Sample geometry empty")
-    cent = geom.centroid
-    myCar = car_module.Car(lat=cent.y, lon=cent.x)
-
     from datetime import datetime
     fixed_now = datetime(2024, 6, 1, 12, 0)
 
-    geo1 = maps.build_map_geojson(myCar, gdf, local_now=fixed_now)
-    geo2 = maps.build_map_geojson(myCar, gdf, local_now=fixed_now)
+    geo1 = maps.build_map_geojson(gdf, local_now=fixed_now)
+    geo2 = maps.build_map_geojson(gdf, local_now=fixed_now)
 
     # Extract bolded names for a stable, order-insensitive comparison
     import re

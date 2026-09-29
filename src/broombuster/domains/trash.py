@@ -4,7 +4,7 @@
 whose curbside schedule is published as collection-day zone polygons (the
 Chicago-sweeping data shape). It reuses the sweeping day-code vocabulary and
 analysis helpers verbatim: each stream stores an Oakland-style code (e.g.
-"ME", "M13", "DATES:...") so `parse_sweeping_code`, `format_schedule_side`,
+"ME", "M13", "DATES:...") so `sweeps_on`, `format_schedule_side`,
 and `check_day_street_sweeping` apply unchanged.
 
 A city opts in via a `trash:` block in its manifest:

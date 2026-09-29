@@ -16,17 +16,19 @@ analysis.py and maps.py work identically regardless of the data source:
   L_T_ADD        Left-side to-address number
   R_F_ADD        Right-side from-address number
   R_T_ADD        Right-side to-address number
+  SIDE_EVEN      Optional display label of the even bucket (SF: compass side,
+  SIDE_ODD       e.g. "North"); absent / null means "Even" / "Odd"
 
-Oakland-style day codes understood by analysis.parse_sweeping_code():
-  ME / TE / WE / THE / FE / SE = every Mon/Tue/Wed/Thu/Fri/Sat
-  M13 / T24 / W13 / TH24 / F13 / F24 = 1st+3rd or 2nd+4th of month
-  MWF / TTH / TTHS / MF / E = compound / every-day codes
-  N / NS / O = no sweeping
+Day codes follow the grammar in analysis.py (e.g. "ME" every Mon, "M13"
+1st+3rd Mon, "T135" 1st+3rd+5th Tue, "MTHE" every Mon+Thu, "DATES:..."
+explicit dates); analysis.NO_SWEEP_CODES lists the no-sweeping markers.
 """
 
 import importlib.util
 import io
+import math
 import os
+import tempfile
 import threading
 import zipfile
 from collections import OrderedDict
@@ -71,6 +73,7 @@ _SCHEMA_COLS = [
     "DESC_EVEN", "DESC_ODD",
     "TIME_EVEN", "TIME_ODD",
     "L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD",
+    "SIDE_EVEN", "SIDE_ODD",
 ]
 
 
@@ -79,26 +82,17 @@ def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.G
 
     On first call, the raw source is normalised and saved as a FlatGeobuf file
     (``city['fgb_path']``). Subsequent calls read that file directly — no
-    normalisation overhead at runtime.  Pass ``force_refresh=True`` to delete
-    the FGB (and, for auto-download cities, the raw source) and rebuild.
+    normalisation overhead at runtime.  Pass ``force_refresh=True`` to rebuild
+    (re-downloading auto-download cities); existing files are replaced only
+    after the rebuild succeeds.
     """
     city       = CITIES[city_key]
     local_path = os.path.join(_ROOT, city["local_path"])
     fgb_raw    = city.get("fgb_path", "")
     fgb_path   = os.path.join(_ROOT, fgb_raw) if fgb_raw else None
 
-    if force_refresh:
-        # Always drop the FGB so it gets rebuilt.
-        if fgb_path and os.path.exists(fgb_path):
-            os.remove(fgb_path)
-            print(f"  Removed FGB cache for {city['name']}.")
-        # Only drop the raw source when we can re-download it.
-        if city.get("url") and os.path.exists(local_path):
-            os.remove(local_path)
-            print(f"  Removed raw source for {city['name']}.")
-
     # Fast path: FGB already built → read from disk or in-memory cache.
-    if fgb_path and os.path.exists(fgb_path):
+    if not force_refresh and fgb_path and os.path.exists(fgb_path):
         mtime = os.path.getmtime(fgb_path)
         with _GDF_CACHE_LOCK:
             cached = _GDF_CACHE.get(fgb_path)
@@ -129,36 +123,49 @@ def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.G
         return gdf.copy()
 
     # --- Slow path: build from raw source ---
-    if not os.path.exists(local_path):
-        url = city.get("url")
-        if not url:
-            raise FileNotFoundError(
-                f"No data found for {city['name']}.\n"
-                f"  Missing FGB:   {fgb_path}\n"
-                f"  Missing raw:   {local_path}\n"
-                f"To rebuild from the upstream source, run:\n"
-                f"    python scripts/rebuild_city_data.py {city_key}\n"
-                f"See data/sources.yaml for the source URL and any manual steps."
-            )
-        print(f"Downloading {city['name']} data …")
-        _download(url, local_path)
-        print("Download complete.")
+    url = city.get("url")
+    download = bool(url) and (force_refresh or not os.path.exists(local_path))
+    if not download and not os.path.exists(local_path):
+        raise FileNotFoundError(
+            f"No data found for {city['name']}.\n"
+            f"  Missing FGB:   {fgb_path}\n"
+            f"  Missing raw:   {local_path}\n"
+            f"To rebuild from the upstream source, run:\n"
+            f"    python scripts/rebuild_city_data.py {city_key}\n"
+            f"See data/sources.yaml for the source URL and any manual steps."
+        )
+    raw_dir = os.path.dirname(local_path)
+    os.makedirs(raw_dir, exist_ok=True)
+    # Stage downloads in a temp dir; promote them only after the FGB is written.
+    with tempfile.TemporaryDirectory(dir=raw_dir) as tmp:
+        src = local_path
+        if download:
+            print(f"Downloading {city['name']} data …")
+            src = os.path.join(tmp, os.path.basename(local_path))
+            _download(url, src)
+            print("Download complete.")
 
-    gdf = geopandas.read_file(local_path)
+        gdf = geopandas.read_file(src)
 
-    # Optional geographic clip.  Reproject to EPSG:4326 for the intersection
-    # test (bbox coords are always degrees), keep original CRS for normalisation.
-    if "bbox" in city:
-        lat_min, lon_min, lat_max, lon_max = city["bbox"]
-        clip = _shapely_box(lon_min, lat_min, lon_max, lat_max)
-        gdf_4326 = gdf.to_crs("EPSG:4326") if (gdf.crs and not gdf.crs.equals("EPSG:4326")) else gdf
-        gdf = gdf[gdf_4326.geometry.intersects(clip)].copy()
+        # Optional geographic clip.  Reproject to EPSG:4326 for the intersection
+        # test (bbox coords are always degrees), keep original CRS for normalisation.
+        if "bbox" in city:
+            lat_min, lon_min, lat_max, lon_max = city["bbox"]
+            clip = _shapely_box(lon_min, lat_min, lon_max, lat_max)
+            reproject = gdf.crs and not gdf.crs.equals("EPSG:4326")
+            gdf_4326 = gdf.to_crs("EPSG:4326") if reproject else gdf
+            gdf = gdf[gdf_4326.geometry.intersects(clip)].copy()
 
-    gdf = _normalise(gdf, city["schema"])
+        gdf = _normalise(gdf, city["schema"])
+        if gdf.empty:
+            raise ValueError(f"{city['name']}: normalised data is empty; keeping existing files")
 
-    # Persist as FGB for fast future loads.
-    if fgb_path:
-        _save_fgb(gdf, fgb_path)
+        # Persist as FGB for fast future loads.
+        if fgb_path:
+            _save_fgb(gdf, fgb_path)
+        if download:
+            for name in os.listdir(tmp):
+                os.replace(os.path.join(tmp, name), os.path.join(raw_dir, name))
 
     return gdf
 
@@ -223,7 +230,14 @@ def _save_fgb(gdf: geopandas.GeoDataFrame, fgb_path: str) -> None:
             disk_out["STREET_NAME"] = disk_out["STREET_NAME"].astype(str).str.upper()
         except Exception:
             pass
-    disk_out.to_file(fgb_path, driver="FlatGeobuf")
+    # Write beside the target, then rename, so a failed write keeps the old file.
+    tmp_path = os.path.splitext(fgb_path)[0] + ".tmp.fgb"
+    try:
+        disk_out.to_file(tmp_path, driver="FlatGeobuf")
+        os.replace(tmp_path, fgb_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
     mb = os.path.getsize(fgb_path) / 1_048_576
     print(f"  Saved FGB → {fgb_path}  ({mb:.1f} MB)")
     try:
@@ -244,7 +258,7 @@ def _save_fgb(gdf: geopandas.GeoDataFrame, fgb_path: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _download(url: str, local_path: str) -> None:
-    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    """Fetch url to local_path; zip archives are extracted beside it."""
     resp = requests.get(url, timeout=120)
     resp.raise_for_status()
     content_type = resp.headers.get("content-type", "")
@@ -319,7 +333,10 @@ def pd_series_none(ref_gdf):
 # ---------------------------------------------------------------------------
 # Key columns (from DataSF metadata):
 #   corridor       street name  e.g. "MARKET ST"
-#   blockside      "ODD", "EVEN", or "BOTH"
+#   cnn            centerline id; one geometry (and direction) per cnn
+#   cnnrightleft   "L" / "R": side of the centerline's digitized direction
+#   blockside      compass side ("North", "SouthEast", ...); "ODD" / "EVEN" /
+#                  "BOTH" also accepted
 #   week_day       integer 1–7  (1 = Monday … 7 = Sunday)
 #   from_hour      integer hour (24-h)
 #   to_hour        integer hour (24-h)
@@ -351,6 +368,37 @@ def _sf_desc(code, time) -> str:
                "13": "1st & 3rd", "24": "2nd & 4th"}.get(suffix, suffix)
     return f"Every {day_label} ({ordinal}), {time}" if ordinal == "every" else \
            f"{day_label} {ordinal} of month, {time}"
+
+
+_OPPOSITE_SIDE = {
+    "North": "South", "South": "North", "East": "West", "West": "East",
+    "NorthEast": "SouthWest", "SouthWest": "NorthEast",
+    "NorthWest": "SouthEast", "SouthEast": "NorthWest",
+}
+_COMPASS_CANON = {k.upper(): k for k in _OPPOSITE_SIDE}
+# 45° sectors counter-clockwise from east.
+_COMPASS_SECTORS = ("East", "NorthEast", "North", "NorthWest",
+                    "West", "SouthWest", "South", "SouthEast")
+
+
+def _left_compass(geom):
+    """8-way compass side left of a line's digitized direction (EPSG:4326), or None."""
+    if geom is None or geom.is_empty:
+        return None
+    line = geom if geom.geom_type == "LineString" else geom.geoms[0]
+    (x0, y0), (x1, y1) = line.coords[0][:2], line.coords[-1][:2]
+    dx = (x1 - x0) * math.cos(math.radians(y0))
+    dy = y1 - y0
+    if dx == 0 and dy == 0:
+        return None
+    # Left normal of (dx, dy) is (-dy, dx).
+    angle = math.degrees(math.atan2(dx, -dy))
+    return _COMPASS_SECTORS[round(angle / 45) % 8]
+
+
+def _side_label(compass):
+    """"NorthEast" -> "Northeast"; None stays None."""
+    return compass[0] + compass[1:].lower() if isinstance(compass, str) else None
 
 
 def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
@@ -436,10 +484,36 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     )
 
     # --- Side classification ---
-    raw_side = (out[side_col].fillna("").astype(str).str.upper() if side_col
+    raw_side = (out[side_col].fillna("").astype(str).str.strip().str.upper() if side_col
                 else pd.Series("", index=out.index))
     is_even = raw_side == "EVEN"
     is_odd  = raw_side == "ODD"
+
+    # Left of the centerline -> even bucket, right -> odd bucket. Synthetic
+    # address parity (left 0, right 1) lets resolve._determine_side map the
+    # car's geometric side onto the buckets; SIDE_EVEN / SIDE_ODD carry the
+    # compass labels shown instead of "Even" / "Odd".
+    lr_col = col("cnnrightleft")
+    if lr_col:
+        lr = out[lr_col].fillna("").astype(str).str.strip().str.upper()
+        is_l, is_r = lr == "L", lr == "R"
+        is_even, is_odd = is_even | is_l, is_odd | is_r
+        known = is_l | is_r
+        for cn, v in (("L_F_ADD", 0), ("L_T_ADD", 0), ("R_F_ADD", 1), ("R_T_ADD", 1)):
+            out[cn] = np.where(known, v, np.nan)
+        cnn_col = col("cnn")
+        cnn = out[cnn_col].astype(str) if cnn_col else pd.Series(out.index.astype(str),
+                                                                  index=out.index)
+        compass = raw_side.map(_COMPASS_CANON)
+        left = compass.where(is_l).groupby(cnn).transform("first")
+        right = compass.where(is_r).groupby(cnn).transform("first")
+        left = left.fillna(right.map(_OPPOSITE_SIDE))
+        right = right.fillna(left.map(_OPPOSITE_SIDE))
+        geo_left = out.geometry.map(_left_compass)
+        left = left.fillna(geo_left)
+        right = right.fillna(geo_left.map(_OPPOSITE_SIDE))
+        out["SIDE_EVEN"] = left.map(_side_label).where(known)
+        out["SIDE_ODD"] = right.map(_side_label).where(known)
     is_both = ~is_even & ~is_odd
 
     out["DAY_EVEN"]  = code_series.where(is_even | is_both, other=None)

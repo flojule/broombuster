@@ -12,12 +12,13 @@ function iso(d) {
 const cases = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const out = cases.map(function (c) {
   if (c.kind === 'expand') {
-    const ds = U.parseSweepingCode(c.code, c.now).map(iso);
-    ds.sort();
-    return { id: c.id, dates: ds };
+    return { id: c.id, dates: U.datesInRange(c.code, c.start, c.end).map(iso) };
   }
-  if (c.kind === 'nextdates') {
-    return { id: c.id, out: U.nextDatesDesc(c.code, c.now) };
+  if (c.kind === 'tables') {
+    return { id: c.id, weekdays: U.WEEKDAY_CODES, noSweep: U.NO_SWEEP_CODES };
+  }
+  if (c.kind === 'both') {
+    return { id: c.id, lines: U.formatBothSides(c.even, c.odd, c.now, c.carSide, c.labels) };
   }
   if (c.kind === 'body') {
     return { id: c.id, out: U.sweepBody(c.desc, c.time) };
@@ -25,6 +26,6 @@ const out = cases.map(function (c) {
   if (c.kind === 'side') {
     return { id: c.id, lines: U.formatScheduleSide(c.entries, c.now) };
   }
-  return { id: c.id, urgency: U.urgencyForSched(c.sched, c.now) };
+  return { id: c.id, urgency: U.checkDaySweeping(JSON.parse(c.sched), c.now) };
 });
 process.stdout.write(JSON.stringify(out));

@@ -1,8 +1,10 @@
 """Parity: frontend/js/urgency.js must match broombuster.analysis exactly.
 
-Two levels:
-  - expansion: parse_sweeping_code(code) == JS parseSweepingCode(code, today)
-  - verdict:   compute_urgency(row, now)  == JS urgencyForSched(sched, now)
+Levels:
+  - tables:    WEEKDAY_CODES / NO_SWEEP_CODES identical
+  - expansion: dates_in_range(code, a, b) == JS datesInRange(code, a, b)
+  - verdict:   compute_urgency(row, now)  == JS checkDaySweeping(entries, now)
+  - display:   sweep_body / format_schedule_side / side_lines
 
 The JS runs under node (see _urgency_harness.js). Skipped if node is absent.
 """
@@ -40,17 +42,19 @@ def _run_js(cases):
     return {r["id"]: r for r in json.loads(res.stdout)}
 
 
-# Curated codes covering every parse_sweeping_code branch.
+# Curated codes covering every grammar branch.
 _CURATED_CODES = [
     "ME", "TE", "WE", "THE", "FE",          # every-weekday
-    "S", "SU",                                # bare weekend
+    "S", "SU", "M",                           # bare days
     "MWF", "TTH", "TTHS", "MF", "TF", "THF",  # compound
-    "TFE", "MFE", "THFE",                      # compound + every
+    "TFE", "MFE", "THFE", "MTHE", "TTHE",     # compound + every
     "M1", "T2", "W3", "TH4", "F13", "S24",    # ordinals
-    "T135", "W1357",                          # unknown ordinal tails -> []
+    "T135", "TH245", "W5",                    # 5th-week ordinals
+    "W1357",                                  # invalid ordinal -> []
     "E",                                       # every day
-    "NS", "N",                                # no-sweep
-    "ZZZ",                                     # garbage -> []
+    "NS", "N", "MS", "DM", "missing",          # no-sweep
+    "ZZZ", "",                                 # garbage -> []
+    "DATES:2026-09-29,bad,2026-10-01",         # invalid date skipped
 ]
 
 
@@ -59,31 +63,44 @@ def _today_now():
     return {"y": t.year, "m": t.month, "d": t.day, "min": 12 * 60}
 
 
-def _oakland_codes():
-    """Distinct real DAY_* codes from a fast-loading bundled city."""
-    try:
-        gdf = data_loader.load_city_data("oakland")
-    except Exception:
-        return []
+def _real_codes():
+    """Distinct real weekly DAY_* codes from the line-based cities."""
     codes = set()
-    for col in ("DAY_EVEN", "DAY_ODD"):
-        if col in gdf.columns:
-            for v in gdf[col].dropna().unique():
-                if isinstance(v, str) and v.strip():
-                    codes.add(v.strip())
+    for city in ("oakland", "alameda", "san_francisco"):
+        try:
+            gdf = data_loader.load_city_data(city)
+        except Exception:
+            continue
+        for col in ("DAY_EVEN", "DAY_ODD"):
+            codes |= {v.strip() for v in gdf[col].dropna().unique()
+                      if isinstance(v, str) and v.strip()}
     return sorted(codes)
 
 
+def _ymd(d):
+    return {"y": d.year, "m": d.month, "d": d.day}
+
+
+def test_tables_parity():
+    """JS WEEKDAY_CODES / NO_SWEEP_CODES must equal the Python tables."""
+    got = _run_js([{"id": "t", "kind": "tables"}])["t"]
+    assert got["weekdays"] == {k: list(v) for k, v in analysis.WEEKDAY_CODES.items()}
+    assert set(got["noSweep"]) == set(analysis.NO_SWEEP_CODES)
+
+
 def test_expansion_parity():
-    now = _today_now()
-    codes = _CURATED_CODES + _oakland_codes()
-    cases = [{"id": f"e{i}", "kind": "expand", "code": c, "now": now}
+    # Two months spanning a month end and a 5th week.
+    start = datetime.date(2026, 9, 1)
+    end = datetime.date(2026, 10, 31)
+    codes = _CURATED_CODES + _real_codes()
+    cases = [{"id": f"e{i}", "kind": "expand", "code": c,
+              "start": _ymd(start), "end": _ymd(end)}
              for i, c in enumerate(codes)]
     js = _run_js(cases)
 
     mismatches = []
     for i, code in enumerate(codes):
-        py = sorted(d.isoformat() for d in analysis.parse_sweeping_code(code))
+        py = [d.isoformat() for d in analysis.dates_in_range(code, start, end)]
         got = js[f"e{i}"]["dates"]
         if py != got:
             mismatches.append((code, py, got))
@@ -92,35 +109,31 @@ def test_expansion_parity():
     )
 
 
-def test_next_dates_desc_parity():
-    """JS nextDatesDesc must match analysis.next_dates_desc (Chicago hover/card)."""
-    code = ("DATES:2026-06-17,2026-06-18,2026-07-25,2026-07-28,"
-            "2026-09-02,2026-09-03")
-    nows = [
-        datetime.date(2026, 6, 1),
-        datetime.date(2026, 6, 18),
-        datetime.date(2026, 7, 26),
-        datetime.date(2026, 12, 31),  # none remain -> ""
-    ]
+def test_both_sides_parity():
+    """JS formatBothSides must match analysis.side_lines."""
+    ln = datetime.datetime(2026, 6, 7, 12, 0)
+    now = {"y": 2026, "m": 6, "d": 7, "min": 720}
+    mon = [("ME", "Every Mon", "8AM-10AM")]
+    wed = [("WE", "Every Wed", "9AM-11AM")]
+    scenarios = {
+        "same": (mon, mon, "even", None),
+        "diff_even": (mon, wed, "even", None),
+        "diff_odd": (mon, wed, "odd", None),
+        "unknown_side": (mon, wed, None, None),
+        "labels": (mon, wed, "odd", ["North", "South"]),
+        "one_side": (mon, [], "odd", None),
+        "empty": ([], [], None, None),
+    }
     cases, expected = [], {}
-    for i, d in enumerate(nows):
-        cid = f"nd{i}"
-        ln = datetime.datetime(d.year, d.month, d.day, 12, 0)
-        expected[cid] = analysis.next_dates_desc(code, local_now=ln)
-        cases.append({"id": cid, "kind": "nextdates", "code": code,
-                      "now": {"y": d.year, "m": d.month, "d": d.day, "min": 720}})
-    # Non-DATES code -> None / null.
-    expected["nd_non"] = analysis.next_dates_desc("MWF", local_now=None)
-    cases.append({"id": "nd_non", "kind": "nextdates", "code": "MWF",
-                  "now": _today_now()})
-
+    for cid, (ev, od, side, labels) in scenarios.items():
+        expected[cid] = analysis.side_lines(
+            ev, od, side, tuple(labels) if labels else analysis.DEFAULT_SIDE_LABELS, ln)
+        cases.append({"id": cid, "kind": "both", "now": now, "carSide": side, "labels": labels,
+                      "even": [list(e) for e in ev], "odd": [list(e) for e in od]})
     js = _run_js(cases)
-    mismatches = []
-    for cid, exp in expected.items():
-        got = js[cid]["out"]
-        if exp != got:
-            mismatches.append((cid, exp, got))
-    assert not mismatches, "next_dates_desc parity failures:\n" + "\n".join(
+    mismatches = [(c, expected[c], js[c]["lines"]) for c in expected
+                  if expected[c] != js[c]["lines"]]
+    assert not mismatches, "side_lines parity failures:\n" + "\n".join(
         f"  {c}: py={p!r} js={g!r}" for c, p, g in mismatches
     )
 
@@ -147,6 +160,12 @@ def test_sweep_body_parity():
         ("Mon 135", "8AM-10AM"),
         ("Thu 13", "8AM-10AM"),
         ("Tue 24", ""),
+        # Weekday lists, non-weekday numbers, "NA" time (real Oakland/Chicago).
+        ("Every Mon, Wed, Fri", "12AM-3AM"),
+        ("Every Tues and Thurs", "3AM-6AM"),
+        ("Major street uses 2 lines, not center line.", "NA"),
+        ("Apr 13, 14; May 11, 12", "None"),
+        ("2nd Fri: Mar 13; Apr 10", "AM"),
     ]
     cases, expected = [], {}
     for i, (d, t) in enumerate(cases_in):
@@ -278,3 +297,30 @@ def test_verdict_parity_dates_codes():
     assert not mismatches, "verdict parity failures:\n" + "\n".join(
         f"  {label}: py={py} js={got}" for label, py, got in mismatches
     )
+
+
+def test_verdict_parity_weekly_codes_month_end():
+    """Weekly codes on the last day of a month (tomorrow is next month)."""
+    day = datetime.date(2026, 9, 30)  # Wed; Oct 1 is Thu
+    scenarios = [
+        ("wed_open", "WE", "8AM-10AM", 9),
+        ("wed_closed", "WE", "8AM-10AM", 11),
+        ("thu_tomorrow", "THE", "8AM-10AM", 9),
+        ("fifth_wed", "W135", "", 9),
+        ("first_thu_next_month", "TH1", "", 9),
+        ("no_sweep_ms", "MS", "", 9),
+    ]
+    cases, expected = [], {}
+    for label, code, t, hh in scenarios:
+        row = _row(code, t, "", "")
+        expected[label] = analysis.compute_urgency(
+            row, local_now=datetime.datetime(day.year, day.month, day.day, hh))
+        cases.append({"id": label, "kind": "verdict", "now": _now(day, hh),
+                      "sched": _sched([{"code": code, "time": t, "side": "even"}])})
+    js = _run_js(cases)
+    norm = {False: "clear", "today": "today", "tomorrow": "tomorrow"}
+    got = {k: js[k]["urgency"] for k in expected}
+    assert {k: norm[v] for k, v in expected.items()} == got
+    assert got == {"wed_open": "today", "wed_closed": "clear",
+                   "thu_tomorrow": "tomorrow", "fifth_wed": "today",
+                   "first_thu_next_month": "tomorrow", "no_sweep_ms": "clear"}

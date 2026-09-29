@@ -14,20 +14,19 @@ from zoneinfo import ZoneInfo
 import geopandas
 import pandas as pd
 import shapely.geometry as _shp_geom
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import car as car_module
 from broombuster import data_loader, gps, maps, resolve
-from broombuster.cities import CITIES, REGIONS
+from broombuster.cities import CITIES, REGIONS, city_for_point, in_bbox, region_for_point, region_of
 from broombuster.domains import for_city as plugins_for_city
 
 from . import db
-from .auth import init_rate_limiting
+from .auth import init_rate_limiting, rate_limit
 from .auth import router as auth_router
 from .deps import verify_jwt
 
@@ -62,74 +61,40 @@ _city_loaded_at: dict = {}   # city_key → float (time.time() when last loaded 
 _swap_lock = threading.Lock()
 
 
-def _ensure_city_loaded(city_key: str) -> bool:
-    """Load a city into the in-memory caches if absent; return availability.
+def _load_city(city_key: str, force: bool = False) -> bool:
+    """Load a city into the in-memory caches; return availability.
 
-    Thread-safe: both CRS frames are built before `_swap_lock` is taken, then
-    assigned under it so a concurrent /check or hot-swap never sees mixed
-    state. Used by the startup background loader and the /check full_region
-    sync path so both share one locking discipline.
+    force=True re-downloads (auto-download cities), hot-swaps the frames and
+    rebuilds the region's tiles. Both CRS frames are built before `_swap_lock`
+    is taken, then assigned under it, so a concurrent /check never sees mixed
+    state. Always signals the city's event.
     """
-    if city_key in _city_gdfs:
+    ev = _city_events.setdefault(city_key, threading.Event())
+    if not force and city_key in _city_gdfs:
+        ev.set()
         return True
+    region = region_of(city_key)
     try:
-        gdf = data_loader.load_city_data(city_key)
-        gdf = gdf.copy()
+        if force:
+            logger.info("[freshness] refreshing %s", CITIES[city_key]["name"])
+        gdf = data_loader.load_city_data(city_key, force_refresh=force).copy()
         gdf["_city"] = city_key
         new_4326 = gdf.to_crs("EPSG:4326")
         new_3857 = gdf.to_crs("EPSG:3857")
-    except (OSError, ValueError, RuntimeError) as exc:
-        logger.warning("could not load city '%s': %s", city_key, exc)
+    except Exception:  # noqa: BLE001 — any failure must release waiters
+        logger.exception("could not load city '%s'", city_key)
+        ev.set()
         return False
     with _swap_lock:
         _city_gdfs[city_key] = new_4326
         _city_gdfs_3857[city_key] = new_3857
         _city_loaded_at[city_key] = time.time()
-        for rk, rv in REGIONS.items():
-            if city_key in rv["cities"]:
-                _region_combined.pop(rk, None)
-    ev = _city_events.get(city_key)
-    if ev is None:
-        ev = _city_events[city_key] = threading.Event()
+        _region_combined.pop(region, None)
     ev.set()
+    if force:
+        logger.info("[freshness] %s refreshed", CITIES[city_key]["name"])
+        _rebuild_region_tiles([region])
     return True
-
-
-def _load_city_bg(city_key: str) -> None:
-    """Background-thread city load; always signals completion via the event."""
-    try:
-        _ensure_city_loaded(city_key)
-    finally:
-        _city_events[city_key].set()
-
-
-def _hot_swap_city(city_key: str) -> None:
-    """Re-download and atomically replace a city's in-memory GDFs."""
-    city = CITIES[city_key]
-    logger.info("[freshness] refreshing %s", city["name"])
-    try:
-        gdf = data_loader.load_city_data(city_key, force_refresh=True)
-        gdf = gdf.copy()
-        gdf["_city"] = city_key
-        # Build both projections BEFORE taking the lock, then swap them in
-        # under the lock so a concurrent /check never sees mixed CRS versions.
-        new_4326 = gdf.to_crs("EPSG:4326")
-        new_3857 = gdf.to_crs("EPSG:3857")
-        affected_regions = []
-        with _swap_lock:
-            _city_gdfs[city_key]      = new_4326
-            _city_gdfs_3857[city_key] = new_3857
-            _city_loaded_at[city_key] = time.time()
-            # Invalidate the region combined-GDF cache so the next request rebuilds it.
-            for rk, rv in REGIONS.items():
-                if city_key in rv["cities"]:
-                    _region_combined.pop(rk, None)
-                    affected_regions.append(rk)
-        logger.info("[freshness] %s refreshed successfully", city["name"])
-        # Refreshed data must flow into the static tiles (PMTILES mode only).
-        _rebuild_region_tiles(affected_regions)
-    except (OSError, ValueError, RuntimeError) as exc:
-        logger.warning("[freshness] could not refresh '%s': %s", city_key, exc)
 
 
 def _rebuild_region_tiles(region_keys) -> None:
@@ -184,13 +149,10 @@ def _freshness_checker_bg() -> None:
                 age_days = (time.time() - os.path.getmtime(local_path)) / 86400
                 if age_days < stale_after_days:
                     continue
-                print(
-                    f"[freshness] {city['name']} data is {age_days:.0f} days old "
-                    f"(threshold {stale_after_days}d) — refreshing…",
-                    flush=True,
-                )
+                logger.info("[freshness] %s data is %.0f days old (threshold %sd)",
+                            city["name"], age_days, stale_after_days)
             # File missing or stale — refresh.
-            _hot_swap_city(city_key)
+            _load_city(city_key, force=True)
 
         time.sleep(3600)  # re-check every hour (only downloads when actually stale)
 
@@ -202,7 +164,7 @@ async def lifespan(app: FastAPI):
     for rv in REGIONS.values():
         for ck in rv["cities"]:
             _city_events[ck] = threading.Event()
-            threading.Thread(target=_load_city_bg, args=(ck,), daemon=True).start()
+            threading.Thread(target=_load_city, args=(ck,), daemon=True).start()
     # Synchronously wait for the preload region before accepting traffic.
     # Set PRELOAD_REGION=bay_area (or any region key) in the environment to
     # ensure the first /check after boot is instant rather than waiting in-band.
@@ -262,18 +224,10 @@ def _clip_with_sindex(gdf, clip_geom):
     return gdf.iloc[_np.sort(idx)]
 
 
-def _in_city_bbox(lat: float, lon: float, city_key: str) -> bool:
-    bbox = CITIES[city_key].get("bbox")
-    if not bbox:
-        return False
-    lat_min, lon_min, lat_max, lon_max = bbox
-    return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
-
-
 def _priority_cities(lat: float, lon: float, region_key: str) -> list:
     """Cities whose bbox contains (lat, lon) first; rest after."""
     city_keys = REGIONS[region_key]["cities"]
-    priority = [ck for ck in city_keys if _in_city_bbox(lat, lon, ck)]
+    priority = [ck for ck in city_keys if in_bbox(ck, lat, lon)]
     rest     = [ck for ck in city_keys if ck not in priority]
     return priority + rest
 
@@ -296,7 +250,7 @@ def _get_region_gdfs(lat: float, lon: float, region_key: str):
             break  # have data for the user's city; good enough to proceed
 
     # Hold _swap_lock for the entire snapshot + combine + cache step so a
-    # concurrent _hot_swap_city cannot replace a city's GDF in the middle of
+    # concurrent _load_city(force=True) cannot replace a city's GDF in the middle of
     # building the combined frame. Hot swaps are hourly and the concat is
     # only a few ms even for the full Bay Area, so contention is negligible.
     with _swap_lock:
@@ -308,50 +262,20 @@ def _get_region_gdfs(lat: float, lon: float, region_key: str):
         if cached and cached[0] == loaded:
             return cached[1], cached[2]
 
-        city_keys = [ck for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs]
-        gdfs_4326 = [_city_gdfs[ck] for ck in city_keys]
-
-        # Prefer cached 3857 frames; fall back to on-the-fly conversion of
-        # the 4326 copy if a city only has the 4326 entry populated.
-        gdfs_3857 = []
-        for ck, gdf4326 in zip(city_keys, gdfs_4326):
-            gdf3857 = _city_gdfs_3857.get(ck)
-            if gdf3857 is None:
-                gdf3857 = gdf4326.to_crs("EPSG:3857")
-            gdfs_3857.append(gdf3857)
-
-        c4 = geopandas.GeoDataFrame(pd.concat(gdfs_4326, ignore_index=True), crs="EPSG:4326")
-        c3 = geopandas.GeoDataFrame(pd.concat(gdfs_3857, ignore_index=True), crs="EPSG:3857")
+        city_keys = [ck for ck in REGIONS[region_key]["cities"] if ck in loaded]
+        c4 = geopandas.GeoDataFrame(
+            pd.concat([_city_gdfs[ck] for ck in city_keys], ignore_index=True), crs="EPSG:4326")
+        c3 = geopandas.GeoDataFrame(
+            pd.concat([_city_gdfs_3857[ck] for ck in city_keys], ignore_index=True),
+            crs="EPSG:3857")
         _region_combined[region_key] = (loaded, c4, c3)
         return c4, c3
 
 
-def _nearest_city_key(lat: float, lon: float, region_key: str) -> str:
-    city_keys = REGIONS[region_key]["cities"]
-    best, best_d = city_keys[0], float("inf")
-    for ck in city_keys:
-        c = CITIES[ck]["center"]
-        d = (c["lat"] - lat) ** 2 + (c["lon"] - lon) ** 2
-        if d < best_d:
-            best, best_d = ck, d
-    return best
-
-
-def _auto_region(lat: float, lon: float) -> str:
-    """Pick the region whose center is closest to (lat, lon)."""
-    best, best_d = "bay_area", float("inf")
-    for rk, rv in REGIONS.items():
-        c = rv["center"]
-        d = (c["lat"] - lat) ** 2 + (c["lon"] - lon) ** 2
-        if d < best_d:
-            best, best_d = rk, d
-    return best
-
-
 def _resolve_region(req):
     """Return (region_key, local_now) for a request (explicit region or auto)."""
-    region = req.region if req.region in REGIONS else _auto_region(req.lat, req.lon)
-    local_now = datetime.now(ZoneInfo(REGIONS[region].get("tz", "UTC")))
+    region = req.region if req.region in REGIONS else region_for_point(req.lat, req.lon)
+    local_now = datetime.now(ZoneInfo(REGIONS[region]["tz"]))
     return region, local_now
 
 
@@ -510,8 +434,23 @@ def cities():
 
 
 # ---------------------------------------------------------------------------
-# Routes — authenticated
+# Routes — public (guests use them too), rate-limited per IP
 # ---------------------------------------------------------------------------
+
+# /check also serves legacy tile-only map requests on every pan; /check-home
+# calls Nominatim and ReCollect.
+_CHECK_RATE = "120/minute"
+_CHECK_HOME_RATE = "20/minute"
+
+
+def _domain_dict(result) -> dict:
+    return {
+        "id":             result.domain_id,
+        "label":          result.label,
+        "urgency":        result.urgency,
+        "schedule_lines": list(result.schedule_lines),
+        "extras":         dict(result.extras),
+    }
 
 
 class CheckRequest(BaseModel):
@@ -526,14 +465,15 @@ class CheckRequest(BaseModel):
 
 
 @app.post("/check")
-def check(req: CheckRequest):
+@rate_limit(_CHECK_RATE)
+def check(req: CheckRequest, request: Request):
     region, local_now = _resolve_region(req)
 
     # If client explicitly requested the full region, synchronously load
     # any missing city data first so the combined region GDF is complete.
     if req.full_region:
         for ck in REGIONS[region]["cities"]:
-            _ensure_city_loaded(ck)
+            _load_city(ck)
 
     myCity_4326, myCity_3857 = _get_region_gdfs(req.lat, req.lon, region)
     if myCity_4326 is None:
@@ -542,139 +482,71 @@ def check(req: CheckRequest):
             detail=f"No data available for region '{region}' yet — try again shortly.",
         )
 
-    city_key = _nearest_city_key(req.lat, req.lon, region)
-    myCar = car_module.Car(lat=req.lat, lon=req.lon)
-    myCar._city = city_key
-
     # Tile-only requests (map background rendering) don't need geocoding or
     # street-sweeping analysis — skipping them cuts response time by ~2-3 s.
     is_tile_only = bool(req.tiles) and not req.full_region
 
-    # Default response values for the tile-only path
-    schedule_even: list = []
-    schedule_odd:  list = []
-    message:  str = ""
+    # Legacy top-level fields mirror the sweeping plugin; `domains[]` carries
+    # every car-subject plugin's result.
+    sweep_extras: dict = {}
     urgency: object = False
-    car_side: str = "odd"
+    message:  str = ""
     address:  str = ""
     snap: Optional[dict] = None
     detail_html: str = ""
-
-    # Per-domain results, populated below. The /check response carries
-    # `domains[]` for forward compatibility (Step 3+) AND the legacy
-    # top-level fields so the existing frontend keeps working.
     domain_results: list[dict] = []
+    city_key = city_for_point(req.lat, req.lon, region)
 
     if not is_tile_only:
-        # SINGLE SOURCE OF TRUTH — resolve the car to one authoritative segment.
-        # Every downstream field (street name, side, schedule, urgency, map
-        # highlight) is derived from this one resolved row. This is the fix
-        # for the cross-field inconsistency bug where Nominatim, the spatial
-        # join, and the address-parity could all disagree silently.
-        try:
-            resolved = resolve.resolve_car_segment(
-                myCity_3857, req.lat, req.lon,
-                city_key=city_key, max_distance_m=50.0,
-            )
-        except resolve.NoSegmentNearby:
-            resolved = None
-
+        # SINGLE SOURCE OF TRUTH — one authoritative segment drives street
+        # name, side, schedule, urgency, map highlight and the city itself.
+        resolved, city_key = resolve.locate(myCity_3857, req.lat, req.lon, region)
+        address = _build_address(resolved, city_key, req.lat, req.lon)
         if resolved is not None:
-            myCar.street_name = resolved.street_name
-            display = resolved.street_display or resolved.street_name
             snap = {
-                "street_name": display,
+                "street_name": resolved.street_display or resolved.street_name,
                 "distance_m":  round(resolved.distance_m, 1),
                 "is_polygon":  resolved.is_polygon,
             }
-
-            # Canonical address derived from the resolved segment (see
-            # _build_address; the house-number gate prevents Nominatim bleed).
-            address = _build_address(resolved, city_key, req.lat, req.lon)
         else:
-            # Car is not near any mapped street — be explicit rather than
-            # silently guessing.
-            address = f"{req.lat:.4f}, {req.lon:.4f}"
             message = "Car not near a mapped street."
 
-        # Run every plugin that supports this city. Each plugin gets the
-        # resolved segment (or None) and produces its own DomainResult.
-        # The sweeping plugin's output is also mirrored into the legacy
-        # top-level response fields below.
         for plugin in plugins_for_city(city_key):
-            # /check is the car flow — only car-subject domains (sweeping).
-            # Home-subject domains (trash) are served by /check-home.
-            if getattr(plugin, "subject", "car") != "car":
+            # /check is the car flow; home-subject domains are served by /check-home.
+            if plugin.subject != "car":
                 continue
-            # Plugins may re-resolve with their own parameters in the future;
-            # for now sweeping shares the same resolved segment we already
-            # computed. Calling resolve_for ensures plugins that DO need a
-            # different shape can produce one without breaking the contract.
             plugin_resolved = (
-                resolved
-                if plugin.domain_id == "sweeping"
+                resolved if plugin.domain_id == "sweeping"
                 else plugin.resolve_for(myCity_3857, req.lat, req.lon, city_key)
             )
             result = plugin.format(plugin_resolved, myCity_3857, local_now)
-            domain_results.append({
-                "id":             result.domain_id,
-                "label":          result.label,
-                "urgency":        result.urgency,
-                "schedule_lines": list(result.schedule_lines),
-                "extras":         dict(result.extras),
-            })
-
-            # Mirror the sweeping plugin's output back into the legacy
-            # top-level fields so the existing frontend doesn't notice
-            # anything changed.
-            if plugin.domain_id == "sweeping":
-                schedule_even = result.extras.get("schedule_even", []) or []
-                schedule_odd  = result.extras.get("schedule_odd", []) or []
-                car_side      = result.extras.get("car_side") or "odd"
-                # Legacy `urgency` field uses False (not "safe") for the
-                # no-urgency state — preserve that to keep the wire format
-                # byte-identical to pre-Step-3.
-                urgency       = result.urgency if result.urgency in ("today", "tomorrow") else False
-                if resolved is not None:
-                    message = result.extras.get("message") or ""
-                    # Full-year detail HTML for the resolved segment so the car
-                    # card can open the same window a street/ward click shows.
-                    # Same row shape the /zone/detail route builds; picks the
-                    # car-side's first entry (code, desc, time), else the other.
-                    primary = schedule_even if car_side == "even" else schedule_odd
-                    other   = schedule_odd  if car_side == "even" else schedule_even
-                    entry = (primary[0] if primary else (other[0] if other else None))
-                    if entry:
-                        detail_html = maps._zone_detail(
-                            {
-                                "STREET_DISPLAY": resolved.street_display or resolved.street_name,
-                                "STREET_NAME":    resolved.street_name,
-                                "DAY_EVEN":       entry[0],
-                                "DESC_EVEN":      entry[1] if len(entry) > 1 else "",
-                                "_city":          city_key,
-                            },
-                            local_now,
-                        )
+            domain_results.append(_domain_dict(result))
+            if plugin.domain_id != "sweeping":
+                continue
+            sweep_extras = result.extras
+            # Legacy `urgency` uses False (not "safe") for the no-urgency state.
+            urgency = result.urgency if result.urgency in ("today", "tomorrow") else False
+            if resolved is None:
+                continue
+            message = sweep_extras.get("message") or ""
+            if sweep_extras["schedule_even"] or sweep_extras["schedule_odd"]:
+                # Same window a street/ward click shows, for every entry.
+                detail_html = maps.zone_detail_html(
+                    resolved.street_display or resolved.street_name,
+                    sweep_extras["schedule_even"], sweep_extras["schedule_odd"],
+                    city_key, local_now, sweep_extras["car_side"],
+                    tuple(sweep_extras["side_labels"]),
+                )
 
     # In PMTILES mode the map renders from static vector tiles, so /check skips
     # the per-request clip + GeoJSON build entirely and returns no `geojson`.
     if _PMTILES_MODE:
         geojson = None
     else:
-        # Clip the region to the requested view (tiles / full_region / bbox /
-        # radius) and derive the sub-pixel simplify tolerance. See
-        # _clip_region_for_request.
         myCity_display, simplify_tolerance = _clip_region_for_request(req, myCity_4326)
-
         geojson = maps.build_map_geojson(
-            myCar, myCity_display,
-            schedule_even=schedule_even,
-            schedule_odd=schedule_odd,
-            message=message,
-            local_now=local_now,
-            simplify_tolerance=simplify_tolerance,
+            myCity_display, local_now=local_now, simplify_tolerance=simplify_tolerance,
         )
-
         geojson_size = len(json.dumps(geojson).encode())
         if geojson_size > _RESPONSE_SIZE_WARN_BYTES:
             logger.warning(
@@ -684,22 +556,20 @@ def check(req: CheckRequest):
             )
 
     return {
+        "region": region,
         "message": message,
         "urgency": urgency,
-        "schedule_even": schedule_even,
-        "schedule_odd": schedule_odd,
-        "car_side": car_side,
+        "schedule_even": sweep_extras.get("schedule_even", []),
+        "schedule_odd": sweep_extras.get("schedule_odd", []),
+        # "even" | "odd" | None (unknown side).
+        "car_side": sweep_extras.get("car_side"),
+        # Display labels for the even / odd buckets (e.g. SF ["North", "South"]).
+        "side_labels": sweep_extras.get("side_labels", ["Even", "Odd"]),
         "address": address,
         "detail_html": detail_html,
         "geojson": geojson,
-        # `snap` tells the frontend which segment the resolver chose and how
-        # far the car is from it — powers the "snapped to 5th St — 12 m"
-        # indicator and ensures the map highlight matches the alarm.
+        # Which segment the resolver chose and how far the car is from it.
         "snap": snap,
-        # `domains` is the new (Step 3) per-plugin payload. The legacy
-        # fields above continue to mirror the sweeping plugin so existing
-        # clients keep working; new clients can iterate `domains[]` and
-        # render one card per domain.
         "domains": domain_results,
     }
 
@@ -713,36 +583,35 @@ class CheckHomeRequest(BaseModel):
 
 
 @app.post("/check-home")
-def check_home(req: CheckHomeRequest):
+@rate_limit(_CHECK_HOME_RATE)
+def check_home(req: CheckHomeRequest, request: Request):
     """Home flow: run home-subject domains (trash) at a saved residence.
 
     Separate from /check (the car flow) because a home is located by address,
     not by the parked-car coordinate, and uses a different plugin subject.
     """
     region, local_now = _resolve_region(req)
-    city_key = _nearest_city_key(req.lat, req.lon, region)
+    _, region_3857 = _get_region_gdfs(req.lat, req.lon, region)
+    _, city_key = resolve.locate(region_3857, req.lat, req.lon, region)
 
     # Home pins dropped by tap/right-click carry no address; reverse-geocode the
     # coordinate so the card can show one (and address-based plugins can match).
     address = req.address or gps.reverse_address(req.lat, req.lon)
 
-    domain_results: list[dict] = []
-    for plugin in plugins_for_city(city_key):
-        if getattr(plugin, "subject", "car") != "home":
-            continue
-        resolved = plugin.resolve_for(None, req.lat, req.lon, city_key,
-                                      address=address)
-        result = plugin.format(resolved, None, local_now)
-        domain_results.append({
-            "id":             result.domain_id,
-            "label":          result.label,
-            "urgency":        result.urgency,
-            "schedule_lines": list(result.schedule_lines),
-            "extras":         dict(result.extras),
-        })
-
+    domain_results = [
+        _domain_dict(plugin.format(
+            plugin.resolve_for(None, req.lat, req.lon, city_key, address=address),
+            None, local_now,
+        ))
+        for plugin in plugins_for_city(city_key) if plugin.subject == "home"
+    ]
     return {"city": city_key, "region": region, "address": address,
             "domains": domain_results}
+
+
+# ---------------------------------------------------------------------------
+# Routes — authenticated
+# ---------------------------------------------------------------------------
 
 
 class PrefsRequest(BaseModel):
@@ -806,16 +675,17 @@ def config_js():
 
 
 @app.get("/zone/detail", include_in_schema=False)
-def zone_detail(code: str = "", street: str = "", city: str = "", region: str = ""):
+@rate_limit(_CHECK_RATE)
+def zone_detail(request: Request, code: List[str] = Query(default=[]), street: str = "",
+                city: str = "", region: str = ""):
     """Full-year zone schedule HTML + PDF link for a clicked tile (PMTILES mode).
 
-    Reuses maps._zone_detail so the popup matches the legacy server-rendered one.
+    `code` repeats once per schedule entry of the clicked feature.
     """
     tz = REGIONS.get(region, {}).get("tz", "UTC")
-    local_now = datetime.now(ZoneInfo(tz))
-    row = {"STREET_DISPLAY": street, "STREET_NAME": street,
-           "DAY_EVEN": code, "DESC_EVEN": "", "_city": city}
-    return {"detail_html": maps._zone_detail(row, local_now)}
+    entries = [(c, "", "") for c in code if c]
+    html = maps.zone_detail_html(street, entries, [], city, datetime.now(ZoneInfo(tz)))
+    return {"detail_html": html}
 
 
 # ---------------------------------------------------------------------------

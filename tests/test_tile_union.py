@@ -6,7 +6,6 @@ when tiles and merged bbox responses differ.
 import pytest
 from shapely.geometry import box, shape
 
-from broombuster import car as car_module
 from broombuster import data_loader, maps
 
 
@@ -42,8 +41,7 @@ def test_tile_union_equals_bbox():
     if combined_gdf.empty:
         pytest.skip("No data in combined bbox")
 
-    myCar = car_module.Car(lat=lat, lon=lon)
-    full_geo = maps.build_map_geojson(myCar, combined_gdf, local_now=_fixed_now())
+    full_geo = maps.build_map_geojson(combined_gdf, local_now=_fixed_now())
     full_ids = set(_feature_id(f) for f in full_geo.get("features", []))
 
     # Split bbox into 2x2 tiles
@@ -61,7 +59,7 @@ def test_tile_union_equals_bbox():
         tgdf = region_gdf[region_gdf.geometry.intersects(t)]
         if tgdf.empty:
             continue
-        geo = maps.build_map_geojson(myCar, tgdf, local_now=_fixed_now())
+        geo = maps.build_map_geojson(tgdf, local_now=_fixed_now())
         for f in geo.get("features", []):
             tile_ids.add(_feature_id(f))
 

@@ -27,6 +27,9 @@ _TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs(
     "EPSG:4326", "EPSG:3857", always_xy=True
 )
 
+# Max car-to-centerline distance for the car and home flows.
+CAR_MAX_DISTANCE_M = 50.0
+
 
 class NoSegmentNearby(Exception):
     """Raised when no street segment is within max_distance_m of the car."""
@@ -141,6 +144,30 @@ def resolve_car_segment(
         projected_point=(px, py),
         is_polygon=False,
     )
+
+
+def nearest_segment(gdf_3857, lat: float, lon: float) -> Optional[ResolvedCar]:
+    """Nearest segment of any city within CAR_MAX_DISTANCE_M, or None.
+
+    No city filter: bboxes overlap and city centers mislead near borders.
+    """
+    try:
+        return resolve_car_segment(gdf_3857, lat, lon, max_distance_m=CAR_MAX_DISTANCE_M)
+    except NoSegmentNearby:
+        return None
+
+
+def locate(gdf_3857, lat: float, lon: float, region_key: str):
+    """(ResolvedCar | None, city_key) for a point in a region.
+
+    The city is the nearest segment's; with no segment in range,
+    cities.city_for_point guesses from the manifest.
+    """
+    from broombuster.cities import CITIES, city_for_point
+
+    resolved = nearest_segment(gdf_3857, lat, lon) if gdf_3857 is not None else None
+    city = resolved.segment.get("_city") if resolved is not None else None
+    return resolved, (city if city in CITIES else city_for_point(lat, lon, region_key))
 
 
 # ---------------------------------------------------------------------------

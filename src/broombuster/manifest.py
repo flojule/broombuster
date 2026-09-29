@@ -18,7 +18,7 @@ _MANIFEST_DIR = os.path.join(_ROOT, "data", "manifests")
 _REGIONS_FILE = "regions.yaml"
 
 _REQUIRED_CITY_FIELDS = ("name", "center", "schema", "local_path")
-_REQUIRED_REGION_FIELDS = ("name", "cities", "tz")
+_REQUIRED_REGION_FIELDS = ("name", "cities", "center", "tz")
 
 
 def load_all(manifest_dir: str | None = None) -> tuple[dict, dict]:

@@ -29,7 +29,7 @@ exercises the `is_polygon` path in
 New plugin
 [`src/broombuster/domains/trash.py`](../src/broombuster/domains/trash.py).
 Reuses `resolve.resolve_car_segment` (polygon path), and reuses
-`analysis.parse_sweeping_code` if the day codes are compatible (Oakland's
+`analysis.sweeps_on` if the day codes are compatible (Oakland's
 trash schedule is weekly by zone — likely needs only a thin
 `parse_trash_code` wrapper around the existing parser).
 
