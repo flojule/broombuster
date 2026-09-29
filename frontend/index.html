@@ -12,9 +12,8 @@
   <meta name="theme-color" content="#2563eb">
 
   <script src="/config.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css">
-  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pmtiles@3/dist/pmtiles.js"></script>
+  <link rel="stylesheet" href="/vendor/maplibre-gl.css">
+  <script src="/vendor/pmtiles.js"></script>
 
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -115,7 +114,12 @@
 <!-- ══════════════════ CUSTOM HOVER ══════════════════ -->
 <div id="custom-hover"></div>
 
-<script src="js/urgency.js"></script>
-<script src="js/app.js"></script>
+<!-- MapLibre 6 is ESM-only; expose it as a global before the deferred app scripts run. -->
+<script type="module">
+  import * as maplibregl from '/vendor/maplibre-gl.mjs';
+  window.maplibregl = maplibregl;
+</script>
+<script defer src="js/urgency.js"></script>
+<script defer src="js/app.js"></script>
 </body>
 </html>
