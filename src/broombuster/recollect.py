@@ -26,13 +26,15 @@ from typing import Optional
 
 import requests
 
+from broombuster.config import env_flag
+
 _HOST = os.environ.get("RECOLLECT_HOST", "https://api.recollect.net")
 _TIMEOUT_S = float(os.environ.get("RECOLLECT_TIMEOUT_S", "8"))
 
 
 def enabled() -> bool:
     """Whether the unofficial ReCollect integration is allowed to make calls."""
-    return os.environ.get("RECOLLECT_ENABLED", "1").lower() in ("1", "true", "yes")
+    return env_flag("RECOLLECT_ENABLED", True)
 
 
 # place cache: (area, service_id, norm_address) -> (ts, place_id|None)

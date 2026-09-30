@@ -52,9 +52,11 @@ DEV_MODE=true uvicorn broombuster.api.app:app --host 0.0.0.0 --port 8000
 ### Developer install (with tests, ruff, build scripts)
 
 ```bash
-pip install -e '.[api,scripts,dev]'
-pytest
+uv sync --locked --all-extras   # reproducible; or: pip install -e '.[api,scripts,dev]'
+uv run pytest
 ```
+
+Frontend map libraries (MapLibre GL, PMTiles) are vendored in `frontend/vendor/`; refresh them with `scripts/update_vendor.sh`, then bump `CACHE` in `frontend/sw.js`.
 
 The editable install puts `broombuster` on the import path, so `import broombuster.analysis`, `import broombuster.api.app`, etc. work from any working directory.
 

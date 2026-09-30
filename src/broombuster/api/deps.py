@@ -8,17 +8,15 @@ Route decorators are unchanged:
     user_id: str = Depends(verify_jwt)
 """
 
-import os
-
 import jwt
 from fastapi import Header, HTTPException
 
-_DEV_MODE = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
+from broombuster.config import DEV_MODE
 
 
 def verify_jwt(authorization: str = Header(default="")) -> str:
     """Verify a locally-issued HS256 JWT and return the user_id (sub claim)."""
-    if _DEV_MODE:
+    if DEV_MODE:
         return "dev-user"
 
     if not authorization.startswith("Bearer "):

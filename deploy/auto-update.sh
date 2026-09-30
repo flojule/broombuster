@@ -20,6 +20,9 @@ remote_rev="$(git rev-parse "origin/${branch}")"
 if [ "$local_rev" = "$remote_rev" ]; then
   exit 0   # up to date — nothing to do
 fi
+if [ "$remote_rev" = "$(cat .git/broombuster-bad-rev 2>/dev/null || true)" ]; then
+  exit 0   # this revision already failed to roll out; wait for a newer push
+fi
 
 echo "New commits on ${branch}: ${local_rev:0:9} -> ${remote_rev:0:9}; rolling out."
 exec ./deploy/update.sh

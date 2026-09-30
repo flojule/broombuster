@@ -2,7 +2,12 @@
 // API calls (/check, /prefs) are always fetched from the network.
 
 const CACHE = 'broombuster-v50';
-const SHELL = ['/', '/styles.css', '/js/app.js', '/js/urgency.js', '/vendor/maplibre-gl.mjs', '/vendor/maplibre-gl-shared.mjs', '/vendor/maplibre-gl-worker.mjs', '/vendor/maplibre-gl.css', '/vendor/pmtiles.js','/manifest.json', '/icon-192.png', '/icon-512.png'];
+const SHELL = [
+  '/', '/styles.css', '/js/app.js', '/js/urgency.js',
+  '/vendor/maplibre-gl.mjs', '/vendor/maplibre-gl-shared.mjs',
+  '/vendor/maplibre-gl-worker.mjs', '/vendor/maplibre-gl.css', '/vendor/pmtiles.js',
+  '/manifest.json', '/icon-192.png', '/icon-512.png',
+];
 
 self.addEventListener('install', event => {
   event.waitUntil(

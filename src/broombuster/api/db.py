@@ -23,6 +23,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from broombuster.config import DEV_MODE
+
 # Repo root: this file is <repo>/src/broombuster/api/db.py.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _DB_PATH = Path(os.environ.get("DB_PATH", str(_REPO_ROOT / "data" / "app.sqlite")))
@@ -96,7 +98,7 @@ def init_db() -> None:
                 conn.execute(ddl)
             except sqlite3.OperationalError:
                 pass  # column already exists
-        if os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes"):
+        if DEV_MODE:
             conn.execute(
                 "INSERT OR IGNORE INTO users (id, email, pw_hash) VALUES (?, ?, ?)",
                 ("dev-user", "dev@localhost", ""),

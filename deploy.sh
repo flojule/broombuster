@@ -14,17 +14,8 @@ cd "$(dirname "$0")"
 PORT="${PORT:-8000}"
 export DEV_MODE=true   # skip auth on both API and frontend
 
-# Interpreter: explicit $PYTHON, else per-project venv (Linux/Pi), else this
-# Mac's global venv, else python3.
-if [ -n "${PYTHON:-}" ]; then
-  PY="$PYTHON"
-elif [ -x ".venv/bin/python" ]; then
-  PY=".venv/bin/python"
-elif [ -x "$HOME/pyenv/bin/python" ]; then
-  PY="$HOME/pyenv/bin/python"
-else
-  PY="python3"
-fi
+. scripts/lib.sh
+pick_python
 
 # 1. Tailscale must be running and logged in.
 if ! tailscale status >/dev/null 2>&1; then
@@ -34,16 +25,8 @@ if ! tailscale status >/dev/null 2>&1; then
   exit 1
 fi
 
-# 2. Build map tiles once if missing (same as run.sh); fall back to GeoJSON.
-if ! ls frontend/tiles/*.pmtiles >/dev/null 2>&1; then
-  if command -v tippecanoe >/dev/null 2>&1; then
-    echo "Building map tiles (one-time)..."
-    "$PY" scripts/build_pmtiles.py
-  else
-    echo "tippecanoe not found -- running in legacy GeoJSON mode (slower)."
-    export PMTILES_MODE=0
-  fi
-fi
+# 2. Build map tiles once if missing; fall back to GeoJSON.
+ensure_tiles
 
 # 3. Expose the local port over HTTPS on the tailnet (background, persists).
 if ! tailscale serve --bg "$PORT" >serve_err.log 2>&1; then

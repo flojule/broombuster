@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from broombuster import data_loader, gps, ics, maps, resolve
 from broombuster.cities import CITIES, REGIONS, city_for_point, in_bbox, region_for_point, region_of
+from broombuster.config import ALLOW_REGISTRATION, DEV_MODE, PMTILES_MODE
 from broombuster.domains import for_city as plugins_for_city
 
 from . import db
@@ -99,7 +100,7 @@ def _load_city(city_key: str, force: bool = False) -> bool:
 
 def _rebuild_region_tiles(region_keys) -> None:
     """Kick off a detached PMTiles rebuild per region (PMTILES mode only)."""
-    if not _PMTILES_MODE or not region_keys:
+    if not PMTILES_MODE or not region_keys:
         return
     if not shutil.which("tippecanoe"):
         logger.warning("[tiles] tippecanoe not on PATH; skipping tile rebuild")
@@ -540,7 +541,7 @@ def check(req: CheckRequest, request: Request):
 
     # In PMTILES mode the map renders from static vector tiles, so /check skips
     # the per-request clip + GeoJSON build entirely and returns no `geojson`.
-    if _PMTILES_MODE:
+    if PMTILES_MODE:
         geojson = None
     else:
         myCity_display, simplify_tolerance = _clip_region_for_request(req, myCity_4326)
@@ -682,26 +683,20 @@ def save_prefs(req: PrefsRequest, user_id: str = Depends(verify_jwt)):
 # Runtime config endpoint — injected into the frontend as window globals
 # ---------------------------------------------------------------------------
 
-_DEV_MODE_API = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
 # PMTILES_MODE (default ON): render the map from static vector tiles
 # (frontend/tiles/*.pmtiles) and slim /check to resolver fields. Set
 # PMTILES_MODE=0 to fall back to the legacy server-built GeoJSON path.
-_PMTILES_MODE = os.environ.get("PMTILES_MODE", "1").lower() in ("1", "true", "yes")
-# Whether the frontend should show the "Create account" button. Mirrors the
-# server-side ALLOW_REGISTRATION gate in auth.py so a disabled signup hides the
-# button rather than letting it 403 on click.
-_ALLOW_REGISTRATION_API = os.environ.get("ALLOW_REGISTRATION", "true").lower() in (
-    "1", "true", "yes"
-)
+# ALLOW_REGISTRATION also hides the frontend "Create account" button rather
+# than letting it 403 on click.
 
 
 @app.get("/config.js", include_in_schema=False)
 def config_js():
     """Serve runtime config as a JS snippet so the frontend knows runtime flags."""
     js = (
-        f"window.DEV_MODE = {'true' if _DEV_MODE_API else 'false'};\n"
-        f"window.PMTILES_MODE = {'true' if _PMTILES_MODE else 'false'};\n"
-        f"window.ALLOW_REGISTRATION = {'true' if _ALLOW_REGISTRATION_API else 'false'};\n"
+        f"window.DEV_MODE = {'true' if DEV_MODE else 'false'};\n"
+        f"window.PMTILES_MODE = {'true' if PMTILES_MODE else 'false'};\n"
+        f"window.ALLOW_REGISTRATION = {'true' if ALLOW_REGISTRATION else 'false'};\n"
         "window.REGION_TZ = " + json.dumps(
             {rk: rv.get("tz", "UTC") for rk, rv in REGIONS.items()}
         ) + ";\n"

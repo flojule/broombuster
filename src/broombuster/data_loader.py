@@ -24,7 +24,6 @@ Day codes follow the grammar in analysis.py (e.g. "ME" every Mon, "M13"
 explicit dates); analysis.NO_SWEEP_CODES lists the no-sweeping markers.
 """
 
-import importlib.util
 import io
 import math
 import os
@@ -35,6 +34,7 @@ from collections import OrderedDict
 
 import geopandas
 import numpy as np
+import pandas as pd
 import requests
 from shapely.geometry import box as _shapely_box
 
@@ -57,9 +57,6 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 MAX_GDF_CACHE_ENTRIES = int(os.environ.get("MAX_GDF_CACHE_ENTRIES", "5"))
 _GDF_CACHE: "OrderedDict[str, tuple[float, geopandas.GeoDataFrame]]" = OrderedDict()
 _GDF_CACHE_LOCK = threading.Lock()
-
-# Prefer pyogrio when installed for faster reads.
-_HAS_PYOGRIO = importlib.util.find_spec("pyogrio") is not None
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -100,14 +97,7 @@ def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.G
                 # Move to end (most-recently-used)
                 _GDF_CACHE.move_to_end(fgb_path)
                 return cached[1].copy()
-        # Read using pyogrio where possible for better perf, fall back to geopandas default
-        if _HAS_PYOGRIO:
-            try:
-                gdf = geopandas.read_file(fgb_path, engine="pyogrio")
-            except Exception:
-                gdf = geopandas.read_file(fgb_path)
-        else:
-            gdf = geopandas.read_file(fgb_path)
+        gdf = geopandas.read_file(fgb_path)
         # Post-process read GDF for in-memory consumption: for Chicago we
         # prefer a readable `STREET_NAME` (e.g. "Ward 05, Section 03"). The
         # on-disk FGB keeps `STREET_NAME` uppercase for storage consistency.
@@ -178,7 +168,6 @@ def load_region_data(region_key: str, *, force_refresh: bool = False) -> geopand
     skipped with a warning, so the rest of the region still loads.  Each row
     gets a ``_city`` column with the source city key.
     """
-    import pandas as pd
 
     from broombuster.cities import REGIONS
 
@@ -324,7 +313,6 @@ def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 def pd_series_none(ref_gdf):
     """Return a Series of None values with the same index as ref_gdf."""
-    import pandas as pd
     return pd.Series([None] * len(ref_gdf), index=ref_gdf.index)
 
 
@@ -402,7 +390,6 @@ def _side_label(compass):
 
 
 def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    import pandas as pd
 
     out = gdf.copy()
 

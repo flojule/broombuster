@@ -5,7 +5,8 @@ server-side only when signed in). Map data ships in git so a clone is
 self-contained. The Mac runs independently via `./run.sh` / `./deploy.sh`.
 
 `install-service.sh` writes a random `JWT_SECRET` into `.env` (gitignored) on
-first run, which the unit reads via `EnvironmentFile`. The runtime DB
+first run, which the unit reads via `EnvironmentFile`. The app refuses to start
+in production with a secret shorter than 32 characters. The runtime DB
 (`data/app.sqlite`) is gitignored and built on first boot.
 
 | File | Runs on | Purpose |
@@ -21,7 +22,8 @@ first run, which the unit reads via `EnvironmentFile`. The runtime DB
 
 **1. On the Pi — system packages, Tailscale**
 ```bash
-sudo apt update && sudo apt install -y git python3-venv python3-pip
+sudo apt update && sudo apt install -y git pipx
+pipx install uv && pipx ensurepath   # per-user; installs to ~/.local/bin
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
@@ -30,10 +32,10 @@ sudo tailscale up
 ```bash
 git clone https://github.com/flojule/BroomBuster.git ~/ws/BroomBuster
 cd ~/ws/BroomBuster
-python3 -m venv .venv
-.venv/bin/pip install -e '.[api]'
+uv sync --locked --extra api   # creates .venv (Python 3.12), installs from uv.lock, editable
 ```
-`-e` (editable) keeps path resolution on the source tree's `data/` + `frontend/`.
+Editable install keeps path resolution on the source tree's `data/` + `frontend/`.
+Without `uv`, `update.sh` falls back to `pip install -e '.[api]'` (unlocked).
 
 **3. On the Pi — install the service + expose over HTTPS**
 ```bash
@@ -68,7 +70,8 @@ hand — just push to the branch the Pi tracks.
 
 | Action | Command (on the Pi) |
 |--------|---------------------|
-| Roll out a new version | `./deploy/update.sh` (reset to origin, discarding local edits to tracked files + reinstall + restart + health) — not needed if the auto-update timer is on |
+| Roll out a new version | `./deploy/update.sh` (reset to origin, discarding local edits to tracked files + locked dep sync + restart + health wait up to 60 s; on failure restores the previous revision and exits 1) — not needed if the auto-update timer is on |
+| Retry a failed revision | `rm .git/broombuster-bad-rev` (auto-update otherwise waits for a newer push) |
 | Status / logs | `systemctl status broombuster` / `journalctl -u broombuster -f` |
 | Restart | `sudo systemctl restart broombuster` |
 | Stop / disable | `sudo systemctl disable --now broombuster` |

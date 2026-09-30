@@ -14,6 +14,7 @@ dependencies = [
     "geopy>=2.5",
     "requests>=2.34",
     "numpy>=2.5",
+    "pandas>=3.0",
     "python-dotenv>=1.2",
     "PyYAML>=6.0",
 ]
@@ -32,7 +33,7 @@ scripts = [
 dev = [
     "pytest>=9.1",
     "ruff>=0.16",
-    "httpx>=0.28",
+    "httpx2>=2.13",
 ]
 
 # Layout: a single importable package under src/broombuster/. setuptools'
