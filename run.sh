@@ -6,6 +6,14 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# flopi runs BroomBuster as a systemd service behind Tailscale Funnel. This
+# script would fight it for the port. Stop the service first if you mean it.
+if systemctl is-active --quiet broombuster 2>/dev/null; then
+  echo "broombuster.service is running on this machine; not starting a second copy." >&2
+  echo "Use it (journalctl -u broombuster -f) or stop it first: sudo systemctl stop broombuster" >&2
+  exit 1
+fi
+
 . scripts/lib.sh
 pick_python
 

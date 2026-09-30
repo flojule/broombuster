@@ -12,7 +12,10 @@ Tokens
 Access token:  HS256 JWT, 15-minute TTL, audience="broombuster"
 Refresh token: HS256 JWT, 30-day TTL, audience="broombuster-refresh"
 
-Both contain {"sub": user_id, "aud": ..., "exp": ..., "iat": ...}.
+Both contain {"sub": user_id, "aud": ..., "exp": ..., "iat": ...}. The refresh
+token also carries "pwv", a fingerprint of the stored password hash, so
+changing a password (e.g. re-running scripts/seed_account.py) ends every
+session within one access-token TTL.
 
 Environment variables
 ---------------------
@@ -22,9 +25,12 @@ DEV_MODE          — if "true", suppresses slowapi rate limiting
 
 Rate limiting
 -------------
-Failed logins are rate-limited via slowapi (10 per minute per IP).
+Login and register are rate-limited via slowapi (10 per minute per IP),
+refresh at 30 per minute.
 """
 
+import hashlib
+import logging
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -65,6 +71,8 @@ if not DEV_MODE and not (_JWT_SECRET and len(_JWT_SECRET) >= _MIN_SECRET_LEN
         "python -c \"import secrets; print(secrets.token_hex(32))\""
     )
 
+logger = logging.getLogger("broombuster.api")
+
 _ACCESS_TTL          = timedelta(minutes=15)
 _REFRESH_TTL         = timedelta(days=30)
 _AUD_ACCESS          = "broombuster"
@@ -75,6 +83,8 @@ _AUD_REFRESH         = "broombuster-refresh"
 # ---------------------------------------------------------------------------
 
 _RATE_LIMIT = "10/minute"
+# Looser: a 429 on refresh signs the browser out (auth.js clears its tokens).
+_REFRESH_RATE_LIMIT = "30/minute"
 
 _limiter = None if DEV_MODE else Limiter(key_func=get_remote_address)
 
@@ -106,10 +116,15 @@ def init_rate_limiting(app) -> None:
 # Token helpers
 # ---------------------------------------------------------------------------
 
-def _issue(user_id: str, secret: str, aud: str, ttl: timedelta) -> str:
+def _issue(user_id: str, secret: str, aud: str, ttl: timedelta, **claims) -> str:
     now = datetime.now(tz=UTC)
-    payload = {"sub": user_id, "aud": aud, "iat": now, "exp": now + ttl}
+    payload = {"sub": user_id, "aud": aud, "iat": now, "exp": now + ttl, **claims}
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def _pw_version(pw_hash: str) -> str:
+    """Fingerprint of a stored password hash; changes whenever the password does."""
+    return hashlib.sha256(pw_hash.encode()).hexdigest()[:16]
 
 
 def decode_access(token: str) -> str:
@@ -117,9 +132,9 @@ def decode_access(token: str) -> str:
     return jwt.decode(token, _JWT_SECRET, algorithms=["HS256"], audience=_AUD_ACCESS)["sub"]
 
 
-def decode_refresh(token: str) -> str:
-    """Verify a refresh token and return user_id. Raises jwt exceptions on failure."""
-    return jwt.decode(token, _REFRESH_SECRET, algorithms=["HS256"], audience=_AUD_REFRESH)["sub"]
+def decode_refresh(token: str) -> dict:
+    """Verify a refresh token and return its claims. Raises jwt exceptions on failure."""
+    return jwt.decode(token, _REFRESH_SECRET, algorithms=["HS256"], audience=_AUD_REFRESH)
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +165,11 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
-def _token_response(user_id: str) -> dict:
+def _token_response(user_id: str, pw_hash: str) -> dict:
     return {
         "access_token":  _issue(user_id, _JWT_SECRET, _AUD_ACCESS, _ACCESS_TTL),
-        "refresh_token": _issue(user_id, _REFRESH_SECRET, _AUD_REFRESH, _REFRESH_TTL),
+        "refresh_token": _issue(user_id, _REFRESH_SECRET, _AUD_REFRESH, _REFRESH_TTL,
+                                pwv=_pw_version(pw_hash)),
         "token_type":    "bearer",
         "user_id":       user_id,
     }
@@ -168,11 +184,13 @@ def register(req: RegisterRequest, request: Request):
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
     user_id = str(uuid.uuid4())
+    pw_hash = _hash_pw(req.password)
     try:
-        db.create_user(user_id, req.email, _hash_pw(req.password))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Registration failed: {exc}")
-    return _token_response(user_id)
+        db.create_user(user_id, req.email, pw_hash)
+    except Exception:
+        logger.exception("registration failed")
+        raise HTTPException(status_code=500, detail="Registration failed")
+    return _token_response(user_id, pw_hash)
 
 
 @router.post("/login")
@@ -185,17 +203,20 @@ def login(req: LoginRequest, request: Request):
     ok = _verify_pw(req.password, stored)
     if not user or not ok:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return _token_response(user["id"])
+    return _token_response(user["id"], user["pw_hash"])
 
 
 @router.post("/refresh")
-def refresh(req: RefreshRequest):
+@rate_limit(_REFRESH_RATE_LIMIT)
+def refresh(req: RefreshRequest, request: Request):
     try:
-        user_id = decode_refresh(req.refresh_token)
+        claims = decode_refresh(req.refresh_token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Refresh token expired")
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=401, detail=f"Invalid refresh token: {exc}")
-    if db.get_user_by_id(user_id) is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return _token_response(user_id)
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    user = db.get_user_by_id(claims["sub"])
+    # Same answer for a deleted user and a changed password: sign in again.
+    if user is None or claims.get("pwv") != _pw_version(user["pw_hash"]):
+        raise HTTPException(status_code=401, detail="Session ended; sign in again")
+    return _token_response(user["id"], user["pw_hash"])

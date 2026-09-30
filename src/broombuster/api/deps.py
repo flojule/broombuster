@@ -35,5 +35,5 @@ def verify_jwt(authorization: str = Header(default="")) -> str:
         return decode_access(token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")

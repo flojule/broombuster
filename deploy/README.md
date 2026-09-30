@@ -13,17 +13,18 @@ in production with a secret shorter than 32 characters. The runtime DB
 |------|---------|---------|
 | `install-service.sh` | Pi | Install + enable the systemd service for the current user |
 | `broombuster.service` | Pi | systemd unit template (`__USER__`/`__REPO__` substituted on install) |
-| `update.sh` | Pi | Roll out a new version: pull + reinstall + restart |
+| `update.sh` | Pi | Roll out a new version: pull + locked dep sync + restart |
 | `install-autoupdate.sh` | Pi | (Optional) install the poll-and-deploy timer |
-| `auto-update.sh` | Pi | Poll origin; run `update.sh` only when the branch advanced |
+| `auto-update.sh` | Pi | Poll origin; run `update.sh` when `main` advanced and CI passed on it |
 | `broombuster-update.{service,timer}` | Pi | systemd timer that runs `auto-update.sh` every ~2 min |
 
 ## One-time setup
 
 **1. On the Pi — system packages, Tailscale**
 ```bash
-sudo apt update && sudo apt install -y git pipx
-pipx install uv && pipx ensurepath   # per-user; installs to ~/.local/bin
+sudo apt update && sudo apt install -y git
+curl -LsSf https://astral.sh/uv/install.sh | sh   # per-user; installs to ~/.local/bin
+sudo apt install -y gh && gh auth login          # auto-update reads CI status with gh
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
@@ -35,11 +36,12 @@ cd ~/ws/BroomBuster
 uv sync --locked --extra api   # creates .venv (Python 3.12), installs from uv.lock, editable
 ```
 Editable install keeps path resolution on the source tree's `data/` + `frontend/`.
-Without `uv`, `update.sh` falls back to `pip install -e '.[api]'` (unlocked).
+`update.sh` requires `uv` so the Pi runs exactly the versions in `uv.lock` (what
+CI tested); it refuses to roll out without it.
 
 **3. On the Pi — install the service + expose over HTTPS**
 ```bash
-./deploy/install-service.sh
+./deploy/install-service.sh   # waits for /health; restores the previous unit if the new one fails
 tailscale serve --bg 8000
 tailscale serve status
 ```
@@ -60,15 +62,23 @@ Don't use `./funnel.sh` for always-on — it runs in the foreground and resets t
 Funnel mapping on exit.
 
 **4. (Optional) auto-deploy on push** — a timer that polls `origin` every ~2 min
-and rolls out only when the tracked branch advances (idle polls don't restart
-the app):
+and rolls out when `main` (override: `BROOMBUSTER_BRANCH`) advances **and**
+`ci.yml` has passed on the new commit (idle polls don't restart the app; a
+pending CI run is re-checked next tick):
 ```bash
 ./deploy/install-autoupdate.sh
 ```
 It writes a minimal sudoers drop-in granting the timer's user passwordless
 `systemctl restart broombuster` (the one privileged step in `update.sh`), then
 enables `broombuster-update.timer`. With this on, you never run `update.sh` by
-hand — just push to the branch the Pi tracks.
+hand — just merge to `main`.
+
+When a rollout is blocked and needs you — CI failed, the revision failed its
+health gate and was rolled back, the checkout is on another branch, or `gh`
+can't reach GitHub — the update unit exits non-zero, so it shows up in
+`systemctl --failed` and `journalctl -u broombuster-update`. Each successful
+rollout also warns there if an installed unit file no longer matches its
+template in `deploy/`.
 
 ## Operations
 
@@ -79,12 +89,14 @@ hand — just push to the branch the Pi tracks.
 | Status / logs | `systemctl status broombuster` / `journalctl -u broombuster -f` |
 | Restart | `sudo systemctl restart broombuster` |
 | Stop / disable | `sudo systemctl disable --now broombuster` |
-| Refresh map data | commit + push the rebuilt `.fgb`/tiles (auto-update rolls it out, or run `./deploy/update.sh`) |
-| Auto-update logs | `journalctl -u broombuster-update -f`; next run: `systemctl list-timers broombuster-update.timer` |
+| Refresh map data | commit + push the rebuilt `.fgb`/tiles (auto-update rolls it out, or run `./deploy/update.sh`); `/health` flags data past `stale_after_days` |
+| Auto-update logs | `journalctl -u broombuster-update -f`; next run: `systemctl list-timers broombuster-update.timer`; blocked: `systemctl --failed` |
 | Disable auto-update | `sudo systemctl disable --now broombuster-update.timer` |
 
-Unit-file changes (`broombuster.service`) are not applied by `update.sh`; re-run
-`./deploy/install-service.sh` after editing them. Rollback resets code only, not
+Unit-file changes are not applied by `update.sh` (the timer's sudo grant covers
+only the restart); re-run `./deploy/install-service.sh` /
+`./deploy/install-autoupdate.sh` after editing them. `update.sh` logs a warning
+while they differ. Rollback resets code only, not
 `app.sqlite`: schema migrations must stay additive (`ADD COLUMN` with a default,
 see `api/db.py`) so the previous revision can still open a migrated DB.
 

@@ -24,11 +24,29 @@ if [ ! -f "$ENV_FILE" ]; then
   chmod 600 "$ENV_FILE"
 fi
 
+. scripts/lib.sh   # healthy
+
+# Keep the current unit so a new one that fails to start (e.g. a hardening
+# option this host rejects) can be rolled back without taking the site down.
 UNIT=/etc/systemd/system/broombuster.service
+[ -f "$UNIT" ] && sudo cp "$UNIT" "$UNIT.bak"
 sed -e "s#__USER__#$USER#g" -e "s#__REPO__#$REPO#g" \
   deploy/broombuster.service | sudo tee "$UNIT" >/dev/null
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now broombuster
+sudo systemctl enable broombuster
+sudo systemctl restart broombuster
+if ! healthy >/dev/null; then
+  echo "broombuster did not come up healthy with the new unit:" >&2
+  journalctl -u broombuster -n 20 --no-pager >&2 || true
+  if [ -f "$UNIT.bak" ]; then
+    sudo mv "$UNIT.bak" "$UNIT"
+    sudo systemctl daemon-reload
+    sudo systemctl restart broombuster
+    echo "Restored the previous unit." >&2
+  fi
+  exit 1
+fi
+sudo rm -f "$UNIT.bak"
 echo "Installed and started. Status:"
 systemctl --no-pager status broombuster | head -12

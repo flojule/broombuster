@@ -7,7 +7,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -15,7 +14,13 @@ from pydantic import BaseModel, Field
 
 from broombuster import gps, ics, maps, resolve
 from broombuster.cities import CITIES, REGIONS, city_for_point
-from broombuster.config import ALLOW_REGISTRATION, DEV_MODE, PMTILES_MODE, REPO_ROOT
+from broombuster.config import (
+    ALLOW_REGISTRATION,
+    DATA_AUTO_REFRESH,
+    DEV_MODE,
+    PMTILES_MODE,
+    REPO_ROOT,
+)
 from broombuster.domains import for_city as plugins_for_city
 
 from . import db
@@ -60,8 +65,10 @@ async def lifespan(app: FastAPI):
             if ev:
                 ev.wait(timeout=120)
         logger.info("[preload] region '%s' ready", _PRELOAD_REGION)
-    # Background freshness checker — runs after startup, checks hourly.
-    threading.Thread(target=_freshness_checker_bg, daemon=True).start()
+    # Background freshness checker — runs after startup, checks hourly. Opt-in:
+    # deployments ship refreshed data through git instead (see config.py).
+    if DATA_AUTO_REFRESH:
+        threading.Thread(target=_freshness_checker_bg, daemon=True).start()
     yield
 
 
@@ -74,12 +81,26 @@ async def lifespan(app: FastAPI):
 _docs = {} if DEV_MODE else {"docs_url": None, "redoc_url": None, "openapi_url": None}
 app = FastAPI(title="BroomBuster API", lifespan=lifespan, **_docs)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS middleware: the frontend is served from this same origin.
+
+# Baseline hardening headers on every response. The CSP covers framing, plugins
+# and <base> only; a script-src policy would have to allow the inline module in
+# index.html and MapLibre's blob: workers, so it is left out until it can be
+# verified in a browser.
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options":  "nosniff",
+    "Referrer-Policy":         "strict-origin-when-cross-origin",
+    "X-Frame-Options":         "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.update(_SECURITY_HEADERS)
+    return response
+
 
 # Compress responses over 1 KB. The /check GeoJSON is verbose text and gzips
 # ~5-8x; this is the interim win for SF before PMTiles removes the payload.
@@ -357,24 +378,34 @@ def calendar_ics(request: Request,
 # ---------------------------------------------------------------------------
 
 
+# Bounds on what one account can store (the shared account's login is handed out).
+_PREFS_RATE = "60/minute"
+_PREFS_MAX_BYTES = 64_000
+
+
 class PrefsRequest(BaseModel):
     home_lat: float | None = None
     home_lon: float | None = None
-    home_address: str | None = None
-    homes: list | None = []
-    preferred_region: str | None = "bay_area"
+    home_address: str | None = Field(None, max_length=500)
+    homes: list[dict] | None = Field(default_factory=list, max_length=20)
+    preferred_region: str | None = Field("bay_area", max_length=64)
     notify_email: bool | None = False
-    cars: list | None = []
+    cars: list[dict] | None = Field(default_factory=list, max_length=50)
 
 
 @app.get("/prefs")
-def get_prefs(user_id: str = Depends(verify_jwt)):
+@rate_limit(_PREFS_RATE)
+def get_prefs(request: Request, user_id: str = Depends(verify_jwt)):
     return db.get_prefs(user_id)
 
 
 @app.post("/prefs")
-def save_prefs(req: PrefsRequest, user_id: str = Depends(verify_jwt)):
-    db.save_prefs(user_id, req.model_dump())
+@rate_limit(_PREFS_RATE)
+def save_prefs(req: PrefsRequest, request: Request, user_id: str = Depends(verify_jwt)):
+    prefs = req.model_dump()
+    if len(json.dumps(prefs)) > _PREFS_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Preferences too large")
+    db.save_prefs(user_id, prefs)
     return {"saved": True}
 
 

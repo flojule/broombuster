@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Roll out the latest BroomBuster on flopi: pull, sync deps, restart, health-check.
-#   ./deploy/update.sh
+#   ./deploy/update.sh          # the tip of origin/<current branch>
+#   ./deploy/update.sh <rev>    # a specific revision (auto-update.sh passes the CI-checked one)
 # Everything (code, frontend, .fgb data, tiles) ships via git; editable install
 # runs the source tree. The repo wins: tracked files are reset to origin,
-# discarding runtime edits (e.g. the app's self-refreshed .fgb). Untracked/
+# discarding runtime edits (e.g. a DATA_AUTO_REFRESH download). Untracked/
 # ignored files (.env, app.sqlite) are kept.
 # On failure (deps, restart, or health) the previous revision is restored and
 # the bad revision is recorded in .git/broombuster-bad-rev so auto-update.sh
@@ -11,47 +12,46 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/bin:$PATH"   # uv; systemd units do not have this on PATH
+. scripts/lib.sh                        # healthy
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
 old="$(git rev-parse HEAD)"
 
+# uv is required: installing from uv.lock is what makes the Pi run the exact
+# versions CI tested. Checked before touching the checkout.
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv not found on PATH; install it (curl -LsSf https://astral.sh/uv/install.sh | sh)" >&2
+  exit 1
+fi
+
 sync_deps() {
-  if command -v uv >/dev/null 2>&1; then
-    uv sync --locked --inexact --extra api --quiet   # reproducible; keeps other extras
-  else
-    .venv/bin/pip install -e '.[api]' --quiet
-  fi
+  uv sync --locked --inexact --extra api --quiet   # reproducible; keeps other extras
 }
 
-# Health: the app must bind the port AND finish loading every city (slow on a
-# Pi). A failed city load fails the rollout immediately; /health alone returns
-# "ok" while cities are still loading, so it isn't enough to prove the data is good.
-healthy() {
-  local body deadline=$((SECONDS + 180))
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    if body="$(curl -fsS --max-time 5 http://127.0.0.1:8000/health 2>/dev/null)"; then
-      case "$body" in
-        *'"failed":[]'*) ;;
-        *) echo "city load failed: $body" >&2; return 1 ;;
-      esac
-      case "$body" in
-        *'"loading":[]'*) echo "$body"; return 0 ;;
-      esac
+# Unit files are installed with sudo by install-*.sh, not by this script (the
+# timer's sudo grant covers only the restart). Warn when the repo's templates
+# have moved ahead of what is installed so the drift is visible in the logs.
+check_units() {
+  local unit
+  for unit in broombuster.service broombuster-update.service broombuster-update.timer; do
+    [ -f "/etc/systemd/system/$unit" ] || continue
+    if ! sed -e "s#__USER__#$(id -un)#g" -e "s#__REPO__#$PWD#g" "deploy/$unit" \
+        | cmp -s - "/etc/systemd/system/$unit"; then
+      echo "WARNING: /etc/systemd/system/$unit differs from deploy/$unit;" \
+           "re-run ./deploy/install-service.sh / ./deploy/install-autoupdate.sh" >&2
     fi
-    sleep 2
   done
-  echo "timed out waiting for cities to load" >&2
-  return 1
 }
 
 git fetch --quiet origin "$branch"
-git reset --hard "origin/${branch}"
+git reset --hard "${1:-origin/${branch}}"
 new="$(git rev-parse HEAD)"
 
 if sync_deps && sudo systemctl restart broombuster && healthy; then
   rm -f .git/broombuster-bad-rev
   echo
   echo "Rolled out ${new:0:9}"
+  check_units
   exit 0
 fi
 
