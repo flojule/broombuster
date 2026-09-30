@@ -22,7 +22,6 @@ import datetime
 import os
 import threading
 import time
-from typing import Optional
 
 import requests
 
@@ -42,7 +41,7 @@ _PLACE_TTL_S = 30 * 24 * 3600
 # pickups cache: (place_id, service_id, today_iso) -> (ts, {stream: [date,...]})
 _PICKUPS_TTL_S = 12 * 3600
 
-_place_cache: dict[tuple, tuple[float, Optional[str]]] = {}
+_place_cache: dict[tuple, tuple[float, str | None]] = {}
 _pickups_cache: dict[tuple, tuple[float, dict]] = {}
 _lock = threading.Lock()
 
@@ -51,7 +50,7 @@ def _norm(address: str) -> str:
     return " ".join(address.lower().split())
 
 
-def suggest_place(area: str, service_id, address: str) -> Optional[str]:
+def suggest_place(area: str, service_id, address: str) -> str | None:
     """Resolve a free-text address to a ReCollect place_id, or None."""
     if not enabled() or not address or not address.strip():
         return None
@@ -80,7 +79,7 @@ def suggest_place(area: str, service_id, address: str) -> Optional[str]:
 
 
 def fetch_pickups(place_id: str, service_id, *,
-                  today: Optional[datetime.date] = None,
+                  today: datetime.date | None = None,
                   days: int = 21) -> dict[str, list[datetime.date]]:
     """Return {stream_label: [upcoming pickup dates]} for a place, or {}.
 

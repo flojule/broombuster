@@ -1,14 +1,10 @@
 name: CI
 
 # Lint + test on every push to main and every pull request.
-# Doc- and deploy-only changes are not covered by the tests, so they skip CI
-# (saves free-tier Actions minutes).
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md", "deploy/**"]
   pull_request:
-    paths-ignore: ["**.md", "deploy/**"]
 
 # Cancel superseded runs on the same ref so a force-push doesn't pile up jobs.
 concurrency:

@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -8,10 +9,10 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 import geopandas
+import numpy as np
 import pandas as pd
 import shapely.geometry as _shp_geom
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -20,6 +21,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from shapely.ops import unary_union
 
 from broombuster import data_loader, gps, ics, maps, resolve
 from broombuster.cities import CITIES, REGIONS, city_for_point, in_bbox, region_for_point, region_of
@@ -207,22 +209,12 @@ init_rate_limiting(app)
 
 
 def _clip_with_sindex(gdf, clip_geom):
-    """Clip a GeoDataFrame to features intersecting `clip_geom` via the
-    spatial index. Falls back to the linear .intersects() scan if the
-    sindex query is unavailable (older shapely or empty index).
+    """Clip a GeoDataFrame to features intersecting `clip_geom` via the spatial index.
 
-    Indices are sorted to preserve the original GeoDataFrame row order — the
-    GeoJSON builder's segment dedup relies on insertion order, and several
-    tests assert behavior that depends on that order matching `.intersects()`.
+    Indices are sorted to preserve the original row order — the GeoJSON
+    builder's segment dedup relies on insertion order.
     """
-    try:
-        import numpy as _np
-        idx = gdf.sindex.query(clip_geom, predicate="intersects")
-    except (AttributeError, TypeError, ValueError, ImportError):
-        return gdf[gdf.geometry.intersects(clip_geom)]
-    if len(idx) == 0:
-        return gdf.iloc[0:0]
-    return gdf.iloc[_np.sort(idx)]
+    return gdf.iloc[np.sort(gdf.sindex.query(clip_geom, predicate="intersects"))]
 
 
 def _priority_cities(lat: float, lon: float, region_key: str) -> list:
@@ -287,28 +279,21 @@ def _build_address(resolved, city_key: str, lat: float, lon: float) -> str:
     Nominatim house number (gated to the resolved street) + display name.
     Falls back to raw lat/lon when nothing resolves.
     """
+    coords = f"{lat:.4f}, {lon:.4f}"
     if resolved is None:
-        return f"{lat:.4f}, {lon:.4f}"
+        return coords
     display = resolved.street_display or resolved.street_name
+    if not display:
+        return coords
     city_short = CITIES[city_key]["name"].split(",")[0]
     if resolved.is_polygon:
-        return f"Zone: {display}, {city_short}" if display else f"{lat:.4f}, {lon:.4f}"
+        return f"Zone: {display}, {city_short}"
     hn = gps.maybe_house_number(lat, lon, resolved.street_name)
-    if hn:
-        return f"{hn} {display}, {city_short}"
-    if display:
-        return f"{display}, {city_short}"
-    return f"{lat:.4f}, {lon:.4f}"
+    return f"{hn} {display}, {city_short}" if hn else f"{display}, {city_short}"
 
 
 def _tiles_to_geom(tiles):
     """Union of XYZ tile boxes ('z/x/y' strings) → clip geometry, or None."""
-    import math
-    try:
-        from shapely.ops import unary_union
-    except ImportError:
-        unary_union = None
-
     def _tile_lat(yy: int, zz: int) -> float:
         n2 = 2 ** zz
         return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * yy / n2))))
@@ -329,15 +314,7 @@ def _tiles_to_geom(tiles):
         lon_max = (x + 1) / n * 360.0 - 180.0
         boxes.append(_shp_geom.box(lon_min, _tile_lat(y + 1, z), lon_max, _tile_lat(y, z)))
 
-    if not boxes:
-        return None
-    if unary_union:
-        return unary_union(boxes)
-    minx = min(b.bounds[0] for b in boxes)
-    miny = min(b.bounds[1] for b in boxes)
-    maxx = max(b.bounds[2] for b in boxes)
-    maxy = max(b.bounds[3] for b in boxes)
-    return _shp_geom.box(minx, miny, maxx, maxy)
+    return unary_union(boxes) if boxes else None
 
 
 def _clip_region_for_request(req, gdf_4326):
@@ -457,12 +434,12 @@ def _domain_dict(result) -> dict:
 class CheckRequest(BaseModel):
     lat: float = Field(..., ge=-90.0, le=90.0)
     lon: float = Field(..., ge=-180.0, le=180.0)
-    region: Optional[str] = None
-    full_region: Optional[bool] = False
+    region: str | None = None
+    full_region: bool | None = False
     # bbox as [min_lat, min_lon, max_lat, max_lon] — exactly four entries
-    bbox: Optional[List[float]] = Field(None, min_length=4, max_length=4)
+    bbox: list[float] | None = Field(None, min_length=4, max_length=4)
     # Up to 64 tiles per request; each entry validated as "z/x/y" at use site
-    tiles: Optional[List[str]] = Field(None, max_length=64)
+    tiles: list[str] | None = Field(None, max_length=64)
 
 
 @app.post("/check")
@@ -493,7 +470,7 @@ def check(req: CheckRequest, request: Request):
     urgency: object = False
     message:  str = ""
     address:  str = ""
-    snap: Optional[dict] = None
+    snap: dict | None = None
     detail_html: str = ""
     domain_results: list[dict] = []
     city_key = city_for_point(req.lat, req.lon, region)
@@ -578,9 +555,9 @@ def check(req: CheckRequest, request: Request):
 class CheckHomeRequest(BaseModel):
     lat: float = Field(..., ge=-90.0, le=90.0)
     lon: float = Field(..., ge=-180.0, le=180.0)
-    region: Optional[str] = None
+    region: str | None = None
     # Postal address for address-keyed lookups (e.g. ReCollect trash).
-    address: Optional[str] = None
+    address: str | None = None
 
 
 @app.post("/check-home")
@@ -619,7 +596,7 @@ def calendar_ics(request: Request,
                  lat: float = Query(..., ge=-90.0, le=90.0),
                  lon: float = Query(..., ge=-180.0, le=180.0),
                  side: str = Query("auto", pattern="^(auto|both|even|odd)$"),
-                 region: Optional[str] = None):
+                 region: str | None = None):
     """Subscribable iCalendar feed of the sweeping windows at a parked spot.
 
     side=auto publishes the car's side when known, else both sides.
@@ -651,13 +628,13 @@ def calendar_ics(request: Request,
 
 
 class PrefsRequest(BaseModel):
-    home_lat: Optional[float] = None
-    home_lon: Optional[float] = None
-    home_address: Optional[str] = None
-    homes: Optional[list] = []
-    preferred_region: Optional[str] = "bay_area"
-    notify_email: Optional[bool] = False
-    cars: Optional[list] = []
+    home_lat: float | None = None
+    home_lon: float | None = None
+    home_address: str | None = None
+    homes: list | None = []
+    preferred_region: str | None = "bay_area"
+    notify_email: bool | None = False
+    cars: list | None = []
 
 
 @app.get("/prefs")
@@ -706,7 +683,7 @@ def config_js():
 
 @app.get("/zone/detail", include_in_schema=False)
 @rate_limit(_CHECK_RATE)
-def zone_detail(request: Request, code: List[str] = Query(default=[]), street: str = "",
+def zone_detail(request: Request, code: list[str] = Query(default=[]), street: str = "",
                 city: str = "", region: str = ""):
     """Full-year zone schedule HTML + PDF link for a clicked tile (PMTILES mode).
 

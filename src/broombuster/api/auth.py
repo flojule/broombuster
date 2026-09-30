@@ -27,7 +27,7 @@ Failed logins are rate-limited via slowapi (10 per minute per IP).
 
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import APIRouter, HTTPException, Request
@@ -112,7 +112,7 @@ def init_rate_limiting(app) -> None:
 # ---------------------------------------------------------------------------
 
 def _issue_access(user_id: str) -> str:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     payload = {
         "sub": user_id,
         "aud": _AUD_ACCESS,
@@ -123,7 +123,7 @@ def _issue_access(user_id: str) -> str:
 
 
 def _issue_refresh(user_id: str) -> str:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     payload = {
         "sub": user_id,
         "aud": _AUD_REFRESH,

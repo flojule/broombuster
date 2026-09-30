@@ -15,3 +15,12 @@ dist/
 data/app.sqlite
 data/app.sqlite-wal
 data/app.sqlite-shm
+
+# Raw city inputs: reproducible from data/sources.yaml (see data/README.md).
+data/**/*.geojson
+data/**/*.pdf
+data/**/*.shp
+data/**/*.shx
+data/**/*.dbf
+data/**/*.prj
+data/**/*.cpg

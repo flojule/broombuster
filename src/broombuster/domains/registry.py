@@ -11,7 +11,7 @@ is read but never mutated at request time.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from broombuster.domains.base import DomainPlugin
 from broombuster.domains.sweeping import SweepingPlugin
