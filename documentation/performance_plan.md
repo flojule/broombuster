@@ -62,7 +62,7 @@ GDF once, branching on geometry type. The previous
 1 KB; the verbose `/check` GeoJSON gzips ~5-8x (interim SF win before tiles).
 
 ### 11. Style-ready render gate
-[`whenStyleReady()`](../frontend/js/app.js) replaces a one-shot
+[`whenStyleReady()`](../frontend/js/map.js) replaces a one-shot
 `map.once('style.load')` that could miss, leaving Chicago zones unpainted
 until a pan. Now gates on `styledata` + `isStyleLoaded()`.
 

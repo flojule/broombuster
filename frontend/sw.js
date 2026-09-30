@@ -1,9 +1,11 @@
 // Minimal service worker — caches the app shell for instant load.
 // API calls (/check, /prefs) are always fetched from the network.
 
-const CACHE = 'broombuster-v50';
+const CACHE = 'broombuster-v51';
 const SHELL = [
-  '/', '/styles.css', '/js/app.js', '/js/urgency.js',
+  '/', '/styles.css',
+  '/js/urgency.js', '/js/core.js', '/js/auth.js', '/js/ui.js', '/js/map.js',
+  '/js/markers.js', '/js/calendar.js', '/js/data.js', '/js/cars.js', '/js/homes.js', '/js/app.js',
   '/vendor/maplibre-gl.mjs', '/vendor/maplibre-gl-shared.mjs',
   '/vendor/maplibre-gl-worker.mjs', '/vendor/maplibre-gl.css', '/vendor/pmtiles.js',
   '/manifest.json', '/icon-192.png', '/icon-512.png',

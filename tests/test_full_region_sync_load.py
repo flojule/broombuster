@@ -16,6 +16,7 @@ os.environ.setdefault("DEV_MODE", "1")
 from fastapi.testclient import TestClient
 
 from broombuster.api import app as api_mod
+from broombuster.api import state as state_mod
 
 
 def test_full_region_triggers_sync_load():
@@ -23,10 +24,10 @@ def test_full_region_triggers_sync_load():
     lat, lon = 37.821326, -122.280705
 
     # Clear any in-memory caches to simulate a cold server
-    api_mod._city_gdfs.clear()
-    api_mod._city_gdfs_3857.clear()
-    api_mod._city_events.clear()
-    api_mod._region_combined.clear()
+    state_mod._city_gdfs.clear()
+    state_mod._city_gdfs_3857.clear()
+    state_mod._city_events.clear()
+    state_mod._region_combined.clear()
 
     with TestClient(api_mod.app) as client:
         resp = client.post(

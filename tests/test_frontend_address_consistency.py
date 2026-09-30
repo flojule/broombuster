@@ -4,7 +4,7 @@ returning to the frontend.
 
 After Step 1 of the re-architecture, the canonical address is produced by
 the backend and rendered verbatim by the frontend. Several patterns must
-not reappear in the frontend source (`index.html` + `js/app.js`):
+not reappear in the frontend source (`index.html` + `js/*.js`):
 
   - `car.address = ...`         — writes to a client-side address field
   - `reverseGeocode(`            — client-side reverse geocoding

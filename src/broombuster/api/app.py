@@ -1,30 +1,21 @@
 import json
 import logging
-import math
 import os
-import shutil
-import subprocess
-import sys
 import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import geopandas
-import numpy as np
-import pandas as pd
-import shapely.geometry as _shp_geom
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from shapely.ops import unary_union
 
-from broombuster import data_loader, gps, ics, maps, resolve
-from broombuster.cities import CITIES, REGIONS, city_for_point, in_bbox, region_for_point, region_of
+from broombuster import gps, ics, maps, resolve
+from broombuster.cities import CITIES, REGIONS, city_for_point
 from broombuster.config import ALLOW_REGISTRATION, DEV_MODE, PMTILES_MODE
 from broombuster.domains import for_city as plugins_for_city
 
@@ -32,10 +23,16 @@ from . import db
 from .auth import init_rate_limiting, rate_limit
 from .auth import router as auth_router
 from .deps import verify_jwt
-
-_HERE = os.path.dirname(os.path.abspath(__file__))
-# Repo root — three levels up: api/ → broombuster/ → src/ → repo/
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
+from .helpers import _build_address, _clip_region_for_request, _resolve_region
+from .state import (
+    _REPO_ROOT,
+    _city_events,
+    _city_gdfs,
+    _freshness_checker_bg,
+    _get_region_gdfs,
+    _load_city,
+    logger,
+)
 
 _PRELOAD_REGION = os.environ.get("PRELOAD_REGION", "").strip()
 _RESPONSE_SIZE_WARN_BYTES = 200_000
@@ -44,121 +41,6 @@ logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
-logger = logging.getLogger("broombuster.api")
-
-# ---------------------------------------------------------------------------
-# City-level GDF cache — loaded in parallel background threads at startup.
-# Each city gets its own threading.Event; a /check request waits only for
-# the city (or cities) that overlap the user's location.
-# ---------------------------------------------------------------------------
-
-_city_gdfs: dict = {}        # city_key → GeoDataFrame (EPSG:4326)
-_city_gdfs_3857: dict = {}   # city_key → GeoDataFrame (EPSG:3857)
-_city_events: dict = {}      # city_key → threading.Event (set when done)
-_region_combined: dict = {}  # region_key → (frozenset(loaded_keys), gdf_4326, gdf_3857)
-_city_loaded_at: dict = {}   # city_key → float (time.time() when last loaded into memory)
-
-# Protects the city GDF caches against torn reads during a hot-swap. Reads
-# in /check that touch _city_gdfs and _city_gdfs_3857 must hold this lock so
-# they never see one CRS updated and the other still on the previous version.
-_swap_lock = threading.Lock()
-
-
-def _load_city(city_key: str, force: bool = False) -> bool:
-    """Load a city into the in-memory caches; return availability.
-
-    force=True re-downloads (auto-download cities), hot-swaps the frames and
-    rebuilds the region's tiles. Both CRS frames are built before `_swap_lock`
-    is taken, then assigned under it, so a concurrent /check never sees mixed
-    state. Always signals the city's event.
-    """
-    ev = _city_events.setdefault(city_key, threading.Event())
-    if not force and city_key in _city_gdfs:
-        ev.set()
-        return True
-    region = region_of(city_key)
-    try:
-        if force:
-            logger.info("[freshness] refreshing %s", CITIES[city_key]["name"])
-        gdf = data_loader.load_city_data(city_key, force_refresh=force).copy()
-        gdf["_city"] = city_key
-        new_4326 = gdf.to_crs("EPSG:4326")
-        new_3857 = gdf.to_crs("EPSG:3857")
-    except Exception:  # noqa: BLE001 — any failure must release waiters
-        logger.exception("could not load city '%s'", city_key)
-        ev.set()
-        return False
-    with _swap_lock:
-        _city_gdfs[city_key] = new_4326
-        _city_gdfs_3857[city_key] = new_3857
-        _city_loaded_at[city_key] = time.time()
-        _region_combined.pop(region, None)
-    ev.set()
-    if force:
-        logger.info("[freshness] %s refreshed", CITIES[city_key]["name"])
-        _rebuild_region_tiles([region])
-    return True
-
-
-def _rebuild_region_tiles(region_keys) -> None:
-    """Kick off a detached PMTiles rebuild per region (PMTILES mode only)."""
-    if not PMTILES_MODE or not region_keys:
-        return
-    if not shutil.which("tippecanoe"):
-        logger.warning("[tiles] tippecanoe not on PATH; skipping tile rebuild")
-        return
-    script = os.path.join(_REPO_ROOT, "scripts", "build_pmtiles.py")
-    for rk in region_keys:
-        try:
-            subprocess.Popen(
-                [sys.executable, script, "--region", rk, "--force"],
-                cwd=_REPO_ROOT,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            logger.info("[tiles] rebuild started for region %s", rk)
-        except OSError as exc:
-            logger.warning("[tiles] could not start rebuild for %s: %s", rk, exc)
-
-
-def _freshness_checker_bg() -> None:
-    """
-    Background thread: after all cities have loaded, periodically check whether
-    auto-downloadable cities have stale data files and refresh them.
-
-    Runs lazily — waits for initial loading to complete, then checks every hour.
-    Hot-swaps the in-memory GDF without restarting the server.
-    """
-    # Wait until every city has finished loading (or failed), up to 10 min.
-    deadline = time.time() + 600
-    while time.time() < deadline:
-        if all(ev.is_set() for ev in _city_events.values()):
-            break
-        time.sleep(5)
-
-    # Give the server a moment to start serving traffic before any re-download.
-    time.sleep(60)
-
-    while True:
-        for city_key, city in CITIES.items():
-            url             = city.get("url")
-            stale_after_days = city.get("stale_after_days")
-            if not url or not stale_after_days:
-                continue
-
-            # Prefer the FGB mtime (reflects last normalisation); fall back to raw.
-            check_rel = city.get("fgb_path") or city["local_path"]
-            local_path = os.path.join(_REPO_ROOT, check_rel)
-            if os.path.exists(local_path):
-                age_days = (time.time() - os.path.getmtime(local_path)) / 86400
-                if age_days < stale_after_days:
-                    continue
-                logger.info("[freshness] %s data is %.0f days old (threshold %sd)",
-                            city["name"], age_days, stale_after_days)
-            # File missing or stale — refresh.
-            _load_city(city_key, force=True)
-
-        time.sleep(3600)  # re-check every hour (only downloads when actually stale)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -202,159 +84,6 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(auth_router)
 init_rate_limiting(app)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _clip_with_sindex(gdf, clip_geom):
-    """Clip a GeoDataFrame to features intersecting `clip_geom` via the spatial index.
-
-    Indices are sorted to preserve the original row order — the GeoJSON
-    builder's segment dedup relies on insertion order.
-    """
-    return gdf.iloc[np.sort(gdf.sindex.query(clip_geom, predicate="intersects"))]
-
-
-def _priority_cities(lat: float, lon: float, region_key: str) -> list:
-    """Cities whose bbox contains (lat, lon) first; rest after."""
-    city_keys = REGIONS[region_key]["cities"]
-    priority = [ck for ck in city_keys if in_bbox(ck, lat, lon)]
-    rest     = [ck for ck in city_keys if ck not in priority]
-    return priority + rest
-
-
-def _get_region_gdfs(lat: float, lon: float, region_key: str):
-    """
-    Wait for the priority city (the one whose bbox contains lat/lon) to load,
-    then return combined GDFs from all cities that are already in cache.
-    The combined GDF is cached until the set of loaded cities changes, so the
-    analysis.py name-index cache (keyed by id(gdf)) is reused across requests.
-    """
-    ordered = _priority_cities(lat, lon, region_key)
-
-    # Wait for at least the first priority city (up to 120 s).
-    for ck in ordered:
-        ev = _city_events.get(ck)
-        if ev:
-            ev.wait(timeout=120)
-        if ck in _city_gdfs:
-            break  # have data for the user's city; good enough to proceed
-
-    # Hold _swap_lock for the entire snapshot + combine + cache step so a
-    # concurrent _load_city(force=True) cannot replace a city's GDF in the middle of
-    # building the combined frame. Hot swaps are hourly and the concat is
-    # only a few ms even for the full Bay Area, so contention is negligible.
-    with _swap_lock:
-        loaded = frozenset(ck for ck in REGIONS[region_key]["cities"] if ck in _city_gdfs)
-        if not loaded:
-            return None, None
-
-        cached = _region_combined.get(region_key)
-        if cached and cached[0] == loaded:
-            return cached[1], cached[2]
-
-        city_keys = [ck for ck in REGIONS[region_key]["cities"] if ck in loaded]
-        c4 = geopandas.GeoDataFrame(
-            pd.concat([_city_gdfs[ck] for ck in city_keys], ignore_index=True), crs="EPSG:4326")
-        c3 = geopandas.GeoDataFrame(
-            pd.concat([_city_gdfs_3857[ck] for ck in city_keys], ignore_index=True),
-            crs="EPSG:3857")
-        _region_combined[region_key] = (loaded, c4, c3)
-        return c4, c3
-
-
-def _resolve_region(req):
-    """Return (region_key, local_now) for a request (explicit region or auto)."""
-    region = req.region if req.region in REGIONS else region_for_point(req.lat, req.lon)
-    local_now = datetime.now(ZoneInfo(REGIONS[region]["tz"]))
-    return region, local_now
-
-
-def _build_address(resolved, city_key: str, lat: float, lon: float) -> str:
-    """Canonical address string from the resolved segment.
-
-    Polygon zones → "Zone: <name>, <city>". Line segments → optional
-    Nominatim house number (gated to the resolved street) + display name.
-    Falls back to raw lat/lon when nothing resolves.
-    """
-    coords = f"{lat:.4f}, {lon:.4f}"
-    if resolved is None:
-        return coords
-    display = resolved.street_display or resolved.street_name
-    if not display:
-        return coords
-    city_short = CITIES[city_key]["name"].split(",")[0]
-    if resolved.is_polygon:
-        return f"Zone: {display}, {city_short}"
-    hn = gps.maybe_house_number(lat, lon, resolved.street_name)
-    return f"{hn} {display}, {city_short}" if hn else f"{display}, {city_short}"
-
-
-def _tiles_to_geom(tiles):
-    """Union of XYZ tile boxes ('z/x/y' strings) → clip geometry, or None."""
-    def _tile_lat(yy: int, zz: int) -> float:
-        n2 = 2 ** zz
-        return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * yy / n2))))
-
-    boxes = []
-    for t in tiles:
-        if not isinstance(t, str):
-            continue
-        parts = t.split('/')
-        if len(parts) != 3:
-            continue
-        try:
-            z, x, y = int(parts[0]), int(parts[1]), int(parts[2])
-        except ValueError:
-            continue
-        n = 2 ** z
-        lon_min = x / n * 360.0 - 180.0
-        lon_max = (x + 1) / n * 360.0 - 180.0
-        boxes.append(_shp_geom.box(lon_min, _tile_lat(y + 1, z), lon_max, _tile_lat(y, z)))
-
-    return unary_union(boxes) if boxes else None
-
-
-def _clip_region_for_request(req, gdf_4326):
-    """Clip the region GDF to the requested view; return (gdf, simplify_tol).
-
-    Priority: tiles → union of tile boxes; full_region → whole region (no
-    simplify, so it stays a superset of later bbox requests); bbox → explicit
-    box; otherwise → ~1.5 km radius around the car. The simplify tolerance is
-    sub-pixel for a ~1000 px viewport (span / 2000).
-    """
-    bbox_span_deg = 0.03  # default radius mode below: ±0.015°
-    if req.tiles and isinstance(req.tiles, list) and not req.full_region:
-        clip_geom = _tiles_to_geom(req.tiles)
-        if clip_geom is not None:
-            gdf_display = _clip_with_sindex(gdf_4326, clip_geom)
-            minx, miny, maxx, maxy = clip_geom.bounds
-        else:
-            gdf_display = gdf_4326
-            minx, miny, maxx, maxy = gdf_4326.total_bounds
-        bbox_span_deg = max(maxx - minx, maxy - miny)
-    elif req.full_region:
-        gdf_display = gdf_4326
-        bbox_span_deg = 0.0  # skip simplify so full-region stays a superset
-    elif req.bbox and isinstance(req.bbox, list) and len(req.bbox) == 4:
-        min_lat, min_lon, max_lat, max_lon = req.bbox
-        _clip = _shp_geom.box(min_lon, min_lat, max_lon, max_lat)
-        gdf_display = _clip_with_sindex(gdf_4326, _clip)
-        bbox_span_deg = max(max_lon - min_lon, max_lat - min_lat)
-    else:
-        _CLIP_DEG = 0.015  # ≈ 1.5 km
-        _clip = _shp_geom.box(
-            req.lon - _CLIP_DEG, req.lat - _CLIP_DEG,
-            req.lon + _CLIP_DEG, req.lat + _CLIP_DEG,
-        )
-        gdf_display = _clip_with_sindex(gdf_4326, _clip)
-        bbox_span_deg = 2 * _CLIP_DEG
-
-    simplify_tolerance = bbox_span_deg / 2000.0 if bbox_span_deg > 0 else None
-    return gdf_display, simplify_tolerance
-
 
 # ---------------------------------------------------------------------------
 # Routes — public

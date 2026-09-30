@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from broombuster import data_loader
 from broombuster.api import app as api_mod
+from broombuster.api import state as state_mod
 
 
 def _extract_feature_keys(geo):
@@ -38,14 +39,14 @@ def test_full_region_then_bbox_consistency():
     # Load each city synchronously and populate api module caches
     for ck in REGIONS["bay_area"]["cities"]:
         g4 = data_loader.load_city_data(ck).copy()
-        api_mod._city_gdfs[ck] = g4.to_crs("EPSG:4326")
-        api_mod._city_gdfs_3857[ck] = g4.to_crs("EPSG:3857")
-        api_mod._city_events[ck] = type(
+        state_mod._city_gdfs[ck] = g4.to_crs("EPSG:4326")
+        state_mod._city_gdfs_3857[ck] = g4.to_crs("EPSG:3857")
+        state_mod._city_events[ck] = type(
             "E", (), {"is_set": lambda self: True, "set": lambda self: None}
         )()
-        api_mod._city_loaded_at[ck] = 0
+        state_mod._city_loaded_at[ck] = 0
     # Clear combined cache
-    api_mod._region_combined.clear()
+    state_mod._region_combined.clear()
 
     with TestClient(api_mod.app) as client:
         # 1) preload full region
@@ -80,13 +81,13 @@ def test_bbox_then_full_region_consistency():
     from broombuster.cities import REGIONS
     for ck in REGIONS["bay_area"]["cities"]:
         g4 = data_loader.load_city_data(ck).copy()
-        api_mod._city_gdfs[ck] = g4.to_crs("EPSG:4326")
-        api_mod._city_gdfs_3857[ck] = g4.to_crs("EPSG:3857")
-        api_mod._city_events[ck] = type(
+        state_mod._city_gdfs[ck] = g4.to_crs("EPSG:4326")
+        state_mod._city_gdfs_3857[ck] = g4.to_crs("EPSG:3857")
+        state_mod._city_events[ck] = type(
             "E", (), {"is_set": lambda self: True, "set": lambda self: None}
         )()
-        api_mod._city_loaded_at[ck] = 0
-    api_mod._region_combined.clear()
+        state_mod._city_loaded_at[ck] = 0
+    state_mod._region_combined.clear()
 
     with TestClient(api_mod.app) as client:
         pad = 0.002
