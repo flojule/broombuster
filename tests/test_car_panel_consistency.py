@@ -522,7 +522,8 @@ class TestApiCheckIntegration:
     LAT, LON = 37.821326, -122.280705
 
     @pytest.fixture(scope="class")
-    def client(self):
+    @classmethod
+    def client(cls):
         from fastapi.testclient import TestClient
 
         from broombuster.api import app as api_mod
@@ -530,9 +531,10 @@ class TestApiCheckIntegration:
             yield c
 
     @pytest.fixture(scope="class")
-    def check_data(self, client):
+    @classmethod
+    def check_data(cls, client):
         resp = client.post("/check", json={
-            "lat": self.LAT, "lon": self.LON, "region": "bay_area"
+            "lat": cls.LAT, "lon": cls.LON, "region": "bay_area"
         })
         assert resp.status_code == 200, resp.text
         return resp.json()

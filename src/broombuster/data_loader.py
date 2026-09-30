@@ -24,7 +24,6 @@ Day codes follow the grammar in analysis.py (e.g. "ME" every Mon, "M13"
 explicit dates); analysis.NO_SWEEP_CODES lists the no-sweeping markers.
 """
 
-import importlib.util
 import io
 import math
 import os
@@ -35,6 +34,7 @@ from collections import OrderedDict
 
 import geopandas
 import numpy as np
+import pandas as pd
 import requests
 from shapely.geometry import box as _shapely_box
 
@@ -58,8 +58,14 @@ MAX_GDF_CACHE_ENTRIES = int(os.environ.get("MAX_GDF_CACHE_ENTRIES", "5"))
 _GDF_CACHE: "OrderedDict[str, tuple[float, geopandas.GeoDataFrame]]" = OrderedDict()
 _GDF_CACHE_LOCK = threading.Lock()
 
-# Prefer pyogrio when installed for faster reads.
-_HAS_PYOGRIO = importlib.util.find_spec("pyogrio") is not None
+
+def _cache_put(path: str, mtime: float, gdf: geopandas.GeoDataFrame) -> None:
+    """Insert into the LRU cache, evicting the oldest entries over capacity."""
+    with _GDF_CACHE_LOCK:
+        _GDF_CACHE[path] = (mtime, gdf)
+        _GDF_CACHE.move_to_end(path)
+        while len(_GDF_CACHE) > MAX_GDF_CACHE_ENTRIES:
+            _GDF_CACHE.popitem(last=False)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -100,26 +106,14 @@ def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.G
                 # Move to end (most-recently-used)
                 _GDF_CACHE.move_to_end(fgb_path)
                 return cached[1].copy()
-        # Read using pyogrio where possible for better perf, fall back to geopandas default
-        if _HAS_PYOGRIO:
-            try:
-                gdf = geopandas.read_file(fgb_path, engine="pyogrio")
-            except Exception:
-                gdf = geopandas.read_file(fgb_path)
-        else:
-            gdf = geopandas.read_file(fgb_path)
+        gdf = geopandas.read_file(fgb_path)
         # Post-process read GDF for in-memory consumption: for Chicago we
         # prefer a readable `STREET_NAME` (e.g. "Ward 05, Section 03"). The
         # on-disk FGB keeps `STREET_NAME` uppercase for storage consistency.
         if city.get("schema") == "chicago" and "STREET_DISPLAY" in gdf.columns:
             gdf = gdf.copy()
             gdf["STREET_NAME"] = gdf["STREET_DISPLAY"]
-        with _GDF_CACHE_LOCK:
-            _GDF_CACHE[fgb_path] = (mtime, gdf)
-            _GDF_CACHE.move_to_end(fgb_path)
-            # Evict oldest if over capacity
-            while len(_GDF_CACHE) > MAX_GDF_CACHE_ENTRIES:
-                _GDF_CACHE.popitem(last=False)
+        _cache_put(fgb_path, mtime, gdf)
         return gdf.copy()
 
     # --- Slow path: build from raw source ---
@@ -178,7 +172,6 @@ def load_region_data(region_key: str, *, force_refresh: bool = False) -> geopand
     skipped with a warning, so the rest of the region still loads.  Each row
     gets a ``_city`` column with the source city key.
     """
-    import pandas as pd
 
     from broombuster.cities import REGIONS
 
@@ -240,17 +233,8 @@ def _save_fgb(gdf: geopandas.GeoDataFrame, fgb_path: str) -> None:
             os.remove(tmp_path)
     mb = os.path.getsize(fgb_path) / 1_048_576
     print(f"  Saved FGB → {fgb_path}  ({mb:.1f} MB)")
-    try:
-        mtime = os.path.getmtime(fgb_path)
-        with _GDF_CACHE_LOCK:
-            # Cache the readable in-memory copy (out) while the on-disk file
-            # stores an uppercase STREET_NAME where applicable.
-            _GDF_CACHE[fgb_path] = (mtime, out.copy())
-            _GDF_CACHE.move_to_end(fgb_path)
-            while len(_GDF_CACHE) > MAX_GDF_CACHE_ENTRIES:
-                _GDF_CACHE.popitem(last=False)
-    except Exception:
-        pass
+    # Cache the readable in-memory copy (out); the file stores uppercase STREET_NAME.
+    _cache_put(fgb_path, os.path.getmtime(fgb_path), out.copy())
 
 
 # ---------------------------------------------------------------------------
@@ -314,18 +298,12 @@ def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     # Add canonical key and readable short display form so downstream code
     # doesn't need to re-normalise on every access.
     _add_key_and_display(out)
-    out["DESC_EVEN"] = out.get("DescDayEve", pd_series_none(out))
-    out["DESC_ODD"]  = out.get("DescDayOdd", pd_series_none(out))
-    out["TIME_EVEN"] = out.get("DescTimeEv", pd_series_none(out))
-    out["TIME_ODD"]  = out.get("DescTimeOd", pd_series_none(out))
+    out["DESC_EVEN"] = out.get("DescDayEve")
+    out["DESC_ODD"]  = out.get("DescDayOdd")
+    out["TIME_EVEN"] = out.get("DescTimeEv")
+    out["TIME_ODD"]  = out.get("DescTimeOd")
     # DAY_EVEN, DAY_ODD, L_F_ADD, L_T_ADD, R_F_ADD, R_T_ADD already correct.
     return out
-
-
-def pd_series_none(ref_gdf):
-    """Return a Series of None values with the same index as ref_gdf."""
-    import pandas as pd
-    return pd.Series([None] * len(ref_gdf), index=ref_gdf.index)
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +380,6 @@ def _side_label(compass):
 
 
 def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    import pandas as pd
 
     out = gdf.copy()
 

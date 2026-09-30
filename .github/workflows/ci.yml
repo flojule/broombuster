@@ -19,18 +19,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-          cache: pip
+          enable-cache: true
 
-      - name: Install (api + dev extras)
-        run: pip install -e '.[api,dev]'
+      - name: Install (api + dev extras, locked)
+        run: uv sync --locked --extra api --extra dev
 
       - name: Ruff (lint)
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Pytest
         # conftest.py forces DEV_MODE=1 and PMTILES_MODE=0, so no JWT_SECRET is
@@ -38,4 +38,4 @@ jobs:
         # is never written into the checked-out tree.
         env:
           DB_PATH: ${{ runner.temp }}/app.sqlite
-        run: pytest -q
+        run: uv run pytest -q

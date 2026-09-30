@@ -14,7 +14,7 @@ sweeping-shaped and would not transfer to other domains.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from broombuster import analysis, resolve
 from broombuster.cities import CITIES
@@ -63,8 +63,8 @@ class SweepingPlugin:
         return city.get("schema") in _SUPPORTED_SCHEMAS
 
     def resolve_for(self, gdf_3857, lat: float, lon: float,
-                    city_key: str, address: Optional[str] = None
-                    ) -> Optional[resolve.ResolvedCar]:
+                    city_key: str, address: str | None = None
+                    ) -> resolve.ResolvedCar | None:
         return resolve.nearest_segment(gdf_3857, lat, lon)
 
     def format(self, resolved: Any, gdf_3857: Any,

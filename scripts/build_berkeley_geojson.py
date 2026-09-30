@@ -9,7 +9,7 @@ Input:  data/berkeley/*.pdf  (downloaded from berkeleyca.gov)
 Output: data/berkeley/StreetSweeping.geojson
 
 Requires:
-    pip install pdfplumber geopandas shapely requests
+    pip install -e '.[scripts]'
 """
 
 import datetime

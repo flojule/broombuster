@@ -274,7 +274,8 @@ class TestExhaustiveGdfConsistency:
     """
 
     @pytest.fixture(scope="class")
-    def bay_area_gdf(self):
+    @classmethod
+    def bay_area_gdf(cls):
         from broombuster import data_loader
         return data_loader.load_region_data("bay_area")
 
@@ -374,7 +375,8 @@ class TestApiRoundTripConsistency:
     ]
 
     @pytest.fixture(scope="class")
-    def client(self):
+    @classmethod
+    def client(cls):
         from fastapi.testclient import TestClient
 
         from broombuster.api import app as api_mod

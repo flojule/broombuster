@@ -30,7 +30,7 @@ def load_all(manifest_dir: str | None = None) -> tuple[dict, dict]:
 
 
 def _read_yaml(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     if not isinstance(data, dict):
         raise ValueError(f"Manifest {path} must parse to a mapping, got {type(data).__name__}")

@@ -34,7 +34,7 @@ def _fold(line: str) -> str:
 
 def _utc(d: datetime.date, t: datetime.time, tz: ZoneInfo) -> str:
     return (datetime.datetime.combine(d, t, tzinfo=tz)
-            .astimezone(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
+            .astimezone(datetime.UTC).strftime("%Y%m%dT%H%M%SZ"))
 
 
 def build_calendar(even, odd, sides, labels, street, tz_name, uid_seed, today,
@@ -46,7 +46,7 @@ def build_calendar(even, odd, sides, labels, street, tz_name, uid_seed, today,
     (tz_name) and emitted in UTC. Unparseable times become all-day events.
     """
     tz = ZoneInfo(tz_name)
-    now_utc = now_utc or datetime.datetime.now(datetime.timezone.utc)
+    now_utc = now_utc or datetime.datetime.now(datetime.UTC)
     stamp = now_utc.strftime("%Y%m%dT%H%M%SZ")
     seed = hashlib.sha1(uid_seed.encode()).hexdigest()[:12]
     names = dict(zip(("even", "odd"), labels))

@@ -9,7 +9,7 @@ Input:  data/alameda/street-sweeping-schedule.pdf
 Output: data/alameda/StreetSweeping.geojson
 
 Requires:
-    pip install pdfplumber geopandas shapely requests
+    pip install -e '.[scripts]'
 """
 
 import os

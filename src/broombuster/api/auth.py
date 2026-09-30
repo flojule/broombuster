@@ -23,16 +23,20 @@ DEV_MODE          — if "true", suppresses slowapi rate limiting
 Rate limiting
 -------------
 Failed logins are rate-limited via slowapi (10 per minute per IP).
-Install: pip install slowapi
 """
 
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+from broombuster.config import ALLOW_REGISTRATION, DEV_MODE
 
 # Password hashing lives in passwords.py so seed_account.py can import the
 # hasher without tripping the JWT_SECRET guard below. _DUMMY_PW_HASH is the
@@ -44,19 +48,21 @@ from .passwords import _DUMMY_PW_HASH, _hash_pw, _verify_pw
 # Config
 # ---------------------------------------------------------------------------
 
-_DEV_MODE = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
-
 _JWT_SECRET     = os.environ.get("JWT_SECRET") or (
-    "dev-secret-change-me" if _DEV_MODE else None
+    "dev-only-secret-not-for-production" if DEV_MODE else None
 )
 _REFRESH_SECRET = os.environ.get("REFRESH_SECRET") or (
     (_JWT_SECRET + "-refresh") if _JWT_SECRET else None
 )
 
-if not _DEV_MODE and not _JWT_SECRET:
+_MIN_SECRET_LEN = 32  # RFC 7518 s3.2: HS256 key >= 32 bytes
+
+if not DEV_MODE and not (_JWT_SECRET and len(_JWT_SECRET) >= _MIN_SECRET_LEN
+                         and len(_REFRESH_SECRET) >= _MIN_SECRET_LEN):
     raise RuntimeError(
-        "JWT_SECRET env var must be set in production. "
-        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        f"JWT_SECRET (and REFRESH_SECRET if set) must be >= {_MIN_SECRET_LEN} chars in "
+        "production. Generate one with: "
+        "python -c \"import secrets; print(secrets.token_hex(32))\""
     )
 
 _ACCESS_TTL_MINUTES  = 15
@@ -68,23 +74,14 @@ _AUD_REFRESH         = "broombuster-refresh"
 # visitors can't create accounts; the shared account is seeded server-side via
 # scripts/seed_account.py instead. Defaults to enabled so existing dev / Pi
 # deploys keep their open sign-up. Set ALLOW_REGISTRATION=false to disable.
-_ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "true").lower() in (
-    "1", "true", "yes"
-)
 
 # ---------------------------------------------------------------------------
-# Rate limiting — slowapi; disabled when slowapi is absent or in DEV_MODE
+# Rate limiting — slowapi; disabled in DEV_MODE
 # ---------------------------------------------------------------------------
 
 _RATE_LIMIT = "10/minute"
 
-try:
-    from slowapi import Limiter
-    from slowapi.util import get_remote_address
-    _limiter = None if _DEV_MODE else Limiter(key_func=get_remote_address)
-except ImportError:
-    _limiter = None
-    _RATE_LIMIT = None
+_limiter = None if DEV_MODE else Limiter(key_func=get_remote_address)
 
 
 def rate_limit(rate: str | None):
@@ -106,9 +103,6 @@ def init_rate_limiting(app) -> None:
     """Attach the limiter and 429 handler to the FastAPI app (no-op if disabled)."""
     if _limiter is None:
         return
-    from slowapi import _rate_limit_exceeded_handler
-    from slowapi.errors import RateLimitExceeded
-
     app.state.limiter = _limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -118,7 +112,7 @@ def init_rate_limiting(app) -> None:
 # ---------------------------------------------------------------------------
 
 def _issue_access(user_id: str) -> str:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     payload = {
         "sub": user_id,
         "aud": _AUD_ACCESS,
@@ -129,7 +123,7 @@ def _issue_access(user_id: str) -> str:
 
 
 def _issue_refresh(user_id: str) -> str:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     payload = {
         "sub": user_id,
         "aud": _AUD_REFRESH,
@@ -195,7 +189,7 @@ def _token_response(user_id: str) -> dict:
 @router.post("/register")
 @_maybe_limit
 def register(req: RegisterRequest, request: Request):
-    if not _ALLOW_REGISTRATION:
+    if not ALLOW_REGISTRATION:
         raise HTTPException(status_code=403, detail="Registration is disabled")
     existing = db.get_user_by_email(req.email)
     if existing:

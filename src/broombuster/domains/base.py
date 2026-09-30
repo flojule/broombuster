@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -74,7 +74,7 @@ class DomainPlugin(Protocol):
         ...
 
     def resolve_for(self, gdf_3857: Any, lat: float, lon: float,
-                    city_key: str, address: Optional[str] = None) -> Optional[Any]:
+                    city_key: str, address: str | None = None) -> Any | None:
         """Resolve a coordinate (and optional address) to a per-domain row, or None.
 
         Car-subject plugins delegate to `broombuster.resolve.resolve_car_segment`.

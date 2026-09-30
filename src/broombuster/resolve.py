@@ -18,7 +18,7 @@ is what produced the cross-field inconsistencies this module replaces.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import pyproj
 from shapely.geometry import MultiPolygon, Point, Polygon
@@ -40,7 +40,7 @@ class ResolvedCar:
     segment: Any                 # The authoritative GDF row (pandas Series)
     street_name: str             # Canonical upper-case name from the segment
     street_display: str          # Short display form (STREET_DISPLAY or derived)
-    side: Optional[str]          # "even" | "odd" | None (None when unknown)
+    side: str | None          # "even" | "odd" | None (None when unknown)
     distance_m: float            # Point-to-line distance in metres
     projected_point: tuple[float, float]  # Nearest point on centerline (EPSG:3857)
     is_polygon: bool             # True when the segment is a polygon (zone-based data)
@@ -51,7 +51,7 @@ def resolve_car_segment(
     lat: float,
     lon: float,
     *,
-    city_key: Optional[str] = None,
+    city_key: str | None = None,
     max_distance_m: float = 40.0,
 ) -> ResolvedCar:
     """Authoritative nearest-segment resolver.
@@ -82,7 +82,7 @@ def resolve_car_segment(
     search_buffer = max(max_distance_m * 3.0, 100.0)
     candidate_idxs = gdf_3857.sindex.query(car_pt.buffer(search_buffer))
 
-    best_line_idx: Optional[int] = None
+    best_line_idx: int | None = None
     best_line_dist = float("inf")
 
     for i in candidate_idxs:
@@ -146,7 +146,7 @@ def resolve_car_segment(
     )
 
 
-def nearest_segment(gdf_3857, lat: float, lon: float) -> Optional[ResolvedCar]:
+def nearest_segment(gdf_3857, lat: float, lon: float) -> ResolvedCar | None:
     """Nearest segment of any city within CAR_MAX_DISTANCE_M, or None.
 
     No city filter: bboxes overlap and city centers mislead near borders.
@@ -175,7 +175,7 @@ def locate(gdf_3857, lat: float, lon: float, region_key: str):
 # ---------------------------------------------------------------------------
 
 
-def _determine_side(geom, car_pt, proj_pt, row) -> Optional[str]:
+def _determine_side(geom, car_pt, proj_pt, row) -> str | None:
     """Return 'even' | 'odd' | None.
 
     Combines geometry (which side of the centerline the car is on, via a
@@ -264,7 +264,7 @@ def _coords_for(geom, proj_pt) -> list[tuple[float, float]]:
     return []
 
 
-def _parity(l_from=None, l_to=None, *, r_from=None, r_to=None) -> Optional[str]:
+def _parity(l_from=None, l_to=None, *, r_from=None, r_to=None) -> str | None:
     """Return 'even' | 'odd' | None for one side's address range.
 
     Called as either _parity(l_f, l_t) or _parity(r_from=..., r_to=...).
@@ -284,7 +284,7 @@ def _parity(l_from=None, l_to=None, *, r_from=None, r_to=None) -> Optional[str]:
     return None  # mixed
 
 
-def _safe_int(v) -> Optional[int]:
+def _safe_int(v) -> int | None:
     try:
         return int(float(v))
     except (TypeError, ValueError):

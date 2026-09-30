@@ -23,17 +23,8 @@ cd "$(dirname "$0")"
 
 PORT="${PORT:-8000}"
 
-# Interpreter: explicit $PYTHON, else per-project venv, else this Mac's global
-# venv, else python3.
-if [ -n "${PYTHON:-}" ]; then
-  PY="$PYTHON"
-elif [ -x ".venv/bin/python" ]; then
-  PY=".venv/bin/python"
-elif [ -x "$HOME/pyenv/bin/python" ]; then
-  PY="$HOME/pyenv/bin/python"
-else
-  PY="python3"
-fi
+. scripts/lib.sh
+pick_python
 
 # --- Secrets: a real JWT_SECRET, persisted in .env (gitignored) -------------
 # Generated once and reused across restarts so existing sessions survive a
@@ -69,16 +60,7 @@ echo "Ensuring the shared account exists…"
   echo "manually later." >&2
 }
 
-# --- Build map tiles once if missing (same as run.sh) -----------------------
-if ! ls frontend/tiles/*.pmtiles >/dev/null 2>&1; then
-  if command -v tippecanoe >/dev/null 2>&1; then
-    echo "Building map tiles (one-time)…"
-    "$PY" scripts/build_pmtiles.py
-  else
-    echo "tippecanoe not found — running in legacy GeoJSON mode (slower)."
-    export PMTILES_MODE=0
-  fi
-fi
+ensure_tiles
 
 # --- Expose the local port publicly over HTTPS (background, persists) -------
 if ! tailscale funnel --bg "$PORT" >funnel_err.log 2>&1; then

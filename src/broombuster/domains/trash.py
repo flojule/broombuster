@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 import threading
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from broombuster import analysis, recollect, resolve
 from broombuster.cities import CITIES
@@ -48,7 +48,7 @@ _ZONE_CACHE: dict[str, tuple[float, Any]] = {}
 _ZONE_CACHE_LOCK = threading.Lock()
 
 
-def _trash_config(city_key: str, cities: Optional[dict] = None) -> dict:
+def _trash_config(city_key: str, cities: dict | None = None) -> dict:
     src = cities if cities is not None else CITIES
     return (src.get(city_key) or {}).get("trash") or {}
 
@@ -72,7 +72,7 @@ def _fallback_desc(code: str) -> str:
     return f"{label} {' & '.join(_ORD_WORDS.get(o, str(o)) for o in ords)}"
 
 
-def _streams(cfg: dict) -> tuple[tuple[str, str, Optional[str]], ...]:
+def _streams(cfg: dict) -> tuple[tuple[str, str, str | None], ...]:
     """Return (label, code_column, desc_column|None) per collection stream."""
     raw = cfg.get("streams")
     if not raw:
@@ -80,7 +80,7 @@ def _streams(cfg: dict) -> tuple[tuple[str, str, Optional[str]], ...]:
     return tuple((s["label"], s["column"], s.get("desc_column")) for s in raw)
 
 
-def _load_trash_zones(city_key: str) -> Optional[Any]:
+def _load_trash_zones(city_key: str) -> Any | None:
     """Load a city's trash zone polygons in EPSG:3857, or None if unconfigured."""
     import geopandas
 
@@ -111,7 +111,7 @@ class ZoneTrashPlugin:
     label: str = "Trash day"
     subject: str = "home"
 
-    def __init__(self, loader=None, cities: Optional[dict] = None):
+    def __init__(self, loader=None, cities: dict | None = None):
         # Injectable for tests: loader(city_key) -> gdf_3857 | None.
         self._loader = loader or _load_trash_zones
         self._cities = cities
@@ -120,8 +120,8 @@ class ZoneTrashPlugin:
         return _trash_config(city_key, self._cities).get("kind") == "zone"
 
     def resolve_for(self, gdf_3857: Any, lat: float, lon: float,
-                    city_key: str, address: Optional[str] = None
-                    ) -> Optional[resolve.ResolvedCar]:
+                    city_key: str, address: str | None = None
+                    ) -> resolve.ResolvedCar | None:
         # Ignore the sweeping gdf and address; trash zones resolve by coordinate.
         zones = self._loader(city_key)
         if zones is None or len(zones) == 0:
@@ -207,14 +207,14 @@ class ReCollectTrashPlugin:
     label: str = "Trash day"
     subject: str = "home"
 
-    def __init__(self, cities: Optional[dict] = None):
+    def __init__(self, cities: dict | None = None):
         self._cities = cities
 
     def supports_city(self, city_key: str) -> bool:
         return _trash_config(city_key, self._cities).get("kind") == "recollect"
 
     def resolve_for(self, gdf_3857: Any, lat: float, lon: float,
-                    city_key: str, address: Optional[str] = None) -> Optional[dict]:
+                    city_key: str, address: str | None = None) -> dict | None:
         if not address or not recollect.enabled():
             return None
         cfg = _trash_config(city_key, self._cities)
