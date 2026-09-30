@@ -1,13 +1,63 @@
 // ── Config ────────────────────────────────────────────────────────────────────
-const DEV_MODE      = window.DEV_MODE === true || window.DEV_MODE === 'true';
+const DEV_MODE      = window.DEV_MODE === true;
 // PMTILES_MODE: render zones from static vector tiles + client-side urgency,
 // instead of per-request GeoJSON from /check. See js/urgency.js.
-const PMTILES_MODE  = window.PMTILES_MODE === true || window.PMTILES_MODE === 'true';
+const PMTILES_MODE  = window.PMTILES_MODE === true;
 const REGION_TZ     = window.REGION_TZ || {};
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
 function carColor(idx) { return CAR_COLORS[idx % CAR_COLORS.length]; }
+
+// ── Shared utilities ──────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function apiFetch(path, opts = {}) {
+  const token = session?.access_token;
+  return fetch(path, {
+    ...opts,
+    headers: { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+}
+
+// POST /check for a lat/lon in the selected region; returns the Response.
+function postCheck(lat, lon) {
+  return apiFetch('/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lat, lon, region: regionSelect.value || undefined }),
+  });
+}
+
+// Nominatim forward geocode: {lat, lon} or null when not found; throws on network error.
+async function geocode(q) {
+  const res  = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+  const hits = await res.json();
+  return hits.length ? { lat: parseFloat(hits[0].lat), lon: parseFloat(hits[0].lon) } : null;
+}
+
+// Double-click to edit; Enter commits, Escape or empty/unchanged restores original().
+function makeEditable(el, original, onCommit) {
+  el.addEventListener('dblclick', () => {
+    el.contentEditable = 'true'; el.focus();
+    const r = document.createRange(); r.selectNodeContents(el);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    if (e.key === 'Escape') { el.textContent = original(); el.blur(); }
+  });
+  el.addEventListener('blur', () => {
+    el.contentEditable = 'false';
+    const v = el.textContent.trim();
+    if (!v || v === original()) { el.textContent = original(); return; }
+    onCommit(v);
+  });
+}
+
+function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let session        = null;

@@ -14,6 +14,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Repo root: <repo>/src/broombuster/config.py -> <repo>.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 def env_flag(name: str, default: bool = False) -> bool:
     """Read a boolean env var ("1", "true", "yes" are truthy); unset -> default."""

@@ -48,22 +48,7 @@ function renderHomePanel() {
 
     // ── Address editing → geocode + trash refresh ──
     const addrEl = entry.querySelector('.ce-addr');
-    addrEl.addEventListener('dblclick', () => {
-      addrEl.contentEditable = 'true';
-      addrEl.focus();
-      const r = document.createRange(); r.selectNodeContents(addrEl);
-      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    });
-    addrEl.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); addrEl.blur(); }
-      if (e.key === 'Escape') { addrEl.textContent = addrText; addrEl.blur(); }
-    });
-    addrEl.addEventListener('blur', async () => {
-      addrEl.contentEditable = 'false';
-      const q = addrEl.textContent.trim();
-      if (!q || q === addrText) { renderHomePanel(); return; }
-      await setHomeAddress(h.id, q);
-    });
+    makeEditable(addrEl, () => addrText, q => setHomeAddress(h.id, q));
 
     entry.querySelector('.ce-remove').addEventListener('click', () => removeHome(h.id));
 
@@ -93,10 +78,9 @@ async function setHomeAddress(id, query) {
   const h = homes.find(x => x.id === id);
   if (!h) return;
   try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
-    const hits = await res.json();
-    if (!hits.length) { showToast('Address not found', true); renderHomePanel(); return; }
-    h.lat = parseFloat(hits[0].lat); h.lon = parseFloat(hits[0].lon); h.address = query;
+    const hit = await geocode(query);
+    if (!hit) { showToast('Address not found', true); renderHomePanel(); return; }
+    h.lat = hit.lat; h.lon = hit.lon; h.address = query;
   } catch (_) { showToast('Could not look up address', true); renderHomePanel(); return; }
   await savePrefs();
   updateHomeMarkers();

@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import threading
-import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -16,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from broombuster import gps, ics, maps, resolve
 from broombuster.cities import CITIES, REGIONS, city_for_point
-from broombuster.config import ALLOW_REGISTRATION, DEV_MODE, PMTILES_MODE
+from broombuster.config import ALLOW_REGISTRATION, DEV_MODE, PMTILES_MODE, REPO_ROOT
 from broombuster.domains import for_city as plugins_for_city
 
 from . import db
@@ -25,12 +24,12 @@ from .auth import router as auth_router
 from .deps import verify_jwt
 from .helpers import _build_address, _clip_region_for_request, _resolve_region
 from .state import (
-    _REPO_ROOT,
     _city_events,
     _city_gdfs,
     _freshness_checker_bg,
     _get_region_gdfs,
     _load_city,
+    data_age_days,
     logger,
 )
 
@@ -41,6 +40,7 @@ logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -102,10 +102,8 @@ def health():
         stale_after = city.get("stale_after_days")
         if not stale_after:
             continue
-        check_rel = city.get("fgb_path") or city["local_path"]
-        local_path = os.path.join(_REPO_ROOT, check_rel)
-        if os.path.exists(local_path):
-            age_days = (time.time() - os.path.getmtime(local_path)) / 86400
+        age_days = data_age_days(city)
+        if age_days is not None:
             freshness[ck] = {
                 "age_days":        round(age_days, 1),
                 "stale_after_days": stale_after,
@@ -211,7 +209,7 @@ def check(req: CheckRequest, request: Request):
         address = _build_address(resolved, city_key, req.lat, req.lon)
         if resolved is not None:
             snap = {
-                "street_name": resolved.street_display or resolved.street_name,
+                "street_name": resolved.label,
                 "distance_m":  round(resolved.distance_m, 1),
                 "is_polygon":  resolved.is_polygon,
             }
@@ -239,7 +237,7 @@ def check(req: CheckRequest, request: Request):
             if sweep_extras["schedule_even"] or sweep_extras["schedule_odd"]:
                 # Same window a street/ward click shows, for every entry.
                 detail_html = maps.zone_detail_html(
-                    resolved.street_display or resolved.street_name,
+                    resolved.label,
                     sweep_extras["schedule_even"], sweep_extras["schedule_odd"],
                     city_key, local_now, sweep_extras["car_side"],
                     tuple(sweep_extras["side_labels"]),
@@ -344,7 +342,7 @@ def calendar_ics(request: Request,
         side = extras["car_side"] or "both"
     body = ics.build_calendar(
         extras["schedule_even"], extras["schedule_odd"], _CALENDAR_SIDES[side],
-        tuple(extras["side_labels"]), resolved.street_display or resolved.street_name,
+        tuple(extras["side_labels"]), resolved.label,
         REGIONS[region].get("tz", "UTC"), f"{lat:.5f},{lon:.5f},{side}", local_now.date(),
     )
     return Response(content=body, media_type="text/calendar; charset=utf-8",
@@ -373,15 +371,7 @@ def get_prefs(user_id: str = Depends(verify_jwt)):
 
 @app.post("/prefs")
 def save_prefs(req: PrefsRequest, user_id: str = Depends(verify_jwt)):
-    db.save_prefs(user_id, {
-        "home_lat":          req.home_lat,
-        "home_lon":          req.home_lon,
-        "home_address":      req.home_address,
-        "homes":             req.homes,
-        "preferred_region":  req.preferred_region,
-        "notify_email":      req.notify_email,
-        "cars":              req.cars,
-    })
+    db.save_prefs(user_id, req.model_dump())
     return {"saved": True}
 
 
@@ -389,24 +379,16 @@ def save_prefs(req: PrefsRequest, user_id: str = Depends(verify_jwt)):
 # Runtime config endpoint — injected into the frontend as window globals
 # ---------------------------------------------------------------------------
 
-# PMTILES_MODE (default ON): render the map from static vector tiles
-# (frontend/tiles/*.pmtiles) and slim /check to resolver fields. Set
-# PMTILES_MODE=0 to fall back to the legacy server-built GeoJSON path.
-# ALLOW_REGISTRATION also hides the frontend "Create account" button rather
-# than letting it 403 on click.
-
-
 @app.get("/config.js", include_in_schema=False)
 def config_js():
     """Serve runtime config as a JS snippet so the frontend knows runtime flags."""
-    js = (
-        f"window.DEV_MODE = {'true' if DEV_MODE else 'false'};\n"
-        f"window.PMTILES_MODE = {'true' if PMTILES_MODE else 'false'};\n"
-        f"window.ALLOW_REGISTRATION = {'true' if ALLOW_REGISTRATION else 'false'};\n"
-        "window.REGION_TZ = " + json.dumps(
-            {rk: rv.get("tz", "UTC") for rk, rv in REGIONS.items()}
-        ) + ";\n"
-    )
+    flags = {
+        "DEV_MODE": DEV_MODE,
+        "PMTILES_MODE": PMTILES_MODE,
+        "ALLOW_REGISTRATION": ALLOW_REGISTRATION,
+        "REGION_TZ": {rk: rv.get("tz", "UTC") for rk, rv in REGIONS.items()},
+    }
+    js = "".join(f"window.{k} = {json.dumps(v)};\n" for k, v in flags.items())
     return Response(content=js, media_type="application/javascript")
 
 
@@ -428,6 +410,6 @@ def zone_detail(request: Request, code: list[str] = Query(default=[]), street: s
 # Static frontend (mounted last so API routes take priority)
 # ---------------------------------------------------------------------------
 
-_frontend_dir = os.path.join(_REPO_ROOT, "frontend")
+_frontend_dir = os.path.join(REPO_ROOT, "frontend")
 if os.path.isdir(_frontend_dir):
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

@@ -38,7 +38,7 @@ def _build_address(resolved, city_key: str, lat: float, lon: float) -> str:
     coords = f"{lat:.4f}, {lon:.4f}"
     if resolved is None:
         return coords
-    display = resolved.street_display or resolved.street_name
+    display = resolved.label
     if not display:
         return coords
     city_short = CITIES[city_key]["name"].split(",")[0]

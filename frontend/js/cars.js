@@ -3,11 +3,7 @@ async function checkCarWithRender(car) {
   setStatus('idle', 'Checking…');
   const warmupTimer = setTimeout(() => setStatus('idle', '⏳ Server warming up, please wait…'), 5000);
   try {
-    const res = await apiFetch('/check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat: car.lat, lon: car.lon, region: regionSelect.value || undefined }),
-    });
+    const res = await postCheck(car.lat, car.lon);
     clearTimeout(warmupTimer);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -25,11 +21,7 @@ async function checkCarWithRender(car) {
 
 async function checkCarSilently(car) {
   try {
-    const res = await apiFetch('/check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat: car.lat, lon: car.lon, region: regionSelect.value || undefined }),
-    });
+    const res = await postCheck(car.lat, car.lon);
     if (!res.ok) return;
     carSchedules[car.id] = await res.json();
     updateStatusFromSchedules();
@@ -233,10 +225,6 @@ function defaultCarName() {
 }
 
 // ── Cars panel ────────────────────────────────────────────────────────────────
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
 // Worst-case urgency across all domains (today > tomorrow > safe). Drives the
 // card tint/dot so a trash-today still flags a car whose sweeping is clear.
 const _URG_RANK = { today: 2, tomorrow: 1, safe: 0 };
@@ -367,48 +355,21 @@ function renderCarsPanel() {
 
     // ── Name editing ──
     const nameEl = entry.querySelector('.ce-name');
-    nameEl.addEventListener('dblclick', () => {
-      nameEl.contentEditable = 'true'; nameEl.focus();
-      const r = document.createRange(); r.selectNodeContents(nameEl);
-      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    });
-    nameEl.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
-      if (e.key === 'Escape') { nameEl.textContent = car.name; nameEl.blur(); }
-    });
-    nameEl.addEventListener('blur', async () => {
-      nameEl.contentEditable = 'false';
-      const v = nameEl.textContent.trim();
-      if (v && v !== car.name) { car.name = v; await savePrefs(); }
-      else nameEl.textContent = car.name;
-    });
+    makeEditable(nameEl, () => car.name, v => { car.name = v; savePrefs(); });
 
     // ── Address editing ──
     const addrEl = entry.querySelector('.ce-addr');
-    addrEl.addEventListener('dblclick', () => {
-      addrEl.contentEditable = 'true'; addrEl.focus();
-      const r = document.createRange(); r.selectNodeContents(addrEl);
-      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    });
-    addrEl.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); addrEl.blur(); }
-      if (e.key === 'Escape') { addrEl.textContent = addrText; addrEl.blur(); }
-    });
-    addrEl.addEventListener('blur', async () => {
-      addrEl.contentEditable = 'false';
-      const q = addrEl.textContent.trim();
-      if (!q || q === addrText) { addrEl.textContent = addrText; return; }
+    makeEditable(addrEl, () => addrText, async q => {
       addrEl.textContent = '…';
       try {
-        const res  = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(q)}`);
-        const hits = await res.json();
-        if (!hits.length) {
+        const hit = await geocode(q);
+        if (!hit) {
           addrEl.style.color = 'var(--red)';
           addrEl.textContent = '⚠️ Address not found';
           setTimeout(() => { addrEl.style.color = ''; addrEl.textContent = addrText; }, 2500);
           return;
         }
-        car.lat = parseFloat(hits[0].lat); car.lon = parseFloat(hits[0].lon);
+        car.lat = hit.lat; car.lon = hit.lon;
         await savePrefs();
         setNearestRegion(car.lat, car.lon);
         updateCarMarkers();

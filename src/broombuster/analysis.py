@@ -279,7 +279,7 @@ def sweep_days(even, odd, start: datetime.date, end: datetime.date) -> dict:
     out: dict = {}
     for side, entries in (("even", even), ("odd", odd)):
         for code, _desc, time in entries:
-            item = (side, time if _is_str(time) else "")
+            item = (side, time if normalize.is_text(time) else "")
             for d in dates_in_range(code, start, end):
                 if item not in out.setdefault(d, []):
                     out[d].append(item)
@@ -318,11 +318,6 @@ def check_day_street_sweeping(schedule, local_now=None):
     return "tomorrow" if swept_tomorrow else False
 
 
-def _is_str(v):
-    """True only for non-empty strings (filters NaN, None, floats)."""
-    return isinstance(v, str) and v.strip() != ""
-
-
 # Name-index cache keyed by id(gdf); each entry holds a weakref so a recycled
 # id (GDF garbage-collected) is detected and rebuilt.
 #   id(gdf) -> (weakref.ref(gdf), {normalized_street_name: [row_labels]})
@@ -344,12 +339,12 @@ def _get_name_index(gdf) -> dict:
     for i, row in gdf.iterrows():
         # Prefer precomputed STREET_KEY if available (already canonical).
         k = row.get("STREET_KEY")
-        if _is_str(k):
+        if normalize.is_text(k):
             idx.setdefault(k, []).append(i)
             continue
         # Fallback to normalising the stored STREET_NAME
         n = row.get("STREET_NAME")
-        if _is_str(n):
+        if normalize.is_text(n):
             idx.setdefault(_norm_name(n), []).append(i)
     _name_index_cache[gdf_id] = (weakref.ref(gdf), idx)
     return idx
@@ -364,11 +359,11 @@ def get_schedule(street_section, side):
     """
     suffix = "EVEN" if side % 2 == 0 else "ODD"
     code = street_section.get(f"DAY_{suffix}")
-    if not _is_str(code) or is_no_sweep_code(code):
+    if not normalize.is_text(code) or is_no_sweep_code(code):
         return None
     desc = street_section.get(f"DESC_{suffix}")
     time = street_section.get(f"TIME_{suffix}")
-    return (code, desc if _is_str(desc) else "", time if _is_str(time) else "")
+    return (code, desc if normalize.is_text(desc) else "", time if normalize.is_text(time) else "")
 
 
 _MONTH_ABBR = {
@@ -589,8 +584,8 @@ def side_labels(row) -> tuple[str, str]:
     if row is None:
         return DEFAULT_SIDE_LABELS
     e, o = row.get("SIDE_EVEN"), row.get("SIDE_ODD")
-    return (e if _is_str(e) else DEFAULT_SIDE_LABELS[0],
-            o if _is_str(o) else DEFAULT_SIDE_LABELS[1])
+    return (e if normalize.is_text(e) else DEFAULT_SIDE_LABELS[0],
+            o if normalize.is_text(o) else DEFAULT_SIDE_LABELS[1])
 
 
 def side_groups(even, odd, car_side=None, labels=DEFAULT_SIDE_LABELS, local_now=None):

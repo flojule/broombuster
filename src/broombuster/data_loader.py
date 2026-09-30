@@ -37,16 +37,13 @@ import requests
 from shapely.geometry import box as _shapely_box
 
 from broombuster.cities import CITIES
-from broombuster.schemas import SCHEMA_PROFILES
-
-# Repo root — resolves data paths regardless of working directory.
-# This file is <repo>/src/broombuster/data_loader.py — walk up three levels.
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from broombuster.config import REPO_ROOT as _ROOT
+from broombuster.schemas import SCHEMA_COLS, SCHEMA_PROFILES
 
 # BroomBuster cache layers (each a distinct key/scope, not redundant):
 #   1. _GDF_CACHE (here)         path -> (mtime, gdf)     skip FGB disk reads
-#   2. app._city_gdfs[_3857]     city -> projected gdf    runtime serving cache
-#   3. app._region_combined      region -> concat gdf     skip per-request concat
+#   2. state._city_gdfs[_3857]   city -> projected gdf    runtime serving cache
+#   3. state._region_combined    region -> concat gdf     skip per-request concat
 #   4. analysis._*_cache         id(gdf) -> name index    skip O(n) index rebuild
 # Layer 1 serves the CLI and tests (repeat load_city_data); the API loads each
 # city once into layer 2, so layer 1 is keep-warm, not on the request path.
@@ -69,16 +66,6 @@ def _cache_put(path: str, mtime: float, gdf: geopandas.GeoDataFrame) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
-_SCHEMA_COLS = [
-    "STREET_NAME",
-    "STREET_KEY",
-    "STREET_DISPLAY",
-    "DAY_EVEN", "DAY_ODD",
-    "DESC_EVEN", "DESC_ODD",
-    "TIME_EVEN", "TIME_ODD",
-    "L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD",
-    "SIDE_EVEN", "SIDE_ODD",
-]
 
 
 def load_city_data(city_key: str, *, force_refresh: bool = False) -> geopandas.GeoDataFrame:
@@ -208,7 +195,7 @@ def load_region_data(region_key: str, *, force_refresh: bool = False) -> geopand
 
 def _save_fgb(gdf: geopandas.GeoDataFrame, fgb_path: str) -> None:
     """Write a normalised GDF to FlatGeobuf (schema columns + geometry, EPSG:4326)."""
-    cols = [c for c in _SCHEMA_COLS if c in gdf.columns]
+    cols = [c for c in SCHEMA_COLS if c in gdf.columns]
     out = gdf[cols + ["geometry"]].copy()
     # Reproject to EPSG:4326 so every FGB is in a consistent CRS.
     if out.crs and not out.crs.equals("EPSG:4326"):

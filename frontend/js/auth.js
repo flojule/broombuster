@@ -140,55 +140,37 @@ async function _migrateGuestToServer() {
   } catch (_) {}
 }
 
-async function login() {
+// POST credentials to an auth endpoint; on success store tokens and finish sign-in.
+async function _submitAuth(path, btn, busyLabel, failMsg) {
+  const idleLabel = btn.textContent;
   authError.textContent = '';
-  btnLogin.disabled = true;
-  btnLogin.innerHTML = '<span class="spinner"></span>Signing in…';
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span>${busyLabel}`;
   try {
-    const res = await fetch('/auth/login', {
+    const res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: emailEl.value.trim(), password: passwordEl.value }),
     });
     const data = await res.json();
-    if (!res.ok) { authError.textContent = data.detail || 'Sign in failed'; return; }
+    if (!res.ok) { authError.textContent = data.detail || failMsg; return; }
     _saveTokens(data.access_token, data.refresh_token);
     await _finishAuth();
   } catch (e) {
     authError.textContent = 'Network error — is the server running?';
   } finally {
-    btnLogin.disabled = false;
-    btnLogin.textContent = 'Sign in';
+    btn.disabled = false;
+    btn.textContent = idleLabel;
   }
 }
 
-async function signup() {
-  authError.textContent = '';
-  btnSignup.disabled = true;
-  btnSignup.innerHTML = '<span class="spinner"></span>Creating account…';
-  try {
-    const res = await fetch('/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: emailEl.value.trim(), password: passwordEl.value }),
-    });
-    const data = await res.json();
-    if (!res.ok) { authError.textContent = data.detail || 'Registration failed'; return; }
-    _saveTokens(data.access_token, data.refresh_token);
-    await _finishAuth();
-  } catch (e) {
-    authError.textContent = 'Network error — is the server running?';
-  } finally {
-    btnSignup.disabled = false;
-    btnSignup.textContent = 'Create account';
-  }
-}
+const login  = () => _submitAuth('/auth/login', btnLogin, 'Signing in…', 'Sign in failed');
+const signup = () => _submitAuth('/auth/register', btnSignup, 'Creating account…', 'Registration failed');
 
 // Registration may be locked on public deploys (shared account only). The
 // server advertises this via window.ALLOW_REGISTRATION; hide the signup button
 // so guests only see "Sign in". Defaults to shown when the flag is absent.
-const ALLOW_REGISTRATION =
-  window.ALLOW_REGISTRATION !== false && window.ALLOW_REGISTRATION !== 'false';
+const ALLOW_REGISTRATION = window.ALLOW_REGISTRATION !== false;
 if (!ALLOW_REGISTRATION) btnSignup.hidden = true;
 
 btnLogin.addEventListener('click', login);

@@ -11,17 +11,13 @@ import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
 
 import geopandas
 import pandas as pd
 
 from broombuster import data_loader
 from broombuster.cities import CITIES, REGIONS, in_bbox, region_of
-from broombuster.config import PMTILES_MODE
-
-# Repo root -- three levels up: api/ -> broombuster/ -> src/ -> repo/
-_REPO_ROOT = str(Path(__file__).resolve().parents[3])
+from broombuster.config import PMTILES_MODE, REPO_ROOT
 
 logger = logging.getLogger("broombuster.api")
 
@@ -82,17 +78,25 @@ def _rebuild_region_tiles(region_keys) -> None:
     if not shutil.which("tippecanoe"):
         logger.warning("[tiles] tippecanoe not on PATH; skipping tile rebuild")
         return
-    script = os.path.join(_REPO_ROOT, "scripts", "build_pmtiles.py")
+    script = os.path.join(REPO_ROOT, "scripts", "build_pmtiles.py")
     for rk in region_keys:
         try:
             subprocess.Popen(
                 [sys.executable, script, "--region", rk, "--force"],
-                cwd=_REPO_ROOT,
+                cwd=REPO_ROOT,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             logger.info("[tiles] rebuild started for region %s", rk)
         except OSError as exc:
             logger.warning("[tiles] could not start rebuild for %s: %s", rk, exc)
+
+
+def data_age_days(city: dict) -> float | None:
+    """Age of a city's FGB (else raw) file in days, or None if missing."""
+    path = os.path.join(REPO_ROOT, city.get("fgb_path") or city["local_path"])
+    if not os.path.exists(path):
+        return None
+    return (time.time() - os.path.getmtime(path)) / 86400
 
 
 def _freshness_checker_bg() -> None:
@@ -120,11 +124,8 @@ def _freshness_checker_bg() -> None:
             if not url or not stale_after_days:
                 continue
 
-            # Prefer the FGB mtime (reflects last normalisation); fall back to raw.
-            check_rel = city.get("fgb_path") or city["local_path"]
-            local_path = os.path.join(_REPO_ROOT, check_rel)
-            if os.path.exists(local_path):
-                age_days = (time.time() - os.path.getmtime(local_path)) / 86400
+            age_days = data_age_days(city)
+            if age_days is not None:
                 if age_days < stale_after_days:
                     continue
                 logger.info("[freshness] %s data is %.0f days old (threshold %sd)",

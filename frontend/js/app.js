@@ -7,7 +7,7 @@ if (DEV_MODE) {
   if (stored) {
     session = { access_token: stored };
     // Validate the stored token; on 401 try refresh, else drop to guest mode.
-    fetch('/prefs', { headers: { Authorization: `Bearer ${stored}` } }).then(async r => {
+    apiFetch('/prefs').then(async r => {
       if (r.status === 401 && !await _tryRefresh()) _clearTokens();
       initApp();
     }).catch(() => initApp());
@@ -33,15 +33,6 @@ setInterval(() => {
   updateStatusFromSchedules();
 }, 60 * 1000);
 
-// ── API fetch ─────────────────────────────────────────────────────────────────
-function apiFetch(path, opts = {}) {
-  const token = session?.access_token;
-  return fetch(path, {
-    ...opts,
-    headers: { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
-}
-
 // ── Locate button (GPS) ───────────────────────────────────────────────────────
 btnLocate.addEventListener('click', () => {
   const btn = btnLocate;
@@ -65,8 +56,6 @@ btnLocate.addEventListener('click', () => {
     for (const car of cars) checkCarSilently(car);
   }, msg => { btn.disabled = false; btn.textContent = '📍'; showToast(`GPS: ${msg}`, true); });
 });
-
-function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

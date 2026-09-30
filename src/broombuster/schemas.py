@@ -10,6 +10,12 @@ import pandas as pd
 
 from broombuster import normalize
 
+SCHEDULE_COLS = ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD")
+ADDR_COLS = ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD")
+# Standard output schema, in FGB column order.
+SCHEMA_COLS = ("STREET_NAME", "STREET_KEY", "STREET_DISPLAY", *SCHEDULE_COLS, *ADDR_COLS,
+               "SIDE_EVEN", "SIDE_ODD")
+
 # ---------------------------------------------------------------------------
 # Oakland
 # ---------------------------------------------------------------------------
@@ -146,8 +152,7 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         out[name_col].fillna("").str.strip().str.upper() if name_col else ""
     )
     _add_key_and_display(out)
-    for addr_cn in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
-        out[addr_cn] = np.nan
+    out[list(ADDR_COLS)] = np.nan
 
     # -----------------------------------------------------------------------
     # Vectorised derivation of code / time / desc / side — avoids iterrows.
@@ -395,10 +400,7 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     out["DESC_ODD"]    = descs
     out["TIME_EVEN"]   = None
     out["TIME_ODD"]    = None
-    out["L_F_ADD"]     = np.nan
-    out["L_T_ADD"]     = np.nan
-    out["R_F_ADD"]     = np.nan
-    out["R_T_ADD"]     = np.nan
+    out[list(ADDR_COLS)] = np.nan
     return out
 
 
@@ -413,10 +415,10 @@ def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     All standard columns are already present; this just ensures nothing is missing.
     """
     out = gdf.copy()
-    for col in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD"):
+    for col in SCHEDULE_COLS:
         if col not in out.columns:
             out[col] = None
-    for col in ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"):
+    for col in ADDR_COLS:
         if col not in out.columns:
             out[col] = np.nan
     # Ensure STREET_KEY and STREET_DISPLAY exist and are derived from STREET_NAME

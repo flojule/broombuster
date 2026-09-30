@@ -9,6 +9,12 @@ identically.
 
 import re
 
+
+def is_text(v) -> bool:
+    """True only for non-empty strings (filters NaN, None, floats)."""
+    return isinstance(v, str) and v.strip() != ""
+
+
 # ── Street name ───────────────────────────────────────────────────────────────
 
 # Trailing street-type suffixes — both abbreviated and spelled-out forms.

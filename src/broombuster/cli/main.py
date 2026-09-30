@@ -113,7 +113,7 @@ def main() -> None:
                 break
             result = sweeping.format(resolved, myCity_3857, local_now)
             if resolved is not None:
-                myCar.street_name = resolved.street_display or resolved.street_name
+                myCar.street_name = resolved.label
             message = result.extras.get("message") or "Car not near a mapped street."
             urgency = result.urgency if result.urgency in ("today", "tomorrow") else False
 
