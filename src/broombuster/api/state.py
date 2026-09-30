@@ -4,6 +4,7 @@ Each city loads in its own background thread and signals a threading.Event; a
 /check request waits only for the city (or cities) overlapping the user.
 """
 
+import functools
 import logging
 import os
 import shutil
@@ -17,7 +18,7 @@ import pandas as pd
 
 from broombuster import data_loader
 from broombuster.cities import CITIES, REGIONS, in_bbox, region_of
-from broombuster.config import PMTILES_MODE, REPO_ROOT
+from broombuster.config import DATA_AUTO_REFRESH, PMTILES_MODE, REPO_ROOT
 
 logger = logging.getLogger("broombuster.api")
 
@@ -91,12 +92,35 @@ def _rebuild_region_tiles(region_keys) -> None:
             logger.warning("[tiles] could not start rebuild for %s: %s", rk, exc)
 
 
+@functools.cache
+def _git_commit_time(path: str) -> float | None:
+    """Unix time of the last commit touching `path`, or None (untracked / no git).
+
+    Cached per process: tracked data only changes through a rollout, which
+    restarts the server.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%ct", "--", path],
+            cwd=REPO_ROOT, capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return float(out) if out else None
+
+
 def data_age_days(city: dict) -> float | None:
-    """Age of a city's FGB (else raw) file in days, or None if missing."""
+    """Age of a city's FGB (else raw) file in days, or None if missing.
+
+    Measured from the file's last git commit, because a checkout or rollout
+    rewrites mtimes and would make old data look fresh. With DATA_AUTO_REFRESH
+    the file is re-downloaded in place, so its mtime is the true age.
+    """
     path = os.path.join(REPO_ROOT, city.get("fgb_path") or city["local_path"])
     if not os.path.exists(path):
         return None
-    return (time.time() - os.path.getmtime(path)) / 86400
+    changed_at = None if DATA_AUTO_REFRESH else _git_commit_time(path)
+    return (time.time() - (changed_at or os.path.getmtime(path))) / 86400
 
 
 def _freshness_checker_bg() -> None:

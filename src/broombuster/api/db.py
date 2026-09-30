@@ -86,6 +86,11 @@ def init_db() -> None:
     the seeded row matches whatever ID the API will pass through.
     """
     with get_db() as conn:
+        # Owner-only: holds password hashes. New -wal/-shm files inherit the
+        # DB's mode; fix any left over from before this was enforced.
+        for f in (_DB_PATH, *(Path(f"{_DB_PATH}{s}") for s in ("-wal", "-shm"))):
+            if f.exists():
+                f.chmod(0o600)
         conn.executescript(_SCHEMA)
         # Migration: add columns to pre-existing user_prefs tables.
         for ddl in (

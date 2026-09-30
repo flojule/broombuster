@@ -106,7 +106,7 @@ their end. Unlike `./deploy.sh` it runs with real auth (not `DEV_MODE`):
 |--------|-----------|
 | Guests (no login) | Anyone can browse the map and add cars/houses. Guest data stays in that browser, per device (cleared when the tab closes). |
 | Shared account | One seeded login you can hand out "if needed". Everyone signed into it shares one server-saved set of cars/homes. |
-| Self-registration | **Disabled** (`ALLOW_REGISTRATION=false`) so random visitors can't create accounts. |
+| Self-registration | **Disabled** (the default; only `ALLOW_REGISTRATION=true` enables it) so random visitors can't create accounts. |
 | Secret | A random `JWT_SECRET` is generated once and saved to `.env` (gitignored). |
 
 **Seed / reset the shared account** (run on the server, against the same DB):
@@ -144,11 +144,10 @@ One GitHub Actions workflow lives in [`.github/workflows/`](.github/workflows):
 |----------|---------|--------------|
 | `ci.yml` | every PR + push to `main` | `ruff check` + full `pytest` on Python 3.12 |
 
-Deployment is **not** automated: the targets (`funnel.sh`, the Pi `systemd`
-unit) are self-hosted and pull + run the source themselves via
-[`deploy/update.sh`](deploy/update.sh). Runtime secrets stay on the host, never
-in the repo: `JWT_SECRET`, `ALLOW_REGISTRATION=false`, and the shared-account
-`SEED_PASSWORD`.
+Deployment is pull-based: the Pi's auto-update timer rolls out a new `main`
+commit only after `ci.yml` has passed on it (see
+[`deploy/README.md`](deploy/README.md)). Runtime secrets stay on the host, never
+in the repo: `JWT_SECRET` and the shared-account `SEED_PASSWORD`.
 
 ## Project layout
 
@@ -212,5 +211,8 @@ python scripts/rebuild_city_data.py <city_key>     # one city
 python scripts/rebuild_city_data.py                # all cities
 ```
 
-See [`data/README.md`](data/README.md) and [`data/sources.yaml`](data/sources.yaml)
+Commit the rebuilt `.fgb` (and tiles, `scripts/build_pmtiles.py`); deployments
+ship data through git. `/health` reports each auto-download city's age (from its
+last commit) and flags it `stale` past `stale_after_days`. See
+[`data/README.md`](data/README.md) and [`data/sources.yaml`](data/sources.yaml)
 for per-city source details and manual-download steps.

@@ -43,13 +43,19 @@ manual download instruction for cities with no stable URL (Oakland, Alameda).
 Once the raw input is in place, it runs the appropriate normaliser and writes
 the new `.fgb`.
 
-### Auto-refresh at runtime
+### Staleness and optional auto-refresh
 
-SF and Chicago auto-refresh in the background while the server runs: when
-the cached file is older than its `stale_after_days` (SF: 30 days, Chicago:
-90 days), `data_loader.py` re-downloads from the upstream URL recorded in
-`cities.py`. Berkeley, Alameda, and Oakland do not auto-refresh — they
-require the explicit `rebuild_city_data.py` invocation.
+SF and Chicago have a `stale_after_days` (SF: 30 days, Chicago: 90 days).
+`/health` reports each one's age, measured from the file's last git commit, and
+marks it `stale` past that threshold: rebuild it with `rebuild_city_data.py`
+and commit it.
+
+With `DATA_AUTO_REFRESH=1` the server instead re-downloads stale files in the
+background from the upstream URL in the city manifest (age is then the file's
+mtime). Leave it off on a deployment that updates from git: `deploy/update.sh`
+resets tracked files, discarding the download, and the map tiles are not
+rebuilt without `tippecanoe`. Berkeley, Alameda, and Oakland never
+auto-refresh.
 
 ### Local-only files (never committed)
 
