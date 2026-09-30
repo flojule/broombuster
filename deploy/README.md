@@ -1,6 +1,6 @@
 # Raspberry Pi 5 deployment (Ubuntu 24.04)
 
-Always-on, tailnet-only; guest-by-default with optional login (prefs persist
+Always-on; guest-by-default with optional login (prefs persist
 server-side only when signed in). Map data ships in git so a clone is
 self-contained. The Mac runs independently via `./run.sh` / `./deploy.sh`.
 
@@ -45,6 +45,10 @@ tailscale serve status
 ```
 
 URL: `https://<pi-name>.tailf5051f.ts.net` (the Pi's own MagicDNS name).
+Serve keeps it tailnet-only; Funnel (below) makes it **public on the internet**.
+The production deployment currently uses Funnel: login and `/check*` routes are
+per-IP rate limited (slowapi) and the interactive `/docs`, `/redoc` and
+`/openapi.json` are disabled outside `DEV_MODE`.
 
 For **off-VPN / public** access use Funnel instead of Serve (persists across
 reboots; run once, not per update):
@@ -70,7 +74,7 @@ hand — just push to the branch the Pi tracks.
 
 | Action | Command (on the Pi) |
 |--------|---------------------|
-| Roll out a new version | `./deploy/update.sh` (reset to origin, discarding local edits to tracked files + locked dep sync + restart + health wait up to 60 s; on failure restores the previous revision and exits 1) — not needed if the auto-update timer is on |
+| Roll out a new version | `./deploy/update.sh` (reset to origin, discarding local edits to tracked files + locked dep sync + restart + health wait up to 180 s until every city has loaded (a failed city load fails the rollout); on failure restores the previous revision and exits 1) — not needed if the auto-update timer is on |
 | Retry a failed revision | `rm .git/broombuster-bad-rev` (auto-update otherwise waits for a newer push) |
 | Status / logs | `systemctl status broombuster` / `journalctl -u broombuster -f` |
 | Restart | `sudo systemctl restart broombuster` |
@@ -78,5 +82,10 @@ hand — just push to the branch the Pi tracks.
 | Refresh map data | commit + push the rebuilt `.fgb`/tiles (auto-update rolls it out, or run `./deploy/update.sh`) |
 | Auto-update logs | `journalctl -u broombuster-update -f`; next run: `systemctl list-timers broombuster-update.timer` |
 | Disable auto-update | `sudo systemctl disable --now broombuster-update.timer` |
+
+Unit-file changes (`broombuster.service`) are not applied by `update.sh`; re-run
+`./deploy/install-service.sh` after editing them. Rollback resets code only, not
+`app.sqlite`: schema migrations must stay additive (`ADD COLUMN` with a default,
+see `api/db.py`) so the previous revision can still open a migrated DB.
 
 Service auto-starts at boot and restarts on crash; `tailscale serve` persists across reboots.
