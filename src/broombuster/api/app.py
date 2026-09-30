@@ -69,7 +69,10 @@ async def lifespan(app: FastAPI):
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="BroomBuster API", lifespan=lifespan)
+# The interactive API docs are a development aid; the production app is public
+# (Tailscale Funnel), so don't advertise the schema there.
+_docs = {} if DEV_MODE else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+app = FastAPI(title="BroomBuster API", lifespan=lifespan, **_docs)
 
 app.add_middleware(
     CORSMiddleware,
