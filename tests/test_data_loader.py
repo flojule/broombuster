@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 import shapely.geometry
 
-from broombuster import analysis, data_loader
+from broombuster import analysis, data_loader, schemas
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -154,7 +154,7 @@ class TestNormaliseSF:
             "week_1_of_month": 1, "week_2_of_month": 0,
             "week_3_of_month": 1, "week_4_of_month": 0, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         assert out["DAY_EVEN"].iloc[0] == "M13"
         assert pd.isna(out["DAY_ODD"].iloc[0])
 
@@ -165,7 +165,7 @@ class TestNormaliseSF:
             "week_1_of_month": 0, "week_2_of_month": 1,
             "week_3_of_month": 0, "week_4_of_month": 1, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         assert out["DAY_ODD"].iloc[0] == "F24"
         assert pd.isna(out["DAY_EVEN"].iloc[0])
 
@@ -176,7 +176,7 @@ class TestNormaliseSF:
             "week_1_of_month": 1, "week_2_of_month": 1,
             "week_3_of_month": 1, "week_4_of_month": 1, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         assert out["DAY_EVEN"].iloc[0] == "WE"
         assert out["DAY_ODD"].iloc[0] == "WE"
 
@@ -187,7 +187,7 @@ class TestNormaliseSF:
             "week_1_of_month": 1, "week_2_of_month": 1,
             "week_3_of_month": 1, "week_4_of_month": 1, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         assert out["DAY_EVEN"].iloc[0] == "THE"
 
     def test_no_flags_produces_E_suffix(self):
@@ -197,7 +197,7 @@ class TestNormaliseSF:
             "week_1_of_month": 0, "week_2_of_month": 0,
             "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         assert out["DAY_EVEN"].iloc[0] == "TE"
 
     def test_time_string_format(self):
@@ -207,7 +207,7 @@ class TestNormaliseSF:
             "week_1_of_month": 1, "week_2_of_month": 0,
             "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         assert out["TIME_EVEN"].iloc[0] == "8AM–10AM"
 
     def test_street_name_uppercased(self):
@@ -217,7 +217,7 @@ class TestNormaliseSF:
             "week_1_of_month": 1, "week_2_of_month": 0,
             "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         assert out["STREET_NAME"].iloc[0] == "MARKET ST"
 
     def test_unknown_day_produces_null_code(self):
@@ -227,7 +227,7 @@ class TestNormaliseSF:
             "week_1_of_month": 1, "week_2_of_month": 0,
             "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         assert pd.isna(out["DAY_EVEN"].iloc[0])
 
     @staticmethod
@@ -241,7 +241,7 @@ class TestNormaliseSF:
 
     def test_left_right_rows_fill_side_buckets_with_compass_labels(self):
         gdf = _make_sf_gdf([self._lr_row("L", "North"), self._lr_row("R", "South", "2")])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         left, right = out.iloc[0], out.iloc[1]
         assert left["DAY_EVEN"] == "M135" and pd.isna(left["DAY_ODD"])
         assert right["DAY_ODD"] == "T135" and pd.isna(right["DAY_EVEN"])
@@ -252,11 +252,11 @@ class TestNormaliseSF:
 
     def test_missing_blockside_uses_opposite_then_geometry(self):
         # Only the right side is labelled -> left is its opposite.
-        out = data_loader._normalise_sf(_make_sf_gdf([
+        out = schemas._normalise_sf(_make_sf_gdf([
             self._lr_row("L", None), self._lr_row("R", "SouthWest", "2")]))
         assert out["SIDE_EVEN"].iloc[0] == "Northeast"
         # No labels at all -> from geometry: an eastward line has north on its left.
-        out = data_loader._normalise_sf(_make_sf_gdf([self._lr_row("L", None)]))
+        out = schemas._normalise_sf(_make_sf_gdf([self._lr_row("L", None)]))
         assert (out["SIDE_EVEN"].iloc[0], out["SIDE_ODD"].iloc[0]) == ("North", "South")
 
     def test_schema_contract(self):
@@ -266,7 +266,7 @@ class TestNormaliseSF:
             "week_1_of_month": 1, "week_2_of_month": 0,
             "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
         }])
-        out = data_loader._normalise_sf(gdf)
+        out = schemas._normalise_sf(gdf)
         _assert_schema(out, "_normalise_sf")
 
 
@@ -283,17 +283,17 @@ def _make_chicago_gdf(rows: list[dict]) -> geopandas.GeoDataFrame:
 class TestNormaliseChicago:
     def test_street_name_ward_section_format(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         assert out["STREET_NAME"].iloc[0] == "Ward 05, Section 03"
 
     def test_street_name_zero_padded(self):
         gdf = _make_chicago_gdf([{"ward": 1, "section": 1, "april": "1"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         assert out["STREET_NAME"].iloc[0] == "Ward 01, Section 01"
 
     def test_day_code_starts_with_DATES(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
         assert isinstance(code, str) and code.startswith("DATES:")
 
@@ -301,14 +301,14 @@ class TestNormaliseChicago:
         # Year is inferred from the data, so assert the month/day are present
         # regardless of which calendar year inference selects.
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17", "may": "15"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
         assert "-04-17" in code
         assert "-05-15" in code
 
     def test_day_code_parseable_by_analysis(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
         result = analysis.parse_dates_code(code)
         # Year-agnostic: every requested month/day is expanded, and inference
@@ -319,17 +319,17 @@ class TestNormaliseChicago:
 
     def test_even_odd_identical(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         assert out["DAY_EVEN"].iloc[0] == out["DAY_ODD"].iloc[0]
 
     def test_empty_schedule_produces_null_code(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         assert pd.isna(out["DAY_EVEN"].iloc[0])
 
     def test_invalid_day_number_skipped(self):
         gdf = _make_chicago_gdf([{"ward": 1, "section": 1, "april": "99,17"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
         # day 99 is invalid so it should be absent; day 17 should be present
         assert "-04-17" in code
@@ -337,13 +337,13 @@ class TestNormaliseChicago:
 
     def test_desc_contains_month_abbreviation(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         desc = out["DESC_EVEN"].iloc[0]
         assert desc and ("Apr" in desc or "May" in desc)
 
     def test_schema_contract(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18"}])
-        out = data_loader._normalise_chicago(gdf)
+        out = schemas._normalise_chicago(gdf)
         _assert_schema(out, "_normalise_chicago")
 
 
@@ -363,16 +363,16 @@ class TestInferChicagoYear:
         # Days that are all weekdays in 2025 (Wed-start) should resolve to 2025
         # even when the reference year is 2026 (2025 is in the ±1 window).
         pairs = _weekday_pairs_for(2025)
-        assert data_loader._infer_chicago_year(pairs, 2026) == 2025
+        assert schemas._infer_chicago_year(pairs, 2026) == 2025
 
     def test_prefers_ref_year_on_tie(self):
         # A single mid-week date is a weekday in several adjacent years; ties
         # resolve to the reference year.
         pairs = [(6, 15)]  # Jun 15: weekday in 2026 (Mon) — also other years
-        assert data_loader._infer_chicago_year(pairs, 2026) == 2026
+        assert schemas._infer_chicago_year(pairs, 2026) == 2026
 
     def test_empty_pairs_returns_ref_year(self):
-        assert data_loader._infer_chicago_year([], 2026) == 2026
+        assert schemas._infer_chicago_year([], 2026) == 2026
 
     def test_raises_when_no_recent_year_fits(self):
         # Every day of a month always includes ~2/7 weekend days in any year,
@@ -380,7 +380,7 @@ class TestInferChicagoYear:
         import pytest
         pairs = [(4, d) for d in range(1, 31)]  # all of April
         with pytest.raises(ValueError, match="stale"):
-            data_loader._infer_chicago_year(pairs, 2026)
+            schemas._infer_chicago_year(pairs, 2026)
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +400,7 @@ class TestNormaliseOakland:
             "L_F_ADD": 1000, "L_T_ADD": 1100,
             "R_F_ADD": 1001, "R_T_ADD": 1099,
         }])
-        out = data_loader._normalise_oakland(gdf)
+        out = schemas._normalise_oakland(gdf)
         assert out["STREET_NAME"].iloc[0] == "TELEGRAPH AVE"
 
     def test_schema_contract(self):
@@ -409,7 +409,7 @@ class TestNormaliseOakland:
             "DAY_EVEN": "WE", "DAY_ODD": "WE",
             "L_F_ADD": 1, "L_T_ADD": 99, "R_F_ADD": 2, "R_T_ADD": 98,
         }])
-        out = data_loader._normalise_oakland(gdf)
+        out = schemas._normalise_oakland(gdf)
         _assert_schema(out, "_normalise_oakland")
 
 
@@ -432,13 +432,13 @@ class TestNormalisePrebuilt:
             "L_F_ADD": 1000, "L_T_ADD": 1100,
             "R_F_ADD": 1001, "R_T_ADD": 1099,
         }])
-        out = data_loader._normalise_prebuilt(gdf)
+        out = schemas._normalise_prebuilt(gdf)
         assert out["STREET_NAME"].iloc[0] == "SHATTUCK AVE"
         assert out["DAY_EVEN"].iloc[0] == "ME"
 
     def test_missing_columns_filled_with_none(self):
         gdf = self._make_gdf([{"STREET_NAME": "PARK ST"}])
-        out = data_loader._normalise_prebuilt(gdf)
+        out = schemas._normalise_prebuilt(gdf)
         for col in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD"):
             assert col in out.columns
             assert pd.isna(out[col].iloc[0])
@@ -451,7 +451,7 @@ class TestNormalisePrebuilt:
             "TIME_EVEN": "8AM–10AM", "TIME_ODD": "8AM–10AM",
             "L_F_ADD": 1, "L_T_ADD": 99, "R_F_ADD": 2, "R_T_ADD": 98,
         }])
-        _assert_schema(data_loader._normalise_prebuilt(gdf), "_normalise_prebuilt")
+        _assert_schema(schemas._normalise_prebuilt(gdf), "_normalise_prebuilt")
 
 
 # ---------------------------------------------------------------------------

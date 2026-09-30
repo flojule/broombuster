@@ -587,7 +587,7 @@ def test_sf_per_segment_card_reflects_all_weekday_rows():
         pytest.xfail(
             f"{len(violations)} SF multi-row segments have card schedules "
             f"that do not reflect the GDF row union "
-            f"(fix: merge per-weekday SF rows in data_loader._normalise_sf):\n"
+            f"(fix: merge per-weekday SF rows in schemas._normalise_sf):\n"
             + "\n".join(violations[:15])
             + (f"\n  … and {len(violations) - 15} more"
                if len(violations) > 15 else "")
