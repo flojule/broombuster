@@ -17,7 +17,7 @@ old="$(git rev-parse HEAD)"
 
 sync_deps() {
   if command -v uv >/dev/null 2>&1; then
-    uv sync --locked --extra api --quiet   # exact, reproducible from uv.lock
+    uv sync --locked --inexact --extra api --quiet   # reproducible; keeps other extras
   else
     .venv/bin/pip install -e '.[api]' --quiet
   fi
@@ -34,6 +34,7 @@ git reset --hard "origin/${branch}"
 new="$(git rev-parse HEAD)"
 
 if sync_deps && sudo systemctl restart broombuster && healthy; then
+  rm -f .git/broombuster-bad-rev
   echo
   echo "Rolled out ${new:0:9}"
   exit 0
@@ -42,6 +43,9 @@ fi
 echo "Rollout of ${new:0:9} failed; restoring ${old:0:9}" >&2
 echo "$new" > .git/broombuster-bad-rev
 git reset --hard "$old"
-sync_deps
-sudo systemctl restart broombuster
+if sync_deps && sudo systemctl restart broombuster && healthy >/dev/null; then
+  echo "Restored ${old:0:9} and it is healthy." >&2
+else
+  echo "ROLLBACK ALSO FAILED: service may be down; check journalctl -u broombuster" >&2
+fi
 exit 1
