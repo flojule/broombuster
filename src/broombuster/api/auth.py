@@ -65,15 +65,10 @@ if not DEV_MODE and not (_JWT_SECRET and len(_JWT_SECRET) >= _MIN_SECRET_LEN
         "python -c \"import secrets; print(secrets.token_hex(32))\""
     )
 
-_ACCESS_TTL_MINUTES  = 15
-_REFRESH_TTL_DAYS    = 30
+_ACCESS_TTL          = timedelta(minutes=15)
+_REFRESH_TTL         = timedelta(days=30)
 _AUD_ACCESS          = "broombuster"
 _AUD_REFRESH         = "broombuster-refresh"
-
-# Public deploys (e.g. Tailscale Funnel) lock self-registration so random
-# visitors can't create accounts; the shared account is seeded server-side via
-# scripts/seed_account.py instead. Defaults to enabled so existing dev / Pi
-# deploys keep their open sign-up. Set ALLOW_REGISTRATION=false to disable.
 
 # ---------------------------------------------------------------------------
 # Rate limiting — slowapi; disabled in DEV_MODE
@@ -111,42 +106,20 @@ def init_rate_limiting(app) -> None:
 # Token helpers
 # ---------------------------------------------------------------------------
 
-def _issue_access(user_id: str) -> str:
+def _issue(user_id: str, secret: str, aud: str, ttl: timedelta) -> str:
     now = datetime.now(tz=UTC)
-    payload = {
-        "sub": user_id,
-        "aud": _AUD_ACCESS,
-        "iat": now,
-        "exp": now + timedelta(minutes=_ACCESS_TTL_MINUTES),
-    }
-    return jwt.encode(payload, _JWT_SECRET, algorithm="HS256")
-
-
-def _issue_refresh(user_id: str) -> str:
-    now = datetime.now(tz=UTC)
-    payload = {
-        "sub": user_id,
-        "aud": _AUD_REFRESH,
-        "iat": now,
-        "exp": now + timedelta(days=_REFRESH_TTL_DAYS),
-    }
-    return jwt.encode(payload, _REFRESH_SECRET, algorithm="HS256")
+    payload = {"sub": user_id, "aud": aud, "iat": now, "exp": now + ttl}
+    return jwt.encode(payload, secret, algorithm="HS256")
 
 
 def decode_access(token: str) -> str:
     """Verify an access token and return user_id (sub). Raises jwt exceptions on failure."""
-    payload = jwt.decode(
-        token, _JWT_SECRET, algorithms=["HS256"], audience=_AUD_ACCESS
-    )
-    return payload["sub"]
+    return jwt.decode(token, _JWT_SECRET, algorithms=["HS256"], audience=_AUD_ACCESS)["sub"]
 
 
 def decode_refresh(token: str) -> str:
     """Verify a refresh token and return user_id. Raises jwt exceptions on failure."""
-    payload = jwt.decode(
-        token, _REFRESH_SECRET, algorithms=["HS256"], audience=_AUD_REFRESH
-    )
-    return payload["sub"]
+    return jwt.decode(token, _REFRESH_SECRET, algorithms=["HS256"], audience=_AUD_REFRESH)["sub"]
 
 
 # ---------------------------------------------------------------------------
@@ -179,8 +152,8 @@ class RefreshRequest(BaseModel):
 
 def _token_response(user_id: str) -> dict:
     return {
-        "access_token":  _issue_access(user_id),
-        "refresh_token": _issue_refresh(user_id),
+        "access_token":  _issue(user_id, _JWT_SECRET, _AUD_ACCESS, _ACCESS_TTL),
+        "refresh_token": _issue(user_id, _REFRESH_SECRET, _AUD_REFRESH, _REFRESH_TTL),
         "token_type":    "bearer",
         "user_id":       user_id,
     }

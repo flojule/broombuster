@@ -23,6 +23,8 @@ from typing import Any
 import pyproj
 from shapely.geometry import MultiPolygon, Point, Polygon
 
+from broombuster import normalize
+
 _TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs(
     "EPSG:4326", "EPSG:3857", always_xy=True
 )
@@ -44,6 +46,11 @@ class ResolvedCar:
     distance_m: float            # Point-to-line distance in metres
     projected_point: tuple[float, float]  # Nearest point on centerline (EPSG:3857)
     is_polygon: bool             # True when the segment is a polygon (zone-based data)
+
+    @property
+    def label(self) -> str:
+        """Display name, falling back to the canonical name."""
+        return self.street_display or self.street_name
 
 
 def resolve_car_segment(
@@ -292,6 +299,4 @@ def _safe_int(v) -> int | None:
 
 
 def _safe_str(v) -> str:
-    if isinstance(v, str) and v.strip():
-        return v
-    return ""
+    return v if normalize.is_text(v) else ""

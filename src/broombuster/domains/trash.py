@@ -30,12 +30,8 @@ from typing import Any
 
 from broombuster import analysis, recollect, resolve
 from broombuster.cities import CITIES
+from broombuster.config import REPO_ROOT as _ROOT
 from broombuster.domains.base import DomainResult
-
-# Repo root — this file is <repo>/src/broombuster/domains/trash.py.
-_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
 
 _DEFAULT_STREAMS = (
     ("Garbage", "GARBAGE"),

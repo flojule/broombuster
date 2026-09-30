@@ -34,7 +34,7 @@ after `jumpTo`, so the first frame doesn't wait for the moveend debounce.
 
 ### 6. Spatial-index clip on the server
 `/check` uses
-[`gdf.sindex.query(clip_geom, predicate="intersects")`](../src/broombuster/api/app.py)
+[`gdf.sindex.query(clip_geom, predicate="intersects")`](../src/broombuster/api/helpers.py)
 instead of a full `.intersects()` scan. Indices are sorted to preserve
 DataFrame row order (the GeoJSON segment dedup depends on it).
 
@@ -47,7 +47,7 @@ no visible difference. `full_region` mode skips simplification because
 narrower bbox responses.
 
 ### 8. Atomic city hot-swap
-[`_hot_swap_city`](../src/broombuster/api/app.py) builds new EPSG:4326 +
+[`_load_city`](../src/broombuster/api/state.py) builds new EPSG:4326 +
 EPSG:3857 frames before taking `_swap_lock`, then assigns under the lock.
 `_get_region_gdfs` reads under the same lock so a request straddling a
 freshness refresh cannot see one CRS post-swap and the other pre-swap.
@@ -62,7 +62,7 @@ GDF once, branching on geometry type. The previous
 1 KB; the verbose `/check` GeoJSON gzips ~5-8x (interim SF win before tiles).
 
 ### 11. Style-ready render gate
-[`whenStyleReady()`](../frontend/js/app.js) replaces a one-shot
+[`whenStyleReady()`](../frontend/js/map.js) replaces a one-shot
 `map.once('style.load')` that could miss, leaving Chicago zones unpainted
 until a pan. Now gates on `styledata` + `isStyleLoaded()`.
 

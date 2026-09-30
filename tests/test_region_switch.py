@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from broombuster import data_loader
 from broombuster.api import app as api_mod
+from broombuster.api import state as state_mod
 from broombuster.cities import REGIONS
 
 # ---------------------------------------------------------------------------
@@ -35,16 +36,16 @@ def client_with_data(tmp_path_factory):
             try:
                 g = data_loader.load_city_data(ck).copy()
                 g["_city"] = ck
-                api_mod._city_gdfs[ck]      = g.to_crs("EPSG:4326")
-                api_mod._city_gdfs_3857[ck] = g.to_crs("EPSG:3857")
+                state_mod._city_gdfs[ck]      = g.to_crs("EPSG:4326")
+                state_mod._city_gdfs_3857[ck] = g.to_crs("EPSG:3857")
                 import threading
                 ev = threading.Event()
                 ev.set()
-                api_mod._city_events[ck]    = ev
-                api_mod._city_loaded_at[ck] = 0
+                state_mod._city_events[ck]    = ev
+                state_mod._city_loaded_at[ck] = 0
             except FileNotFoundError:
                 pytest.skip(f"Data for {ck} not available; build the FGBs")
-    api_mod._region_combined.clear()
+    state_mod._region_combined.clear()
 
     with TestClient(api_mod.app) as client:
         yield client

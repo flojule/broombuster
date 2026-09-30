@@ -165,9 +165,12 @@ BroomBuster/
 │   ├── gps.py                    Nominatim helpers (server-side house-number lookup)
 │   ├── maps.py                   GeoJSON builder for the MapLibre frontend
 │   ├── normalize.py              Single source of truth for street/time normalization
+│   ├── schemas.py                Per-city source-format normalisers (SCHEMA_PROFILES)
 │   ├── resolve.py                Authoritative car → segment resolver (used by /check)
 │   ├── api/                      HTTP server sub-package
-│   │   ├── app.py                FastAPI app: routes, startup loading, static mount
+│   │   ├── app.py                FastAPI app: routes, lifespan, static mount
+│   │   ├── state.py              City/region GeoDataFrame caches, loading, hot-swap
+│   │   ├── helpers.py            /check request helpers (region, address, clipping)
 │   │   ├── auth.py               Local HS256 JWT issuance and verification
 │   │   ├── db.py                 SQLite layer for user accounts & prefs
 │   │   └── deps.py               JWT verify dependency (DEV_MODE bypass)
@@ -180,7 +183,7 @@ BroomBuster/
 ├── frontend/
 │   ├── index.html       PWA shell (markup only)
 │   ├── styles.css       Extracted styles
-│   ├── js/app.js        Application logic
+│   ├── js/*.js          Application logic, split by feature (load order in index.html)
 │   ├── manifest.json    PWA manifest
 │   ├── sw.js            Service worker
 │   └── icon-*.png/svg   App icons

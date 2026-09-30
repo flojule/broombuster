@@ -12,8 +12,8 @@ import os
 
 import yaml
 
-# This file is <repo>/src/broombuster/manifest.py — walk up three levels.
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from broombuster.config import REPO_ROOT as _ROOT
+
 _MANIFEST_DIR = os.path.join(_ROOT, "data", "manifests")
 _REGIONS_FILE = "regions.yaml"
 
