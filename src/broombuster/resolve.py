@@ -10,9 +10,7 @@ ResolvedCar describing:
   - the distance from the car to the centerline
   - the point on the centerline nearest the car (projected, EPSG:3857)
 
-All downstream logic (urgency, schedule, map highlight, UI label) must
-consume this single result. Mixing Nominatim output with spatial-join output
-is what produced the cross-field inconsistencies this module replaces.
+The schedule, side and address label all come from this one result.
 """
 
 from __future__ import annotations

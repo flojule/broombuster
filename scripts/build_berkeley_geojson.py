@@ -5,7 +5,7 @@ Build data/berkeley/StreetSweeping.geojson from Berkeley's PDF schedules.
 Usage (from repo root):  python scripts/build_berkeley_geojson.py
 Input:  data/berkeley/*.pdf   (fetched by scripts/rebuild_city_data.py berkeley)
 Output: data/berkeley/StreetSweeping.geojson
-Requires: pip install -e '.[scripts]'
+Requires: uv sync --extra scripts
 
 Rows read "1st Fri" etc.: the nth weekday of every month, encoded as the
 recurring week-of-month code ("F1"), so the data never expires at year end.

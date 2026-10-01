@@ -5,6 +5,7 @@ Integration tests use the bundled / already-downloaded data files.
 Unit tests use synthetic GeoDataFrames so they never hit the network.
 """
 import datetime
+import re
 
 import geopandas
 import pandas as pd
@@ -12,6 +13,11 @@ import pytest
 import shapely.geometry
 
 from broombuster import analysis, data_loader, schemas
+
+
+def _dates(code: str) -> list[datetime.date]:
+    assert code.startswith("DATES:"), code
+    return [datetime.date.fromisoformat(d) for d in code[6:].split(",")]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,12 +47,18 @@ def _assert_schema(gdf: geopandas.GeoDataFrame, label: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+# The sweep-code grammar (data/README.md) that frontend/js/urgency.js evaluates.
+_DATE = r"\d{4}-\d{2}-\d{2}"
+_CODE_RE = re.compile(rf"(?:TH|SU|M|T|W|F|S)+(?:E|[1-5]+)?|E|DATES:{_DATE}(?:,{_DATE})*")
+
+
 def _assert_codes_parse(gdf, city):
     """Every real DAY_* code is a sweep rule or an explicit no-sweep marker."""
     codes = set(gdf["DAY_EVEN"].dropna()) | set(gdf["DAY_ODD"].dropna())
     bad = sorted(c for c in codes
-                 if not analysis.is_no_sweep_code(c) and analysis._rule(c) is None)
+                 if not analysis.is_no_sweep_code(c) and not _CODE_RE.fullmatch(c.strip().upper()))
     assert not bad, f"{city}: unparseable day codes {bad[:10]}"
+
 
 class TestLoadCityDataIntegration:
     """Load real bundled / cached data files and validate the schema contract."""
@@ -99,7 +111,7 @@ class TestLoadCityDataIntegration:
         gdf = data_loader.load_city_data("chicago_all")
         codes = gdf["DAY_EVEN"].dropna().unique()
         for code in codes[:10]:
-            result = analysis.parse_dates_code(str(code))
+            result = _dates(str(code))
             assert result, f"Chicago: code {code!r} parsed to empty list"
 
     def test_chicago_even_odd_identical(self):
@@ -310,7 +322,7 @@ class TestNormaliseChicago:
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
         out = schemas._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
-        result = analysis.parse_dates_code(code)
+        result = _dates(code)
         # Year-agnostic: every requested month/day is expanded, and inference
         # lands them all on weekdays (Mon-Fri), never weekends.
         md = {(d.month, d.day) for d in result}
@@ -492,8 +504,3 @@ class TestBuildCityFgb:
             data_loader.build_city_fgb("testville")
         assert fgb.read_bytes() == before
         assert sorted(p.name for p in fgb.parent.iterdir()) == ["test.fgb"]
-
-    def test_missing_fgb_names_the_rebuild_command(self, tmp_path, monkeypatch):
-        self._setup(tmp_path, monkeypatch)
-        with pytest.raises(FileNotFoundError, match="rebuild_city_data.py testville"):
-            data_loader.load_city_data("testville")

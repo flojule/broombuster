@@ -20,15 +20,14 @@ function initMap(center) {
 let _mapListenersAttached = false;
 let _tapTimer = null;  // deferred single-tap (cancelled by a double-tap zoom)
 
-// Resolve a settled single tap: open the zone detail popup for a hit feature,
-// else dismiss any open transient window. Split out of the click listener so the
-// double-tap defer can call it after the timer fires.
+// A settled single tap shows the tapped feature's schedule (the hover text, for
+// touch screens), else dismisses any open window.
 function handleMapTap(point, lngLat) {
   const features = map.queryRenderedFeatures(point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
-  // Tiles carry no detail_html; fetch the full-year popup for clicked zones.
-  const poly = features.find(f => f.properties && f.properties.render_type === 'polygon');
-  if (poly) fetchZoneDetail(poly.properties, lngLat);
-  else dismissMapWindows();
+  const props = features[0]?.properties;
+  if (!props) { dismissMapWindows(); return; }
+  showZoneDetail(lngLat, tileHoverHtml(props)
+    || `<b>${esc(props.street || '')}</b><br>No sweeping scheduled`);
 }
 
 function attachMapListeners() {
@@ -57,9 +56,8 @@ function attachMapListeners() {
   map.getCanvas().addEventListener('mouseleave', () => { customHoverEl.style.display = 'none'; });
   map.on('movestart', () => { customHoverEl.style.display = 'none'; });
 
-  // Tap → show zone detail (Chicago section schedule + PDF link) when a zone is
-  // hit; a tap away from a zone dismisses any open window (zone popup, GPS pin
-  // popup, car selection) — same as pressing Esc. The schedule/dismiss action is
+  // Tap → the feature's schedule popup; a tap elsewhere dismisses any open
+  // window (popup, GPS pin popup, car selection) — like Esc. The action is
   // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
   // placement commits immediately, and a tap while the name box is open cancels it.
   map.on('click', (e) => {
@@ -191,7 +189,7 @@ function scheduleUrgencyUpdate() {
 // feature-state is written only when the verdict changed.
 function applyUrgencyStates() {
   if (!map || !_tilesRegion || !map.getSource(TILES_SOURCE)) return;
-  const tz  = REGION_TZ[_tilesRegion] || 'UTC';
+  const tz  = regions[_tilesRegion]?.tz || 'UTC';
   const now = BroomUrgency.nowForTimeZone(tz);
   const stamp = now.y + '-' + now.m + '-' + now.d + '-' + now.min;
   let feats;
@@ -217,12 +215,12 @@ function applyUrgencyStates() {
 }
 
 // Canonical schedule lines for a tile feature (day-first, "Every <Wd>" merge,
-// Mon->Sun order, merged next-cluster dates) — identical to the card and the
-// server hover. Shared by the hover tooltip and the center banner.
+// Mon->Sun order, merged next-cluster dates), as on the car card. Shared by the
+// hover tooltip, the tap popup and the center banner.
 function tileSchedLines(props) {
   let sched = [];
   try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}
-  const tz  = REGION_TZ[_tilesRegion] || 'UTC';
+  const tz  = regions[_tilesRegion]?.tz || 'UTC';
   const now = BroomUrgency.nowForTimeZone(tz);
   const labels = [props.side_even || 'Even', props.side_odd || 'Odd'];
   return BroomUrgency.formatBothSides(
@@ -233,19 +231,4 @@ function tileHoverHtml(props) {
   const lines = tileSchedLines(props);
   // No real schedule (only N/A / no-sweep) → no hover at all.
   return lines.length ? `<b>${esc(props.street || '')}</b><br>${lines.map(esc).join('<br>')}` : '';
-}
-
-async function fetchZoneDetail(props, lngLat) {
-  let codes = [];
-  try { codes = JSON.parse(props.sched || '[]').map(e => e.code).filter(Boolean); } catch (_) {}
-  if (!codes.length) return;
-  const region = regionSelect.value || _renderedRegion || '';
-  const qs = new URLSearchParams({ street: props.street || '', city: props.city || '', region });
-  for (const c of new Set(codes)) qs.append('code', c);
-  try {
-    const res = await apiFetch('/zone/detail?' + qs.toString());
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.detail_html) showZoneDetail(lngLat, data.detail_html);
-  } catch (_) {}
 }

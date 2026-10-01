@@ -1,104 +1,26 @@
-"""Map-facing outputs: the PMTiles feature model and the zone/card detail HTML.
+"""PMTiles feature model: one record per physical feature with raw schedule codes.
 
-merge_segment_rows() produces ONE record per physical feature carrying the raw
-schedule codes — no urgency colour, no date-dependent HTML. The client
-(urgency.js) computes colour from these codes against the current date, so the
-tiles stay date-independent and only need rebuilding when the data refreshes.
+Tiles carry no urgency or dates; the client colours them against its clock, so
+they only need rebuilding when the data changes.
 """
 
-import calendar
-import datetime as _dt
-import html as _html
-import re as _re
+import re
 
 import shapely
 import shapely.geometry
 
 from broombuster import analysis as _analysis
 from broombuster import normalize
-from broombuster.cities import CITIES as _CITIES
 
 
 def _safe(val) -> str:
-    """Display-friendly text, or 'N/A' for missing / placeholder values."""
+    """Display text, or 'N/A' for missing / placeholder values."""
     return normalize.clean_text(val) or "N/A"
 
 
-# ---------------------------------------------------------------------------
-# Zone / card detail window
-# ---------------------------------------------------------------------------
+# Chicago zone names read "Ward 05, Section 03".
+_WARD_RE = re.compile(r"ward\s*0*(\d+)", re.IGNORECASE)
 
-# Ward number lives in the readable name ("Ward 05, Section 03"); the raw
-# ward/section columns are not persisted to the FGB, so parse it from there.
-_WARD_RE = _re.compile(r"ward\s*0*(\d+)", _re.IGNORECASE)
-
-
-def _ward_ordinal(n: int) -> str:
-    """Zero-padded ordinal ward number, e.g. 7 -> '07th', 22 -> '22nd'."""
-    suffix = "th" if 10 <= (n % 100) <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n:02d}{suffix}"
-
-
-def _pdf_url(name, city):
-    """Per-ward PDF URL from a zone name ("Ward 05, ...") and city key, or None."""
-    tmpl = (_CITIES.get(city) or {}).get("schedule_pdf_url")
-    m = _WARD_RE.search(str(name or "")) if tmpl else None
-    return tmpl.format(ward=_ward_ordinal(int(m.group(1)))) if m else None
-
-
-def _format_cluster(cluster, today):
-    """One line for a back-to-back date cluster, e.g. "Apr 17, 18".
-
-    Past day numbers are dimmed individually; if the whole cluster is past,
-    the entire line (month included) is wrapped for dimming.
-    """
-    all_past = all(d < today for d in cluster)
-    cells, last_month = [], None
-    for d in cluster:
-        day_txt = str(d.day)
-        if not all_past and d < today:
-            day_txt = f"<span class='zd-past'>{day_txt}</span>"
-        if d.month != last_month:
-            cells.append(f"{calendar.month_abbr[d.month]} {day_txt}")
-            last_month = d.month
-        else:
-            cells.append(day_txt)
-    line = ", ".join(cells)
-    return f"<span class='zd-past'>{line}</span>" if all_past else line
-
-
-def zone_detail_html(name, even, odd, city=None, local_now=None, car_side=None,
-                     labels=_analysis.DEFAULT_SIDE_LABELS):
-    """Click / car-card detail HTML for every schedule entry on both sides.
-
-    'DATES:' codes render as the full year (past dimmed); weekly codes as the
-    canonical side lines. Adds the ward PDF link when the city has one.
-    """
-    dates = sorted({d for e in list(even) + list(odd)
-                    for d in (_analysis.parse_dates_code(e[0]) or [])})
-    weekly_even = [e for e in even if _analysis.parse_dates_code(e[0]) is None]
-    weekly_odd = [e for e in odd if _analysis.parse_dates_code(e[0]) is None]
-    parts = [_html.escape(ln) for ln in _analysis.side_lines(
-        weekly_even, weekly_odd, car_side, labels, local_now)]
-    if dates:
-        today = local_now.date() if local_now else _dt.date.today()
-        parts.append("<br>".join(_format_cluster(cl, today)
-                                 for cl in _analysis.cluster_dates(dates)))
-    body = "<br>".join(parts) or "No sweeping scheduled"
-    html = f"<b>{_html.escape(_safe(name))}</b><br><span class='zd-dates'>{body}</span>"
-    pdf = _pdf_url(name, city)
-    if pdf:
-        link = f"{dates[0].year} schedule" if dates else "schedule"
-        html += (
-            f"<br><a class='zd-link' href='{_html.escape(pdf, quote=True)}' "
-            f"target='_blank' rel='noopener'>{link} ↗</a>"
-        )
-    return html
-
-
-# ---------------------------------------------------------------------------
-# Tile-feature model (PMTiles build pipeline)
-# ---------------------------------------------------------------------------
 
 _POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
 

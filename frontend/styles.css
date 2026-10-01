@@ -11,43 +11,13 @@
     /* Keep map drags from scrolling/rubber-banding the page behind it. */
     html, body { overflow: hidden; overscroll-behavior: none; }
 
-    /* ── Auth ── */
     [hidden] { display: none !important; }
-    #auth-screen {
-      position: fixed; inset: 0; z-index: 2000; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; padding: 24px;
-      background: url('/grim_sweeper_rect.webp') center center / cover no-repeat #0f172a;
-    }
-    #auth-screen::before {
-      content: ''; position: absolute; inset: 0; background: rgba(0,0,0,0.52); pointer-events: none; z-index: 0;
-    }
-    #auth-screen > * { position: relative; z-index: 1; }
-    .auth-sub { color: #94a3b8; font-size: .82rem; margin: -8px 0 4px; line-height: 1.4; }
-    .card {
-      position: relative;
-      background: rgba(10,16,30,0.82); border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 16px; padding: 24px; width: 100%; max-width: 320px;
-      box-shadow: 0 8px 32px rgba(0,0,0,.45);
-    }
-    .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: #e2e8f0; }
-    label { display: block; font-size: .82rem; font-weight: 500; color: #64748b; margin-bottom: 4px; margin-top: 12px; }
-    input[type=email], input[type=password] {
-      width: 100%; padding: 9px 11px;
-      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
-      border-radius: 8px; font-size: .95rem; outline: none; color: #f1f5f9;
-      transition: border-color .15s;
-    }
-    input::placeholder { color: #475569; }
-    input:focus { border-color: #059669; }
     button { display: block; width: 100%; padding: 10px; margin-top: 16px; background: var(--blue); color: #fff; border: none; border-radius: 10px; font-size: .95rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
     button:disabled { opacity: .5; cursor: default; }
     button:not(:disabled):hover { opacity: .9; }
-    #btn-login { background: #059669; }
-    .btn-ghost { background: transparent; color: #64748b; border: 1px solid rgba(255,255,255,0.13); margin-top: 8px; font-weight: 500; }
-    #auth-error { color: #f87171; font-size: .82rem; margin-top: 8px; min-height: 16px; }
 
     /* ── App ── */
-    #app-screen { display: none; flex-direction: column; height: 100dvh; }
+    #app-screen { display: flex; flex-direction: column; height: 100dvh; }
 
     /* ── Topbar ── */
     #topbar {
@@ -71,7 +41,6 @@
     #status-text.tomorrow { color: #c2410c; }
     #status-text.safe     { color: #1d4ed8; }
     #status-text.idle     { color: var(--muted); }
-    #btn-logout, #btn-signin { background: transparent; color: var(--muted); border: 1px solid var(--border); font-weight: 500; }
     #btn-locate        { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
     #btn-locate.ip     { background: #eef1f7; color: #94a3b8; border-color: #d1d9ea; }
     #btn-locate.gps    { background: var(--blue); color: #fff; border-color: var(--blue); }
@@ -275,7 +244,6 @@
       box-shadow: 0 6px 24px rgba(0,0,0,.28);
       width: min(320px, 90vw); max-height: 80vh; overflow-y: auto;
     }
-    #card-detail .zd-link { margin-top: 8px; }
 
     /* ── Sweep calendar: card strip + detail-window month grid ── */
     .sw-strip { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; margin-top: 5px; cursor: pointer; }
@@ -305,10 +273,6 @@
     .cal-detail { margin-top: 6px; font-weight: 600; }
     .cal-legend { font-size: .68rem; color: var(--muted); margin-top: 2px; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-left: 4px; }
-    .cal-info { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-    .cal-feed .zd-link { margin-top: 0; }
-    .cal-feed { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-    .cal-note { font-size: .68rem; color: var(--muted); }
 
     /* ── Custom hover tooltip ── */
     #custom-hover {
@@ -339,11 +303,6 @@
       font-size: 1.05rem; line-height: 1; color: var(--muted); border-radius: 5px;
     }
     .zone-detail-popup .maplibregl-popup-close-button:hover { color: var(--text); background: var(--bg); }
-    .zd-label { font-size: .68rem; font-weight: 600; color: var(--muted); }
-    .zd-dates { color: var(--text); }
-    .zd-past  { opacity: .4; }
-    .zd-link  { display: inline-block; margin-top: 6px; color: var(--blue); font-weight: 600; text-decoration: none; }
-    .zd-link:hover { text-decoration: underline; }
 
     /* ── Car marker (MapLibre HTML element) ── */
     .car-marker {
@@ -431,8 +390,7 @@
 
     /* ── Desktop: dock cars/homes as a narrow panel on the right instead of a
        bottom-center sheet, so it doesn't eat center space and isn't too wide.
-       The center band returns to the bottom (nothing to clear) and stays
-       visible while the panel is open (they no longer overlap). ── */
+       The center band sits at the bottom and stays visible. ── */
     @media (min-width: 768px) {
       #sheet {
         left: auto; right: 12px; bottom: auto; top: 12px;

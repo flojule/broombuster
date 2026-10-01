@@ -1,8 +1,4 @@
 import calendar
-import datetime
-import functools
-import logging
-import re
 import threading
 import weakref
 from typing import NamedTuple
@@ -12,12 +8,8 @@ import shapely
 
 from broombuster import normalize
 
-logger = logging.getLogger(__name__)
-
-
 # ---------------------------------------------------------------------------
-# Sweep-code grammar (mirrored in frontend/js/urgency.js; tables checked by
-# tests/test_urgency_parity.py)
+# Sweep-code grammar (evaluated by frontend/js/urgency.js)
 #
 #   code     := DAYS [ "E" | ORDINALS ] | "E" | "DATES:" iso-date{,iso-date}
 #   DAYS     := one or more of TH SU M T W F S   (longest token first)
@@ -39,75 +31,10 @@ NO_SWEEP_CODES = frozenset({
     "MS", "DM", "MISSING",
 })
 
-_CODE_RE = re.compile(r"((?:TH|SU|M|T|W|F|S)*)(E?|[1-5]+)")
-_DAY_TOKEN_RE = re.compile(r"TH|SU|M|T|W|F|S")
-
 
 def is_no_sweep_code(code) -> bool:
     """True if the given DAY_* code is one of the explicit no-sweep markers."""
     return isinstance(code, str) and code.strip().upper() in NO_SWEEP_CODES
-
-
-@functools.lru_cache(maxsize=4096)
-def _code_parts(code: str) -> tuple[tuple[str, ...], str] | None:
-    """(day tokens, suffix) of a weekly code, or None when not weekly/no-sweep."""
-    c = code.strip().upper()
-    if c in NO_SWEEP_CODES:
-        return None
-    m = _CODE_RE.fullmatch(c)
-    if not m:
-        return None
-    days, suffix = m.groups()
-    if not days and suffix != "E":
-        return None
-    return tuple(_DAY_TOKEN_RE.findall(days)), suffix
-
-
-class _Rule(NamedTuple):
-    weekdays: frozenset  # Mon=0..Sun=6; empty for DATES codes
-    ordinals: frozenset  # week-of-month 1..5; empty = every week
-    dates: frozenset     # explicit dates ('DATES:' codes only)
-
-
-@functools.lru_cache(maxsize=4096)
-def _rule(code: str) -> _Rule | None:
-    """Parsed sweep rule for a code, or None for no-sweep / unknown codes."""
-    dates = parse_dates_code(code)
-    if dates is not None:
-        return _Rule(frozenset(), frozenset(), frozenset(dates))
-    parts = _code_parts(code)
-    if parts is None:
-        return None
-    tokens, suffix = parts
-    weekdays = (frozenset(WEEKDAY_CODES[t][0] for t in tokens) if tokens
-                else frozenset(range(7)))
-    ordinals = frozenset(int(ch) for ch in suffix) if suffix.isdigit() else frozenset()
-    return _Rule(weekdays, ordinals, frozenset())
-
-
-def sweeps_on(code, day: datetime.date) -> bool:
-    """True if `code` schedules sweeping on `day`."""
-    if not isinstance(code, str):
-        return False
-    r = _rule(code)
-    if r is None:
-        return False
-    if r.dates:
-        return day in r.dates
-    if day.weekday() not in r.weekdays:
-        return False
-    return not r.ordinals or (day.day - 1) // 7 + 1 in r.ordinals
-
-
-def dates_in_range(code, start: datetime.date, end: datetime.date) -> list:
-    """Sorted sweep dates of `code` in [start, end] (inclusive)."""
-    out = []
-    d = start
-    while d <= end:
-        if sweeps_on(code, d):
-            out.append(d)
-        d += datetime.timedelta(days=1)
-    return out
 
 
 def schedules_for_segment(segment):
@@ -212,52 +139,6 @@ def _segment_endpoints(geom):
     return frozenset(out) if out else None
 
 
-def sweep_days(even, odd, start: datetime.date, end: datetime.date) -> dict:
-    """{date: [(side, time), ...]} for both sides' sweeps in [start, end], date-sorted.
-
-    even / odd are (code, desc, time) entries; side is "even" or "odd".
-    """
-    out: dict = {}
-    for side, entries in (("even", even), ("odd", odd)):
-        for code, _desc, time in entries:
-            item = (side, normalize.clean_text(time))
-            for d in dates_in_range(code, start, end):
-                if item not in out.setdefault(d, []):
-                    out[d].append(item)
-    return dict(sorted(out.items()))
-
-
-def check_day_street_sweeping(schedule, local_now=None):
-    """"today" | "tomorrow" | "safe" for a list of (code, desc, time) entries.
-
-    "today" only while at least one of today's windows is still open (an
-    untimed or unparseable window counts as open all day). Dates are taken in
-    the region-local clock `local_now`; without it, the server date and no
-    window check.
-    """
-    today = local_now.date() if local_now else datetime.date.today()
-    tomorrow = today + datetime.timedelta(days=1)
-    today_times: list = []
-    swept_tomorrow = False
-    for entry in schedule:
-        if not entry:
-            continue
-        code = entry[0]
-        if sweeps_on(code, today):
-            today_times.append(entry[2] if len(entry) >= 3 else "")
-        if sweeps_on(code, tomorrow):
-            swept_tomorrow = True
-
-    if today_times:
-        if local_now is None:
-            return "today"
-        now_t = local_now.time()
-        for ts in today_times:
-            window = normalize.time_window(ts)
-            if window is None or now_t <= window[1]:
-                return "today"
-    return "tomorrow" if swept_tomorrow else "safe"
-
 
 class SegmentIndex(NamedTuple):
     """Per-GDF lookup behind schedules_for_all_matching_rows."""
@@ -276,8 +157,7 @@ _segment_index_lock = threading.Lock()
 def segment_index(gdf) -> SegmentIndex:
     """Cached SegmentIndex for `gdf` (built once; ~1 s for the Bay Area on a Pi).
 
-    Keys mirror the per-row rules schedules_for_all_matching_rows used to
-    apply: STREET_KEY when it is text, else the normalised STREET_NAME; one
+    Keys: STREET_KEY when it is text, else the normalised STREET_NAME; one
     entry per non-empty LineString part with at least two coordinates.
     """
     gdf_id = id(gdf)
@@ -346,28 +226,6 @@ def get_schedule(row, side):
     return side_entry(row.get(f"DAY_{s}"), row.get(f"DESC_{s}"), row.get(f"TIME_{s}"))
 
 
-_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
-
-
-def parse_dates_code(code) -> list | None:
-    """Sorted list of dates for a 'DATES:' code, or None for any other code."""
-    if not isinstance(code, str) or not code.upper().startswith("DATES:"):
-        return None
-    out = []
-    for ds in code[6:].split(","):
-        ds = ds.strip()
-        if not ds:
-            continue
-        try:
-            # YYYY-MM-DD only (fromisoformat also takes "20260929"; JS does not).
-            if not _ISO_DATE_RE.fullmatch(ds):
-                raise ValueError(ds)
-            out.append(datetime.date.fromisoformat(ds))
-        except ValueError:
-            logger.warning("skipping invalid date %r in sweep code", ds)
-    return sorted(out)
-
-
 def format_dates_by_month(dates) -> str:
     """Group sorted dates into "Apr 17, 18; May 15" (preserving date order)."""
     grouped: dict = {}
@@ -384,172 +242,6 @@ def format_dates_by_month(dates) -> str:
     )
 
 
-# A section's two sides are swept a few days apart (e.g. Jun 13 & 16); dates
-# within this gap belong to the same sweeping occurrence. Bi-weekly sections
-# sweep ~14 days apart, so this stays well below that and never over-merges.
-_CLUSTER_GAP_DAYS = 4
-
-
-def cluster_dates(dates, max_gap_days: int = _CLUSTER_GAP_DAYS) -> list:
-    """Group sorted dates into clusters; a gap > max_gap_days starts a new one."""
-    clusters: list = []
-    cur: list = []
-    for d in dates:
-        if cur and (d - cur[-1]).days > max_gap_days:
-            clusters.append(cur)
-            cur = []
-        cur.append(d)
-    if cur:
-        clusters.append(cur)
-    return clusters
-
-
-def next_cluster_dates(code, local_now=None, max_dates: int = 3) -> list | None:
-    """Dates of the next upcoming sweep cluster for a 'DATES:' code.
-
-    None for non-DATES codes; [] when no future dates remain. Capped at
-    `max_dates`.
-    """
-    dates = parse_dates_code(code)
-    if dates is None:
-        return None
-    today = local_now.date() if local_now else datetime.date.today()
-    future = [d for d in dates if d >= today]
-    if not future:
-        return []
-    return cluster_dates(future)[0][:max_dates]
-
-
-def _code_weekday(code: str):
-    """(rank, display) of a weekly code's first weekday, or None."""
-    parts = _code_parts(code)
-    return WEEKDAY_CODES[parts[0][0]] if parts and parts[0] else None
-
-
-def _code_ordinals(code: str) -> set:
-    """Week-of-month ordinals of a weekly code ('M13' -> {1, 3})."""
-    parts = _code_parts(code)
-    return {int(ch) for ch in parts[1]} if parts and parts[1].isdigit() else set()
-
-
-def _contiguous_runs(ranks):
-    """Split sorted weekday ranks into runs of consecutive days ([0,1,2,4] ->
-    [[0,1,2],[4]])."""
-    runs, cur = [], []
-    for r in ranks:
-        if cur and r == cur[-1] + 1:
-            cur.append(r)
-        else:
-            if cur:
-                runs.append(cur)
-            cur = [r]
-    if cur:
-        runs.append(cur)
-    return runs
-
-
-def _weekday_range_body(label, time) -> str:
-    """'<label>, <time>' line for a collapsed weekday range / 'Every day'."""
-    t = normalize.time_display(time or "")
-    return f"{label}, {t}" if t and t != "N/A" else label
-
-
-def format_schedule_side(entries, local_now=None) -> list:
-    """Canonical display lines for one side's (code, desc, time) entries.
-
-    Unifies every surface (card, hover, zone): weekday-codes are grouped by
-    (weekday, time); a 1st&3rd + 2nd&4th pair on the same time collapses to
-    "Every <Wd>"; lines are ordered Mon->Sun. 'DATES:' codes (Berkeley/Chicago)
-    contribute their next sweep dates, merged across codes into one
-    chronological line. No-sweep codes are dropped.
-    """
-    clean = [
-        e for e in (entries or [])
-        if e and len(e) >= 1 and isinstance(e[0], str) and not is_no_sweep_code(e[0])
-    ]
-
-    dates_entries = [e for e in clean if parse_dates_code(e[0]) is not None]
-    weekly = [e for e in clean if parse_dates_code(e[0]) is None]
-
-    # Group weekday entries by (rank, normalized time); union their ordinals.
-    groups: dict = {}
-    loose: list = []
-    for e in weekly:
-        code = e[0]
-        desc = e[1] if len(e) >= 2 else ""
-        time = e[2] if len(e) >= 3 else ""
-        wk = _code_weekday(code)
-        if wk is None:
-            loose.append((desc, time))
-            continue
-        rank, disp = wk
-        key = (rank, normalize.time_display(time or ""))
-        g = groups.setdefault(key, {"rank": rank, "disp": disp,
-                                    "ords": set(), "time": time, "items": []})
-        g["ords"] |= _code_ordinals(code)
-        g["items"].append((desc, time))
-
-    # A group recurs "every week" when it carries no ordinal qualifier (plain
-    # weekday code) or covers all four ordinals (1st&3rd + 2nd&4th). Every-week
-    # groups that share one time across a contiguous run of 3+ weekdays collapse
-    # into a single "Mon–Fri, <time>" line (all seven days -> "Every day,
-    # <time>"); shorter runs and partial-ordinal groups stay one line per day.
-    ranked: list = []  # (rank, ord_key, body)
-    everyweek: dict = {}  # time_display -> {"time": raw, "days": {rank: (disp, fallback)}}
-    for (rank, td), g in groups.items():
-        if (not g["ords"]) or ({1, 2, 3, 4} <= g["ords"]):
-            if {1, 2, 3, 4} <= g["ords"]:
-                fallback = normalize.sweep_body(f"Every {g['disp']}", g["time"])
-            else:
-                fallback = normalize.sweep_body(g["items"][0][0], g["items"][0][1])
-            slot = everyweek.setdefault(td, {"time": g["time"], "days": {}})
-            slot["days"][rank] = (g["disp"], fallback)
-        else:
-            for desc, time in g["items"]:
-                ranked.append((rank, 0, normalize.sweep_body(desc, time)))
-
-    for _td, slot in everyweek.items():
-        days = slot["days"]
-        ord_ranks = sorted(days)
-        if len(ord_ranks) == 7:
-            ranked.append((0, -1, _weekday_range_body("Every day", slot["time"])))
-            continue
-        for run in _contiguous_runs(ord_ranks):
-            if len(run) >= 3:
-                label = f"{days[run[0]][0]}–{days[run[-1]][0]}"
-                ranked.append((run[0], -1, _weekday_range_body(label, slot["time"])))
-            else:
-                for r in run:
-                    ranked.append((r, -1, days[r][1]))
-    ranked.sort(key=lambda x: (x[0], x[1]))
-
-    lines: list = []
-    seen: set = set()
-    for _r, _o, body in ranked:
-        if body and body not in seen:
-            seen.add(body)
-            lines.append(body)
-    for desc, time in loose:
-        body = normalize.sweep_body(desc, time)
-        if body and body not in seen:
-            seen.add(body)
-            lines.append(body)
-
-    # DATES codes: merge each code's next cluster into one chronological line.
-    if dates_entries:
-        merged: list = []
-        for code, *_ in dates_entries:
-            merged += next_cluster_dates(code, local_now) or []
-        merged = sorted(set(merged))
-        if merged:
-            line = format_dates_by_month(merged)
-            if line not in seen:
-                lines.append(line)
-
-    return lines
-
-
-
 DEFAULT_SIDE_LABELS = ("Even", "Odd")
 
 
@@ -561,23 +253,3 @@ def side_labels(row) -> tuple[str, str]:
     return (e if normalize.is_text(e) else DEFAULT_SIDE_LABELS[0],
             o if normalize.is_text(o) else DEFAULT_SIDE_LABELS[1])
 
-
-def side_groups(even, odd, car_side=None, labels=DEFAULT_SIDE_LABELS, local_now=None):
-    """[(side, label, lines)] per side, car's side first; [(None, None, lines)]
-    when both sides read identically."""
-    ev = format_schedule_side(even, local_now)
-    od = format_schedule_side(odd, local_now)
-    if ev and ev == od:
-        return [(None, None, ev)]
-    groups = [("even", labels[0], ev), ("odd", labels[1], od)]
-    if car_side == "odd":
-        groups.reverse()
-    return groups
-
-
-def side_lines(even, odd, car_side=None, labels=DEFAULT_SIDE_LABELS, local_now=None) -> list:
-    """Display lines for both sides: unlabelled when identical, else '<label>: <line>'."""
-    out: list = []
-    for _side, label, lines in side_groups(even, odd, car_side, labels, local_now):
-        out += lines if label is None else [f"{label}: {ln}" for ln in lines]
-    return out

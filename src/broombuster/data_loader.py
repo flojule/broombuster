@@ -1,37 +1,5 @@
-"""
-Loads and normalises street-sweeping GeoDataFrames for any supported city.
+"""City FlatGeobufs: load at runtime, build from raw input (schema: data/README.md)."""
 
-After loading, every GeoDataFrame shares this standard column schema so that
-analysis.py and maps.py work identically regardless of the data source:
-
-  STREET_NAME    Full street name, upper-case, whitespace-normalised
-  STREET_KEY     Canonical comparison key (normalize.street_name)
-  STREET_DISPLAY Short readable name (normalize.street_display)
-  DAY_EVEN       Oakland-style sweep-day code for even-numbered addresses
-                 (e.g. "M13", "FE", "WE").  None / NaN means no sweep.
-  DAY_ODD        Same for odd-numbered addresses.
-  DESC_EVEN      Human-readable schedule description – even side
-  DESC_ODD       Human-readable schedule description – odd side
-  TIME_EVEN      Sweep time window string – even side  (e.g. "8AM–10AM")
-  TIME_ODD       Sweep time window string – odd side
-  L_F_ADD        Left-side from-address number  (NaN if unavailable)
-  L_T_ADD        Left-side to-address number
-  R_F_ADD        Right-side from-address number
-  R_T_ADD        Right-side to-address number
-  SIDE_EVEN      Optional display label of the even bucket (SF: compass side,
-  SIDE_ODD       e.g. "North"); absent / null means "Even" / "Odd"
-  _city          City key (added on load; not stored in the FGB)
-
-Day codes follow the grammar in analysis.py (e.g. "ME" every Mon, "M13"
-1st+3rd Mon, "T135" 1st+3rd+5th Tue, "MTHE" every Mon+Thu, "DATES:..."
-explicit dates); analysis.NO_SWEEP_CODES lists the no-sweeping markers.
-
-The runtime only reads the committed FlatGeobuf (`fgb_path`). Raw inputs are
-fetched and normalised into it by scripts/rebuild_city_data.py, which calls
-build_city_fgb().
-"""
-
-import functools
 import os
 
 import geopandas
@@ -43,41 +11,19 @@ from broombuster.config import REPO_ROOT as _ROOT
 from broombuster.schemas import SCHEMA_COLS, SCHEMA_PROFILES
 
 
-@functools.lru_cache(maxsize=8)
-def _read_fgb(path: str, mtime: float) -> geopandas.GeoDataFrame:
-    """Read a FlatGeobuf once per (path, mtime); callers get copies."""
-    return geopandas.read_file(path)
-
-
 def load_city_data(city_key: str) -> geopandas.GeoDataFrame:
-    """Normalised GeoDataFrame (EPSG:4326) for a city, tagged with `_city`."""
-    city = CITIES[city_key]
-    path = os.path.join(_ROOT, city["fgb_path"])
-    if not os.path.exists(path):
-        raise FileNotFoundError(
-            f"No data found for {city['name']}: missing {path}.\n"
-            f"Rebuild it with:  python scripts/rebuild_city_data.py {city_key}"
-        )
-    gdf = _read_fgb(path, os.path.getmtime(path)).copy()
+    """A city's normalised GeoDataFrame (EPSG:4326), tagged with `_city`."""
+    gdf = geopandas.read_file(os.path.join(_ROOT, CITIES[city_key]["fgb_path"]))
     gdf["_city"] = city_key
     return gdf
 
 
 def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
-    """Every loadable city of a region in one EPSG:4326 GeoDataFrame.
-
-    Cities whose FGB is missing are skipped with a warning, so the rest of the
-    region still loads.
-    """
-    gdfs = []
-    for city_key in REGIONS[region_key]["cities"]:
-        try:
-            gdfs.append(load_city_data(city_key))
-        except FileNotFoundError as exc:
-            print(f"  ⚠  Skipping {CITIES[city_key]['name']}: {exc}")
-    if not gdfs:
-        raise RuntimeError(f"No city data could be loaded for region '{region_key}'.")
-    return geopandas.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs="EPSG:4326")
+    """Every city of a region in one EPSG:4326 GeoDataFrame."""
+    return geopandas.GeoDataFrame(
+        pd.concat([load_city_data(ck) for ck in REGIONS[region_key]["cities"]],
+                  ignore_index=True),
+        crs="EPSG:4326")
 
 
 def build_city_fgb(city_key: str) -> geopandas.GeoDataFrame:

@@ -1,7 +1,5 @@
-# Berkeley street sweeping, built from the city's PDF schedules.
 name: "Berkeley, CA"
 center: {lat: 37.8716, lon: -122.2727}
-manual_default: {lat: 37.8716, lon: -122.2727}
 schema: berkeley
 bbox: [37.84, -122.32, 37.91, -122.23]
 fgb_path: data/berkeley/StreetSweeping.fgb
@@ -12,11 +10,6 @@ source:
     - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNamesA-G.pdf
     - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNamesH-Z.pdf
     - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNumbered.pdf
-  sha256:
-    data/berkeley/StreetSweepingSchedule_StNamesA-G.pdf: a017acda777852e877e691eb3d07eeba978755dffc3a27e662f93e5836abe45b
-    data/berkeley/StreetSweepingSchedule_StNamesH-Z.pdf: 22cc1a8203dfa70eea41b4067db79d51bb754189611bef96563e5b01bb36b9ac
-    data/berkeley/StreetSweepingSchedule_StNumbered.pdf: 05ecb14fd55a7b7aa1ff2a0913565fe65e987756dae2498243ff3f70713739d7
   notes: |
-    Three PDFs (streets A-G, H-Z, numbered); the build script geocodes them
-    against OpenStreetMap (Overpass). Check for newer PDFs at
+    Streets are placed with OpenStreetMap (Overpass). Newer PDFs:
     https://berkeleyca.gov/city-services/streets-sidewalks-sewers-and-utilities/street-sweeping

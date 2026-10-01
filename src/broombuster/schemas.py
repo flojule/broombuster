@@ -1,5 +1,5 @@
 """Per-city source-format normalisers; each returns the standard schema
-documented in data_loader.py. SCHEMA_PROFILES maps a manifest `schema` name
+documented in data/README.md. SCHEMA_PROFILES maps a manifest `schema` name
 to its normaliser."""
 
 import math

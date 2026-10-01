@@ -1,7 +1,3 @@
-// ── Config ────────────────────────────────────────────────────────────────────
-const DEV_MODE      = window.DEV_MODE === true;
-const REGION_TZ     = window.REGION_TZ || {};
-
 // Every urgency surface reads this one table: card/banner colour (CSS vars in
 // styles.css), labels, and the map paint (MapLibre needs literal colours).
 const URGENCY = {
@@ -12,7 +8,6 @@ const URGENCY = {
   safe:     { color: 'var(--urg-safe)',     car: '✅ All clear',          short: '✅ Clear',
               fill: 'rgba(80,110,180,0.18)', border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
 };
-const URGENCY_RANK = { today: 2, tomorrow: 1, safe: 0 };
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
@@ -23,17 +18,9 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function apiFetch(path, opts = {}) {
-  const token = session?.access_token;
-  return fetch(path, {
-    ...opts,
-    headers: { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
-}
-
-// POST a JSON body (with the session token when signed in); returns the Response.
+// POST a JSON body; returns the Response.
 function postJSON(path, body) {
-  return apiFetch(path, {
+  return fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -79,10 +66,9 @@ function makeEditable(el, original, onCommit) {
 function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let session        = null;
 let cars           = [];
 let activeCarId    = null;
-let regions        = {};
+let regions        = {};         // regionKey → {name, center, zoom, tz} from /cities
 let placingCar     = false;
 let placingHome    = false;
 let placingEditId  = null;
@@ -101,7 +87,7 @@ let _settingRegion   = false;  // true while setNearestRegion() is updating the 
 let map = null;
 const _carMarkers  = new Map();  // carId → maplibregl.Marker
 let homes          = [];         // [{ id, lat, lon, address }] — saved residences
-let homeSchedules  = {};         // homeId → /check-home response (home-subject domains[])
+let homeSchedules  = {};         // homeId → /check-home response
 const _homeMarkers = new Map();  // homeId → maplibregl.Marker for the home pin
 let _gpsMarker     = null;
 let _tempPinMarker = null;
@@ -138,16 +124,6 @@ function _wantDark() {
 let _mapStyle = _wantDark() ? DARK_STYLE : LIGHT_STYLE;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
-const authScreen     = document.getElementById('auth-screen');
-const appScreen      = document.getElementById('app-screen');
-const emailEl        = document.getElementById('email');
-const passwordEl     = document.getElementById('password');
-const authError      = document.getElementById('auth-error');
-const btnLogin       = document.getElementById('btn-login');
-const btnSignup      = document.getElementById('btn-signup');
-const btnLogout      = document.getElementById('btn-logout');
-const btnSignin      = document.getElementById('btn-signin');
-const authClose      = document.getElementById('btn-auth-close');
 const btnLocate      = document.getElementById('btn-locate');
 const regionSelect   = document.getElementById('region-select');
 const statusText     = document.getElementById('status-text');

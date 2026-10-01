@@ -293,3 +293,28 @@ def test_oakland_known_coord_snaps_to_chestnut(bay_area_3857):
     assert _norm(resolved.street_name) == _norm("CHESTNUT ST")
     assert resolved.is_polygon is False
     assert resolved.distance_m < 40.0
+
+
+# ---------------------------------------------------------------------------
+# Real data: the card schedule (union over the physical segment) includes the
+# resolved segment's own entries.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("lat,lon,city", [
+    (37.821326, -122.280705, "oakland"),
+    (37.830060, -122.261070, "oakland"),
+    (37.759700, -122.421200, "san_francisco"),
+])
+def test_union_keeps_resolved_schedule(bay_area_3857, lat, lon, city):
+    from broombuster import analysis
+
+    r = resolve_car_segment(bay_area_3857, lat, lon, city_key=city, max_distance_m=50.0)
+    even, odd = analysis.schedules_for_all_matching_rows(bay_area_3857, r)
+    for side, union in ((0, even), (1, odd)):
+        own = analysis.get_schedule(r.segment, side)
+        assert own is None or own in union
+
+
+def test_midblock_snaps_to_street(bay_area_3857):
+    r = resolve_car_segment(bay_area_3857, 37.821326, -122.280705, city_key="oakland")
+    assert r.street_name.upper().startswith("CHESTNUT")

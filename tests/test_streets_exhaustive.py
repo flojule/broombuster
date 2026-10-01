@@ -180,7 +180,7 @@ def test_address_range_presence_and_sample_lookup(city_key):
 
 
 # ---------------------------------------------------------------------------
-# street_display helpers — previously nested (never ran), now at module level
+# street_display helpers
 # ---------------------------------------------------------------------------
 
 def test_display_ordinals_preserved():

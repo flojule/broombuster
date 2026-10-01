@@ -1,12 +1,10 @@
-// Client-side port of broombuster.analysis urgency logic. Tiles carry raw
-// schedule codes (sched property); checkDaySweeping computes today/tomorrow/safe
-// against a region-local "now" so colour matches the server. Must stay
-// behaviour-identical to analysis.check_day_street_sweeping / sweeps_on and
-// normalize.time_window / sweep_body (tests/test_urgency_parity.py).
+// Sweep-code evaluation and schedule display (grammar: data/README.md). Tiles
+// and /check carry raw codes; checkDaySweeping gives today/tomorrow/safe
+// against a region-local "now". Tested by tests/test_urgency.py.
 (function (global) {
   'use strict';
 
-  // Mirror analysis.WEEKDAY_CODES / NO_SWEEP_CODES (parity-tested).
+  // Same tables as analysis.WEEKDAY_CODES / NO_SWEEP_CODES.
   var WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var WEEKDAY_CODES = {};
   ['M', 'T', 'W', 'TH', 'F', 'S', 'SU'].forEach(function (t, i) { WEEKDAY_CODES[t] = [i, WEEKDAYS[i]]; });
@@ -17,7 +15,6 @@
   ];
   var NO_SWEEP = {};
   NO_SWEEP_CODES.forEach(function (c) { NO_SWEEP[c] = 1; });
-  // Mirror analysis._CODE_RE / _DAY_TOKEN_RE (see the grammar there).
   var CODE_RE = /^((?:TH|SU|M|T|W|F|S)*)(E?|[1-5]+)$/;
   var DAY_TOKEN_RE = /TH|SU|M|T|W|F|S/g;
 
@@ -37,7 +34,7 @@
   }
   function addOneDay(y, m, d) { return addDays({ y: y, m: m, d: d }, 1); }
 
-  // ── Sweep-code rules (mirror analysis._code_parts / _rule / sweeps_on) ──────
+  // ── Sweep-code rules ─────────────────────────────────────────────────────────
   var _partsCache = {};
   // {days: [token...], suffix} for a weekly code, or null.
   function codeParts(code) {
@@ -98,7 +95,7 @@
     return out;
   }
 
-  // Both sides' sweeps in [start, end] (mirror analysis.sweep_days):
+  // Both sides' sweeps in [start, end]:
   // [{y, m, d, items: [{side: 'even'|'odd', time}]}] date-sorted.
   function sweepDays(even, odd, start, end) {
     var byKey = {};
@@ -117,7 +114,7 @@
       .map(function (k) { return byKey[k]; });
   }
 
-  // ── Urgency verdict (mirror check_day_street_sweeping) ───────────────────────
+  // ── Urgency verdict ──────────────────────────────────────────────────────────
   // entries: [{code, time}, ...]; now: {y, m, d, min} (min = minutes since
   // region-local midnight). Returns 'today' | 'tomorrow' | 'safe'.
   function checkDaySweeping(entries, now) {
@@ -159,7 +156,7 @@
     };
   }
 
-  // ── 'DATES:' codes: parsing and next sweep cluster (mirror analysis) ────────
+  // ── 'DATES:' codes: parsing and next sweep cluster ───────────────────────────
   var MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -180,7 +177,7 @@
   }
 
   function clusterDates(dates, maxGap) {
-    maxGap = maxGap || 4;  // mirror analysis._CLUSTER_GAP_DAYS
+    maxGap = maxGap || 4;  // a zone's sides are swept a few days apart
     var clusters = [], cur = [];
     for (var i = 0; i < dates.length; i++) {
       if (cur.length && diffDays(cur[cur.length - 1], dates[i]) > maxGap) {
@@ -215,9 +212,8 @@
     return clusterDates(future)[0].slice(0, maxDates);
   }
 
-  // ── Canonical schedule display (mirror normalize.sweep_body + ───────────────
-  //    analysis.format_schedule_side). Keeps card/hover identical to the server.
-  // Time parsing is LENIENT (mirror normalize._TIME_RANGE_RE): tolerates the
+  // ── Schedule display (card, hover and center banner) ────────────────────────
+  // Time parsing is lenient (same pattern as normalize._TIME_RANGE_RE): tolerates the
   // PDF artifacts in raw tile data — bullet/middot/"o" separators, stray spaces
   // inside hours/minutes and around colons, "A M"/"P,M".
   var _DISP_SRC =
@@ -236,7 +232,7 @@
     SUN: [6, 'Sun'], SUNDAY: [6, 'Sun'],
   };
 
-  // Mirror normalize._clock_parts: [hour, minute, 'AM'|'PM'] minus stray spaces.
+  // [hour, minute, 'AM'|'PM'] minus stray spaces.
   function _clockParts(h, mn, ap) {
     return [parseInt(h.replace(/\s+/g, ''), 10), mn ? parseInt(mn.replace(/\s+/g, ''), 10) : 0,
             ap.replace(/[\s,]+/g, '').toUpperCase()];
@@ -245,13 +241,13 @@
     var p = _clockParts(h, mn, ap);
     return p[1] ? (p[0] + ':' + (p[1] < 10 ? '0' + p[1] : p[1]) + p[2]) : (p[0] + p[2]);
   }
-  // Mirror normalize._to_time: minutes since midnight, or null when out of range.
+  // Minutes since midnight, or null when out of range.
   function _toMinutes(h, mn, ap) {
     var p = _clockParts(h, mn, ap);
     if (p[0] < 1 || p[0] > 12 || p[1] > 59) return null;
     return (p[0] % 12 + (p[2] === 'PM' ? 12 : 0)) * 60 + p[1];
   }
-  // Mirror normalize.time_window's end: minutes since midnight, null when the
+  // A window's end in minutes since midnight, null when the
   // window is unparseable. A window ending at 12AM runs to the end of the day.
   function parseEndMinutes(timeStr) {
     var m = typeof timeStr === 'string' ? TIME_RANGE_DISP_RE.exec(timeStr) : null;
@@ -293,9 +289,8 @@
     return (every ? ['Every'] : []).concat([daysS]).concat(rest).join(' ').trim();
   }
 
-  // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". Mirrors
-  // normalize.pretty_ordinals. Uses a leading capture instead of lookbehind
-  // for broad mobile-browser support; results are identical.
+  // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". A leading
+  // capture instead of lookbehind, for older mobile browsers.
   function _prettyOrdinals(text) {
     return text.replace(/(^|[^\w])([1-5]{1,5})(?![\w])/g, function (_m, pre, run) {
       var parts = [];
@@ -324,7 +319,6 @@
     return d + ', ' + t;
   }
 
-  // Mirror analysis._code_weekday / _code_ordinals.
   function codeWeekday(code) {
     var p = codeParts(code);
     return (p && p.days.length) ? WEEKDAY_CODES[p.days[0]] : null;
@@ -387,7 +381,7 @@
       groups[key].items.push(w);
     }
 
-    // Mirror analysis.format_schedule_side: collapse every-week groups that
+    // Collapse every-week groups that
     // share one time across a contiguous 3+ weekday run into "Mon–Fri, <time>"
     // (all seven -> "Every day, <time>"); partial-ordinal groups stay per-day.
     var ranked = [];
@@ -458,7 +452,7 @@
     return lines;
   }
 
-  // Mirror analysis.side_lines: both sides' lines, unlabelled when identical,
+  // Both sides' lines, unlabelled when identical,
   // else "<label>: <line>" with the car's side first. labels = [even, odd].
   function formatBothSides(even, odd, now, carSide, labels) {
     labels = labels || ['Even', 'Odd'];

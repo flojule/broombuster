@@ -39,7 +39,7 @@ async function upgradeAddress(car, sched) {
   const q = new URLSearchParams({ lat: car.lat, lon: car.lon });
   if (sched.region) q.set('region', sched.region);
   try {
-    const res = await apiFetch(`/address?${q}`);
+    const res = await fetch(`/address?${q}`);
     if (!res.ok) return;
     const { address } = await res.json();
     // Ignore a stale answer: the car was re-checked (moved) meanwhile.
@@ -128,7 +128,7 @@ async function commitPlacement(lat, lon) {
     const car = cars.find(c => c.id === editId);
     if (car) {
       car.lat = lat; car.lon = lon;
-      await savePrefs();
+      savePrefs();
       setSheetCollapsed(false);
       updateCarMarkers();
       checkCarSilently(car);
@@ -225,7 +225,7 @@ async function savePendingCar() {
   removeTempPin();
   closeNameBox(true);
   if (_gpsLocPin) hideGpsPinPopup();
-  await savePrefs();
+  savePrefs();
   activeCarId = id;
   setNearestRegion(pendingLat, pendingLon);
   setSheetCollapsed(false);  // reveal the new card
@@ -246,42 +246,18 @@ function defaultCarName() {
 }
 
 // ── Cars panel ────────────────────────────────────────────────────────────────
-// The sweeping domain's extras (raw schedules, car side, labels, detail_html)
-// from a /check response, or null.
-function sweepOf(sched) {
-  return (sched?.domains || []).find(d => d.id === 'sweeping')?.extras || null;
-}
-
 // Region-local clock for a /check response (the car's region, not the selected one).
 function schedNow(sched) {
-  return BroomUrgency.nowForTimeZone(REGION_TZ[sched?.region || regionSelect.value] || 'UTC');
+  return BroomUrgency.nowForTimeZone(regions[sched?.region || regionSelect.value]?.tz || 'UTC');
 }
 
-// A domain's urgency. Sweeping is recomputed from the raw schedules — the same
-// verdict as the map colour — so cards roll over when a window closes or a day
-// starts; other domains use the server's verdict.
-function domainUrgency(sched, d) {
-  if (d.id !== 'sweeping') return d.urgency || 'safe';
-  const entries = [...d.extras.schedule_even, ...d.extras.schedule_odd]
+// Sweeping urgency from the raw schedules against the live clock — the same
+// verdict as the map colour, so cards roll over when a window closes.
+function sweepUrgency(sched) {
+  if (!sched) return 'safe';
+  const entries = [...sched.schedule_even, ...sched.schedule_odd]
     .map(e => ({ code: e[0], time: e[2] || '' }));
   return BroomUrgency.checkDaySweeping(entries, schedNow(sched));
-}
-
-// Live sweeping urgency alone (the "move your car" banner).
-function sweepUrgency(sched) {
-  const sw = sweepOf(sched);
-  return sw ? domainUrgency(sched, { id: 'sweeping', extras: sw }) : 'safe';
-}
-
-// Worst-case urgency across all domains (today > tomorrow > safe). Drives the
-// card tint/dot so a trash-today still flags a car whose sweeping is clear.
-function panelUrgency(sched) {
-  let best = 'safe';
-  for (const d of (sched?.domains || [])) {
-    const u = domainUrgency(sched, d);
-    if (URGENCY_RANK[u] > URGENCY_RANK[best]) best = u;
-  }
-  return best;
 }
 
 function _urgencyLine(u, label) {
@@ -291,45 +267,33 @@ function _itemsHTML(lines) {
   return lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
 }
 
-// Street-sweeping card block: both sides (car's first, labelled when they
-// differ — same as the map hover); the header opens the full-year detail window.
-function sweepBlockHTML(sched, sw) {
-  const u = domainUrgency(sched, { id: 'sweeping', extras: sw });
-  const lines = BroomUrgency.formatBothSides(
-    sw.schedule_even, sw.schedule_odd, schedNow(sched), sw.car_side, sw.side_labels);
-  const hasDetail = !!sw.detail_html;
-  const chevron = hasDetail ? ' <span class="ce-sched-chevron">▸</span>' : '';
-  return _urgencyLine(u, URGENCY[u].car)
-       + `<div class="ce-sched-header${hasDetail ? ' clickable' : ''}">Street sweeping schedule:${chevron}</div>`
-       + _itemsHTML(lines.length ? lines : ['No sweeping scheduled'])
-       + (hasDetail ? sweepStripHTML(sched) : '');
+function hasSweeping(sched) {
+  return !!(sched && (sched.schedule_even.length || sched.schedule_odd.length));
 }
 
-// Card block for any other domain (trash, …): server-formatted schedule_lines
-// under the domain label, with its own urgency line.
-function domainBlockHTML(d) {
-  const u = d.urgency || 'safe';
-  return _urgencyLine(u, URGENCY[u].short)
-       + `<div class="ce-sched-header">${esc(d.label)}:</div>`
-       + _itemsHTML(d.schedule_lines?.length ? d.schedule_lines : ['No schedule']);
-}
-
+// Both sides (car's first, labelled when they differ — same as the map hover);
+// the header and the 14-day strip open the month calendar.
 function scheduleHTML(sched) {
   if (!sched) return '<span style="color:var(--muted)">Loading…</span>';
-  const html = (sched.domains || [])
-    .map(d => d.id === 'sweeping' ? sweepBlockHTML(sched, d.extras) : domainBlockHTML(d))
-    .join('');
-  return html || '<span style="color:var(--muted)">No schedule</span>';
+  const u = sweepUrgency(sched);
+  const lines = BroomUrgency.formatBothSides(
+    sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
+  const has = hasSweeping(sched);
+  const chevron = has ? ' <span class="ce-sched-chevron">▸</span>' : '';
+  return _urgencyLine(u, URGENCY[u].car)
+       + `<div class="ce-sched-header${has ? ' clickable' : ''}">Street sweeping schedule:${chevron}</div>`
+       + _itemsHTML(lines.length ? lines : ['No sweeping scheduled'])
+       + (has ? sweepStripHTML(sched) : '');
 }
 
 function renderCarsPanel() {
   const ae = document.activeElement;
   if (carsPanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
-  for (const el of [...carsPanel.querySelectorAll('.car-entry')]) el.remove();
+  for (const el of [...carsPanel.querySelectorAll(':scope > .car-entry')]) el.remove();
   cars.forEach((car, i) => {
     const color   = carColor(i);
     const sched   = carSchedules[car.id];
-    const urgency = panelUrgency(sched);
+    const urgency = sweepUrgency(sched);
     const addrText = sched?.address || '';
 
     const entry = document.createElement('div');
@@ -358,8 +322,8 @@ function renderCarsPanel() {
         <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">📌 Set location</button>
       </div>`;
 
-    // ── Schedule header → toggle full-year detail window ──
-    if (sweepOf(sched)?.detail_html) {
+    // ── Schedule header / strip → toggle the month calendar ──
+    if (hasSweeping(sched)) {
       for (const el of entry.querySelectorAll('.ce-sched-header.clickable, .sw-strip')) {
         el.addEventListener('click', e => { e.stopPropagation(); toggleCardDetail(car.id); });
       }
@@ -382,7 +346,7 @@ function renderCarsPanel() {
           return;
         }
         car.lat = hit.lat; car.lon = hit.lon;
-        await savePrefs();
+        savePrefs();
         setNearestRegion(car.lat, car.lon);
         updateCarMarkers();
         checkCarSilently(car);
@@ -395,7 +359,7 @@ function renderCarsPanel() {
       btn.disabled = true; btn.textContent = '…';
       getGPS(async (lat, lon) => {
         car.lat = lat; car.lon = lon;
-        await savePrefs();
+        savePrefs();
         btn.disabled = false; btn.textContent = '📍 GPS';
         setNearestRegion(lat, lon); setLocationKnown('gps', lat, lon);
         if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
@@ -415,7 +379,7 @@ function renderCarsPanel() {
       if (activeCarId === car.id) activeCarId = cars[0]?.id ?? null;
       if (_selectedCarId === car.id) _selectedCarId = null;
       if (_cardDetailCarId === car.id) closeCardDetail();
-      await savePrefs();
+      savePrefs();
       updateCarMarkers();
       renderCarsPanel();
       if (!cars.length) setStatus('idle', 'Add a car to check street sweeping.');

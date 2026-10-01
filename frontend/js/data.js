@@ -93,11 +93,9 @@ async function loadCities() {
   try {
     const res = await fetch('/cities');
     if (!res.ok) return;
-    const data = await res.json();
-    regions = {};
+    regions = await res.json();
     regionSelect.innerHTML = '';
-    for (const [key, val] of Object.entries(data.regions)) {
-      regions[key] = { name: val.name, center: val.center, zoom: val.overview_zoom || 11 };
+    for (const [key, val] of Object.entries(regions)) {
       const opt = document.createElement('option');
       opt.value = key; opt.textContent = val.name;
       regionSelect.appendChild(opt);
@@ -131,36 +129,16 @@ function setNearestRegion(lat, lon) {
   if (best) _renderedRegion = best;
 }
 
-// ── Prefs (cars + homes) ──────────────────────────────────────────────────────
-// Valid homes from a prefs object, each with an id.
-function _homesFromPrefs(p) {
-  return (Array.isArray(p.homes) ? p.homes : [])
-    .filter(h => h && h.lat != null && h.lon != null)
-    .map(h => ({ id: h.id || newId(), lat: h.lat, lon: h.lon, address: h.address || '' }));
+// ── Saved cars + homes (this browser only) ───────────────────────────────────
+const PREFS_KEY = 'bb_prefs';
+function loadPrefs() {
+  let p = {};
+  try { p = JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch (_) {}
+  cars = Array.isArray(p.cars) ? p.cars : [];
+  homes = Array.isArray(p.homes) ? p.homes : [];
 }
-
-async function loadPrefs() {
-  if (session) {
-    try {
-      const res = await apiFetch('/prefs');
-      if (res.ok) {
-        const prefs = await res.json();
-        cars = prefs.cars || [];
-        homes = _homesFromPrefs(prefs);
-      }
-    } catch (_) {}
-    return;
-  }
-  // Guest — restore from sessionStorage (cleared when the tab closes).
-  const g = _loadGuestPrefs();
-  cars = g.cars || [];
-  homes = _homesFromPrefs(g);
-}
-
-async function savePrefs() {
-  const payload = { cars, homes };
-  if (!session) { _saveGuestPrefs(payload); return; }  // guest — sessionStorage only
-  try { await postJSON('/prefs', payload); } catch (_) {}
+function savePrefs() {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
 }
 
 async function getIPLocation() {

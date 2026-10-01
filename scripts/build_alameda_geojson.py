@@ -5,7 +5,7 @@ Build data/alameda/StreetSweeping.geojson from Alameda's PDF schedule.
 Usage (from repo root):  python scripts/build_alameda_geojson.py
 Input:  data/alameda/street-sweeping-schedule.pdf   (manual download; see manifest)
 Output: data/alameda/StreetSweeping.geojson
-Requires: pip install -e '.[scripts]'
+Requires: uv sync --extra scripts
 """
 
 import re

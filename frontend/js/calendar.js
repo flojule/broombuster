@@ -9,11 +9,10 @@ const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
 // (or any side when unknown), 'sw-other' = only the opposite side.
 function sweepDayMap(sched, start, end) {
   const out = new Map();
-  const sw = sweepOf(sched);
-  if (!sw) return out;
-  const labels = sw.side_labels;
-  for (const day of BroomUrgency.sweepDays(sw.schedule_even, sw.schedule_odd, start, end)) {
-    const mine = !sw.car_side || day.items.some(it => it.side === sw.car_side);
+  if (!sched) return out;
+  const labels = sched.side_labels;
+  for (const day of BroomUrgency.sweepDays(sched.schedule_even, sched.schedule_odd, start, end)) {
+    const mine = !sched.car_side || day.items.some(it => it.side === sched.car_side);
     const sides = new Set(day.items.map(it => it.side));
     const text = day.items.map(it => {
       const t = it.time ? BroomUrgency.timeDisplay(it.time) : 'time n/a';
@@ -61,7 +60,7 @@ function calendarHTML(sched, ym, sel) {
   const selP = sel ? { y: Math.floor(sel / 10000), m: Math.floor(sel / 100) % 100, d: sel % 100 } : null;
   const selInfo = sel ? days.get(sel) : null;
   const detail = selP ? `${_dayLabel(selP)}: ${selInfo ? selInfo.text : 'no sweeping'}` : 'Tap a day for details';
-  const legend = sweepOf(sched)?.car_side
+  const legend = sched.car_side
     ? '<span class="cal-key sw-car"></span> your side <span class="cal-key sw-other"></span> other side'
     : '<span class="cal-key sw-car"></span> sweeping';
   return `<div class="cal-head">`
@@ -73,30 +72,14 @@ function calendarHTML(sched, ym, sel) {
        + `<div class="cal-legend">${legend}</div>`;
 }
 
-// Subscribable .ics feed for the car's parked spot (side=auto: car's side).
-function calendarFeedUrl(car, sched) {
-  const q = new URLSearchParams({ lat: car.lat.toFixed(5), lon: car.lon.toFixed(5) });
-  if (sched.region) q.set('region', sched.region);
-  return `${location.origin}/calendar.ics?${q}`;
-}
-
-// ── Card schedule detail window (toggle, no arrow) ─────────────────────────────
-// Month calendar + the street/ward detail + calendar-feed links, shown as a
-// fixed panel. Clicking the same card's header again closes it.
+// ── Card month-calendar window (toggle) ─────────────────────────────────────
 let _cardDetailCarId = null;
 let _cal = null;  // {ym: {y, m}, sel: dayKey | null} for the open window
 function renderCardDetail() {
   const car = cars.find(c => c.id === _cardDetailCarId);
   const sched = car && carSchedules[car.id];
   if (!sched) { closeCardDetail(); return; }
-  const url = calendarFeedUrl(car, sched);
-  document.getElementById('card-detail-body').innerHTML =
-      calendarHTML(sched, _cal.ym, _cal.sel)
-    + `<div class="cal-info">${sweepOf(sched)?.detail_html || ''}</div>`
-    + `<div class="cal-feed">📅 <a class="zd-link" href="${esc(url.replace(/^https?:/, 'webcal:'))}">Subscribe</a>`
-    + ` · <a class="zd-link" href="#" data-cal-copy="${esc(url)}">Copy link</a>`
-    + ` · <a class="zd-link" href="${esc(url)}" download="street-sweeping.ics">.ics</a>`
-    + `<div class="cal-note">Feed follows this parked spot; resubscribe after moving.</div></div>`;
+  document.getElementById('card-detail-body').innerHTML = calendarHTML(sched, _cal.ym, _cal.sel);
 }
 function openCardDetail(carId) {
   const sched = carSchedules[carId];
@@ -122,17 +105,11 @@ function toggleCardDetail(carId) {
 document.getElementById('card-detail-body').addEventListener('click', e => {
   const nav = e.target.closest('[data-cal-nav]');
   const day = e.target.closest('[data-cal-day]');
-  const copy = e.target.closest('[data-cal-copy]');
   if (nav) {
     const d = new Date(Date.UTC(_cal.ym.y, _cal.ym.m - 1 + Number(nav.dataset.calNav), 1));
     _cal.ym = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 };
   } else if (day) {
     _cal.sel = Number(day.dataset.calDay);
-  } else if (copy) {
-    e.preventDefault();
-    navigator.clipboard?.writeText(copy.dataset.calCopy)
-      .then(() => showToast('Calendar link copied'), () => showToast('Copy failed', true));
-    return;
   } else {
     return;
   }

@@ -11,7 +11,6 @@
   <meta name="apple-mobile-web-app-title" content="BroomBuster">
   <meta name="theme-color" content="#2563eb">
 
-  <script src="/config.js"></script>
   <link rel="stylesheet" href="/vendor/maplibre-gl.css">
   <script src="/vendor/pmtiles.js"></script>
 
@@ -19,22 +18,6 @@
 </head>
 <body>
 
-<!-- ══════════════════ AUTH OVERLAY (optional) ══════════════════ -->
-<div id="auth-screen" hidden>
-  <div class="card">
-    <button id="btn-auth-close" class="popup-close" title="Close (Esc)" aria-label="Close">✕</button>
-    <h2>Sign in</h2>
-    <label for="email">Email</label>
-    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
-    <label for="password">Password</label>
-    <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
-    <div id="auth-error"></div>
-    <button id="btn-login">Sign in</button>
-    <button class="btn-ghost" id="btn-signup">Create account</button>
-  </div>
-</div>
-
-<!-- ══════════════════ APP SCREEN ══════════════════ -->
 <div id="app-screen">
   <div id="topbar">
     <span class="app-title" title="BroomBuster">🧹</span>
@@ -46,8 +29,6 @@
     <button id="btn-locate" class="tb-btn" title="Use GPS location">📍</button>
     <span class="tb-sep"></span>
     <button id="btn-dark-mode" class="tb-btn" title="Toggle dark mode">🌙</button>
-    <button id="btn-signin" class="tb-btn">Sign in</button>
-    <button id="btn-logout" class="tb-btn" hidden>Sign out</button>
   </div>
   <div id="map-container">
     <div id="map"></div>
@@ -105,7 +86,6 @@
 <div id="toast-container"></div>
 
 <!-- ══════════════════ CARD SCHEDULE DETAIL WINDOW ══════════════════ -->
-<!-- Same content as a street/ward click, shown without a map-anchored arrow. -->
 <div id="card-detail">
   <button id="btn-card-detail-close" class="popup-close" title="Close (Esc)" aria-label="Close">✕</button>
   <div id="card-detail-body"></div>
@@ -121,7 +101,6 @@
 </script>
 <script defer src="js/urgency.js"></script>
 <script defer src="js/core.js"></script>
-<script defer src="js/auth.js"></script>
 <script defer src="js/ui.js"></script>
 <script defer src="js/map.js"></script>
 <script defer src="js/markers.js"></script>
