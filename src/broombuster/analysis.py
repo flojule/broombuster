@@ -1,3 +1,4 @@
+import calendar
 import datetime
 import functools
 import logging
@@ -14,47 +15,6 @@ from broombuster import normalize
 logger = logging.getLogger(__name__)
 
 
-# Canonical street-name comparison key — delegates to normalize module.
-def _norm_name(name: str) -> str:
-    return normalize.street_name(name)
-
-
-# Matches time ranges like "8AM–10AM", "7:30AM-9AM", "8AM to 10AM"
-_TIME_RANGE_RE = re.compile(
-    r'(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*(?:[-\u2013\u2014]|to)\s*'
-    r'(\d{1,2})(?::(\d{2}))?\s*(AM|PM)',
-    re.IGNORECASE,
-)
-
-
-def _clock(h: str, mn: str | None, ap: str) -> datetime.time | None:
-    """12-hour clock parts -> datetime.time, or None when out of range."""
-    hh, mm = int(h), int(mn or 0)
-    if not 1 <= hh <= 12 or mm > 59:
-        return None
-    hh = hh % 12 + (12 if ap.upper() == "PM" else 0)
-    return datetime.time(hh, mm)
-
-
-def _end_of(t: datetime.time) -> datetime.time:
-    """A window ending at 12AM runs to the end of the day."""
-    return t if t != datetime.time(0) else datetime.time(23, 59, 59)
-
-
-def parse_window(time_str) -> tuple[datetime.time, datetime.time] | None:
-    """(start, end) of a time range, or None when unparseable."""
-    m = _TIME_RANGE_RE.search(time_str) if isinstance(time_str, str) else None
-    start, end = (_clock(*m.group(1, 2, 3)), _clock(*m.group(4, 5, 6))) if m else (None, None)
-    return (start, _end_of(end)) if start and end else None
-
-
-def _parse_end_time(time_str) -> datetime.time | None:
-    """End of a time range as datetime.time, or None when unparseable."""
-    m = _TIME_RANGE_RE.search(time_str) if isinstance(time_str, str) else None
-    end = _clock(*m.group(4, 5, 6)) if m else None
-    return _end_of(end) if end else None
-
-
 # ---------------------------------------------------------------------------
 # Sweep-code grammar (mirrored in frontend/js/urgency.js; tables checked by
 # tests/test_urgency_parity.py)
@@ -67,10 +27,8 @@ def _parse_end_time(time_str) -> datetime.time | None:
 # ---------------------------------------------------------------------------
 
 # Code token -> (weekday Mon=0..Sun=6, display).
-WEEKDAY_CODES = {
-    "M": (0, "Mon"), "T": (1, "Tue"), "W": (2, "Wed"), "TH": (3, "Thu"),
-    "F": (4, "Fri"), "S": (5, "Sat"), "SU": (6, "Sun"),
-}
+WEEKDAY_CODES = {tok: (i, normalize.WEEKDAYS[i])
+                 for i, tok in enumerate(("M", "T", "W", "TH", "F", "S", "SU"))}
 
 # Codes that explicitly mean "no sweeping" (compared upper-cased, stripped).
 # Oakland: N-E / N-O = no even / odd addresses; MS = "major street uses 2
@@ -152,12 +110,6 @@ def dates_in_range(code, start: datetime.date, end: datetime.date) -> list:
     return out
 
 
-def compute_urgency(segment, local_now=None):
-    """Urgency ("today" | "tomorrow" | False) for one segment row, both sides."""
-    even, odd = schedules_for_segment(segment)
-    return check_day_street_sweeping(even + odd, local_now=local_now)
-
-
 def schedules_for_segment(segment):
     """Return (schedule_even, schedule_odd) for a single segment.
 
@@ -203,7 +155,7 @@ def schedules_for_all_matching_rows(gdf_3857, resolved):
     if target_geom.geom_type not in ("LineString", "MultiLineString"):
         return schedules_for_segment(resolved.segment)
 
-    target_key = resolved.segment.get("STREET_KEY") or _norm_name(
+    target_key = resolved.segment.get("STREET_KEY") or normalize.street_name(
         resolved.segment.get("STREET_NAME") or ""
     )
     target_endpoints = _segment_endpoints(target_geom)
@@ -268,7 +220,7 @@ def sweep_days(even, odd, start: datetime.date, end: datetime.date) -> dict:
     out: dict = {}
     for side, entries in (("even", even), ("odd", odd)):
         for code, _desc, time in entries:
-            item = (side, time if normalize.is_text(time) else "")
+            item = (side, normalize.clean_text(time))
             for d in dates_in_range(code, start, end):
                 if item not in out.setdefault(d, []):
                     out[d].append(item)
@@ -276,7 +228,7 @@ def sweep_days(even, odd, start: datetime.date, end: datetime.date) -> dict:
 
 
 def check_day_street_sweeping(schedule, local_now=None):
-    """"today" | "tomorrow" | False for a list of (code, desc, time) entries.
+    """"today" | "tomorrow" | "safe" for a list of (code, desc, time) entries.
 
     "today" only while at least one of today's windows is still open (an
     untimed or unparseable window counts as open all day). Dates are taken in
@@ -301,42 +253,10 @@ def check_day_street_sweeping(schedule, local_now=None):
             return "today"
         now_t = local_now.time()
         for ts in today_times:
-            end_t = _parse_end_time(ts)
-            if end_t is None or now_t <= end_t:
+            window = normalize.time_window(ts)
+            if window is None or now_t <= window[1]:
                 return "today"
-    return "tomorrow" if swept_tomorrow else False
-
-
-# Name-index cache keyed by id(gdf); each entry holds a weakref so a recycled
-# id (GDF garbage-collected) is detected and rebuilt.
-#   id(gdf) -> (weakref.ref(gdf), {normalized_street_name: [row_labels]})
-_name_index_cache: dict[int, tuple] = {}
-
-
-def _get_name_index(gdf) -> dict:
-    """Build and cache a {normalized_name: [row_labels]} lookup for fast street matching."""
-    gdf_id = id(gdf)
-    cached = _name_index_cache.get(gdf_id)
-    if cached is not None:
-        ref, idx = cached
-        if ref() is gdf:
-            return idx
-        # Stale entry — id was recycled by a different GDF. Drop it.
-        del _name_index_cache[gdf_id]
-
-    idx = {}
-    for i, row in gdf.iterrows():
-        # Prefer precomputed STREET_KEY if available (already canonical).
-        k = row.get("STREET_KEY")
-        if normalize.is_text(k):
-            idx.setdefault(k, []).append(i)
-            continue
-        # Fallback to normalising the stored STREET_NAME
-        n = row.get("STREET_NAME")
-        if normalize.is_text(n):
-            idx.setdefault(_norm_name(n), []).append(i)
-    _name_index_cache[gdf_id] = (weakref.ref(gdf), idx)
-    return idx
+    return "tomorrow" if swept_tomorrow else "safe"
 
 
 class SegmentIndex(NamedTuple):
@@ -380,10 +300,9 @@ def _build_segment_index(gdf) -> SegmentIndex:
     n = len(gdf)
     keys = gdf["STREET_KEY"].to_numpy(object) if "STREET_KEY" in gdf else [None] * n
     names = gdf["STREET_NAME"].to_numpy(object) if "STREET_NAME" in gdf else [None] * n
-    street_keys = [
-        k if normalize.is_text(k) else (_norm_name(nm) if normalize.is_text(nm) else None)
-        for k, nm in zip(keys, names)
-    ]
+    # street_name() returns "" for non-text, which the loop below skips.
+    street_keys = [k if normalize.is_text(k) else normalize.street_name(nm)
+                   for k, nm in zip(keys, names)]
 
     geoms = np.asarray(gdf.geometry.values, dtype=object)
     type_ids = shapely.get_type_id(geoms)
@@ -410,26 +329,21 @@ def _build_segment_index(gdf) -> SegmentIndex:
     return SegmentIndex(by_key, cols)
 
 
-def get_schedule(street_section, side):
-    """Return a (code, desc, time) tuple for the given side (0 = even, 1 = odd).
+def side_entry(code, desc, time):
+    """(code, desc, time) for one side, or None for a missing / no-sweep code.
 
-    Returns None when the code is missing or marks an explicit "no sweeping"
-    state — those rows still drive the urgency colour (cornflowerblue) but
-    have no schedule to render in the card or hover.
+    Placeholder desc / time ("N/A", NaN, …) become "". No-sweep rows still drive
+    the map colour, but have no schedule to render.
     """
-    suffix = "EVEN" if side % 2 == 0 else "ODD"
-    code = street_section.get(f"DAY_{suffix}")
     if not normalize.is_text(code) or is_no_sweep_code(code):
         return None
-    desc = street_section.get(f"DESC_{suffix}")
-    time = street_section.get(f"TIME_{suffix}")
-    return (code, desc if normalize.is_text(desc) else "", time if normalize.is_text(time) else "")
+    return code, normalize.clean_text(desc), normalize.clean_text(time)
 
 
-_MONTH_ABBR = {
-    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
-    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
-}
+def get_schedule(row, side):
+    """side_entry for a GDF row's even (side 0) or odd (side 1) columns."""
+    s = "EVEN" if side % 2 == 0 else "ODD"
+    return side_entry(row.get(f"DAY_{s}"), row.get(f"DESC_{s}"), row.get(f"TIME_{s}"))
 
 
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -465,7 +379,7 @@ def format_dates_by_month(dates) -> str:
             order.append(key)
         grouped[key].append(d.day)
     return "; ".join(
-        f"{_MONTH_ABBR[m]} " + ", ".join(str(day) for day in grouped[(y, m)])
+        f"{calendar.month_abbr[m]} " + ", ".join(str(day) for day in grouped[(y, m)])
         for (y, m) in order
     )
 

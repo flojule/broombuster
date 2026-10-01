@@ -1,10 +1,5 @@
 """iCalendar feed: DST-correct UTC times, side filtering, folding, endpoint."""
 import datetime
-import os
-
-os.environ.setdefault("DEV_MODE", "1")
-
-from fastapi.testclient import TestClient
 
 from broombuster import ics
 
@@ -73,13 +68,11 @@ def test_lines_folded_and_text_escaped():
     assert ev["DESCRIPTION"].startswith("Very Long Boulevard\\, Upper Section\\; Near")
 
 
-def test_endpoint_serves_feed():
-    from broombuster.api import app as api_mod
-    with TestClient(api_mod.app) as client:
-        ok = client.get("/calendar.ics", params={"lat": 37.7599, "lon": -122.4214})
-        bad_side = client.get("/calendar.ics", params={"lat": 37.7599, "lon": -122.4214,
+def test_endpoint_serves_feed(app_client):
+    ok = app_client.get("/calendar.ics", params={"lat": 37.7599, "lon": -122.4214})
+    bad_side = app_client.get("/calendar.ics", params={"lat": 37.7599, "lon": -122.4214,
                                                        "side": "left"})
-        ocean = client.get("/calendar.ics", params={"lat": 37.70, "lon": -122.60,
+    ocean = app_client.get("/calendar.ics", params={"lat": 37.70, "lon": -122.60,
                                                     "region": "bay_area"})
     assert ok.status_code == 200, ok.text
     assert ok.headers["content-type"].startswith("text/calendar")

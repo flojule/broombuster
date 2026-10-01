@@ -7,12 +7,23 @@ these functions so that data from different cities / sources is treated
 identically.
 """
 
+import datetime
 import re
 
 
 def is_text(v) -> bool:
     """True only for non-empty strings (filters NaN, None, floats)."""
     return isinstance(v, str) and v.strip() != ""
+
+
+# Placeholder strings source data uses for "no value".
+_PLACEHOLDERS = frozenset({"", "N/A", "NA", "NONE", "NAN"})
+
+
+def clean_text(v) -> str:
+    """Stripped string, or "" for non-strings and placeholders ("N/A", "nan", …)."""
+    s = v.strip() if isinstance(v, str) else ""
+    return "" if s.upper() in _PLACEHOLDERS else s
 
 
 # ── Street name ───────────────────────────────────────────────────────────────
@@ -35,7 +46,6 @@ _DIR_EXPAND = {
     "NE": "NORTHEAST", "NW": "NORTHWEST",
     "SE": "SOUTHEAST", "SW": "SOUTHWEST",
 }
-_DIR_COLLAPSE = {v: k for k, v in _DIR_EXPAND.items()}
 
 # Matches an abbreviated or full-word directional at the very start of the
 # name, followed by whitespace and at least one more character.
@@ -103,7 +113,7 @@ _SUFFIX_ABBR = {
     "TURNPIKE": "Tpke", "TPKE": "Tpke",
 }
 
-# Reverse mapping of full directional to short abbreviation.
+# Full directional -> short abbreviation.
 _DIR_ABBR = {v: k for k, v in _DIR_EXPAND.items()}
 
 
@@ -129,20 +139,9 @@ def street_display(raw: str) -> str:
     if not toks:
         return ""
 
-    # Leading directional?
-    first_up = toks[0].upper()
-    dir_token = None
-    rest = toks
-    # Match multi-word directionals (NORTHWEST etc.) or abbreviations
-    if first_up in _DIR_ABBR:
-        dir_token = _DIR_ABBR[first_up]
-        rest = toks[1:]
-    else:
-        # Also match spelled-out variants
-        f_up = first_up
-        if f_up in _DIR_EXPAND.values():
-            dir_token = _DIR_COLLAPSE.get(f_up)
-            rest = toks[1:]
+    # Leading spelled-out directional -> abbreviation ("NORTHWEST" -> "NW").
+    dir_token = _DIR_ABBR.get(toks[0].upper())
+    rest = toks[1:] if dir_token else toks
 
     # Trailing suffix?
     suffix = None
@@ -198,19 +197,38 @@ _TIME_RANGE_RE = re.compile(
 )
 
 
-def _digits_only(s: str | None) -> str | None:
-    """Strip whitespace from inside a captured digit group (Alameda PDF artifact)."""
-    return re.sub(r"\s+", "", s) if s else s
+def _clock_parts(h: str, m: str | None, ap: str) -> tuple[int, int, str]:
+    """(hour, minute, "AM"|"PM") from captured groups, minus PDF stray spaces."""
+    return int(re.sub(r"\s+", "", h)), int(re.sub(r"\s+", "", m)) if m else 0, \
+        re.sub(r"[\s,]+", "", ap).upper()
 
 
 def _fmt_part(h: str, m: str | None, ap: str) -> str:
-    ap = re.sub(r"[\s,]+", "", ap).upper()
-    h = _digits_only(h) or h
-    m = _digits_only(m)
-    mn = int(m) if m else 0
-    if mn:
-        return f"{int(h)}:{mn:02d}{ap}"
-    return f"{int(h)}{ap}"
+    hh, mn, ap = _clock_parts(h, m, ap)
+    return f"{hh}:{mn:02d}{ap}" if mn else f"{hh}{ap}"
+
+
+def _to_time(h: str, m: str | None, ap: str) -> datetime.time | None:
+    """12-hour clock parts -> datetime.time, or None when out of range."""
+    hh, mn, ap = _clock_parts(h, m, ap)
+    if not 1 <= hh <= 12 or mn > 59:
+        return None
+    return datetime.time(hh % 12 + (12 if ap == "PM" else 0), mn)
+
+
+def time_window(raw) -> tuple[datetime.time, datetime.time] | None:
+    """(start, end) of a time range, or None when unparseable.
+
+    Same lenient parsing as time_display. A window ending at 12AM runs to the
+    end of the day.
+    """
+    m = _TIME_RANGE_RE.search(raw) if isinstance(raw, str) else None
+    if not m:
+        return None
+    start, end = _to_time(*m.group(1, 2, 3)), _to_time(*m.group(4, 5, 6))
+    if not (start and end):
+        return None
+    return start, (end if end != datetime.time(0) else datetime.time(23, 59, 59))
 
 
 def time_display(raw: str) -> str:
@@ -237,17 +255,16 @@ def time_display(raw: str) -> str:
 
 # ── Sweep schedule display ────────────────────────────────────────────────────
 
-# Canonical weekday tokens. Source data mixes forms (Tue/Tues, Thu/Thurs); we
-# unify every surface to Mon/Tue/Wed/Thu/Fri/Sat/Sun. Value = (Mon..Sun rank,
-# display form).
+# Canonical weekday display forms, Mon=0..Sun=6. Source data mixes forms
+# (Tue/Tues, Thu/Thurs); every surface is unified to these.
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_WEEKDAY_ALIASES = ("MONDAY", "TUES TUESDAY", "WEDS WEDNESDAY", "THUR THURS THURSDAY",
+                    "FRIDAY", "SATURDAY", "SUNDAY")
+# Any accepted spelling (upper-case) -> (rank, display form).
 _WEEKDAY_CANON = {
-    "MON": (0, "Mon"), "MONDAY": (0, "Mon"),
-    "TUE": (1, "Tue"), "TUES": (1, "Tue"), "TUESDAY": (1, "Tue"),
-    "WED": (2, "Wed"), "WEDS": (2, "Wed"), "WEDNESDAY": (2, "Wed"),
-    "THU": (3, "Thu"), "THUR": (3, "Thu"), "THURS": (3, "Thu"), "THURSDAY": (3, "Thu"),
-    "FRI": (4, "Fri"), "FRIDAY": (4, "Fri"),
-    "SAT": (5, "Sat"), "SATURDAY": (5, "Sat"),
-    "SUN": (6, "Sun"), "SUNDAY": (6, "Sun"),
+    alias: (i, d)
+    for i, d in enumerate(WEEKDAYS)
+    for alias in (d.upper(), *_WEEKDAY_ALIASES[i].split())
 }
 
 # Parenthetical recurrence qualifiers that are display noise: "(every)" is SF's
@@ -267,7 +284,8 @@ _BARE_ORD_RE = re.compile(r"(?<!\w)([1-5]{1,5})(?!\w)")
 _ORD_SUFFIX = {"1": "st", "2": "nd", "3": "rd"}
 
 
-def _pretty_ordinals(text: str) -> str:
+def pretty_ordinals(text: str) -> str:
+    """Bare week-of-month digit runs -> ordinals: "13" -> "1st & 3rd"."""
     def _repl(m: "re.Match") -> str:
         parts = [d + _ORD_SUFFIX.get(d, "th") for d in m.group(1)]
         if len(parts) == 1:
@@ -323,7 +341,7 @@ def sweep_body(desc: str, time: str = "") -> str:
     d = _WHITESPACE_RE.sub(" ", d).strip()
     # Weekday schedules only: "2 lines" must not become "2nd lines".
     if _has_weekday(d):
-        d = _pretty_ordinals(_weekday_first(d))
+        d = pretty_ordinals(_weekday_first(d))
     if not d or d.upper() == "N/A":
         return ""
     t = time_display(time or "")

@@ -7,10 +7,6 @@ Regression coverage for two bugs fixed when rate limiting was wired up:
     raised at runtime. Auth now uses the bcrypt library directly.
 """
 
-import os
-
-os.environ.setdefault("DEV_MODE", "1")
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

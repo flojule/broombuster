@@ -1,8 +1,4 @@
-"""Prefs persistence for multiple homes + legacy single-home backfill."""
-
-import os
-
-os.environ.setdefault("DEV_MODE", "1")
+"""Prefs persistence for cars/homes + the one-time legacy single-home migration."""
 
 import pytest
 
@@ -26,34 +22,40 @@ def test_homes_array_roundtrip(fresh_db):
     assert got["homes"] == homes
 
 
-def test_legacy_single_home_backfills_into_array(fresh_db):
-    # Simulate a pre-multi-home row: only the singular columns are populated.
-    fresh_db.save_prefs("dev-user", {"cars": []})  # create the prefs row
-    with fresh_db.get_db() as conn:
+def _set_legacy_home(db_mod, homes="'[]'"):
+    with db_mod.get_db() as conn:
         conn.execute(
-            "UPDATE user_prefs SET home_lat=?, home_lon=?, home_address=?, homes='[]' "
+            f"UPDATE user_prefs SET home_lat=?, home_lon=?, home_address=?, homes={homes} "
             "WHERE user_id='dev-user'",
             (37.8044, -122.2712, "150 Frank Ogawa Plaza"),
         )
         conn.commit()
-    got = fresh_db.get_prefs("dev-user")
-    assert len(got["homes"]) == 1
-    h = got["homes"][0]
+
+
+def test_legacy_single_home_migrates_into_array(fresh_db):
+    fresh_db.save_prefs("dev-user", {"cars": []})  # create the prefs row
+    _set_legacy_home(fresh_db)
+    fresh_db.init_db()  # next boot migrates
+    (h,) = fresh_db.get_prefs("dev-user")["homes"]
     assert (h["lat"], h["lon"], h["address"]) == (37.8044, -122.2712, "150 Frank Ogawa Plaza")
 
 
-def test_homes_array_takes_precedence_over_legacy_columns(fresh_db):
-    with fresh_db.get_db() as conn:
-        conn.execute(
-            "UPDATE user_prefs SET home_lat=?, home_lon=? WHERE user_id='dev-user'",
-            (1.0, 2.0),
-        )
-        conn.commit()
+def test_deleted_legacy_home_stays_deleted(fresh_db):
+    fresh_db.save_prefs("dev-user", {"cars": []})
+    _set_legacy_home(fresh_db)
+    fresh_db.init_db()
+    fresh_db.save_prefs("dev-user", {"cars": [], "homes": []})  # user removes it
+    fresh_db.init_db()
+    assert fresh_db.get_prefs("dev-user")["homes"] == []
+
+
+def test_homes_array_is_not_overwritten_by_legacy_columns(fresh_db):
     homes = [{"id": "h1", "lat": 37.8, "lon": -122.2, "address": "A"}]
     fresh_db.save_prefs("dev-user", {"homes": homes})
-    got = fresh_db.get_prefs("dev-user")
-    assert got["homes"] == homes  # array wins; no legacy synthesis
+    _set_legacy_home(fresh_db, homes="homes")
+    fresh_db.init_db()
+    assert fresh_db.get_prefs("dev-user")["homes"] == homes
 
 
-def test_empty_homes_when_nothing_saved(fresh_db):
-    assert fresh_db.get_prefs("dev-user")["homes"] == []
+def test_empty_prefs_when_nothing_saved(fresh_db):
+    assert fresh_db.get_prefs("dev-user") == {"cars": [], "homes": []}

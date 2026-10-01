@@ -3,7 +3,7 @@ End-to-end pipeline tests for the programmatic resolver path.
 
 Full stack exercised per test:
   load_region_data → to_crs("EPSG:3857") → SweepingPlugin.resolve_for/format
-  → check_day_street_sweeping → compose_message
+  → check_day_street_sweeping → schedule_lines
 
 `_analyze` drives the sweeping plugin exactly as the HTTP /check endpoint and
 the CLI do, so there is one code path. The car's side is geometric
@@ -16,32 +16,12 @@ import datetime
 
 import pytest
 
-from broombuster import analysis, data_loader, resolve
-from broombuster.domains.sweeping import SweepingPlugin, compose_message
+from broombuster import analysis
+from broombuster.domains.sweeping import SweepingPlugin
 
 # ---------------------------------------------------------------------------
-# Module-scoped fixtures — region data loaded once for the whole module
+# Helpers (region fixtures are session-scoped in conftest.py)
 # ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="module")
-def bay_area_gdf():
-    return data_loader.load_region_data("bay_area")
-
-
-@pytest.fixture(scope="module")
-def bay_area_3857(bay_area_gdf):
-    return bay_area_gdf.to_crs("EPSG:3857")
-
-
-@pytest.fixture(scope="module")
-def chicago_gdf():
-    return data_loader.load_region_data("chicago")
-
-
-@pytest.fixture(scope="module")
-def chicago_3857(chicago_gdf):
-    return chicago_gdf.to_crs("EPSG:3857")
-
 
 def _analyze(gdf_3857, lat, lon, city_key=None):
     """(schedule, schedule_even, schedule_odd, message) via the /check sweeping path."""
@@ -50,16 +30,8 @@ def _analyze(gdf_3857, lat, lon, city_key=None):
     result = plugin.format(resolved, gdf_3857, datetime.datetime.now())
     even = result.extras["schedule_even"]
     odd = result.extras["schedule_odd"]
-    message = result.extras.get("message") or "Car not near a mapped street."
+    message = "\n".join(result.schedule_lines)
     return list(set(even) | set(odd)), even, odd, message
-
-
-def _resolved_side(gdf_3857, lat, lon, city):
-    try:
-        r = resolve.resolve_car_segment(gdf_3857, lat, lon, city_key=city, max_distance_m=50.0)
-    except resolve.NoSegmentNearby:
-        return "odd"
-    return r.side or "odd"
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +110,7 @@ class TestBayAreaPipeline:
     def test_check_day_returns_valid_urgency(self, bay_area_3857):
         schedule, *_ = _analyze(bay_area_3857, self.LAT, self.LON, city_key=self.CITY)
         urgency = analysis.check_day_street_sweeping(schedule)
-        assert urgency is False or urgency in ("today", "tomorrow")
+        assert urgency in ("today", "tomorrow", "safe")
 
     def test_check_day_consistent_with_parsed_dates(self, bay_area_3857):
         """If urgency is 'today', today must appear in the parsed schedule dates."""
@@ -151,15 +123,6 @@ class TestBayAreaPipeline:
         elif urgency == "tomorrow":
             assert any(analysis.sweeps_on(e[0], tomorrow) for e in schedule)
             assert not any(analysis.sweeps_on(e[0], today) for e in schedule)
-
-    # -- compose_message / notification --------------------------------------
-
-    def test_compose_message_matches_pipeline_message(self, bay_area_3857):
-        _, schedule_even, schedule_odd, message = _analyze(
-            bay_area_3857, self.LAT, self.LON, city_key=self.CITY
-        )
-        car_side = _resolved_side(bay_area_3857, self.LAT, self.LON, self.CITY)
-        assert compose_message(schedule_even, schedule_odd, car_side) == message
 
     # -- SF sub-test (different city, same region GDF) -----------------------
 
@@ -249,17 +212,17 @@ class TestChicagoPipeline:
     def test_check_day_returns_valid_urgency(self, chicago_3857):
         schedule, *_ = _analyze(chicago_3857, self.LAT, self.LON, city_key=self.CITY)
         urgency = analysis.check_day_street_sweeping(schedule)
-        assert urgency is False or urgency in ("today", "tomorrow")
+        assert urgency in ("today", "tomorrow", "safe")
 
-    def test_check_day_false_outside_april_november(self, chicago_3857):
-        """Outside the sweeping season urgency must be False."""
+    def test_check_day_safe_outside_april_november(self, chicago_3857):
+        """Outside the sweeping season urgency must be safe."""
         today = datetime.date.today()
         if 4 <= today.month <= 11:
             pytest.skip("Today is within Chicago's sweeping season — skipping off-season check")
         schedule, *_ = _analyze(chicago_3857, self.LAT, self.LON, city_key=self.CITY)
         urgency = analysis.check_day_street_sweeping(schedule)
-        assert urgency is False, (
-            f"Expected False outside sweeping season (month {today.month}), got {urgency!r}"
+        assert urgency == "safe", (
+            f"Expected safe outside sweeping season (month {today.month}), got {urgency!r}"
         )
 
     def test_check_day_consistent_with_parsed_dates(self, chicago_3857):
@@ -272,15 +235,6 @@ class TestChicagoPipeline:
         elif urgency == "tomorrow":
             assert any(analysis.sweeps_on(e[0], tomorrow) for e in schedule)
             assert not any(analysis.sweeps_on(e[0], today) for e in schedule)
-
-    # -- compose_message / notification --------------------------------------
-
-    def test_compose_message_matches_pipeline_message(self, chicago_3857):
-        _, schedule_even, schedule_odd, message = _analyze(
-            chicago_3857, self.LAT, self.LON, city_key=self.CITY
-        )
-        car_side = _resolved_side(chicago_3857, self.LAT, self.LON, self.CITY)
-        assert compose_message(schedule_even, schedule_odd, car_side) == message
 
     def test_message_non_empty_when_schedule_found(self, chicago_3857):
         _, schedule_even, schedule_odd, message = _analyze(

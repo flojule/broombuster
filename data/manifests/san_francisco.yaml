@@ -2,9 +2,13 @@
 name: "San Francisco, CA"
 center: {lat: 37.7749, lon: -122.4194}
 manual_default: {lat: 37.7749, lon: -122.4194}
-local_path: data/san_francisco/StreetSweeping.geojson
-url: "https://data.sfgov.org/resource/yhqp-riqs.geojson?$limit=200000"
 schema: sf
 bbox: [37.70, -122.53, 37.84, -122.35]
 stale_after_days: 30
 fgb_path: data/san_francisco/StreetSweeping.fgb
+source:
+  local_path: data/san_francisco/StreetSweeping.geojson
+  url: "https://data.sfgov.org/resource/yhqp-riqs.geojson?$limit=200000"
+  notes: |
+    DataSF "Street Sweeping Schedule" (yhqp-riqs), refreshed monthly by the
+    city; /health flags the bundled FGB once it is older than stale_after_days.

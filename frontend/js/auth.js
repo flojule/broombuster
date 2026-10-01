@@ -25,11 +25,7 @@ async function _tryRefresh() {
   const rt = localStorage.getItem('bb_refresh');
   if (!rt) return false;
   try {
-    const res = await fetch('/auth/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: rt }),
-    });
+    const res = await postJSON('/auth/refresh', { refresh_token: rt });
     if (!res.ok) { _clearTokens(); return false; }
     const data = await res.json();
     _saveTokens(data.access_token, data.refresh_token);
@@ -131,13 +127,7 @@ async function _migrateGuestToServer() {
   }
 
   if (merged.length === 0 && mergedHomes.length === 0) return;  // nothing to persist
-  try {
-    await apiFetch('/prefs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cars: merged, ..._homePrefsPayload(mergedHomes) }),
-    });
-  } catch (_) {}
+  try { await postJSON('/prefs', { cars: merged, homes: mergedHomes }); } catch (_) {}
 }
 
 // POST credentials to an auth endpoint; on success store tokens and finish sign-in.
@@ -147,11 +137,7 @@ async function _submitAuth(path, btn, busyLabel, failMsg) {
   btn.disabled = true;
   btn.innerHTML = `<span class="spinner"></span>${busyLabel}`;
   try {
-    const res = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: emailEl.value.trim(), password: passwordEl.value }),
-    });
+    const res = await postJSON(path, { email: emailEl.value.trim(), password: passwordEl.value });
     const data = await res.json();
     if (!res.ok) { authError.textContent = data.detail || failMsg; return; }
     _saveTokens(data.access_token, data.refresh_token);

@@ -1,6 +1,8 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --blue: #2563eb; --red: #ef4444;
+      /* Urgency colours (cards, banner, legend); the map paint lives in core.js URGENCY. */
+      --urg-today: #ef4444; --urg-tomorrow: #f97316; --urg-safe: #2563eb;
       --bg: #f8fafc; --card: #ffffff; --text: #1e293b;
       --muted: #64748b; --border: #e2e8f0;
       --sheet-peek: 40px;  /* collapsed bottom-sheet handle height */
@@ -154,6 +156,8 @@
       user-select: none; width: 100%; flex-shrink: 0;
     }
     .cars-legend span { white-space: nowrap; font-weight: 500; }
+    .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
+    .urg-safe { color: var(--urg-safe); }
     .car-entry {
       position: relative;
       background: var(--card); border: 1px solid var(--border);
@@ -347,7 +351,6 @@
       box-shadow: 0 2px 8px rgba(0,0,0,.45);
       cursor: pointer; transition: width .12s, height .12s, border-color .12s;
     }
-    .car-marker.selected { border-color: var(--marker-color, white); }
 
     /* Home pin — emoji marker, distinct from the round car dots. */
     .home-marker {

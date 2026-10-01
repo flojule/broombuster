@@ -1,9 +1,18 @@
 // ── Config ────────────────────────────────────────────────────────────────────
 const DEV_MODE      = window.DEV_MODE === true;
-// PMTILES_MODE: render zones from static vector tiles + client-side urgency,
-// instead of per-request GeoJSON from /check. See js/urgency.js.
-const PMTILES_MODE  = window.PMTILES_MODE === true;
 const REGION_TZ     = window.REGION_TZ || {};
+
+// Every urgency surface reads this one table: card/banner colour (CSS vars in
+// styles.css), labels, and the map paint (MapLibre needs literal colours).
+const URGENCY = {
+  today:    { color: 'var(--urg-today)',    car: '🚨 Move car today!',   short: '🚨 Today',
+              fill: 'rgba(220,60,60,0.55)',  border: 'rgba(220,60,60,0.90)',  line: 'tomato' },
+  tomorrow: { color: 'var(--urg-tomorrow)', car: '⚠️ Move car tomorrow', short: '⚠️ Tomorrow',
+              fill: 'rgba(230,130,20,0.40)', border: 'rgba(230,130,20,0.80)', line: 'orange' },
+  safe:     { color: 'var(--urg-safe)',     car: '✅ All clear',          short: '✅ Clear',
+              fill: 'rgba(80,110,180,0.18)', border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
+};
+const URGENCY_RANK = { today: 2, tomorrow: 1, safe: 0 };
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
@@ -22,13 +31,23 @@ function apiFetch(path, opts = {}) {
   });
 }
 
-// POST /check for a lat/lon in the selected region; returns the Response.
-function postCheck(lat, lon) {
-  return apiFetch('/check', {
+// POST a JSON body (with the session token when signed in); returns the Response.
+function postJSON(path, body) {
+  return apiFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lat, lon, region: regionSelect.value || undefined }),
+    body: JSON.stringify(body),
   });
+}
+
+// POST /check for a lat/lon in the selected region; returns the Response.
+function postCheck(lat, lon) {
+  return postJSON('/check', { lat, lon, region: regionSelect.value || undefined });
+}
+
+function newId() {
+  return crypto.randomUUID ? crypto.randomUUID()
+                           : Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
 // Nominatim forward geocode: {lat, lon} or null when not found; throws on network error.
@@ -69,7 +88,6 @@ let placingHome    = false;
 let placingEditId  = null;
 let pendingLat     = null, pendingLon = null;
 let carSchedules   = {};
-let _currentGeojson = null;   // last zone GeoJSON from /check
 let _tempPin        = null;   // {lat,lon} while naming a new car
 let _selectedCarId  = null;
 let _locSource = null, _locLat = null, _locLon = null, _locCity = null;
@@ -91,27 +109,19 @@ let _zonePopup     = null;  // MapLibre popup for clicked zone detail
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
-const ZONES_SOURCE = 'sweeping-zones';
 const ZONE_LAYERS  = ['zones-fill', 'zones-outline', 'zones-ward', 'zones-line'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
-// PMTILES mode: vector source + per-feature urgency via feature-state. Layer ids
-// match the GeoJSON path so hover/click (HOVER_LAYERS) work unchanged. Colours
-// mirror maps.py (_URGENCY_RGB / _zone_fill_color / _color_meta).
+// Vector tile source; per-feature urgency arrives via feature-state.
 const TILES_SOURCE     = 'zones-tiles';
 const TILES_SRC_LAYER  = 'zones';
-const URGENCY_COLORS = {
-  today:    { fill: 'rgba(220,60,60,0.55)',   border: 'rgba(220,60,60,0.90)',  line: 'tomato' },
-  tomorrow: { fill: 'rgba(230,130,20,0.40)',  border: 'rgba(230,130,20,0.80)', line: 'orange' },
-  clear:    { fill: 'rgba(80,110,180,0.18)',  border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
-};
 function _urgCase(prop) {
-  // MapLibre expression: pick colour from feature-state 'urgency' (default clear).
+  // MapLibre expression: pick colour from feature-state 'urgency' (default safe).
   return [
     'case',
-    ['==', ['feature-state', 'urgency'], 'today'],    URGENCY_COLORS.today[prop],
-    ['==', ['feature-state', 'urgency'], 'tomorrow'], URGENCY_COLORS.tomorrow[prop],
-    URGENCY_COLORS.clear[prop],
+    ['==', ['feature-state', 'urgency'], 'today'],    URGENCY.today[prop],
+    ['==', ['feature-state', 'urgency'], 'tomorrow'], URGENCY.tomorrow[prop],
+    URGENCY.safe[prop],
   ];
 }
 // Street line width scales with zoom so it stays thin on city-wide views.

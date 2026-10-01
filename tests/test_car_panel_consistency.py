@@ -1,36 +1,29 @@
 """
 tests/test_car_panel_consistency.py
 
-Verifies that the five fields returned by /check and rendered in the car panel
-are mutually consistent:
+Verifies that the sweeping fields /check returns for the car panel are
+mutually consistent:
 
-    urgency        — "today" | "tomorrow" | False  (union of both sides)
+    urgency        — "today" | "tomorrow" | "safe"  (union of both sides)
     car_side       — "even" | "odd" | None
     schedule_even  — list of (code, desc, time) for even side
     schedule_odd   — list of (code, desc, time) for odd side
-    message        — plain text; ► marker must be on car_side's line
 
 Pipeline under test:
 
     GDF row ──► get_schedule(row, 0/1) ──► schedules_for_segment()
-             ──► compute_urgency()          ──► urgency
-             ──► compose_message()          ──► message (► highlights car_side)
-             ──► _parity() / _determine_side() ──► car_side
+             ──► check_day_street_sweeping(even + odd) ──► urgency
+             ──► _parity() / _determine_side()        ──► car_side
 
 Cross-field invariants explicitly tested:
-  1. ► in message always marks the same side as car_side.
-  2. If urgency="today", at least one of schedule_even / schedule_odd contains
+  1. If urgency="today", at least one of schedule_even / schedule_odd contains
      a date that is today.  (urgency is the UNION of both sides.)
-  3. schedules_for_segment() and get_schedule() agree.
-  4. Past-end-time → urgency=False even when today is a sweep day.
-  5. urgency="today" does NOT guarantee car's own side sweeps today (union
+  2. schedules_for_segment() and get_schedule() agree.
+  3. Past-end-time → urgency="safe" even when today is a sweep day.
+  4. urgency="today" does NOT guarantee car's own side sweeps today (union
      semantics) — documented as an explicit edge case.
-  6. When DAY_EVEN/ODD are missing or empty, schedules are empty and urgency is False.
+  5. When DAY_EVEN/ODD are missing or empty, schedules are empty and urgency is "safe".
 """
-
-import os
-
-os.environ.setdefault("DEV_MODE", "1")
 
 import datetime
 from zoneinfo import ZoneInfo
@@ -38,8 +31,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from broombuster import analysis, resolve
-from broombuster.domains.sweeping import compose_message
+from broombuster import analysis, normalize, resolve
 
 # ---------------------------------------------------------------------------
 # Shared fixture helpers
@@ -57,6 +49,12 @@ _AFTER       = _TODAY + datetime.timedelta(days=2)   # not today/tomorrow
 
 def _dates(d: datetime.date) -> str:
     return f"DATES:{d.isoformat()}"
+
+
+def _urgency(seg, local_now):
+    """Both sides' urgency for one row, as the sweeping plugin computes it."""
+    even, odd = analysis.schedules_for_segment(seg)
+    return analysis.check_day_street_sweeping(even + odd, local_now=local_now)
 
 
 def _seg(**kw) -> pd.Series:
@@ -178,38 +176,38 @@ class TestSchedulesForSegment:
 
 
 # ---------------------------------------------------------------------------
-# C. compute_urgency() — pure urgency from segment + datetime
+# C. Urgency — both sides of one segment at a given datetime
 # ---------------------------------------------------------------------------
 
 class TestComputeUrgency:
     def test_today_when_today_in_dates(self):
         seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM")
-        assert analysis.compute_urgency(seg, local_now=_NOW_MORNING) == "today"
+        assert _urgency(seg, local_now=_NOW_MORNING) == "today"
 
     def test_tomorrow_when_only_tomorrow_in_dates(self):
         seg = _seg(DAY_EVEN=_dates(_TOMORROW))
-        assert analysis.compute_urgency(seg, local_now=_NOW_MORNING) == "tomorrow"
+        assert _urgency(seg, local_now=_NOW_MORNING) == "tomorrow"
 
     def test_false_when_neither_today_nor_tomorrow(self):
         seg = _seg(DAY_EVEN=_dates(_AFTER))
-        assert analysis.compute_urgency(seg, local_now=_NOW_MORNING) is False
+        assert _urgency(seg, local_now=_NOW_MORNING) == "safe"
 
     def test_false_past_end_time(self):
-        # 8AM-10AM, local_now is 12:00 → window closed → False
+        # 8AM-10AM, local_now is 12:00 → window closed → safe
         seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM")
-        assert analysis.compute_urgency(seg, local_now=_NOW_NOON) is False
+        assert _urgency(seg, local_now=_NOW_NOON) == "safe"
 
     def test_today_within_time_window(self):
         seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="10AM-12PM")
         # 12:00 exactly is still within "10AM-12PM" (end inclusive per implementation)
-        result = analysis.compute_urgency(seg, local_now=_NOW_NOON)
+        result = _urgency(seg, local_now=_NOW_NOON)
         # noon ≤ noon end → still "today"
         assert result == "today"
 
     def test_today_via_odd_side_only(self):
         # urgency is UNION: car_side="even" but only ODD sweeps today → still "today"
         seg = _seg(DAY_ODD=_dates(_TODAY), TIME_ODD="8AM-10AM")
-        result = analysis.compute_urgency(seg, local_now=_NOW_MORNING)
+        result = _urgency(seg, local_now=_NOW_MORNING)
         assert result == "today", (
             "urgency is union of both sides — should be 'today' even when "
             "only the odd side sweeps"
@@ -218,38 +216,39 @@ class TestComputeUrgency:
     def test_both_sides_sweep_today_returns_today_not_doubled(self):
         seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM",
                    DAY_ODD=_dates(_TODAY),  TIME_ODD="8AM-10AM")
-        assert analysis.compute_urgency(seg, local_now=_NOW_MORNING) == "today"
+        assert _urgency(seg, local_now=_NOW_MORNING) == "today"
 
     def test_even_today_odd_tomorrow(self):
         seg = _seg(DAY_EVEN=_dates(_TODAY),    TIME_EVEN="8AM-10AM",
                    DAY_ODD=_dates(_TOMORROW))
-        result = analysis.compute_urgency(seg, local_now=_NOW_MORNING)
+        result = _urgency(seg, local_now=_NOW_MORNING)
         assert result == "today"  # even side wins
 
     def test_none_segment_returns_false(self):
-        assert analysis.compute_urgency(None, local_now=_NOW_MORNING) is False
+        assert _urgency(None, local_now=_NOW_MORNING) == "safe"
 
     def test_no_day_columns_returns_false(self):
         seg = _seg()  # both DAY_EVEN and DAY_ODD are None
-        assert analysis.compute_urgency(seg, local_now=_NOW_MORNING) is False
+        assert _urgency(seg, local_now=_NOW_MORNING) == "safe"
 
     def test_unknown_code_returns_false(self):
         seg = _seg(DAY_EVEN="XYZZY")
-        assert analysis.compute_urgency(seg, local_now=_NOW_MORNING) is False
+        assert _urgency(seg, local_now=_NOW_MORNING) == "safe"
 
     def test_tomorrow_no_time_constraint(self):
         # tomorrow with no time info → "tomorrow" (time check doesn't apply)
         seg = _seg(DAY_ODD=_dates(_TOMORROW))
-        assert analysis.compute_urgency(seg, local_now=_NOW_NOON) == "tomorrow"
+        assert _urgency(seg, local_now=_NOW_NOON) == "tomorrow"
 
 
 # ---------------------------------------------------------------------------
-# D. _parse_end_time() — time-boundary building block
+# D. normalize.time_window() end — time-boundary building block
 # ---------------------------------------------------------------------------
 
 class TestParseEndTime:
     def _p(self, s):
-        return analysis._parse_end_time(s)
+        w = normalize.time_window(s)
+        return w[1] if w else None
 
     def test_basic_am_range(self):
         assert self._p("8AM-10AM") == datetime.time(10, 0)
@@ -331,84 +330,6 @@ class TestParity:
 
 
 # ---------------------------------------------------------------------------
-# F. compose_message() — ► placement invariants
-# ---------------------------------------------------------------------------
-
-class TestComposeMessage:
-    def _make(self, code, desc, time_str):
-        return [(code, desc, time_str)]
-
-    def test_car_side_even_highlights_even(self):
-        se = self._make("ME", "Mon sweeping", "8AM-10AM")
-        msg = compose_message(se, [], car_side="even")
-        lines = msg.splitlines()
-        even_line = next(ln for ln in lines if "Even" in ln)
-        odd_line  = next(ln for ln in lines if "Odd" in ln)
-        assert even_line.startswith("►"), f"Even line not highlighted: {msg!r}"
-        assert not odd_line.startswith("►"), f"Odd line incorrectly highlighted: {msg!r}"
-
-    def test_car_side_odd_highlights_odd(self):
-        so = self._make("WE", "Wed sweeping", "9AM-11AM")
-        msg = compose_message([], so, car_side="odd")
-        lines = msg.splitlines()
-        even_line = next(ln for ln in lines if "Even" in ln)
-        odd_line  = next(ln for ln in lines if "Odd" in ln)
-        assert odd_line.startswith("►"), f"Odd line not highlighted: {msg!r}"
-        assert not even_line.startswith("►"), f"Even line incorrectly highlighted: {msg!r}"
-
-    def test_both_sides_same_produces_single_street_line(self):
-        entry = self._make("ME", "Mon sweeping", "8AM-10AM")
-        msg = compose_message(entry, entry, car_side="even")
-        assert msg.startswith("► Street:"), f"Expected single street line, got: {msg!r}"
-        assert "\n" not in msg, "Single-street message should not have newlines"
-
-    def test_both_sides_different_produces_two_lines(self):
-        se = self._make("ME", "Mon sweeping", "8AM-10AM")
-        so = self._make("WE", "Wed sweeping", "9AM-11AM")
-        msg = compose_message(se, so, car_side="even")
-        assert "\n" in msg, "Two-schedule message should have a newline"
-
-    def test_no_schedule_either_side(self):
-        msg = compose_message([], [], car_side="even")
-        assert "no sweeping" in msg.lower()
-        lines = msg.splitlines()
-        even_line = next(ln for ln in lines if "Even" in ln)
-        assert even_line.startswith("►"), "Even side should still be highlighted even when no sweep"
-
-    def test_car_side_none_no_highlight_anywhere(self):
-        se = self._make("ME", "Mon", "8AM-10AM")
-        so = self._make("WE", "Wed", "9AM-11AM")
-        msg = compose_message(se, so, car_side=None)
-        lines = msg.splitlines()
-        assert not any(ln.startswith("►") for ln in lines), (
-            f"No side should be highlighted when car_side=None: {msg!r}"
-        )
-
-    def test_dedup_identical_entries_on_same_side(self):
-        entry = ("ME", "Mon sweeping", "8AM-10AM")
-        se = [entry, entry]  # duplicated
-        msg = compose_message(se, [], car_side="even")
-        even_line = next(ln for ln in msg.splitlines() if "Even" in ln)
-        # Should not have " / Mon sweeping / Mon sweeping"
-        assert even_line.count("Mon sweeping") == 1, f"Duplicate not deduped: {even_line!r}"
-
-    def test_desc_and_time_joined_with_comma(self):
-        # Unified formatting: desc and (normalized) time on one line, comma
-        # separated. Time goes through time_display, so the range uses an en-dash.
-        se = self._make("ME", "Mon sweeping", "8AM-10AM")
-        msg = compose_message(se, [], car_side="even")
-        assert "Mon sweeping" in msg
-        assert "8AM–10AM" in msg  # normalized, en-dash range
-        assert "Mon sweeping, 8AM–10AM" in msg
-
-    def test_desc_only_no_dash_when_no_time(self):
-        se = self._make("ME", "Mon sweeping", "")
-        msg = compose_message(se, [], car_side="even")
-        assert "Mon sweeping" in msg
-        assert "—" not in msg
-
-
-# ---------------------------------------------------------------------------
 # G. Cross-field consistency invariants
 # ---------------------------------------------------------------------------
 
@@ -419,19 +340,6 @@ class TestCrossFieldConsistency:
     being violated silently.
     """
 
-    def test_highlight_matches_car_side_even(self):
-        se = [("ME", "Mon", "8AM-10AM")]
-        so = [("WE", "Wed", "9AM-11AM")]
-        for car_side in ("even", "odd"):
-            msg = compose_message(se, so, car_side=car_side)
-            lines = msg.splitlines()
-            highlighted = [ln for ln in lines if ln.startswith("►")]
-            assert len(highlighted) == 1, f"Exactly one line should be highlighted: {msg!r}"
-            labeled_side = "Even" if car_side == "even" else "Odd"
-            assert labeled_side in highlighted[0], (
-                f"Highlighted line should be for {car_side} side: {msg!r}"
-            )
-
     def test_urgency_today_iff_at_least_one_side_has_today(self):
         """
         urgency='today' ↔ at least one of schedule_even / schedule_odd
@@ -440,7 +348,7 @@ class TestCrossFieldConsistency:
         seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM",
                    DAY_ODD=_dates(_AFTER))
         se, so = analysis.schedules_for_segment(seg)
-        urgency = analysis.compute_urgency(seg, local_now=_NOW_MORNING)
+        urgency = _urgency(seg, local_now=_NOW_MORNING)
         assert urgency == "today"
 
         # Confirm: the even side contains today, odd side does not
@@ -458,27 +366,18 @@ class TestCrossFieldConsistency:
         """
         seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM",
                    DAY_ODD=_dates(_AFTER))
-        urgency = analysis.compute_urgency(seg, local_now=_NOW_MORNING)
+        urgency = _urgency(seg, local_now=_NOW_MORNING)
         se, so = analysis.schedules_for_segment(seg)
 
         # urgency="today" even though the ODD side (the car's side here) is safe
         assert urgency == "today"
+        assert not analysis.sweeps_on(so[0][0], _TODAY)
 
-        # Now build message for a car parked on the odd side
-        msg = compose_message(se, so, car_side="odd")
-        odd_line = next(ln for ln in msg.splitlines() if "Odd" in ln)
-        # The odd line is highlighted (car is there) but shows the odd schedule
-        # which is NOT today — message correctly shows future date, not "today"
-        assert "►" in odd_line, "Odd side should be highlighted (car is there)"
-        # urgency is "today" from the even side — this can appear inconsistent
-        # in the UI if urgency banner says "Move today" but the car's side shows
-        # a future schedule.  This test documents the gap.
-
-    def test_schedules_for_segment_agrees_with_compute_urgency_when_today(self):
+    def test_schedules_for_segment_agrees_with_urgency_when_today(self):
         seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM")
         se, _ = analysis.schedules_for_segment(seg)
         assert len(se) == 1
-        urgency = analysis.compute_urgency(seg, local_now=_NOW_MORNING)
+        urgency = _urgency(seg, local_now=_NOW_MORNING)
         assert urgency == "today"
         # The code driving urgency is the same code in the schedule tuple
         assert se[0][0] == _dates(_TODAY)
@@ -486,26 +385,17 @@ class TestCrossFieldConsistency:
     def test_schedules_for_segment_agrees_when_false(self):
         seg = _seg(DAY_EVEN=_dates(_AFTER))
         se, _ = analysis.schedules_for_segment(seg)
-        urgency = analysis.compute_urgency(seg, local_now=_NOW_MORNING)
-        assert urgency is False
+        urgency = _urgency(seg, local_now=_NOW_MORNING)
+        assert urgency == "safe"
         assert len(se) == 1  # schedule exists; it's just not today/tomorrow
 
     def test_empty_schedules_produce_false_urgency(self):
         seg = _seg()
         se, so = analysis.schedules_for_segment(seg)
-        urgency = analysis.compute_urgency(seg, local_now=_NOW_MORNING)
+        urgency = _urgency(seg, local_now=_NOW_MORNING)
         assert se == []
         assert so == []
-        assert urgency is False
-
-    def test_message_no_sweep_marker_consistent(self):
-        """When neither side has sweeping, message still has ► on car_side line."""
-        msg = compose_message([], [], car_side="even")
-        highlighted = [ln for ln in msg.splitlines() if ln.startswith("►")]
-        assert len(highlighted) == 1
-        assert "Even" in highlighted[0]
-        assert "no sweeping" in highlighted[0].lower()
-
+        assert urgency == "safe"
 
 # ---------------------------------------------------------------------------
 # H. API /check integration — all five fields, real GDF data
@@ -523,32 +413,20 @@ class TestApiCheckIntegration:
 
     @pytest.fixture(scope="class")
     @classmethod
-    def client(cls):
-        from fastapi.testclient import TestClient
-
-        from broombuster.api import app as api_mod
-        with TestClient(api_mod.app) as c:
-            yield c
-
-    @pytest.fixture(scope="class")
-    @classmethod
-    def check_data(cls, client):
-        resp = client.post("/check", json={
+    def check_data(cls, app_client):
+        resp = app_client.post("/check", json={
             "lat": cls.LAT, "lon": cls.LON, "region": "bay_area"
         })
         assert resp.status_code == 200, resp.text
-        return resp.json()
+        (sweeping,) = [d for d in resp.json()["domains"] if d["id"] == "sweeping"]
+        return {**sweeping["extras"], "urgency": sweeping["urgency"]}
 
-    def test_all_five_fields_present(self, check_data):
-        for field in ("urgency", "car_side", "schedule_even", "schedule_odd", "message"):
+    def test_all_fields_present(self, check_data):
+        for field in ("urgency", "car_side", "schedule_even", "schedule_odd"):
             assert field in check_data, f"Field '{field}' missing from /check response"
 
     def test_urgency_is_valid_value(self, check_data):
-        # /check returns whatever compute_urgency() returned. Per
-        # analysis.compute_urgency's contract the only legal values are
-        # "today", "tomorrow", or False. Anything else is a bug — including
-        # the string "safe" or None, which were previously tolerated here.
-        assert check_data["urgency"] in ("today", "tomorrow", False), (
+        assert check_data["urgency"] in ("today", "tomorrow", "safe"), (
             f"Unexpected urgency value: {check_data['urgency']!r}"
         )
 
@@ -561,45 +439,6 @@ class TestApiCheckIntegration:
     def test_schedule_lists_are_lists(self, check_data):
         assert isinstance(check_data["schedule_even"], list)
         assert isinstance(check_data["schedule_odd"], list)
-
-    def test_message_is_string(self, check_data):
-        assert isinstance(check_data["message"], str)
-
-    def test_message_highlights_car_side(self, check_data):
-        car_side = check_data["car_side"]
-        msg = check_data["message"]
-        if car_side is None:
-            pytest.skip("car_side is None — no side to highlight")
-        labeled = "Even" if car_side == "even" else "Odd"
-        highlighted_lines = [ln for ln in msg.splitlines() if ln.startswith("►")]
-        if not highlighted_lines:
-            # Single "► Street:" line — both sides same
-            assert msg.startswith("► Street:"), f"Unexpected message format: {msg!r}"
-        else:
-            assert any(labeled in ln for ln in highlighted_lines), (
-                f"car_side={car_side!r} but ► not on {labeled} side.\n"
-                f"message:\n{msg}"
-            )
-
-    def test_snap_field_present_and_valid(self, check_data):
-        snap = check_data.get("snap")
-        assert snap is not None, "snap field missing — resolver failed to find a segment"
-        assert "street_name" in snap
-        assert "distance_m" in snap
-        assert isinstance(snap["distance_m"], (int, float))
-
-    def test_snap_street_name_matches_address(self, check_data):
-        """address field should contain the same street name as snap.street_name."""
-        from broombuster import normalize
-        snap = check_data.get("snap") or {}
-        snap_name = snap.get("street_name", "")
-        address   = check_data.get("address", "")
-        if not snap_name or not address:
-            pytest.skip("snap or address not present")
-        assert normalize.street_name(snap_name) in normalize.street_name(address) or \
-               normalize.street_name(address)   in normalize.street_name(snap_name), (
-            f"snap.street_name={snap_name!r} does not match address={address!r}"
-        )
 
     def test_schedule_tuples_have_three_elements(self, check_data):
         for entry in check_data["schedule_even"] + check_data["schedule_odd"]:
@@ -657,12 +496,7 @@ class TestMissingColumnRobustness:
         seg = _seg(DAY_EVEN=0)
         assert analysis.get_schedule(seg, 0) is None
 
-    def test_compose_message_empty_entries_ignored(self):
-        # Entries shorter than 3 elements or falsy should be silently skipped
-        msg = compose_message([None, (), ("ME",)], [], car_side="even")
-        assert "no sweeping" in msg.lower()
-
-    def test_compute_urgency_with_invalid_code_does_not_raise(self):
+    def test_urgency_with_invalid_code_does_not_raise(self):
         seg = _seg(DAY_EVEN="INVALID_CODE_XYZY")
-        result = analysis.compute_urgency(seg, local_now=_NOW_MORNING)
-        assert result is False  # unknown code → empty dates → not today/tomorrow
+        result = _urgency(seg, local_now=_NOW_MORNING)
+        assert result == "safe"  # unknown code → empty dates → not today/tomorrow

@@ -1,4 +1,19 @@
-// ── Car markers (MapLibre HTML markers) ──────────────────────────────────────
+// ── Map markers (MapLibre HTML markers) ───────────────────────────────────────
+// Move `marker` to {lat, lon}, creating it from makeEl() when absent; null `at`
+// removes it. Returns the marker (or null).
+function placeMarker(marker, at, makeEl) {
+  if (!at) { marker?.remove(); return null; }
+  if (marker) return marker.setLngLat([at.lon, at.lat]);
+  return new maplibregl.Marker({ element: makeEl(), anchor: 'center' })
+    .setLngLat([at.lon, at.lat]).addTo(map);
+}
+
+function _dotEl(css) {
+  const el = document.createElement('div');
+  el.style.cssText = 'border-radius:50%;' + css;
+  return el;
+}
+
 function updateCarMarkers() {
   // Remove markers for cars that no longer exist
   for (const [id, marker] of _carMarkers) {
@@ -6,21 +21,13 @@ function updateCarMarkers() {
   }
 
   cars.forEach((car, i) => {
-    const color      = carColor(i);
+    const color = carColor(i);
     const isSelected = car.id === _selectedCarId;
-    const size       = isSelected ? 22 : 16;
-
-    if (_carMarkers.has(car.id)) {
-      const marker = _carMarkers.get(car.id);
-      marker.setLngLat([car.lon, car.lat]);
-      const el = marker.getElement();
-      el.style.width  = size + 'px';
-      el.style.height = size + 'px';
-      el.style.borderColor = isSelected ? color : 'white';
-    } else {
+    const size = (isSelected ? 22 : 16) + 'px';
+    const marker = placeMarker(_carMarkers.get(car.id), car, () => {
       const el = document.createElement('div');
-      el.className = 'car-marker' + (isSelected ? ' selected' : '');
-      el.style.cssText = `width:${size}px;height:${size}px;background:${color};--marker-color:${color};`;
+      el.className = 'car-marker';
+      el.style.cssText = `background:${color};--marker-color:${color};`;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         setSelectedCar(car.id);
@@ -28,40 +35,20 @@ function updateCarMarkers() {
         const entry = carsPanel.querySelector(`.car-entry[data-id="${car.id}"]`);
         if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([car.lon, car.lat])
-        .addTo(map);
-      _carMarkers.set(car.id, marker);
-    }
+      return el;
+    });
+    const el = marker.getElement();
+    el.style.width = el.style.height = size;
+    el.style.borderColor = isSelected ? color : 'white';
+    _carMarkers.set(car.id, marker);
   });
 
-  // Temp pin (new car placement)
-  if (_tempPin) {
-    if (!_tempPinMarker) {
-      const el = document.createElement('div');
-      el.style.cssText = 'width:16px;height:16px;border-radius:50%;background:#64748b;border:3px solid #111;box-shadow:0 2px 6px rgba(0,0,0,.4);';
-      _tempPinMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([_tempPin.lon, _tempPin.lat]).addTo(map);
-    } else {
-      _tempPinMarker.setLngLat([_tempPin.lon, _tempPin.lat]);
-    }
-  } else if (_tempPinMarker) {
-    _tempPinMarker.remove(); _tempPinMarker = null;
-  }
-
-  // GPS "you are here" pin
-  if (_gpsLocPin) {
-    if (!_gpsMarker) {
-      const el = document.createElement('div');
-      el.style.cssText = 'width:14px;height:14px;border-radius:50%;background:#2563eb;border:3px solid white;box-shadow:0 0 0 6px rgba(37,99,235,.2),0 2px 8px rgba(0,0,0,.4);';
-      _gpsMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([_gpsLocPin.lon, _gpsLocPin.lat]).addTo(map);
-    } else {
-      _gpsMarker.setLngLat([_gpsLocPin.lon, _gpsLocPin.lat]);
-    }
-  } else if (_gpsMarker) {
-    _gpsMarker.remove(); _gpsMarker = null;
-  }
+  // Temp pin (new car placement) and the GPS "you are here" pin.
+  _tempPinMarker = placeMarker(_tempPinMarker, _tempPin, () => _dotEl(
+    'width:16px;height:16px;background:#64748b;border:3px solid #111;box-shadow:0 2px 6px rgba(0,0,0,.4);'));
+  _gpsMarker = placeMarker(_gpsMarker, _gpsLocPin, () => _dotEl(
+    'width:14px;height:14px;background:var(--blue);border:3px solid white;' +
+    'box-shadow:0 0 0 6px rgba(37,99,235,.2),0 2px 8px rgba(0,0,0,.4);'));
 
   renderCarsPanel();
 }

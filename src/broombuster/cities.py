@@ -1,16 +1,75 @@
 """City + region configs, loaded from data/manifests/*.yaml.
 
-CITIES maps city_key -> config (name, center, manual_default, local_path,
-url, schema, bbox, fgb_path, plus optional stale_after_days / schedule_pdf_url).
-REGIONS groups cities geographically (name, cities, center, tz, overview frame).
+CITIES maps city_key -> config: name, center, manual_default, schema, bbox,
+fgb_path, source {local_path, url?, files?, sha256?, build?, notes}, plus
+optional stale_after_days / schedule_pdf_url / trash. REGIONS groups cities
+geographically (name, cities, center, tz, overview frame).
 
 A manifest names a normaliser profile via `schema`; it never remaps columns,
 so each city's distinct format stays handled by its own
-data_loader.SCHEMA_PROFILES entry. Add a city by dropping a new YAML in
+schemas.SCHEMA_PROFILES entry. Add a city by dropping a new YAML in
 data/manifests/ (and a new SCHEMA_PROFILES entry if its format is novel).
+Loading fails loudly on a missing required field, a malformed center, or a
+region naming an absent city.
 """
 
-from broombuster.manifest import load_all
+from __future__ import annotations
+
+import os
+
+import yaml
+
+from broombuster.config import REPO_ROOT
+
+MANIFEST_DIR = os.path.join(REPO_ROOT, "data", "manifests")
+_REGIONS_FILE = "regions.yaml"
+_REQUIRED_CITY_FIELDS = ("name", "center", "schema", "fgb_path", "source")
+_REQUIRED_REGION_FIELDS = ("name", "cities", "center", "tz")
+
+
+def _read_yaml(path: str) -> dict:
+    with open(path, encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+    if not isinstance(data, dict):
+        raise ValueError(f"Manifest {path} must parse to a mapping, got {type(data).__name__}")
+    return data
+
+
+def _check_center(what: str, center) -> None:
+    if not isinstance(center, dict) or "lat" not in center or "lon" not in center:
+        raise ValueError(f"{what} has a malformed center (need lat/lon): {center!r}")
+
+
+def load_all(directory: str = MANIFEST_DIR) -> tuple[dict, dict]:
+    """(CITIES, REGIONS) parsed and validated from a manifest directory."""
+    cities: dict = {}
+    for fname in sorted(os.listdir(directory)):
+        if not fname.endswith(".yaml") or fname == _REGIONS_FILE:
+            continue
+        key = fname[: -len(".yaml")]
+        city = _read_yaml(os.path.join(directory, fname))
+        missing = [f for f in _REQUIRED_CITY_FIELDS if f not in city]
+        if missing or "local_path" not in (city.get("source") or {}):
+            raise ValueError(f"City manifest '{key}' missing required field(s): "
+                             f"{missing or ['source.local_path']}")
+        _check_center(f"City manifest '{key}'", city["center"])
+        cities[key] = city
+    if not cities:
+        raise ValueError(f"No city manifests found in {directory}")
+
+    regions = _read_yaml(os.path.join(directory, _REGIONS_FILE))
+    for key, region in regions.items():
+        if not isinstance(region, dict):
+            raise ValueError(f"Region '{key}' must be a mapping, got {type(region).__name__}")
+        missing = [f for f in _REQUIRED_REGION_FIELDS if f not in region]
+        if missing:
+            raise ValueError(f"Region '{key}' missing required field(s): {missing}")
+        absent = [c for c in region["cities"] if c not in cities]
+        if absent:
+            raise ValueError(f"Region '{key}' references unknown cities: {absent}")
+        _check_center(f"Region '{key}'", region["center"])
+    return cities, regions
+
 
 CITIES, REGIONS = load_all()
 

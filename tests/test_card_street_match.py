@@ -8,13 +8,7 @@ accuracy for controlled mid-block coordinates is covered in test_resolve.py.
 """
 import pytest
 
-from broombuster import analysis, data_loader, normalize, resolve
-
-
-@pytest.fixture(scope="module")
-def bay_area_3857():
-    return data_loader.load_region_data("bay_area").to_crs("EPSG:3857")
-
+from broombuster import analysis, normalize, resolve
 
 # (description, lat, lon, expected_street, city_key)
 CASES = [

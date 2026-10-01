@@ -33,9 +33,6 @@ jobs:
         run: uv run ruff check .
 
       - name: Pytest
-        # conftest.py forces DEV_MODE=1 and PMTILES_MODE=0, so no JWT_SECRET is
-        # needed. DB_PATH points at a throwaway file so the runtime SQLite DB
-        # is never written into the checked-out tree.
-        env:
-          DB_PATH: ${{ runner.temp }}/app.sqlite
+        # conftest.py sets DEV_MODE (no JWT_SECRET needed) and a throwaway
+        # DB_PATH. Node (preinstalled on the runner) runs the JS parity tests.
         run: uv run pytest -q

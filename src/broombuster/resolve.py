@@ -26,6 +26,7 @@ import shapely
 from shapely.geometry import Point
 
 from broombuster import normalize
+from broombuster.cities import CITIES, city_for_point
 
 _TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs(
     "EPSG:4326", "EPSG:3857", always_xy=True
@@ -108,8 +109,8 @@ def resolve_car_segment(
         row = gdf_3857.iloc[int(cand[inside[0]])]
         return ResolvedCar(
             segment=row,
-            street_name=_safe_str(row.get("STREET_NAME")),
-            street_display=_safe_str(
+            street_name=normalize.clean_text(row.get("STREET_NAME")),
+            street_display=normalize.clean_text(
                 row.get("STREET_DISPLAY") or row.get("STREET_NAME")
             ),
             side=None,
@@ -145,8 +146,8 @@ def resolve_car_segment(
 
     return ResolvedCar(
         segment=row,
-        street_name=_safe_str(row.get("STREET_NAME")),
-        street_display=_safe_str(
+        street_name=normalize.clean_text(row.get("STREET_NAME")),
+        street_display=normalize.clean_text(
             row.get("STREET_DISPLAY") or row.get("STREET_NAME")
         ),
         side=side,
@@ -173,8 +174,6 @@ def locate(gdf_3857, lat: float, lon: float, region_key: str):
     The city is the nearest segment's; with no segment in range,
     cities.city_for_point guesses from the manifest.
     """
-    from broombuster.cities import CITIES, city_for_point
-
     resolved = nearest_segment(gdf_3857, lat, lon) if gdf_3857 is not None else None
     city = resolved.segment.get("_city") if resolved is not None else None
     return resolved, (city if city in CITIES else city_for_point(lat, lon, region_key))
@@ -299,7 +298,3 @@ def _safe_int(v) -> int | None:
         return int(float(v))
     except (TypeError, ValueError):
         return None
-
-
-def _safe_str(v) -> str:
-    return v if normalize.is_text(v) else ""

@@ -23,14 +23,9 @@ def env_flag(name: str, default: bool = False) -> bool:
     return os.environ.get(name, "1" if default else "").lower() in ("1", "true", "yes")
 
 
-DEV_MODE           = env_flag("DEV_MODE")            # skip auth; single shared local user
-PMTILES_MODE       = env_flag("PMTILES_MODE", True)  # static vector tiles vs legacy GeoJSON
+DEV_MODE           = env_flag("DEV_MODE")  # skip auth; single shared local user
 # Off unless explicitly enabled: a public deploy must never allow sign-up by accident.
 ALLOW_REGISTRATION = env_flag("ALLOW_REGISTRATION")
-# Background re-download of stale city data. Off by default: deployments ship
-# data through git (update.sh resets tracked files), so a runtime refresh would
-# be discarded on the next rollout and would leave the tiles out of sync.
-DATA_AUTO_REFRESH  = env_flag("DATA_AUTO_REFRESH")
 
 # Email notification (Gmail App Password recommended)
 EMAIL_SENDER   = os.environ.get("EMAIL_SENDER",   "")

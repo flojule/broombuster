@@ -57,11 +57,7 @@ def test_data_age_uses_commit_time_not_mtime(monkeypatch):
     city = CITIES["san_francisco"]
     ten_days_ago = time.time() - 10 * 86400
     monkeypatch.setattr(state, "_git_commit_time", lambda path: ten_days_ago)
-    monkeypatch.setattr(state, "DATA_AUTO_REFRESH", False)
     assert state.data_age_days(city) == pytest.approx(10, abs=0.01)
-    # With runtime refresh on, the file's mtime is the truth.
-    monkeypatch.setattr(state, "DATA_AUTO_REFRESH", True)
-    assert state.data_age_days(city) != pytest.approx(10, abs=0.01)
 
 
 def test_git_commit_time_for_tracked_file():

@@ -2,7 +2,7 @@
 
 These tests sample the most-common street names in each city's prebuilt
 FlatGeobuf and verify:
-  - the name-index contains the normalized key
+  - every common name normalises to a STREET_KEY present in the data
   - the nearest segment for that street has schedule information
   - if address ranges exist, at least one segment covers a sample house number
 
@@ -15,8 +15,13 @@ import pytest
 from pyproj import Transformer
 from shapely.geometry import Point
 
-from broombuster import analysis, data_loader, normalize
+from broombuster import data_loader, normalize
 from broombuster.cities import CITIES
+
+
+def _name_index(gdf) -> dict:
+    """{STREET_KEY: [row labels]}."""
+    return {k: list(ix) for k, ix in gdf.groupby("STREET_KEY").groups.items() if k}
 
 
 def _load_city(city_key):
@@ -42,10 +47,10 @@ def test_common_streets_index_and_schedule(city_key):
     # prepare spatial transformer and index
     trans = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
     gdf3857 = gdf.to_crs("EPSG:3857")
-    name_idx = analysis._get_name_index(gdf)
+    name_idx = _name_index(gdf)
 
     for name in names:
-        norm = analysis._norm_name(name)
+        norm = normalize.street_name(name)
         assert norm in name_idx, f"Name index missing {norm} ({name}) in {city_key}"
         inds = name_idx[norm]
         assert inds, f"No indices for {name} in {city_key}"
@@ -106,8 +111,8 @@ def test_address_range_presence_and_sample_lookup(city_key):
         pytest.skip(f"No STREET_NAME values for {city_key}")
 
     for name in names:
-        norm = analysis._norm_name(name)
-        idx = analysis._get_name_index(gdf)
+        norm = normalize.street_name(name)
+        idx = _name_index(gdf)
         inds = idx.get(norm, [])
         if not inds:
             continue

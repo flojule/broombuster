@@ -1,9 +1,18 @@
-# Built by scripts/build_alameda_geojson.py from the city's PDF schedule.
+# Alameda street sweeping, built from the city's PDF schedule.
 name: "Alameda, CA"
 center: {lat: 37.7652, lon: -122.2416}
 manual_default: {lat: 37.7652, lon: -122.2416}
-local_path: data/alameda/StreetSweeping.geojson
-url: null
 schema: alameda
 bbox: [37.73, -122.33, 37.79, -122.21]
 fgb_path: data/alameda/StreetSweeping.fgb
+source:
+  local_path: data/alameda/StreetSweeping.geojson
+  build: scripts/build_alameda_geojson.py
+  files:
+    - data/alameda/street-sweeping-schedule.pdf
+  sha256:
+    data/alameda/street-sweeping-schedule.pdf: 5c061f1a21801b9052d5208675ec82060b09b25c21193712ed3e70b114f7ff27
+  notes: |
+    One PDF whose URL changes with each refresh. Download the latest from
+    https://www.alamedaca.gov/Residents/Transportation-and-Streets/Street-Sweeping-Schedule
+    and save it as data/alameda/street-sweeping-schedule.pdf.

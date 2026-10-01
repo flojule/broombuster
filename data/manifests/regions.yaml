@@ -1,5 +1,4 @@
-# City groupings loaded together when SINGLE_CITY_MODE = False. Each region
-# carries its own timezone and overview frame.
+# City groupings. Each region carries its own timezone and overview frame.
 bay_area:
   name: "Bay Area"
   cities: [oakland, san_francisco, berkeley, alameda]

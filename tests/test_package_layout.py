@@ -7,12 +7,9 @@ import root, so the test suite catches breakage if files get renamed or
 moved without updating the package metadata.
 """
 
-import os
-
 import pytest
 
 # DEV_MODE so importing broombuster.api.app does not fail JWT_SECRET check.
-os.environ.setdefault("DEV_MODE", "1")
 
 
 def test_root_import_and_version():
@@ -43,19 +40,16 @@ def test_cli_main_callable_is_present():
     )
 
 
-def test_domains_package_exports_sweeping():
-    from broombuster.domains import sweeping
+def test_domains_registry_has_sweeping():
+    from broombuster import domains
 
-    assert callable(sweeping.compose_message), (
-        "broombuster.domains.sweeping must export compose_message"
-    )
+    assert domains.get("sweeping").subject == "car"
 
 
 @pytest.mark.parametrize(
     "module_path",
     [
         "broombuster.analysis",
-        "broombuster.car",
         "broombuster.cities",
         "broombuster.config",
         "broombuster.data_loader",

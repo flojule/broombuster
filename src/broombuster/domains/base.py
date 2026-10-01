@@ -50,6 +50,11 @@ class DomainResult:
     schedule_lines: list[str] = field(default_factory=list)
     extras: dict[str, Any] = field(default_factory=dict)
 
+    def as_dict(self) -> dict:
+        """JSON shape of one `domains[]` entry in API responses."""
+        return {"id": self.domain_id, "label": self.label, "urgency": self.urgency,
+                "schedule_lines": list(self.schedule_lines), "extras": dict(self.extras)}
+
 
 @runtime_checkable
 class DomainPlugin(Protocol):
@@ -96,22 +101,3 @@ class DomainPlugin(Protocol):
         of them, not just the one row the resolver happened to pick).
         """
         ...
-
-
-_URGENCY_PRIORITY = {"today": 2, "tomorrow": 1, "safe": 0}
-
-
-def max_urgency(*urgencies: str) -> str:
-    """Combine per-domain urgencies into one panel-level urgency.
-
-    Used by the frontend (and a future banner) to pick the worst case
-    across all domains for one car. `today` beats `tomorrow` beats `safe`.
-    Unknown values are treated as `safe`.
-    """
-    best = "safe"
-    best_p = 0
-    for u in urgencies:
-        p = _URGENCY_PRIORITY.get(u, 0)
-        if p > best_p:
-            best, best_p = u, p
-    return best

@@ -85,6 +85,6 @@ def test_legacy_top_level_module_dirs_absent():
         f"{bare_modules}"
     )
     assert not (_ROOT / "src" / "notification.py").exists(), (
-        "The notification.py compat shim was removed; callers import "
-        "compose_message from broombuster.domains.sweeping directly."
+        "The notification.py compat shim was removed; the sweeping plugin's "
+        "schedule_lines carry the plain-text summary."
     )

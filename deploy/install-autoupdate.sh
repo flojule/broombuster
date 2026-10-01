@@ -7,7 +7,7 @@
 #            sudo rm /etc/sudoers.d/broombuster-update && sudo systemctl daemon-reload
 set -euo pipefail
 cd "$(dirname "$0")/.."
-REPO="$(pwd)"
+. scripts/lib.sh   # render_unit
 
 # update.sh restarts the app via `sudo systemctl restart broombuster`; the timer
 # runs as $USER, so grant exactly that one command passwordless (nothing else)
@@ -25,8 +25,7 @@ if ! sudo visudo -cf "$SUDOERS" >/dev/null; then
 fi
 
 for unit in broombuster-update.service broombuster-update.timer; do
-  sed -e "s#__USER__#$USER#g" -e "s#__REPO__#$REPO#g" \
-    "deploy/$unit" | sudo tee "/etc/systemd/system/$unit" >/dev/null
+  render_unit "$unit" | sudo tee "/etc/systemd/system/$unit" >/dev/null
 done
 
 sudo systemctl daemon-reload

@@ -2,7 +2,7 @@
 
 Always-on; guest-by-default with optional login (prefs persist
 server-side only when signed in). Map data ships in git so a clone is
-self-contained. The Mac runs independently via `./run.sh` / `./deploy.sh`.
+self-contained. For local development use `./run.sh`.
 
 `install-service.sh` writes a random `JWT_SECRET` into `.env` (gitignored) on
 first run, which the unit reads via `EnvironmentFile`. The app refuses to start
@@ -58,8 +58,6 @@ reboots; run once, not per update):
 tailscale funnel --bg 8000
 tailscale funnel status
 ```
-Don't use `./funnel.sh` for always-on — it runs in the foreground and resets the
-Funnel mapping on exit.
 
 **4. (Optional) auto-deploy on push** — a timer that polls `origin` every ~2 min
 and rolls out when `main` (override: `BROOMBUSTER_BRANCH`) advances **and**
@@ -89,7 +87,7 @@ template in `deploy/`.
 | Status / logs | `systemctl status broombuster` / `journalctl -u broombuster -f` |
 | Restart | `sudo systemctl restart broombuster` |
 | Stop / disable | `sudo systemctl disable --now broombuster` |
-| Refresh map data | commit + push the rebuilt `.fgb`/tiles (auto-update rolls it out, or run `./deploy/update.sh`); `/health` flags data past `stale_after_days` |
+| Refresh map data | `scripts/rebuild_city_data.py` + `scripts/build_pmtiles.py` (on a machine with tippecanoe), commit + push; auto-update rolls it out. `/health` flags data past `stale_after_days` |
 | Auto-update logs | `journalctl -u broombuster-update -f`; next run: `systemctl list-timers broombuster-update.timer`; blocked: `systemctl --failed` |
 | Disable auto-update | `sudo systemctl disable --now broombuster-update.timer` |
 

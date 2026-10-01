@@ -9,8 +9,6 @@ import datetime
 import os
 from zoneinfo import ZoneInfo
 
-os.environ.setdefault("DEV_MODE", "1")
-
 import pytest
 
 from broombuster import recollect
@@ -128,19 +126,14 @@ class TestPlugin:
 
 
 class TestCheckHomeEndpoint:
-    def test_home_endpoint_returns_trash_domain(self, monkeypatch):
-        from fastapi.testclient import TestClient
-
-        from broombuster.api import app as app_module
-
+    def test_home_endpoint_returns_trash_domain(self, monkeypatch, app_client):
         monkeypatch.setattr(recollect, "suggest_place", lambda *a, **k: "PID")
         monkeypatch.setattr(recollect, "fetch_pickups",
                             lambda *a, **k: {"Trash": [_TODAY]})
-        with TestClient(app_module.app) as client:
-            resp = client.post("/check-home", json={
-                "lat": 37.8113, "lon": -122.2580, "region": "bay_area",
-                "address": "1200 Lakeshore Ave, Oakland",
-            })
+        resp = app_client.post("/check-home", json={
+            "lat": 37.8113, "lon": -122.2580, "region": "bay_area",
+            "address": "1200 Lakeshore Ave, Oakland",
+        })
         assert resp.status_code == 200, resp.text
         data = resp.json()
         ids = [d["id"] for d in data["domains"]]
@@ -148,15 +141,10 @@ class TestCheckHomeEndpoint:
         trash = next(d for d in data["domains"] if d["id"] == "trash")
         assert trash["urgency"] == "today"
 
-    def test_car_check_excludes_home_domains(self):
-        from fastapi.testclient import TestClient
-
-        from broombuster.api import app as app_module
-
-        with TestClient(app_module.app) as client:
-            resp = client.post("/check", json={
-                "lat": 37.821326, "lon": -122.280705, "region": "bay_area",
-            })
+    def test_car_check_excludes_home_domains(self, app_client):
+        resp = app_client.post("/check", json={
+            "lat": 37.821326, "lon": -122.280705, "region": "bay_area",
+        })
         ids = [d["id"] for d in resp.json()["domains"]]
         assert "sweeping" in ids
         assert "trash" not in ids, "car /check must not run home-subject trash"

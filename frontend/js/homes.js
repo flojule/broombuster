@@ -62,7 +62,7 @@ function renderHomePanel() {
 // reverse-geocodes an address (or the user types one into the card afterward),
 // since reverse geocoding lives in the backend, not the frontend.
 async function addHome(lat, lon, address = '') {
-  const h = { id: _newId(), lat, lon, address };
+  const h = { id: newId(), lat, lon, address };
   homes.push(h);
   await savePrefs();
   setSheetCollapsed(false);  // reveal the new home card
@@ -103,14 +103,13 @@ function updateHomeMarkers() {
     if (!homes.find(h => h.id === id)) { marker.remove(); _homeMarkers.delete(id); }
   }
   homes.forEach(h => {
-    if (_homeMarkers.has(h.id)) { _homeMarkers.get(h.id).setLngLat([h.lon, h.lat]); return; }
-    const el = document.createElement('div');
-    el.className = 'home-marker';
-    el.textContent = '🏠';
-    el.title = 'Home';
-    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-      .setLngLat([h.lon, h.lat]).addTo(map);
-    _homeMarkers.set(h.id, marker);
+    _homeMarkers.set(h.id, placeMarker(_homeMarkers.get(h.id), h, () => {
+      const el = document.createElement('div');
+      el.className = 'home-marker';
+      el.textContent = '🏠';
+      el.title = 'Home';
+      return el;
+    }));
   });
 }
 
@@ -122,11 +121,7 @@ async function checkHome(id) {
   try {
     // Region is derived server-side from the home coordinate — a home can sit
     // in a different region than the map's currently selected one.
-    const res = await apiFetch('/check-home', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat: h.lat, lon: h.lon, address: h.address }),
-    });
+    const res = await postJSON('/check-home', { lat: h.lat, lon: h.lon, address: h.address });
     if (res.ok) {
       const data = await res.json();
       homeSchedules[h.id] = data;

@@ -1,21 +1,19 @@
 // ── Sweep calendar: 14-day strip on the card, month grid in the detail window ──
-const _WD1 = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// Days are {y, m, d}; arithmetic and weekday come from urgency.js.
+const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, WEEKDAYS } = BroomUrgency;
+const _WD1 = WEEKDAYS.map(w => w[0]);
 const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
                  'August', 'September', 'October', 'November', 'December'];
-function _ymdAdd(p, n) {
-  const d = new Date(Date.UTC(p.y, p.m - 1, p.d + n));
-  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
-}
-function _ymdKey(p) { return p.y * 10000 + p.m * 100 + p.d; }
-function _dow(p) { return (new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay() + 6) % 7; }  // Mon=0
 
 // key -> {cls, text} for sweep days in [start, end]. 'sw-car' = the car's side
 // (or any side when unknown), 'sw-other' = only the opposite side.
 function sweepDayMap(sched, start, end) {
   const out = new Map();
-  const labels = sched.side_labels || ['Even', 'Odd'];
-  for (const day of BroomUrgency.sweepDays(sched.schedule_even, sched.schedule_odd, start, end)) {
-    const mine = !sched.car_side || day.items.some(it => it.side === sched.car_side);
+  const sw = sweepOf(sched);
+  if (!sw) return out;
+  const labels = sw.side_labels;
+  for (const day of BroomUrgency.sweepDays(sw.schedule_even, sw.schedule_odd, start, end)) {
+    const mine = !sw.car_side || day.items.some(it => it.side === sw.car_side);
     const sides = new Set(day.items.map(it => it.side));
     const text = day.items.map(it => {
       const t = it.time ? BroomUrgency.timeDisplay(it.time) : 'time n/a';
@@ -29,7 +27,7 @@ function sweepDayMap(sched, start, end) {
 }
 
 function _dayLabel(p) {
-  return `${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][_dow(p)]} ${_MONTHS[p.m - 1].slice(0, 3)} ${p.d}`;
+  return `${WEEKDAYS[_dow(p)]} ${_MONTHS[p.m - 1].slice(0, 3)} ${p.d}`;
 }
 
 function sweepStripHTML(sched) {
@@ -63,7 +61,7 @@ function calendarHTML(sched, ym, sel) {
   const selP = sel ? { y: Math.floor(sel / 10000), m: Math.floor(sel / 100) % 100, d: sel % 100 } : null;
   const selInfo = sel ? days.get(sel) : null;
   const detail = selP ? `${_dayLabel(selP)}: ${selInfo ? selInfo.text : 'no sweeping'}` : 'Tap a day for details';
-  const legend = sched.car_side
+  const legend = sweepOf(sched)?.car_side
     ? '<span class="cal-key sw-car"></span> your side <span class="cal-key sw-other"></span> other side'
     : '<span class="cal-key sw-car"></span> sweeping';
   return `<div class="cal-head">`
@@ -94,7 +92,7 @@ function renderCardDetail() {
   const url = calendarFeedUrl(car, sched);
   document.getElementById('card-detail-body').innerHTML =
       calendarHTML(sched, _cal.ym, _cal.sel)
-    + `<div class="cal-info">${sched.detail_html || ''}</div>`
+    + `<div class="cal-info">${sweepOf(sched)?.detail_html || ''}</div>`
     + `<div class="cal-feed">📅 <a class="zd-link" href="${esc(url.replace(/^https?:/, 'webcal:'))}">Subscribe</a>`
     + ` · <a class="zd-link" href="#" data-cal-copy="${esc(url)}">Copy link</a>`
     + ` · <a class="zd-link" href="${esc(url)}" download="street-sweeping.ics">.ics</a>`

@@ -8,10 +8,7 @@ on synthetic edge cases. Also covers the Nominatim-free /check address, the
 GET /address upgrade, region warm-up and the failure-caching rules.
 """
 import gc
-import os
 import random
-
-os.environ.setdefault("DEV_MODE", "1")
 
 import geopandas
 import numpy as np
@@ -37,7 +34,7 @@ def _ref_table(gdf):
             k = row.get("STREET_KEY")
             if not normalize.is_text(k):
                 n = row.get("STREET_NAME")
-                k = analysis._norm_name(n) if normalize.is_text(n) else None
+                k = normalize.street_name(n) if normalize.is_text(n) else None
             g = row.geometry
             if k is None or g is None or g.is_empty or \
                     g.geom_type not in ("LineString", "MultiLineString"):
@@ -56,7 +53,7 @@ def _ref_union(gdf, resolved):
     tg = seg.geometry
     if tg is None or tg.is_empty or tg.geom_type not in ("LineString", "MultiLineString"):
         return analysis.schedules_for_segment(seg)
-    tkey = seg.get("STREET_KEY") or analysis._norm_name(seg.get("STREET_NAME") or "")
+    tkey = seg.get("STREET_KEY") or normalize.street_name(seg.get("STREET_NAME") or "")
     teps = analysis._segment_endpoints(tg)
     if tkey == "" or not teps:
         return analysis.schedules_for_segment(seg)
@@ -108,12 +105,6 @@ def _position(gdf, row):
 # ---------------------------------------------------------------------------
 # Real data
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def bay_area_3857():
-    gdf = data_loader.load_region_data("bay_area").to_crs("EPSG:3857")
-    return gdf
 
 
 @pytest.fixture(scope="module")
@@ -261,7 +252,7 @@ def test_warm_region_prebuilds_indexes():
     for ck in REGIONS["chicago"]["cities"]:
         state._load_city(ck)
     state.warm_region("chicago")
-    _, c3 = state._combined_region("chicago")
+    c3 = state._combined_region("chicago")
     assert c3.has_sindex
     assert analysis._segment_index_cache.get(id(c3), (lambda: None,))[0]() is c3
 
@@ -274,13 +265,9 @@ _OAKLAND = {"lat": 37.821326, "lon": -122.280705, "region": "bay_area"}
 
 
 @pytest.fixture
-def client():
-    from fastapi.testclient import TestClient
-
-    from broombuster.api import app as app_module
+def client(app_client):
     gps.clear_cache()
-    with TestClient(app_module.app) as c:
-        yield c
+    yield app_client
     gps.clear_cache()
 
 
@@ -290,12 +277,13 @@ def test_check_does_not_call_nominatim(client, monkeypatch):
     monkeypatch.setattr(gps, "_reverse_geocode", _boom)
     data = client.post("/check", json=_OAKLAND).json()
     assert data["address_pending"] is True
-    assert data["address"].startswith(data["snap"]["street_name"])
+    assert data["address"] == "Chestnut St, Oakland"
 
 
 def test_address_endpoint_adds_house_number_then_check_uses_cache(client, monkeypatch):
     monkeypatch.setattr(gps, "_reverse_geocode", lambda lat, lon: ("Chestnut Street", 2931))
-    street = client.post("/check", json=_OAKLAND).json()["snap"]["street_name"]
+    street = "Chestnut St"
+    client.post("/check", json=_OAKLAND)
     resp = client.get("/address", params=_OAKLAND)
     assert resp.status_code == 200
     assert resp.json()["address"].startswith(f"2931 {street}")

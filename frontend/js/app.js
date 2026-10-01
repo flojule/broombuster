@@ -37,7 +37,7 @@ setInterval(() => {
 btnLocate.addEventListener('click', () => {
   const btn = btnLocate;
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner" style="border-top-color:#2563eb;border-color:rgba(0,0,0,.15)"></span>';
+  btn.innerHTML = '<span class="spinner" style="border-top-color:var(--blue);border-color:rgba(0,0,0,.15)"></span>';
   getGPS(async (lat, lon) => {
     btn.disabled = false; btn.textContent = '📍';
     setLocationKnown('gps', lat, lon);
@@ -59,3 +59,5 @@ btnLocate.addEventListener('click', () => {
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// Drop the IndexedDB viewport cache the retired GeoJSON map mode left behind.
+try { indexedDB.deleteDatabase('broombuster'); } catch (_) {}

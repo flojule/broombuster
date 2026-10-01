@@ -1,32 +1,17 @@
 """
-Tests for the domain plugin registry and the SweepingPlugin (Step 3).
-
-Two layers of coverage:
-  1. Plugin-shape unit tests — does SweepingPlugin satisfy the
-     DomainPlugin Protocol, do its outputs match the contract, does
-     `for_city` filter correctly?
-  2. Behavior-equivalence — for the same fixtures used in
-     test_car_panel_consistency.py, the plugin's `format()` produces the
-     same urgency/schedules/message as the inline analysis path. This
-     guarantees Step 3 didn't drift behaviour.
+Tests for the domain plugin registry, the SweepingPlugin output contract, and
+the /check response shape built from it.
 """
-
-import os
-
-os.environ.setdefault("DEV_MODE", "1")
 
 import datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from broombuster import analysis
-from broombuster.domains import DomainPlugin, max_urgency
-from broombuster.domains.registry import for_city, iter_plugins
-from broombuster.domains.sweeping import (
-    SweepingPlugin,
-    compose_message,
-)
+from broombuster import domains
+from broombuster.domains import DomainPlugin
+from broombuster.domains.registry import for_city
+from broombuster.domains.sweeping import SweepingPlugin
 
 # ---------------------------------------------------------------------------
 # Shared synthetic-row fixtures (mirror of test_car_panel_consistency.py)
@@ -70,6 +55,7 @@ class _FakeResolved:
         self.street_display = street_display
         self.distance_m = distance_m
         self.is_polygon = is_polygon
+        self.label = street_display or street_name
 
 
 # ---------------------------------------------------------------------------
@@ -77,9 +63,9 @@ class _FakeResolved:
 # ---------------------------------------------------------------------------
 
 class TestRegistry:
-    def test_iter_plugins_returns_at_least_sweeping(self):
-        ids = [p.domain_id for p in iter_plugins()]
-        assert "sweeping" in ids
+    def test_get_by_id(self):
+        assert domains.get("sweeping").domain_id == "sweeping"
+        assert domains.get("trash").subject == "home"
 
     def test_for_city_filters_by_supports(self):
         # Bay Area + Chicago cities all run sweeping.
@@ -127,8 +113,6 @@ class TestSweepingFormat:
     def test_safe_when_no_schedule(self):
         seg = _seg()
         result = self.plugin.format(_FakeResolved(seg, side="even"), None, _NOW_MORNING)
-        # Legacy compute_urgency returns False; the plugin maps that to "safe"
-        # so the DomainResult.urgency is always one of the three string values.
         assert result.urgency == "safe"
 
     def test_safe_when_schedule_is_in_future(self):
@@ -142,9 +126,8 @@ class TestSweepingFormat:
         assert result.schedule_lines, "must include at least one explanatory line"
         assert result.extras["car_side"] is None
 
-    def test_schedule_lines_match_compose_message_semantics(self):
-        """When both sides are identical, _schedule_lines collapses to one
-        bullet — matching compose_message's '► Street: …' single-line case."""
+    def test_schedule_lines_collapse_identical_sides(self):
+        """When both sides are identical, schedule_lines is one unlabelled line."""
         seg = _seg(DAY_EVEN="ME", DESC_EVEN="Mon", TIME_EVEN="8AM-10AM",
                    DAY_ODD="ME",  DESC_ODD="Mon", TIME_ODD="8AM-10AM")
         result = self.plugin.format(_FakeResolved(seg, side="even"), None, _NOW_MORNING)
@@ -166,134 +149,20 @@ class TestSweepingFormat:
 
 
 # ---------------------------------------------------------------------------
-# C. Behavior-equivalence with the inline analysis path
-# ---------------------------------------------------------------------------
-
-class TestPluginEquivalence:
-    """For the same segment + clock, the plugin's outputs must match what
-    the inline analysis path would have produced. This guarantees Step 3
-    introduced no behaviour change for sweeping users."""
-
-    def setup_method(self):
-        self.plugin = SweepingPlugin()
-
-    def _run(self, seg, side, now=_NOW_MORNING):
-        """Return (plugin_urgency_legacy, plugin_message, inline_urgency, inline_message)."""
-        resolved = _FakeResolved(seg, side=side)
-        result = self.plugin.format(resolved, None, now)
-        # Plugin uses "safe" string; legacy uses False — translate for
-        # apples-to-apples comparison against inline.
-        plugin_urgency_legacy = result.urgency if result.urgency in (
-            "today", "tomorrow"
-        ) else False
-        plugin_message = result.extras["message"]
-
-        # Inline path (what /check did before Step 3). compose_message now does
-        # the 'DATES:' next-cluster collapse internally via format_schedule_side,
-        # so pass raw entries + the clock to keep this apples-to-apples.
-        se, so = analysis.schedules_for_segment(seg)
-        inline_urgency = analysis.compute_urgency(seg, local_now=now)
-        inline_message = compose_message(se, so, side, now)
-        return plugin_urgency_legacy, plugin_message, inline_urgency, inline_message
-
-    def test_today_equivalence(self):
-        seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM")
-        pu, pm, iu, im = self._run(seg, "even")
-        assert pu == iu
-        assert pm == im
-
-    def test_tomorrow_equivalence(self):
-        seg = _seg(DAY_ODD=_dates(_TOMORROW))
-        pu, pm, iu, im = self._run(seg, "odd")
-        assert pu == iu
-        assert pm == im
-
-    def test_no_schedule_equivalence(self):
-        seg = _seg()
-        pu, pm, iu, im = self._run(seg, "even")
-        assert pu == iu
-        assert pm == im
-
-    def test_both_sides_today_equivalence(self):
-        seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM",
-                   DAY_ODD=_dates(_TODAY),  TIME_ODD="8AM-10AM")
-        pu, pm, iu, im = self._run(seg, "even")
-        assert pu == iu
-        assert pm == im
-
-    def test_mixed_today_future_equivalence(self):
-        seg = _seg(DAY_EVEN=_dates(_TODAY), TIME_EVEN="8AM-10AM",
-                   DAY_ODD=_dates(_AFTER))
-        pu, pm, iu, im = self._run(seg, "odd")
-        assert pu == iu
-        assert pm == im
-
-
-# ---------------------------------------------------------------------------
-# D. max_urgency helper
-# ---------------------------------------------------------------------------
-
-class TestMaxUrgency:
-    def test_today_beats_tomorrow_beats_safe(self):
-        assert max_urgency("safe", "tomorrow", "today") == "today"
-        assert max_urgency("safe", "tomorrow") == "tomorrow"
-        assert max_urgency("safe", "safe") == "safe"
-
-    def test_no_args_returns_safe(self):
-        assert max_urgency() == "safe"
-
-    def test_unknown_treated_as_safe(self):
-        assert max_urgency("unknown", "tomorrow") == "tomorrow"
-
-
-# ---------------------------------------------------------------------------
-# E. Integration: /check must include `domains` and keep legacy fields
+# C. /check response shape
 # ---------------------------------------------------------------------------
 
 class TestCheckResponseShape:
-    def test_check_includes_domains_array(self):
-        from fastapi.testclient import TestClient
-
-        from broombuster.api import app as app_module
-
+    def test_check_shape(self, app_client):
         # Known coord that resolves to a Bay Area sweeping segment.
-        lat, lon = 37.821326, -122.280705
-        with TestClient(app_module.app) as client:
-            resp = client.post("/check", json={
-                "lat": lat, "lon": lon, "region": "bay_area",
-            })
+        resp = app_client.post("/check", json={
+            "lat": 37.821326, "lon": -122.280705, "region": "bay_area",
+        })
         assert resp.status_code == 200, resp.text
         data = resp.json()
-
-        # New field
-        assert "domains" in data, "Step 3 must add `domains` to /check responses"
-        assert isinstance(data["domains"], list)
-        ids = [d["id"] for d in data["domains"]]
-        assert "sweeping" in ids
-
-        # Legacy fields unchanged
-        for key in ("urgency", "schedule_even", "schedule_odd",
-                    "car_side", "message", "address", "snap", "geojson"):
-            assert key in data, f"legacy field {key!r} must remain"
-
-    def test_geojson_features_tagged_with_domain(self):
-        """Map features must carry properties.domain so the frontend can
-        eventually layer per-domain styling."""
-        from fastapi.testclient import TestClient
-
-        from broombuster.api import app as app_module
-
-        lat, lon = 37.821326, -122.280705
-        with TestClient(app_module.app) as client:
-            resp = client.post("/check", json={
-                "lat": lat, "lon": lon, "region": "bay_area",
-            })
-        data = resp.json()
-        features = (data.get("geojson") or {}).get("features", [])
-        if not features:
-            return  # no features at this coord — nothing to assert
-        for f in features:
-            domain = f.get("properties", {}).get("domain")
-            assert domain == "sweeping", (
-                f"feature missing properties.domain or wrong value: {domain!r}"
-            )
+        assert set(data) == {"region", "city", "address", "address_pending", "domains"}
+        (sweeping,) = [d for d in data["domains"] if d["id"] == "sweeping"]
+        assert set(sweeping) == {"id", "label", "urgency", "schedule_lines", "extras"}
+        assert sweeping["urgency"] in ("today", "tomorrow", "safe")
+        assert set(sweeping["extras"]) == {
+            "car_side", "side_labels", "schedule_even", "schedule_odd", "detail_html"}

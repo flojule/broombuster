@@ -1,9 +1,7 @@
-# Oakland street-sweeping shapefile (schema: oakland). Bundled; no auto-download.
+# Oakland street-sweeping shapefile (schema: oakland).
 name: "Oakland, CA"
 center: {lat: 37.8044, lon: -122.2712}
 manual_default: {lat: 37.821326, lon: -122.280705}
-local_path: data/oakland/StreetSweeping.shp
-url: null
 schema: oakland
 bbox: [37.69, -122.38, 37.90, -122.11]
 fgb_path: data/oakland/StreetSweeping.fgb
@@ -12,3 +10,16 @@ trash:
   kind: recollect
   area: OaklandCA
   service_id: 608
+source:
+  local_path: data/oakland/StreetSweeping.shp
+  sha256:
+    data/oakland/StreetSweeping.shp: ffef27ec19543db8ab95561c4fd939d37ce5ef653e5a1a8ff37212bae7125ba4
+    data/oakland/StreetSweeping.dbf: d323abb788f65f6228c639e320307c6c736941cc236da7c1d5829d8e23670309
+    data/oakland/StreetSweeping.shx: a73ee37bf87e86f765aa025e593a51b61eaf59edab4fed169c8741cf929ce6b3
+    data/oakland/StreetSweeping.prj: 6bec4ca176720d67a61edba467c762c459385d00ecf5a51debb391fe885e6cbf
+    data/oakland/StreetSweeping.cpg: 3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824
+  notes: |
+    Published periodically by Oakland Public Works; there is no stable URL.
+    Visit https://data.oaklandca.gov, search "street sweeping", download the
+    shapefile and unpack its five sidecar files (.shp/.dbf/.shx/.prj/.cpg)
+    into data/oakland/.

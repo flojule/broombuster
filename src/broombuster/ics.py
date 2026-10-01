@@ -66,8 +66,7 @@ def build_calendar(even, odd, sides, labels, street, tz_name, uid_seed, today,
                 by_time.setdefault(time, []).append(side)
         for time, swept in by_time.items():
             where = "both sides" if len(swept) == 2 else f"{names[swept[0]]} side"
-            # Lenient display form first so PDF-artifact times still parse.
-            window = analysis.parse_window(normalize.time_display(time))
+            window = normalize.time_window(time)
             slot = f"{window[0]:%H%M}" if window else "allday"
             uid = f"{day:%Y%m%d}-{'-'.join(swept)}-{slot}-{seed}@broombuster"
             lines += ["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{stamp}"]

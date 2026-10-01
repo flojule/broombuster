@@ -4,7 +4,7 @@
 #   ./deploy/update.sh <rev>    # a specific revision (auto-update.sh passes the CI-checked one)
 # Everything (code, frontend, .fgb data, tiles) ships via git; editable install
 # runs the source tree. The repo wins: tracked files are reset to origin,
-# discarding runtime edits (e.g. a DATA_AUTO_REFRESH download). Untracked/
+# discarding runtime edits. Untracked/
 # ignored files (.env, app.sqlite) are kept.
 # On failure (deps, restart, or health) the previous revision is restored and
 # the bad revision is recorded in .git/broombuster-bad-rev so auto-update.sh
@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/bin:$PATH"   # uv; systemd units do not have this on PATH
-. scripts/lib.sh                        # healthy
+. scripts/lib.sh                        # render_unit, healthy
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
 old="$(git rev-parse HEAD)"
@@ -35,8 +35,7 @@ check_units() {
   local unit
   for unit in broombuster.service broombuster-update.service broombuster-update.timer; do
     [ -f "/etc/systemd/system/$unit" ] || continue
-    if ! sed -e "s#__USER__#$(id -un)#g" -e "s#__REPO__#$PWD#g" "deploy/$unit" \
-        | cmp -s - "/etc/systemd/system/$unit"; then
+    if ! render_unit "$unit" | cmp -s - "/etc/systemd/system/$unit"; then
       echo "WARNING: /etc/systemd/system/$unit differs from deploy/$unit;" \
            "re-run ./deploy/install-service.sh / ./deploy/install-autoupdate.sh" >&2
     fi

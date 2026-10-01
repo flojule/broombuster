@@ -13,13 +13,7 @@ file and one line — a new module here, plus appending to
 `registry._REGISTRY`.
 """
 
-from broombuster.domains.base import DomainPlugin, DomainResult, max_urgency
-from broombuster.domains.registry import for_city, iter_plugins
+from broombuster.domains.base import DomainPlugin, DomainResult
+from broombuster.domains.registry import for_city, get
 
-__all__ = [
-    "DomainPlugin",
-    "DomainResult",
-    "max_urgency",
-    "for_city",
-    "iter_plugins",
-]
+__all__ = ["DomainPlugin", "DomainResult", "for_city", "get"]

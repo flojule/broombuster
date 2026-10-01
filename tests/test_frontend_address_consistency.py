@@ -48,7 +48,7 @@ def test_no_reverse_geocode_function():
     src = _read()
     assert "reverseGeocode(" not in src, (
         "Frontend reverseGeocode() found — Step 1 moved reverse geocoding "
-        "to the backend (see api/api.py and gps.maybe_house_number)."
+        "to the backend (see api/helpers._build_address and gps.maybe_house_number)."
     )
 
 

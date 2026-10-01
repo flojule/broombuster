@@ -3,7 +3,7 @@
 Levels:
   - tables:    WEEKDAY_CODES / NO_SWEEP_CODES identical
   - expansion: dates_in_range(code, a, b) == JS datesInRange(code, a, b)
-  - verdict:   compute_urgency(row, now)  == JS checkDaySweeping(entries, now)
+  - verdict:   check_day_street_sweeping(row's both sides, now) == JS checkDaySweeping
   - display:   sweep_body / format_schedule_side / side_lines
 
 The JS runs under node (see _urgency_harness.js). Skipped if node is absent.
@@ -25,6 +25,11 @@ _HARNESS = Path(__file__).parent / "_urgency_harness.js"
 if shutil.which("node") is None:
     pytest.skip("node not available", allow_module_level=True)
 
+
+
+def _urgency(row, local_now):
+    even, odd = analysis.schedules_for_segment(row)
+    return analysis.check_day_street_sweeping(even + odd, local_now=local_now)
 
 def _run_js(cases):
     import tempfile
@@ -136,19 +141,24 @@ def test_verdict_parity_malformed_end_times():
     """Out-of-range end hours are unparseable (untimed) in both ports."""
     day = datetime.date(2026, 9, 30)  # Wed
     scenarios = [("end_13am", "8AM-13AM", 23), ("end_0am", "8AM-0AM", 23),
-                 ("end_noon", "10AM-12PM", 13), ("end_midnight", "10PM-12AM", 23)]
+                 ("end_noon", "10AM-12PM", 13), ("end_midnight", "10PM-12AM", 23),
+                 # Lenient parsing: PDF-artifact windows are honoured (already closed)…
+                 ("pdf_bullet", "8:00 AM • 11 :00 AM", 12),
+                 ("pdf_spaced", "1 0:00 AM -1: 00 PM", 14),
+                 # …and an invalid start makes the whole window untimed (open all day).
+                 ("start_13am", "13AM-10AM", 23)]
     cases, expected = [], {}
     for label, t, hh in scenarios:
-        expected[label] = analysis.compute_urgency(
+        expected[label] = _urgency(
             _row("WE", t, "", ""), local_now=datetime.datetime(2026, 9, 30, hh))
         cases.append({"id": label, "kind": "verdict", "now": _now(day, hh),
                       "sched": _sched([{"code": "WE", "time": t, "side": "even"}])})
     js = _run_js(cases)
-    norm = {False: "clear", "today": "today", "tomorrow": "tomorrow"}
     got = {k: js[k]["urgency"] for k in expected}
-    assert got == {k: norm[v] for k, v in expected.items()}
+    assert got == expected
     assert got == {"end_13am": "today", "end_0am": "today",
-                   "end_noon": "clear", "end_midnight": "today"}
+                   "end_noon": "safe", "end_midnight": "today",
+                   "pdf_bullet": "safe", "pdf_spaced": "safe", "start_13am": "today"}
 
 
 def test_both_sides_parity():
@@ -318,7 +328,7 @@ def test_verdict_parity_dates_codes():
     for label, de, te, do, to, hh, mm in scenarios:
         row = _row(de, te, do, to)
         local_now = datetime.datetime(today.year, today.month, today.day, hh, mm)
-        expected[label] = analysis.compute_urgency(row, local_now=local_now)
+        expected[label] = _urgency(row, local_now=local_now)
         entries = []
         if de:
             entries.append({"code": de, "time": te, "side": "even"})
@@ -329,10 +339,9 @@ def test_verdict_parity_dates_codes():
 
     js = _run_js(cases)
     # Python uses False for "no urgency"; JS uses 'clear'.
-    norm = {False: "clear", "today": "today", "tomorrow": "tomorrow"}
     mismatches = []
     for label in expected:
-        py = norm[expected[label]]
+        py = expected[label]
         got = js[label]["urgency"]
         if py != got:
             mismatches.append((label, py, got))
@@ -355,14 +364,13 @@ def test_verdict_parity_weekly_codes_month_end():
     cases, expected = [], {}
     for label, code, t, hh in scenarios:
         row = _row(code, t, "", "")
-        expected[label] = analysis.compute_urgency(
+        expected[label] = _urgency(
             row, local_now=datetime.datetime(day.year, day.month, day.day, hh))
         cases.append({"id": label, "kind": "verdict", "now": _now(day, hh),
                       "sched": _sched([{"code": code, "time": t, "side": "even"}])})
     js = _run_js(cases)
-    norm = {False: "clear", "today": "today", "tomorrow": "tomorrow"}
     got = {k: js[k]["urgency"] for k in expected}
-    assert {k: norm[v] for k, v in expected.items()} == got
-    assert got == {"wed_open": "today", "wed_closed": "clear",
+    assert expected == got
+    assert got == {"wed_open": "today", "wed_closed": "safe",
                    "thu_tomorrow": "tomorrow", "fifth_wed": "today",
-                   "first_thu_next_month": "tomorrow", "no_sweep_ms": "clear"}
+                   "first_thu_next_month": "tomorrow", "no_sweep_ms": "safe"}

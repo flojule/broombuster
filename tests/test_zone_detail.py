@@ -1,16 +1,17 @@
 """Tests for Chicago zone click-detail: full upcoming schedule + ward PDF link."""
 import datetime
-import os
 
-os.environ.setdefault("DEV_MODE", "1")
-
-import geopandas
 import pandas as pd
-import shapely.geometry as sgeom
 
-from broombuster import maps
+from broombuster import analysis, maps
 
 _NOW = datetime.datetime(2026, 6, 6, 9, 0)
+
+
+def _detail(row, now):
+    """zone_detail_html for one GDF row, as the sweeping plugin builds it."""
+    even, odd = analysis.schedules_for_segment(row)
+    return maps.zone_detail_html(row.get("STREET_DISPLAY"), even, odd, row.get("_city"), now)
 
 
 # ---------------------------------------------------------------------------
@@ -38,28 +39,25 @@ def test_ward_ordinal_two_digit():
 
 
 # ---------------------------------------------------------------------------
-# _zone_pdf_url
+# _pdf_url
 # ---------------------------------------------------------------------------
 
-def test_zone_pdf_url_from_name():
-    row = pd.Series({"_city": "chicago_all", "STREET_DISPLAY": "Ward 05, Section 03"})
-    url = maps._zone_pdf_url(row)
+def test_pdf_url_from_name():
+    url = maps._pdf_url("Ward 05, Section 03", "chicago_all")
     assert url is not None
     assert url.endswith("05th-Ward-Sweeping-Schedule-2026.pdf")
 
 
-def test_zone_pdf_url_none_without_city():
-    row = pd.Series({"STREET_DISPLAY": "Ward 05, Section 03"})
-    assert maps._zone_pdf_url(row) is None
+def test_pdf_url_none_without_city():
+    assert maps._pdf_url("Ward 05, Section 03", None) is None
 
 
-def test_zone_pdf_url_none_when_no_ward_in_name():
-    row = pd.Series({"_city": "chicago_all", "STREET_DISPLAY": "5th St"})
-    assert maps._zone_pdf_url(row) is None
+def test_pdf_url_none_when_no_ward_in_name():
+    assert maps._pdf_url("5th St", "chicago_all") is None
 
 
 # ---------------------------------------------------------------------------
-# _zone_detail
+# zone_detail_html
 # ---------------------------------------------------------------------------
 
 def test_zone_detail_shows_full_year_with_pdf_link():
@@ -70,7 +68,7 @@ def test_zone_detail_shows_full_year_with_pdf_link():
         "DAY_EVEN": code, "DESC_EVEN": "stale",
         "TIME_EVEN": None,
     })
-    html = maps._zone_detail(row, _NOW)
+    html = _detail(row, _NOW)
     # Full year, one cluster per line (<br>); fully-past rows dimmed whole.
     assert "<br>" in html
     assert "<span class='zd-past'>Apr 17</span>" in html  # past row dimmed incl. month
@@ -89,7 +87,7 @@ def test_zone_detail_all_past_rows_dimmed_whole():
         "DAY_EVEN": "DATES:2026-04-17,2026-05-15",
         "DESC_EVEN": "stale", "TIME_EVEN": None,
     })
-    html = maps._zone_detail(row, _NOW)
+    html = _detail(row, _NOW)
     assert "<span class='zd-past'>Apr 17</span>" in html
     assert "<span class='zd-past'>May 15</span>" in html
 
@@ -101,7 +99,7 @@ def test_zone_detail_back_to_back_pair_on_one_line():
         "DAY_EVEN": "DATES:2026-06-19,2026-06-20,2026-07-03",
         "DESC_EVEN": "", "TIME_EVEN": None,
     })
-    html = maps._zone_detail(row, _NOW)
+    html = _detail(row, _NOW)
     assert "Jun 19, 20" in html  # consecutive days share one line
 
 
@@ -113,7 +111,7 @@ def test_zone_detail_mixed_cluster_dims_only_past_day():
         "DAY_EVEN": "DATES:2026-06-05,2026-06-06",
         "DESC_EVEN": "", "TIME_EVEN": None,
     })
-    html = maps._zone_detail(row, _NOW)
+    html = _detail(row, _NOW)
     assert "Jun <span class='zd-past'>5</span>, 6" in html
 
 
@@ -149,7 +147,7 @@ def test_full_schedule_clusters_a_few_days_apart():
         "DAY_EVEN": "DATES:2026-06-13,2026-06-16,2026-07-11,2026-07-14",
         "DESC_EVEN": "", "TIME_EVEN": None,
     })
-    html = maps._zone_detail(row, _NOW)
+    html = _detail(row, _NOW)
     assert "Jun 13, 16" in html
     assert "Jul 11, 14" in html
     # Two separate occurrences -> two lines.
@@ -166,29 +164,17 @@ def test_next_dates_skips_past():
 
 
 # ---------------------------------------------------------------------------
-# build_map_geojson: polygon features carry detail_html
+# GET /zone/detail (tile click popup)
 # ---------------------------------------------------------------------------
 
-class _Car:
-    lat = 41.9
-    lon = -87.66
-    street_name = ""
-    _city = "chicago_all"
-
-
-def test_zone_detail_endpoint_returns_same_html():
-    """GET /zone/detail (PMTILES mode) returns the same popup HTML as _zone_detail."""
-    from fastapi.testclient import TestClient
-
-    from broombuster.api import app as api_mod
-
-    with TestClient(api_mod.app) as client:
-        resp = client.get("/zone/detail", params={
-            "code": "DATES:2026-06-19,2026-07-03",
-            "street": "Ward 05, Section 03",
-            "city": "chicago_all",
-            "region": "chicago",
-        })
+def test_zone_detail_endpoint_returns_same_html(app_client):
+    """GET /zone/detail returns the popup HTML for a clicked tile's codes."""
+    resp = app_client.get("/zone/detail", params={
+        "code": "DATES:2026-06-19,2026-07-03",
+        "street": "Ward 05, Section 03",
+        "city": "chicago_all",
+        "region": "chicago",
+    })
     assert resp.status_code == 200, resp.text
     html = resp.json()["detail_html"]
     assert "Jun 19" in html and "Jul 3" in html
@@ -196,28 +182,3 @@ def test_zone_detail_endpoint_returns_same_html():
     assert "Street sweeping 2026:" not in html
     assert "05th-Ward-Sweeping-Schedule-2026.pdf" in html
     assert "Ward 05, Section 03" in html
-
-
-def test_polygon_feature_includes_detail_html():
-    poly = sgeom.Polygon([(-87.67, 41.90), (-87.66, 41.90),
-                          (-87.66, 41.91), (-87.67, 41.91)])
-    gdf = geopandas.GeoDataFrame(
-        [{
-            "_city": "chicago_all",
-            "STREET_NAME": "Ward 05, Section 03",
-            "STREET_DISPLAY": "Ward 05, Section 03",
-            "DAY_EVEN": "DATES:2026-06-19,2026-07-03",
-            "DAY_ODD": "DATES:2026-06-19,2026-07-03",
-            "DESC_EVEN": "x", "DESC_ODD": "x",
-            "TIME_EVEN": None, "TIME_ODD": None,
-            "geometry": poly,
-        }],
-        crs="EPSG:4326",
-    )
-    gj = maps.build_map_geojson(gdf, local_now=_NOW)
-    polys = [f for f in gj["features"] if f["properties"]["render_type"] == "polygon"]
-    assert len(polys) == 1
-    props = polys[0]["properties"]
-    assert "detail_html" in props
-    assert "Jun 19" in props["detail_html"]
-    assert "05th-Ward-Sweeping-Schedule-2026.pdf" in props["detail_html"]

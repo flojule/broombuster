@@ -1,6 +1,6 @@
 """
-Performance tests: data loading and tile-based API responses must stay
-within acceptable time bounds.
+Performance tests: data loading and /check responses must stay within
+acceptable time bounds.
 
 These tests catch regressions where schema changes, new cities, or
 normalizer complexity cause loading to become unacceptably slow.
@@ -8,12 +8,10 @@ normalizer complexity cause loading to become unacceptably slow.
 Thresholds (generous to tolerate CI variability):
   - City FGB load (warm, from disk): < 10 s
   - Region FGB load (all cities combined): < 30 s
-  - API /check tile request (data already in memory): < 3 s
+  - Warm API /check: < 1 s
 """
 import os
 import time
-
-os.environ.setdefault("DEV_MODE", "1")
 
 import pytest
 
@@ -34,8 +32,8 @@ def test_city_fgb_loads_within_10s(city_key):
     if not os.path.exists(os.path.join(root, fgb)):
         pytest.skip(f"{city_key}: FGB not built yet")
 
-    # Clear the in-process GDF cache so we always measure a real disk read.
-    data_loader._GDF_CACHE.clear()
+    # Clear the in-process FGB cache so we always measure a real disk read.
+    data_loader._read_fgb.cache_clear()
 
     t0 = time.perf_counter()
     gdf = data_loader.load_city_data(city_key)
@@ -59,7 +57,7 @@ def test_region_loads_within_30s(region_key):
         if not fgb or not os.path.exists(os.path.join(root, fgb)):
             pytest.skip(f"{region_key}: FGB for {ck} not built yet")
 
-    data_loader._GDF_CACHE.clear()
+    data_loader._read_fgb.cache_clear()
 
     t0 = time.perf_counter()
     gdf = data_loader.load_region_data(region_key)
@@ -100,34 +98,17 @@ def test_city_second_load_uses_cache(city_key):
 
 
 # ---------------------------------------------------------------------------
-# API tile request timing — data already in memory
+# Warm /check latency — guards the indexed schedule union / vectorised resolver
 # ---------------------------------------------------------------------------
 
-def test_api_tile_request_is_fast():
-    """
-    A tile-based /check request (no full_region, just tiles=[...]) must
-    return in under 3 seconds when city data is already loaded.
-    """
-    from fastapi.testclient import TestClient
-
-    from broombuster.api import app as api_mod
-
-    lat, lon = 37.821326, -122.280705
-
-    with TestClient(api_mod.app) as client:
-        # Warm: ensure cities are loaded
-        client.post("/check", json={"lat": lat, "lon": lon, "region": "bay_area"})
-
-        # Tile request — should hit cached GDFs
-        t0 = time.perf_counter()
-        resp = client.post("/check", json={
-            "lat": lat, "lon": lon,
-            "region": "bay_area",
-            "tiles": ["13/1309/3166"],
-        })
-        elapsed = time.perf_counter() - t0
+def test_warm_check_is_fast(app_client):
+    """A warm /check on a long multi-row street (Market St, SF) stays well
+    under 1 s; it is ~5 ms on a Raspberry Pi 5 (was ~230 ms before indexing)."""
+    body = {"lat": 37.7749, "lon": -122.4194, "region": "bay_area"}
+    app_client.post("/check", json=body)  # warm: cities, sindex, segment index
+    t0 = time.perf_counter()
+    resp = app_client.post("/check", json=body)
+    elapsed = time.perf_counter() - t0
 
     assert resp.status_code == 200, resp.text
-    assert elapsed < 3.0, (
-        f"Tile request took {elapsed:.2f}s — expected < 3s after warm cache."
-    )
+    assert elapsed < 1.0, f"warm /check took {elapsed:.2f}s — expected < 1s"

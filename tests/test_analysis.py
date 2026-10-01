@@ -95,14 +95,14 @@ def test_range_crosses_month_boundary():
 # check_day_street_sweeping
 # ---------------------------------------------------------------------------
 
-def test_empty_schedule_returns_false():
+def test_empty_schedule_returns_safe():
     result = analysis.check_day_street_sweeping([])
-    assert result is False
+    assert result == "safe"
 
 
-def test_return_type_is_string_or_false():
+def test_return_type_is_urgency_string():
     result = analysis.check_day_street_sweeping([])
-    assert result is False or result in ("today", "tomorrow")
+    assert result in ("today", "tomorrow", "safe")
 
 
 def test_today_sweep_returns_today():

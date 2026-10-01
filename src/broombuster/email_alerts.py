@@ -4,8 +4,7 @@ The HTTP server does not send email — alerts are surfaced in the UI. This
 module exists for `cli/main.py` so a long-running CLI can email its owner
 when a sweep window is imminent.
 
-Pure I/O. The plain-text message body is built elsewhere by the
-appropriate domain plugin (`src/domains/sweeping.py.compose_message`).
+Pure I/O; the message body is the sweeping plugin's `schedule_lines`.
 """
 import smtplib
 from email.mime.multipart import MIMEMultipart

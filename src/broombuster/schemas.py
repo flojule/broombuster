@@ -8,7 +8,7 @@ import geopandas
 import numpy as np
 import pandas as pd
 
-from broombuster import normalize
+from broombuster import analysis, normalize
 
 SCHEDULE_COLS = ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD")
 ADDR_COLS = ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD")
@@ -21,7 +21,9 @@ SCHEMA_COLS = ("STREET_NAME", "STREET_KEY", "STREET_DISPLAY", *SCHEDULE_COLS, *A
 # ---------------------------------------------------------------------------
 
 def _add_key_and_display(out: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    """Populate STREET_KEY and STREET_DISPLAY from STREET_NAME (in place)."""
+    """Upper-case STREET_NAME; derive STREET_KEY and STREET_DISPLAY from it (in place)."""
+    out["STREET_NAME"] = out["STREET_NAME"].map(lambda v: v.upper() if isinstance(v, str) else v)
+
     def _key(v):
         return normalize.street_name(v) if isinstance(v, str) else ""
 
@@ -79,22 +81,15 @@ _SF_DAY_MAP = {
     "fri": "F", "sat": "S", "sun": "SU",
 }
 
-_SF_DAY_LABEL = {
-    "M": "Mon", "T": "Tue", "W": "Wed", "TH": "Thu",
-    "F": "Fri", "S": "Sat", "SU": "Sun",
-}
-
-
 def _sf_desc(code, time) -> str:
     if not isinstance(code, str):
         return "N/A"
     letter = code.rstrip("0123456789E")
-    day_label = _SF_DAY_LABEL.get(letter, code)
+    day_label = analysis.WEEKDAY_CODES.get(letter, (None, code))[1]
     suffix = code[len(letter):]
-    ordinal = {"E": "every", "1": "1st", "2": "2nd", "3": "3rd", "4": "4th",
-               "13": "1st & 3rd", "24": "2nd & 4th"}.get(suffix, suffix)
-    return f"Every {day_label} ({ordinal}), {time}" if ordinal == "every" else \
-           f"{day_label} {ordinal} of month, {time}"
+    if suffix == "E":
+        return f"Every {day_label} (every), {time}"
+    return f"{day_label} {normalize.pretty_ordinals(suffix)} of month, {time}"
 
 
 _OPPOSITE_SIDE = {
@@ -260,10 +255,6 @@ _CHICAGO_MONTHS = {
     "april": 4, "may": 5, "june": 6, "july": 7,
     "august": 8, "september": 9, "october": 10, "november": 11,
 }
-_CHICAGO_MONTH_ABBR = {
-    4: "Apr", 5: "May", 6: "Jun", 7: "Jul",
-    8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov",
-}
 
 # A year whose sweep days exceed this share on weekends is rejected by year
 # inference. Chicago sweeps Mon-Fri by ordinance; the correct year sits far
@@ -325,7 +316,7 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     by weekday alignment (see _infer_chicago_year) rather than assumed to be the
     current year — a lagging dataset must not be mislabelled. Chicago publishes
     a new dataset each spring; update the id in data/manifests/chicago_all.yaml
-    (and data/sources.yaml) when that happens.
+    when that happens.
     """
     import datetime as _dt
 
@@ -366,20 +357,9 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         if not dates:
             return None, None
         code = "DATES:" + ",".join(d.isoformat() for d in dates)
-        # Stable full-season description grouped by month (e.g. "Apr 1, 2;
-        # May 13"). The UI recomputes upcoming dates from the code at render
-        # time (analysis.format_schedule_side), so this is storage/debug only.
-        grouped: dict = {}
-        order: list = []
-        for d in dates:
-            if d.month not in grouped:
-                grouped[d.month] = []
-                order.append(d.month)
-            grouped[d.month].append(str(d.day))
-        desc = "; ".join(
-            f"{_CHICAGO_MONTH_ABBR[m]} " + ", ".join(grouped[m]) for m in order
-        )
-        return code, desc
+        # Full-season description (e.g. "Apr 1, 2; May 13"). The UI recomputes
+        # upcoming dates from the code at render time, so this is storage only.
+        return code, analysis.format_dates_by_month(dates)
 
     day_codes, descs, names = [], [], []
     for pairs, (_, row) in zip(per_row, rows):
@@ -388,10 +368,8 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         descs.append(desc)
         w = str(row.get("ward", "?")).zfill(2)
         s = str(row.get("section", "?")).zfill(2)
-        # Keep readable title-case in-memory (e.g. "Ward 05, Section 03")
-        names.append(f"Ward {w}, Section {s}")
+        names.append(f"Ward {w}, Section {s}")  # display: "Ward 05, Section 03"
 
-    # Keep the in-memory STREET_NAME in readable form (Title / mixed-case)
     out["STREET_NAME"] = names
     _add_key_and_display(out)
     out["DAY_EVEN"]    = day_codes
