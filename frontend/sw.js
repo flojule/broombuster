@@ -1,7 +1,7 @@
 // Minimal service worker — caches the app shell for instant load.
-// API calls (/check, /prefs) are always fetched from the network.
+// API calls (/check, /address, /prefs) are always fetched from the network.
 
-const CACHE = 'broombuster-v52';
+const CACHE = 'broombuster-v53';
 const SHELL = [
   '/', '/styles.css',
   '/js/urgency.js', '/js/core.js', '/js/auth.js', '/js/ui.js', '/js/map.js',
@@ -30,6 +30,7 @@ self.addEventListener('fetch', event => {
 
   // Always go to network for API calls
   if (url.pathname.startsWith('/check') ||
+      url.pathname.startsWith('/address') ||
       url.pathname.startsWith('/prefs') ||
       url.pathname.startsWith('/cities') ||
       url.pathname.startsWith('/health')) {

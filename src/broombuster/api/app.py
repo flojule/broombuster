@@ -36,6 +36,7 @@ from .state import (
     _load_city,
     data_age_days,
     logger,
+    warm_region,
 )
 
 _PRELOAD_REGION = os.environ.get("PRELOAD_REGION", "").strip()
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
             ev = _city_events.get(ck)
             if ev:
                 ev.wait(timeout=120)
+        warm_region(_PRELOAD_REGION)
         logger.info("[preload] region '%s' ready", _PRELOAD_REGION)
     # Background freshness checker — runs after startup, checks hourly. Opt-in:
     # deployments ship refreshed data through git instead (see config.py).
@@ -221,6 +223,7 @@ def check(req: CheckRequest, request: Request):
     urgency: object = False
     message:  str = ""
     address:  str = ""
+    address_pending = False
     snap: dict | None = None
     detail_html: str = ""
     domain_results: list[dict] = []
@@ -230,7 +233,10 @@ def check(req: CheckRequest, request: Request):
         # SINGLE SOURCE OF TRUTH — one authoritative segment drives street
         # name, side, schedule, urgency, map highlight and the city itself.
         resolved, city_key = resolve.locate(myCity_3857, req.lat, req.lon, region)
-        address = _build_address(resolved, city_key, req.lat, req.lon)
+        # Street-level address now; a Nominatim house number (up to ~1 s)
+        # is left to GET /address when not already cached.
+        address, address_pending = _build_address(
+            resolved, city_key, req.lat, req.lon, network=False)
         if resolved is not None:
             snap = {
                 "street_name": resolved.label,
@@ -295,12 +301,38 @@ def check(req: CheckRequest, request: Request):
         # Display labels for the even / odd buckets (e.g. SF ["North", "South"]).
         "side_labels": sweep_extras.get("side_labels", ["Even", "Odd"]),
         "address": address,
+        # True when GET /address may return a fuller address (house number).
+        "address_pending": address_pending,
         "detail_html": detail_html,
         "geojson": geojson,
         # Which segment the resolver chose and how far the car is from it.
         "snap": snap,
         "domains": domain_results,
     }
+
+
+# Each uncached call costs one Nominatim request (usage policy: <= 1/s).
+_ADDRESS_RATE = "30/minute"
+
+
+@app.get("/address")
+@rate_limit(_ADDRESS_RATE)
+def address(request: Request,
+            lat: float = Query(..., ge=-90.0, le=90.0),
+            lon: float = Query(..., ge=-180.0, le=180.0),
+            region: str | None = None):
+    """Canonical car address including the Nominatim house number.
+
+    /check answers with the street-level form and `address_pending`; the
+    client calls this afterwards so /check itself never waits on Nominatim.
+    """
+    region, _ = _resolve_region(CheckRequest(lat=lat, lon=lon, region=region))
+    _, gdf_3857 = _get_region_gdfs(lat, lon, region)
+    if gdf_3857 is None:
+        raise HTTPException(503, f"No data available for region '{region}' yet.")
+    resolved, city_key = resolve.locate(gdf_3857, lat, lon, region)
+    addr, _ = _build_address(resolved, city_key, lat, lon)
+    return {"address": addr}
 
 
 class CheckHomeRequest(BaseModel):
