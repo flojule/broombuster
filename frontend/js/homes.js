@@ -1,12 +1,34 @@
-// ── Homes (residences) — trash/recycling day ───────────────────────────────────
+// ── Homes — trash pickup days (cities with ReCollect data) ──────────────────────
+// [stream, next ISO date] per pickup stream, soonest first.
+function _nextPickups(sched) {
+  return Object.entries(sched?.pickups || {})
+    .filter(([, dates]) => dates.length)
+    .map(([stream, dates]) => [stream, dates[0]])
+    .sort((a, b) => a[1].localeCompare(b[1]));
+}
+
+function homeUrgency(sched) {
+  const next = _nextPickups(sched)[0]?.[1];
+  if (!next) return 'safe';
+  const today = schedNow(sched);
+  const key = p => `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
+  if (next === key(today)) return 'today';
+  return next === key(BroomUrgency.addDays(today, 1)) ? 'tomorrow' : 'safe';
+}
+
 function homeScheduleHTML(sched) {
   if (!sched) return '<span style="color:var(--muted)">Loading…</span>';
-  const domains = sched.domains || [];
-  if (!domains.length) {
+  const next = _nextPickups(sched);
+  if (!next.length) {
     return '<div class="ce-sched-item" style="color:var(--muted)">'
          + 'No collection info for this address.</div>';
   }
-  return domains.map(domainBlockHTML).join('');
+  const u = homeUrgency(sched);
+  const fmt = iso => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US',
+    { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return _urgencyLine(u, URGENCY[u].short)
+       + '<div class="ce-sched-header">Trash day:</div>'
+       + _itemsHTML(next.map(([stream, iso]) => `${stream}: ${fmt(iso)}`));
 }
 
 function renderHomePanel() {
@@ -28,7 +50,7 @@ function renderHomePanel() {
 
   homes.forEach((h, i) => {
     const sched    = homeSchedules[h.id];
-    const urgency  = panelUrgency(sched);
+    const urgency  = homeUrgency(sched);
     const addrText = h.address ? abbreviate(h.address) : '';
     const label    = homes.length > 1 ? `Home ${i + 1}` : 'Home';
 
@@ -57,14 +79,12 @@ function renderHomePanel() {
   updateSheetSummary();
 }
 
-// Add a home at a coordinate (map tap / right-click). Zone-based trash resolves
-// straight from the coordinate; for address-based (ReCollect) cities the backend
-// reverse-geocodes an address (or the user types one into the card afterward),
-// since reverse geocoding lives in the backend, not the frontend.
+// Add a home at a coordinate (map tap / right-click); the backend
+// reverse-geocodes its address unless the user types one into the card.
 async function addHome(lat, lon, address = '') {
-  const h = { id: _newId(), lat, lon, address };
+  const h = { id: newId(), lat, lon, address };
   homes.push(h);
-  await savePrefs();
+  savePrefs();
   setSheetCollapsed(false);  // reveal the new home card
   updateHomeMarkers();
   renderHomePanel();
@@ -82,7 +102,7 @@ async function setHomeAddress(id, query) {
     if (!hit) { showToast('Address not found', true); renderHomePanel(); return; }
     h.lat = hit.lat; h.lon = hit.lon; h.address = query;
   } catch (_) { showToast('Could not look up address', true); renderHomePanel(); return; }
-  await savePrefs();
+  savePrefs();
   updateHomeMarkers();
   renderHomePanel();
   await checkHome(id);
@@ -93,7 +113,7 @@ async function removeHome(id) {
   delete homeSchedules[id];
   const m = _homeMarkers.get(id);
   if (m) { m.remove(); _homeMarkers.delete(id); }
-  await savePrefs();
+  savePrefs();
   renderHomePanel();
 }
 
@@ -103,14 +123,13 @@ function updateHomeMarkers() {
     if (!homes.find(h => h.id === id)) { marker.remove(); _homeMarkers.delete(id); }
   }
   homes.forEach(h => {
-    if (_homeMarkers.has(h.id)) { _homeMarkers.get(h.id).setLngLat([h.lon, h.lat]); return; }
-    const el = document.createElement('div');
-    el.className = 'home-marker';
-    el.textContent = '🏠';
-    el.title = 'Home';
-    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-      .setLngLat([h.lon, h.lat]).addTo(map);
-    _homeMarkers.set(h.id, marker);
+    _homeMarkers.set(h.id, placeMarker(_homeMarkers.get(h.id), h, () => {
+      const el = document.createElement('div');
+      el.className = 'home-marker';
+      el.textContent = '🏠';
+      el.title = 'Home';
+      return el;
+    }));
   });
 }
 
@@ -122,17 +141,13 @@ async function checkHome(id) {
   try {
     // Region is derived server-side from the home coordinate — a home can sit
     // in a different region than the map's currently selected one.
-    const res = await apiFetch('/check-home', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat: h.lat, lon: h.lon, address: h.address }),
-    });
+    const res = await postJSON('/check-home', { lat: h.lat, lon: h.lon, address: h.address });
     if (res.ok) {
       const data = await res.json();
       homeSchedules[h.id] = data;
       // A home dropped by tap/right-click has no address; adopt the one the
       // backend reverse-geocoded so the card shows a real street address.
-      if (!h.address && data.address) { h.address = data.address; await savePrefs(); }
+      if (!h.address && data.address) { h.address = data.address; savePrefs(); }
       renderHomePanel();
     }
   } catch (_) {}

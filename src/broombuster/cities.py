@@ -1,16 +1,39 @@
-"""City + region configs, loaded from data/manifests/*.yaml.
+"""Cities and regions from data/manifests/*.yaml (one file per city + regions.yaml)."""
 
-CITIES maps city_key -> config (name, center, manual_default, local_path,
-url, schema, bbox, fgb_path, plus optional stale_after_days / schedule_pdf_url).
-REGIONS groups cities geographically (name, cities, center, tz, overview frame).
+import os
 
-A manifest names a normaliser profile via `schema`; it never remaps columns,
-so each city's distinct format stays handled by its own
-data_loader.SCHEMA_PROFILES entry. Add a city by dropping a new YAML in
-data/manifests/ (and a new SCHEMA_PROFILES entry if its format is novel).
-"""
+import yaml
 
-from broombuster.manifest import load_all
+from broombuster.config import REPO_ROOT
+
+MANIFEST_DIR = os.path.join(REPO_ROOT, "data", "manifests")
+_CITY_FIELDS = ("name", "center", "schema", "bbox", "fgb_path", "source")
+_REGION_FIELDS = ("name", "cities", "center", "zoom", "tz")
+
+
+def _read(path: str) -> dict:
+    with open(path, encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+def load_all(directory: str = MANIFEST_DIR) -> tuple[dict, dict]:
+    """(CITIES, REGIONS), failing loudly on a missing field or unknown city."""
+    cities = {f[:-5]: _read(os.path.join(directory, f))
+              for f in sorted(os.listdir(directory))
+              if f.endswith(".yaml") and f != "regions.yaml"}
+    regions = _read(os.path.join(directory, "regions.yaml"))
+    for kind, items, fields in (("city", cities, _CITY_FIELDS),
+                                ("region", regions, _REGION_FIELDS)):
+        for key, item in items.items():
+            missing = [f for f in fields if f not in item]
+            if missing:
+                raise ValueError(f"{kind} '{key}' is missing {missing}")
+    for key, region in regions.items():
+        unknown = [c for c in region["cities"] if c not in cities]
+        if unknown:
+            raise ValueError(f"region '{key}' lists unknown cities {unknown}")
+    return cities, regions
+
 
 CITIES, REGIONS = load_all()
 
@@ -20,11 +43,7 @@ def _dist2(center: dict, lat: float, lon: float) -> float:
 
 
 def in_bbox(city_key: str, lat: float, lon: float) -> bool:
-    """True if (lat, lon) lies inside the city's manifest bbox."""
-    bbox = CITIES[city_key].get("bbox")
-    if not bbox:
-        return False
-    lat_min, lon_min, lat_max, lon_max = bbox
+    lat_min, lon_min, lat_max, lon_max = CITIES[city_key]["bbox"]
     return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
 
 
@@ -33,14 +52,11 @@ def region_for_point(lat: float, lon: float) -> str:
     return min(REGIONS, key=lambda rk: _dist2(REGIONS[rk]["center"], lat, lon))
 
 
-def region_of(city_key: str) -> str | None:
-    """Region containing the city, or None."""
-    return next((rk for rk, rv in REGIONS.items() if city_key in rv["cities"]), None)
-
-
 def city_for_point(lat: float, lon: float, region_key: str) -> str:
-    """Best-guess city with no street data: smallest bbox containing the point,
-    else nearest center. Prefer resolve.locate, which uses the street segment."""
+    """City by bbox (smallest containing one), else nearest center.
+
+    For points without a street match; resolve.locate prefers the segment's city.
+    """
     keys = REGIONS[region_key]["cities"]
     inside = [ck for ck in keys if in_bbox(ck, lat, lon)]
     if inside:

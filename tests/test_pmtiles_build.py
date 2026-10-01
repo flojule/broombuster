@@ -1,11 +1,5 @@
-"""Validate the PMTiles build inputs: merge_segment_rows and the manifest."""
-import json
-from pathlib import Path
-
+"""Validate the PMTiles build inputs: merge_segment_rows and the ward dividers."""
 from broombuster import data_loader, maps
-
-_ROOT = Path(__file__).resolve().parent.parent
-_MANIFEST = _ROOT / "frontend" / "tiles" / "manifest.json"
 
 
 def test_merge_segment_rows_chicago_shape():
@@ -22,13 +16,11 @@ def test_merge_segment_rows_chicago_shape():
     assert all(r["render_type"] == "polygon" for r in records)
 
 
-def test_merge_matches_build_map_geojson_count_chicago():
-    """Chicago polygons are 1:1, so merge count == build_map_geojson feature count."""
-
+def test_merge_keeps_chicago_polygons_one_to_one():
+    """Chicago zones are polygons: one tile record per non-empty zone row."""
     gdf = data_loader.load_region_data("chicago")
     merged = maps.merge_segment_rows(gdf)
-    geojson = maps.build_map_geojson(gdf)
-    assert len(merged) == len(geojson["features"])
+    assert len(merged) == int((~gdf.geometry.is_empty & gdf.geometry.notna()).sum())
 
 
 def test_ward_boundary_features_chicago():
@@ -45,16 +37,3 @@ def test_ward_boundary_features_chicago():
     assert not maps.ward_boundary_features(
         [r for r in records if r["render_type"] == "line"]
     )
-
-
-def test_manifest_features_match_merge_count_if_built():
-    if not _MANIFEST.exists():
-        return  # archives not built in this environment
-    manifest = json.loads(_MANIFEST.read_text())
-    if "chicago" not in manifest:
-        return
-    gdf = data_loader.load_region_data("chicago")
-    records = maps.merge_segment_rows(gdf)
-    # The archive carries the merged segments plus the dissolved ward outlines.
-    expected = len(records) + len(maps.ward_boundary_features(records))
-    assert manifest["chicago"]["features"] == expected

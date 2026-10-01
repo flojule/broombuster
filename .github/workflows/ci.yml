@@ -1,12 +1,10 @@
 name: CI
 
-# Lint + test on every push to main and every pull request.
 on:
   push:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same ref so a force-push doesn't pile up jobs.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -15,27 +13,15 @@ permissions:
   contents: read
 
 jobs:
-  lint-and-test:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
           enable-cache: true
-
-      - name: Install (api + dev extras, locked)
-        run: uv sync --locked --extra api --extra dev
-
-      - name: Ruff (lint)
-        run: uv run ruff check .
-
-      - name: Pytest
-        # conftest.py forces DEV_MODE=1 and PMTILES_MODE=0, so no JWT_SECRET is
-        # needed. DB_PATH points at a throwaway file so the runtime SQLite DB
-        # is never written into the checked-out tree.
-        env:
-          DB_PATH: ${{ runner.temp }}/app.sqlite
-        run: uv run pytest -q
+      - run: uv sync --locked --extra api --extra dev
+      - run: uv run ruff check .
+      - run: uv run pytest -q   # node (preinstalled) runs tests/test_urgency.py

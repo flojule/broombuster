@@ -1,8 +1,34 @@
-import os
+import pytest
 
-# PMTILES mode is the app default, but most tests exercise the legacy
-# server-built GeoJSON /check path (they read response["geojson"]). Force it off
-# here — set before broombuster.api.app is imported, which reads the flag at
-# import time. Tests that need PMTILES mode set the env explicitly themselves.
-os.environ.setdefault("PMTILES_MODE", "0")
-os.environ.setdefault("DEV_MODE", "1")
+from broombuster import data_loader
+
+
+@pytest.fixture(scope="session")
+def bay_area_gdf():
+    return data_loader.load_region_data("bay_area")
+
+
+@pytest.fixture(scope="session")
+def bay_area_3857(bay_area_gdf):
+    return bay_area_gdf.to_crs("EPSG:3857")
+
+
+@pytest.fixture(scope="session")
+def chicago_gdf():
+    return data_loader.load_region_data("chicago")
+
+
+@pytest.fixture(scope="session")
+def chicago_3857(chicago_gdf):
+    return chicago_gdf.to_crs("EPSG:3857")
+
+
+@pytest.fixture(scope="session")
+def app_client():
+    """One TestClient for the session: the app's startup loads every city once."""
+    from fastapi.testclient import TestClient
+
+    from broombuster.api.app import app
+
+    with TestClient(app) as client:
+        yield client

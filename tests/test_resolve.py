@@ -16,7 +16,6 @@ import pyproj
 import pytest
 from shapely.geometry import LineString, Polygon
 
-from broombuster import data_loader
 from broombuster.resolve import NoSegmentNearby, resolve_car_segment
 
 _TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
@@ -283,19 +282,6 @@ def test_city_key_filter_skips_wrong_city():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def bay_area_3857():
-    gdf = data_loader.load_region_data("bay_area")
-    gdf3857 = gdf.to_crs("EPSG:3857")
-    # _city column is added by api/api.py at load time; add it here so the
-    # filter works in tests too.
-    if "_city" not in gdf3857.columns:
-        # Without the api-layer tag we leave it unset; city_key=None in the
-        # call below skips filtering.
-        pass
-    return gdf3857
-
-
 def test_oakland_known_coord_snaps_to_chestnut(bay_area_3857):
     # 2931 Chestnut St, Oakland — same fixture used in test_pipeline.py.
     lat, lon = 37.821326, -122.280705
@@ -307,3 +293,28 @@ def test_oakland_known_coord_snaps_to_chestnut(bay_area_3857):
     assert _norm(resolved.street_name) == _norm("CHESTNUT ST")
     assert resolved.is_polygon is False
     assert resolved.distance_m < 40.0
+
+
+# ---------------------------------------------------------------------------
+# Real data: the card schedule (union over the physical segment) includes the
+# resolved segment's own entries.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("lat,lon,city", [
+    (37.821326, -122.280705, "oakland"),
+    (37.830060, -122.261070, "oakland"),
+    (37.759700, -122.421200, "san_francisco"),
+])
+def test_union_keeps_resolved_schedule(bay_area_3857, lat, lon, city):
+    from broombuster import analysis
+
+    r = resolve_car_segment(bay_area_3857, lat, lon, city_key=city, max_distance_m=50.0)
+    even, odd = analysis.schedules_for_all_matching_rows(bay_area_3857, r)
+    for side, union in ((0, even), (1, odd)):
+        own = analysis.get_schedule(r.segment, side)
+        assert own is None or own in union
+
+
+def test_midblock_snaps_to_street(bay_area_3857):
+    r = resolve_car_segment(bay_area_3857, 37.821326, -122.280705, city_key="oakland")
+    assert r.street_name.upper().startswith("CHESTNUT")

@@ -1,4 +1,4 @@
-// Node harness: load the browser urgency.js port and answer parity queries.
+// Runs urgency.js on the cases in tests/urgency_cases.json; prints the results.
 // Usage: node tests/_urgency_harness.js <cases.json>  → writes results JSON to stdout.
 const path = require('path');
 const fs = require('fs');
@@ -9,7 +9,7 @@ function iso(d) {
   return d.y + '-' + String(d.m).padStart(2, '0') + '-' + String(d.d).padStart(2, '0');
 }
 
-const cases = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const cases = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).map(g => g.case);
 const out = cases.map(function (c) {
   if (c.kind === 'expand') {
     return { id: c.id, dates: U.datesInRange(c.code, c.start, c.end).map(iso) };

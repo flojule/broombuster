@@ -1,7 +1,3 @@
-# systemd timer: poll for updates ~every 2 minutes. Pairs with
-# broombuster-update.service. New commits land within the interval; idle polls
-# do nothing. OnBootSec covers catch-up after downtime (Persistent= only
-# applies to OnCalendar timers).
 [Unit]
 Description=Poll for BroomBuster updates every 2 minutes
 

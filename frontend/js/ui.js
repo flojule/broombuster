@@ -31,8 +31,7 @@ function _applyDark(on, persist) {
       map.dragRotate.disable();
       map.touchZoomRotate.disableRotation();
       // setStyle() drops all sources/layers; force the tile source to remount.
-      if (PMTILES_MODE) { _tilesRegion = null; ensureTiles(); }
-      else if (_currentGeojson) addZoneLayers(_currentGeojson);
+      _tilesRegion = null; ensureTiles();
       updateCarMarkers();
     });
   }
@@ -72,7 +71,7 @@ function updateCenterBanner() {
   const props = f.properties || {};
   const isPoly = props.render_type === 'polygon';
   const street = props.street || '';
-  const lines  = PMTILES_MODE ? tileSchedLines(props) : [];
+  const lines  = tileSchedLines(props);
   // Line 1: the street/zone (no distance). Following lines: the schedule, one
   // per line (even/odd already arrive on their own lines from tileSchedLines).
   const head = isPoly ? `📍 Zone: ${esc(street)}` : `📍 ${esc(street)}`;

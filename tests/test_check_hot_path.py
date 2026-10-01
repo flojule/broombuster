@@ -1,17 +1,11 @@
 """
-/check hot-path optimisations stay behaviour-identical.
-
-The indexed schedule union (analysis.segment_index) and the vectorised
-resolver replaced row-by-row pandas scans. Each is checked here against a
-reference copy of the scan it replaced, on the real Bay Area + Chicago data and
-on synthetic edge cases. Also covers the Nominatim-free /check address, the
-GET /address upgrade, region warm-up and the failure-caching rules.
+The indexed schedule union (analysis.segment_index) and the vectorised resolver
+match plain row-by-row scans, on the real Bay Area + Chicago data and synthetic
+edge cases. Also: /check never waits on Nominatim, GET /address adds the house
+number, and startup builds the indexes.
 """
 import gc
-import os
 import random
-
-os.environ.setdefault("DEV_MODE", "1")
 
 import geopandas
 import numpy as np
@@ -19,10 +13,10 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 
-from broombuster import analysis, data_loader, gps, normalize, recollect, resolve
+from broombuster import analysis, data_loader, gps, normalize, resolve
 
 # ---------------------------------------------------------------------------
-# Reference implementations (the pre-optimisation row-by-row scans)
+# Reference implementations (plain row-by-row scans)
 # ---------------------------------------------------------------------------
 
 
@@ -30,14 +24,14 @@ _REF_TABLES: dict = {}
 
 
 def _ref_table(gdf):
-    """Per-row (street key, endpoints, even, odd) the old scan derived per call."""
+    """Per-row (street key, endpoints, even, odd) for the reference scan."""
     if id(gdf) not in _REF_TABLES:
         table = []
         for _, row in gdf.iterrows():
             k = row.get("STREET_KEY")
             if not normalize.is_text(k):
                 n = row.get("STREET_NAME")
-                k = analysis._norm_name(n) if normalize.is_text(n) else None
+                k = normalize.street_name(n) if normalize.is_text(n) else None
             g = row.geometry
             if k is None or g is None or g.is_empty or \
                     g.geom_type not in ("LineString", "MultiLineString"):
@@ -56,7 +50,7 @@ def _ref_union(gdf, resolved):
     tg = seg.geometry
     if tg is None or tg.is_empty or tg.geom_type not in ("LineString", "MultiLineString"):
         return analysis.schedules_for_segment(seg)
-    tkey = seg.get("STREET_KEY") or analysis._norm_name(seg.get("STREET_NAME") or "")
+    tkey = seg.get("STREET_KEY") or normalize.street_name(seg.get("STREET_NAME") or "")
     teps = analysis._segment_endpoints(tg)
     if tkey == "" or not teps:
         return analysis.schedules_for_segment(seg)
@@ -76,7 +70,7 @@ def _ref_union(gdf, resolved):
 
 
 def _ref_resolve(gdf, lat, lon, city_key=None, max_distance_m=40.0):
-    """(row position, is_polygon, distance) the old per-row resolver loop picked."""
+    """(row position, is_polygon, distance) a per-row resolver loop picks."""
     x, y = resolve._TRANSFORMER_4326_TO_3857.transform(lon, lat)
     pt = Point(x, y)
     best, best_d = None, float("inf")
@@ -108,12 +102,6 @@ def _position(gdf, row):
 # ---------------------------------------------------------------------------
 # Real data
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def bay_area_3857():
-    gdf = data_loader.load_region_data("bay_area").to_crs("EPSG:3857")
-    return gdf
 
 
 @pytest.fixture(scope="module")
@@ -250,20 +238,16 @@ def test_segment_index_is_cached_and_released():
 
 
 # ---------------------------------------------------------------------------
-# State warm-up
+# Startup indexing
 # ---------------------------------------------------------------------------
 
 
-def test_warm_region_prebuilds_indexes():
+def test_startup_prebuilds_indexes(app_client):
     from broombuster.api import state
-    from broombuster.cities import REGIONS
 
-    for ck in REGIONS["chicago"]["cities"]:
-        state._load_city(ck)
-    state.warm_region("chicago")
-    _, c3 = state._combined_region("chicago")
-    assert c3.has_sindex
-    assert analysis._segment_index_cache.get(id(c3), (lambda: None,))[0]() is c3
+    gdf = state.region_gdf("chicago")
+    assert gdf.has_sindex
+    assert analysis._segment_index_cache[id(gdf)][0]() is gdf
 
 
 # ---------------------------------------------------------------------------
@@ -274,28 +258,26 @@ _OAKLAND = {"lat": 37.821326, "lon": -122.280705, "region": "bay_area"}
 
 
 @pytest.fixture
-def client():
-    from fastapi.testclient import TestClient
-
-    from broombuster.api import app as app_module
-    gps.clear_cache()
-    with TestClient(app_module.app) as c:
-        yield c
-    gps.clear_cache()
+def client(app_client):
+    gps._cache.clear()
+    yield app_client
+    gps._cache.clear()
 
 
 def test_check_does_not_call_nominatim(client, monkeypatch):
     def _boom(lat, lon):
         raise AssertionError("/check must not call Nominatim")
-    monkeypatch.setattr(gps, "_reverse_geocode", _boom)
+    monkeypatch.setattr(gps, "_nominatim", _boom)
     data = client.post("/check", json=_OAKLAND).json()
     assert data["address_pending"] is True
-    assert data["address"].startswith(data["snap"]["street_name"])
+    assert data["address"] == "Chestnut St, Oakland"
 
 
 def test_address_endpoint_adds_house_number_then_check_uses_cache(client, monkeypatch):
-    monkeypatch.setattr(gps, "_reverse_geocode", lambda lat, lon: ("Chestnut Street", 2931))
-    street = client.post("/check", json=_OAKLAND).json()["snap"]["street_name"]
+    monkeypatch.setattr(gps, "_nominatim",
+                        lambda lat, lon: {"road": "Chestnut Street", "house_number": "2931"})
+    street = "Chestnut St"
+    client.post("/check", json=_OAKLAND)
     resp = client.get("/address", params=_OAKLAND)
     assert resp.status_code == 200
     assert resp.json()["address"].startswith(f"2931 {street}")
@@ -313,48 +295,35 @@ def test_zone_address_is_never_pending(client):
 
 
 def test_geocode_failure_is_not_cached(monkeypatch):
-    gps.clear_cache()
+    gps._cache.clear()
     calls = []
 
     def _flaky(lat, lon):
         calls.append(1)
         if len(calls) == 1:
-            raise gps.GeocodeError("timeout")
-        return ("Grand Avenue", 12)
-    monkeypatch.setattr(gps, "_reverse_geocode", _flaky)
+            raise TimeoutError
+        return {"road": "Grand Avenue", "house_number": "12"}
+    monkeypatch.setattr(gps, "_nominatim", _flaky)
     assert gps.maybe_house_number(37.5, -122.5, "Grand Ave") is None
     assert not gps.house_number_cached(37.5, -122.5)
     assert gps.maybe_house_number(37.5, -122.5, "Grand Ave") == 12
     assert gps.house_number_cached(37.5, -122.5)
-    gps.clear_cache()
+    gps._cache.clear()
 
 
 def test_cache_only_lookup_skips_network(monkeypatch):
-    gps.clear_cache()
-    monkeypatch.setattr(gps, "_reverse_geocode",
-                        lambda lat, lon: pytest.fail("network used"))
+    gps._cache.clear()
+    monkeypatch.setattr(gps, "_nominatim", lambda lat, lon: pytest.fail("network used"))
     assert gps.maybe_house_number(37.5, -122.5, "Grand Ave", network=False) is None
 
 
-# ---------------------------------------------------------------------------
-# ReCollect: failures are remembered only briefly
-# ---------------------------------------------------------------------------
+def test_warm_check_is_fast(app_client):
+    """A /check on a long multi-row street (Market St, SF) stays well under 1 s
+    (~5 ms on a Raspberry Pi 5)."""
+    import time
 
-
-def test_recollect_failure_uses_short_ttl(monkeypatch):
-    import requests
-
-    recollect.clear_caches()
-
-    def _down(*a, **k):
-        raise requests.ConnectionError("down")
-    monkeypatch.setattr(recollect.requests, "get", _down)
-    now = 1_000_000.0
-    monkeypatch.setattr(recollect.time, "time", lambda: now)
-    assert recollect.suggest_place("OaklandCA", 608, "1 Main St") is None
-    assert recollect.fetch_pickups("PID", 608) == {}
-    (place_exp, _), = recollect._place_cache.values()
-    (pick_exp, _), = recollect._pickups_cache.values()
-    assert place_exp == now + recollect._FAILURE_TTL_S
-    assert pick_exp == now + recollect._FAILURE_TTL_S
-    recollect.clear_caches()
+    body = {"lat": 37.7749, "lon": -122.4194, "region": "bay_area"}
+    t0 = time.perf_counter()
+    resp = app_client.post("/check", json=body)
+    assert resp.status_code == 200, resp.text
+    assert time.perf_counter() - t0 < 1.0

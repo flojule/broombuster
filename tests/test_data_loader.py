@@ -5,6 +5,7 @@ Integration tests use the bundled / already-downloaded data files.
 Unit tests use synthetic GeoDataFrames so they never hit the network.
 """
 import datetime
+import re
 
 import geopandas
 import pandas as pd
@@ -12,6 +13,11 @@ import pytest
 import shapely.geometry
 
 from broombuster import analysis, data_loader, schemas
+
+
+def _dates(code: str) -> list[datetime.date]:
+    assert code.startswith("DATES:"), code
+    return [datetime.date.fromisoformat(d) for d in code[6:].split(",")]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,12 +47,18 @@ def _assert_schema(gdf: geopandas.GeoDataFrame, label: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+# The sweep-code grammar (data/README.md) that frontend/js/urgency.js evaluates.
+_DATE = r"\d{4}-\d{2}-\d{2}"
+_CODE_RE = re.compile(rf"(?:TH|SU|M|T|W|F|S)+(?:E|[1-5]+)?|E|DATES:{_DATE}(?:,{_DATE})*")
+
+
 def _assert_codes_parse(gdf, city):
     """Every real DAY_* code is a sweep rule or an explicit no-sweep marker."""
     codes = set(gdf["DAY_EVEN"].dropna()) | set(gdf["DAY_ODD"].dropna())
     bad = sorted(c for c in codes
-                 if not analysis.is_no_sweep_code(c) and analysis._rule(c) is None)
+                 if not analysis.is_no_sweep_code(c) and not _CODE_RE.fullmatch(c.strip().upper()))
     assert not bad, f"{city}: unparseable day codes {bad[:10]}"
+
 
 class TestLoadCityDataIntegration:
     """Load real bundled / cached data files and validate the schema contract."""
@@ -91,16 +103,15 @@ class TestLoadCityDataIntegration:
         _assert_schema(gdf, "chicago_all")
 
     def test_chicago_street_name_format(self):
-        gdf = data_loader.load_city_data("chicago_all")
-        sample = gdf["STREET_NAME"].dropna().head(20)
-        assert all(s.startswith("Ward ") for s in sample), \
-            "Chicago STREET_NAME should start with 'Ward '"
+        gdf = data_loader.load_city_data("chicago_all").head(20)
+        assert all(s.startswith("WARD ") for s in gdf["STREET_NAME"])
+        assert all(s.startswith("Ward ") for s in gdf["STREET_DISPLAY"])
 
     def test_chicago_day_codes_parseable(self):
         gdf = data_loader.load_city_data("chicago_all")
         codes = gdf["DAY_EVEN"].dropna().unique()
         for code in codes[:10]:
-            result = analysis.parse_dates_code(str(code))
+            result = _dates(str(code))
             assert result, f"Chicago: code {code!r} parsed to empty list"
 
     def test_chicago_even_odd_identical(self):
@@ -284,12 +295,13 @@ class TestNormaliseChicago:
     def test_street_name_ward_section_format(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
         out = schemas._normalise_chicago(gdf)
-        assert out["STREET_NAME"].iloc[0] == "Ward 05, Section 03"
+        assert out["STREET_NAME"].iloc[0] == "WARD 05, SECTION 03"
+        assert out["STREET_DISPLAY"].iloc[0] == "Ward 05, Section 03"
 
     def test_street_name_zero_padded(self):
         gdf = _make_chicago_gdf([{"ward": 1, "section": 1, "april": "1"}])
         out = schemas._normalise_chicago(gdf)
-        assert out["STREET_NAME"].iloc[0] == "Ward 01, Section 01"
+        assert out["STREET_DISPLAY"].iloc[0] == "Ward 01, Section 01"
 
     def test_day_code_starts_with_DATES(self):
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
@@ -310,7 +322,7 @@ class TestNormaliseChicago:
         gdf = _make_chicago_gdf([{"ward": 5, "section": 3, "april": "17,18", "may": "15,16"}])
         out = schemas._normalise_chicago(gdf)
         code = out["DAY_EVEN"].iloc[0]
-        result = analysis.parse_dates_code(code)
+        result = _dates(code)
         # Year-agnostic: every requested month/day is expanded, and inference
         # lands them all on weekdays (Mon-Fri), never weekends.
         md = {(d.month, d.day) for d in result}
@@ -455,50 +467,40 @@ class TestNormalisePrebuilt:
 
 
 # ---------------------------------------------------------------------------
-# force_refresh keeps existing files until the rebuild succeeds
+# build_city_fgb replaces the FGB only after a successful rebuild
 # ---------------------------------------------------------------------------
 
-class TestForceRefreshAtomic:
+class TestBuildCityFgb:
     def _setup(self, tmp_path, monkeypatch):
-        city = {"name": "Testville", "local_path": "raw/src.geojson",
-                "fgb_path": "out/test.fgb", "url": "http://example.invalid/x",
-                "schema": "berkeley"}
+        city = {"name": "Testville", "fgb_path": "out/test.fgb", "schema": "berkeley",
+                "source": {"local_path": "raw/src.geojson"}}
         monkeypatch.setitem(data_loader.CITIES, "testville", city)
         monkeypatch.setattr(data_loader, "_ROOT", str(tmp_path))
         raw = tmp_path / "raw" / "src.geojson"
         raw.parent.mkdir()
         gdf = geopandas.GeoDataFrame(
-            {"STREET_NAME": ["A ST"], "DAY_EVEN": ["ME"], "DAY_ODD": ["TE"],
+            {"STREET_NAME": ["a st"], "DAY_EVEN": ["ME"], "DAY_ODD": ["TE"],
              "DESC_EVEN": ["Every Mon"], "DESC_ODD": ["Every Tue"],
              "TIME_EVEN": ["8AM-10AM"], "TIME_ODD": ["8AM-10AM"]},
             geometry=[_LINE], crs="EPSG:4326")
         gdf.to_file(raw, driver="GeoJSON")
         return raw, gdf
 
-    def test_failed_download_keeps_old_data(self, tmp_path, monkeypatch):
-        raw, _ = self._setup(tmp_path, monkeypatch)
-        monkeypatch.setattr(data_loader, "_download", lambda url, p: None)
-        data_loader.load_city_data("testville")
-        fgb = tmp_path / "out" / "test.fgb"
-        before = (raw.read_bytes(), fgb.read_bytes())
+    def test_build_then_load(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        data_loader.build_city_fgb("testville")
+        out = data_loader.load_city_data("testville")
+        assert list(out["STREET_NAME"]) == ["A ST"]  # upper-cased by the normaliser
+        assert list(out["STREET_DISPLAY"]) == ["A St"]
+        assert list(out["_city"]) == ["testville"]
 
-        def _fail(url, path):
-            raise OSError("network down")
-        monkeypatch.setattr(data_loader, "_download", _fail)
-        with pytest.raises(OSError):
-            data_loader.load_city_data("testville", force_refresh=True)
-        assert (raw.read_bytes(), fgb.read_bytes()) == before
-        assert sorted(p.name for p in raw.parent.iterdir()) == ["src.geojson"]
-
-    def test_successful_refresh_replaces_raw_and_fgb(self, tmp_path, monkeypatch):
+    def test_failed_build_keeps_old_fgb(self, tmp_path, monkeypatch):
         raw, gdf = self._setup(tmp_path, monkeypatch)
-        monkeypatch.setattr(data_loader, "_download", lambda url, p: None)
-        data_loader.load_city_data("testville")
-        new = gdf.assign(STREET_NAME=["B ST"])
-        monkeypatch.setattr(data_loader, "_download",
-                            lambda url, p: new.to_file(p, driver="GeoJSON"))
-        out = data_loader.load_city_data("testville", force_refresh=True)
-        assert list(out["STREET_NAME"]) == ["B ST"]
-        assert list(geopandas.read_file(raw)["STREET_NAME"]) == ["B ST"]
-        data_loader._GDF_CACHE.clear()
-        assert list(data_loader.load_city_data("testville")["STREET_NAME"]) == ["B ST"]
+        data_loader.build_city_fgb("testville")
+        fgb = tmp_path / "out" / "test.fgb"
+        before = fgb.read_bytes()
+        gdf.iloc[0:0].to_file(raw, driver="GeoJSON")  # empty input → refused
+        with pytest.raises(ValueError, match="empty"):
+            data_loader.build_city_fgb("testville")
+        assert fgb.read_bytes() == before
+        assert sorted(p.name for p in fgb.parent.iterdir()) == ["test.fgb"]

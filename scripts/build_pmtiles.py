@@ -12,7 +12,6 @@ Usage (from repo root):
 
     python scripts/build_pmtiles.py                 # all regions
     python scripts/build_pmtiles.py --region chicago
-    python scripts/build_pmtiles.py --force         # ignore mtime, rebuild all
 
 Requires the `tippecanoe` binary on PATH (brew install tippecanoe).
 """
@@ -27,30 +26,16 @@ from pathlib import Path
 
 import shapely.geometry
 
-_HERE = Path(__file__).resolve().parent
-_ROOT = _HERE.parent
-sys.path.insert(0, str(_ROOT / "src"))
+from broombuster import analysis, data_loader, maps
+from broombuster.cities import REGIONS
+from broombuster.config import REPO_ROOT
 
-from broombuster import analysis, data_loader, maps  # noqa: E402
-from broombuster.cities import REGIONS  # noqa: E402
+_ROOT = Path(REPO_ROOT)
 
 _TILES_DIR = _ROOT / "frontend" / "tiles"
-_MANIFEST = _TILES_DIR / "manifest.json"
 _SOURCE_LAYER = "zones"
 _MINZOOM = 8
 _MAXZOOM = 14
-
-
-def _region_source_mtime(region_key: str) -> float:
-    """Newest source FGB mtime across the region's cities (0 if none on disk)."""
-    from broombuster.cities import CITIES
-
-    newest = 0.0
-    for ck in REGIONS[region_key]["cities"]:
-        fgb = _ROOT / CITIES[ck]["fgb_path"]
-        if fgb.exists():
-            newest = max(newest, fgb.stat().st_mtime)
-    return newest
 
 
 def _write_ndjson(region_key: str, path: Path) -> int:
@@ -106,15 +91,8 @@ def _run_tippecanoe(ndjson: Path, out: Path) -> None:
     subprocess.run(cmd, check=True)
 
 
-def _build_region(region_key: str, force: bool, manifest: dict) -> bool:
+def _build_region(region_key: str) -> bool:
     out = _TILES_DIR / f"{region_key}.pmtiles"
-    src_mtime = _region_source_mtime(region_key)
-    prev = manifest.get(region_key)
-    if (not force and out.exists() and prev
-            and abs(prev.get("source_mtime", -1) - src_mtime) < 1e-6):
-        print(f"{region_key}: up to date (source unchanged) — skipping")
-        return True
-
     print(f"\n{REGIONS[region_key]['name']} → {out.name}")
     _TILES_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", suffix=".ndjson", delete=False) as tf:
@@ -127,14 +105,7 @@ def _build_region(region_key: str, force: bool, manifest: dict) -> bool:
         _run_tippecanoe(ndjson, out)
     finally:
         ndjson.unlink(missing_ok=True)
-
-    size_mb = out.stat().st_size / 1_048_576
-    print(f"    ✓ {out.name}  ({count:,} features, {size_mb:.1f} MB)")
-    manifest[region_key] = {
-        "archive": out.name,
-        "features": count,
-        "source_mtime": src_mtime,
-    }
+    print(f"    ✓ {out.name}  ({count:,} features, {out.stat().st_size / 1_048_576:.1f} MB)")
     return True
 
 
@@ -145,41 +116,21 @@ def main() -> int:
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--region", action="append",
+    ap.add_argument("--region", action="append", choices=list(REGIONS),
                     help="Region key to build (repeatable; default: all)")
-    ap.add_argument("--force", action="store_true",
-                    help="Rebuild even if the source FGBs are unchanged")
     args = ap.parse_args()
 
-    targets = args.region or list(REGIONS.keys())
-    manifest = {}
-    if _MANIFEST.exists():
-        try:
-            manifest = json.loads(_MANIFEST.read_text())
-        except (json.JSONDecodeError, OSError):
-            manifest = {}
-
     failed = []
-    for rk in targets:
-        if rk not in REGIONS:
-            print(f"Unknown region: {rk}")
-            failed.append(rk)
-            continue
+    for rk in args.region or list(REGIONS):
         try:
-            if not _build_region(rk, args.force, manifest):
+            if not _build_region(rk):
                 failed.append(rk)
         except subprocess.CalledProcessError as exc:
             print(f"    ⚠  tippecanoe failed for {rk}: {exc}")
             failed.append(rk)
-
-    _TILES_DIR.mkdir(parents=True, exist_ok=True)
-    _MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
-
-    print()
     if failed:
-        print(f"Done with {len(failed)} failure(s): {', '.join(failed)}")
+        print(f"\nFailed: {', '.join(failed)}")
         return 1
-    print(f"Done — {len(targets)} region(s) built. Manifest: {_MANIFEST.relative_to(_ROOT)}")
     return 0
 
 

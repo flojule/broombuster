@@ -1,12 +1,6 @@
-# systemd unit: one-shot BroomBuster auto-update. Triggered by
-# broombuster-update.timer; pulls + rolls out only when the tracked branch
-# advanced (the guard lives in auto-update.sh). Runs as the repo owner so git
-# and the editable venv install stay user-owned; the only privileged step is
-# `sudo systemctl restart broombuster`, granted via the sudoers drop-in that
-# install-autoupdate.sh writes. __USER__/__REPO__ are substituted on install.
 [Unit]
-Description=BroomBuster auto-update (pull + roll out when the branch advances)
-After=network-online.target tailscaled.service
+Description=BroomBuster auto-update
+After=network-online.target
 Wants=network-online.target
 
 [Service]

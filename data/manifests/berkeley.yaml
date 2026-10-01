@@ -1,9 +1,15 @@
-# Built by scripts/build_berkeley_geojson.py from the city's PDF schedules.
 name: "Berkeley, CA"
 center: {lat: 37.8716, lon: -122.2727}
-manual_default: {lat: 37.8716, lon: -122.2727}
-local_path: data/berkeley/StreetSweeping.geojson
-url: null
 schema: berkeley
 bbox: [37.84, -122.32, 37.91, -122.23]
 fgb_path: data/berkeley/StreetSweeping.fgb
+source:
+  local_path: data/berkeley/StreetSweeping.geojson
+  build: scripts/build_berkeley_geojson.py
+  files:
+    - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNamesA-G.pdf
+    - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNamesH-Z.pdf
+    - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNumbered.pdf
+  notes: |
+    Streets are placed with OpenStreetMap (Overpass). Newer PDFs:
+    https://berkeleyca.gov/city-services/streets-sidewalks-sewers-and-utilities/street-sweeping

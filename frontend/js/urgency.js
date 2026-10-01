@@ -1,15 +1,13 @@
-// Client-side port of broombuster.analysis urgency logic. Tiles carry raw
-// schedule codes (sched property); checkDaySweeping computes today/tomorrow/clear against a
-// region-local "now" so colour matches the server. Must stay behaviour-identical
-// to analysis.compute_urgency / sweeps_on (tests/test_urgency_parity.py).
+// Sweep-code evaluation and schedule display (grammar: data/README.md). Tiles
+// and /check carry raw codes; checkDaySweeping gives today/tomorrow/safe
+// against a region-local "now". Tested by tests/test_urgency.py.
 (function (global) {
   'use strict';
 
-  // Mirror analysis.WEEKDAY_CODES / NO_SWEEP_CODES (parity-tested).
-  var WEEKDAY_CODES = {
-    M: [0, 'Mon'], T: [1, 'Tue'], W: [2, 'Wed'], TH: [3, 'Thu'],
-    F: [4, 'Fri'], S: [5, 'Sat'], SU: [6, 'Sun'],
-  };
+  // Same tables as analysis.WEEKDAY_CODES / NO_SWEEP_CODES.
+  var WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var WEEKDAY_CODES = {};
+  ['M', 'T', 'W', 'TH', 'F', 'S', 'SU'].forEach(function (t, i) { WEEKDAY_CODES[t] = [i, WEEKDAYS[i]]; });
   var NO_SWEEP_CODES = [
     'N', 'NS', 'O', 'N-S', 'N-E', 'N-O',
     'NS-UC', 'NS-H', 'NS-O', 'NS-A',
@@ -17,41 +15,26 @@
   ];
   var NO_SWEEP = {};
   NO_SWEEP_CODES.forEach(function (c) { NO_SWEEP[c] = 1; });
-  // Mirror analysis._CODE_RE / _DAY_TOKEN_RE (see the grammar there).
   var CODE_RE = /^((?:TH|SU|M|T|W|F|S)*)(E?|[1-5]+)$/;
   var DAY_TOKEN_RE = /TH|SU|M|T|W|F|S/g;
-  var TIME_RANGE_RE =
-    /(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*(?:[-–—]|to)\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i;
 
   function isNoSweepCode(code) {
     return typeof code === 'string' && NO_SWEEP[code.trim().toUpperCase()] === 1;
   }
 
   // ── Date helpers (calendar arithmetic only; no JS Date tz pitfalls) ──────────
-  // Python weekday(): Mon=0..Sun=6. JS getUTCDay(): Sun=0..Sat=6.
+  // Days are {y, m, d}. Python weekday(): Mon=0..Sun=6; JS getUTCDay(): Sun=0.
   function pyWeekday(y, m, d) { return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; }
 
   function dayKey(y, m, d) { return y * 10000 + m * 100 + d; }
 
-  function addOneDay(y, m, d) {
-    var dt = new Date(Date.UTC(y, m - 1, d + 1));
+  function addDays(p, n) {
+    var dt = new Date(Date.UTC(p.y, p.m - 1, p.d + n));
     return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
   }
+  function addOneDay(y, m, d) { return addDays({ y: y, m: m, d: d }, 1); }
 
-  // ── Time parsing (mirror analysis._parse_end_time; end minutes-of-day) ──────
-  function parseEndMinutes(timeStr) {
-    if (typeof timeStr !== 'string') return null;
-    var m = TIME_RANGE_RE.exec(timeStr);
-    if (!m) return null;
-    var h = parseInt(m[4], 10);
-    var mn = parseInt(m[5] || '0', 10);
-    if (h < 1 || h > 12 || mn > 59) return null;
-    h = h % 12 + (m[6].toUpperCase() === 'PM' ? 12 : 0);
-    // A window ending at 12AM runs to the end of the day.
-    return (h || mn) ? h * 60 + mn : 24 * 60 - 1;
-  }
-
-  // ── Sweep-code rules (mirror analysis._code_parts / _rule / sweeps_on) ──────
+  // ── Sweep-code rules ─────────────────────────────────────────────────────────
   var _partsCache = {};
   // {days: [token...], suffix} for a weekly code, or null.
   function codeParts(code) {
@@ -112,7 +95,7 @@
     return out;
   }
 
-  // Both sides' sweeps in [start, end] (mirror analysis.sweep_days):
+  // Both sides' sweeps in [start, end]:
   // [{y, m, d, items: [{side: 'even'|'odd', time}]}] date-sorted.
   function sweepDays(even, odd, start, end) {
     var byKey = {};
@@ -131,9 +114,9 @@
       .map(function (k) { return byKey[k]; });
   }
 
-  // ── Urgency verdict (mirror check_day_street_sweeping) ───────────────────────
+  // ── Urgency verdict ──────────────────────────────────────────────────────────
   // entries: [{code, time}, ...]; now: {y, m, d, min} (min = minutes since
-  // region-local midnight). Returns 'today' | 'tomorrow' | 'clear'.
+  // region-local midnight). Returns 'today' | 'tomorrow' | 'safe'.
   function checkDaySweeping(entries, now) {
     var tmr = addOneDay(now.y, now.m, now.d);
     var todayEnds = [], sweptTomorrow = false;
@@ -146,7 +129,7 @@
       // null end = untimed or unparseable window: open all day.
       if (todayEnds[t] === null || now.min <= todayEnds[t]) return 'today';
     }
-    return sweptTomorrow ? 'tomorrow' : 'clear';
+    return sweptTomorrow ? 'tomorrow' : 'safe';
   }
 
   // Build a `now` from a JS Date interpreted in the region's IANA tz.
@@ -173,7 +156,7 @@
     };
   }
 
-  // ── 'DATES:' codes: parsing and next sweep cluster (mirror analysis) ────────
+  // ── 'DATES:' codes: parsing and next sweep cluster ───────────────────────────
   var MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -194,7 +177,7 @@
   }
 
   function clusterDates(dates, maxGap) {
-    maxGap = maxGap || 4;  // mirror analysis._CLUSTER_GAP_DAYS
+    maxGap = maxGap || 4;  // a zone's sides are swept a few days apart
     var clusters = [], cur = [];
     for (var i = 0; i < dates.length; i++) {
       if (cur.length && diffDays(cur[cur.length - 1], dates[i]) > maxGap) {
@@ -229,12 +212,10 @@
     return clusterDates(future)[0].slice(0, maxDates);
   }
 
-  // ── Canonical schedule display (mirror normalize.sweep_body + ───────────────
-  //    analysis.format_schedule_side). Keeps card/hover identical to the server.
-  // Display parsing is LENIENT (mirror normalize._TIME_RANGE_RE): tolerates the
+  // ── Schedule display (card, hover and center banner) ────────────────────────
+  // Time parsing is lenient (same pattern as normalize._TIME_RANGE_RE): tolerates the
   // PDF artifacts in raw tile data — bullet/middot/"o" separators, stray spaces
-  // inside hours/minutes and around colons, "A M"/"P,M". (Urgency timing stays
-  // on the strict TIME_RANGE_RE above, mirroring analysis._TIME_RANGE_RE.)
+  // inside hours/minutes and around colons, "A M"/"P,M".
   var _DISP_SRC =
     '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)' +
     '[\\s,]*(?:[-–—•·o]|to)\\s*' +
@@ -251,16 +232,29 @@
     SUN: [6, 'Sun'], SUNDAY: [6, 'Sun'],
   };
 
-  // Mirror normalize._digits_only / _fmt_part: strip stray spaces from a
-  // captured digit/AMPM group before formatting.
-  function _digitsOnly(s) { return s ? s.replace(/\s+/g, '') : s; }
+  // [hour, minute, 'AM'|'PM'] minus stray spaces.
+  function _clockParts(h, mn, ap) {
+    return [parseInt(h.replace(/\s+/g, ''), 10), mn ? parseInt(mn.replace(/\s+/g, ''), 10) : 0,
+            ap.replace(/[\s,]+/g, '').toUpperCase()];
+  }
   function _fmtPart(h, mn, ap) {
-    ap = ap.replace(/[\s,]+/g, '').toUpperCase();
-    h = _digitsOnly(h) || h;
-    mn = _digitsOnly(mn);
-    var m = mn ? parseInt(mn, 10) : 0;
-    return m ? (parseInt(h, 10) + ':' + (m < 10 ? '0' + m : m) + ap)
-             : (parseInt(h, 10) + ap);
+    var p = _clockParts(h, mn, ap);
+    return p[1] ? (p[0] + ':' + (p[1] < 10 ? '0' + p[1] : p[1]) + p[2]) : (p[0] + p[2]);
+  }
+  // Minutes since midnight, or null when out of range.
+  function _toMinutes(h, mn, ap) {
+    var p = _clockParts(h, mn, ap);
+    if (p[0] < 1 || p[0] > 12 || p[1] > 59) return null;
+    return (p[0] % 12 + (p[2] === 'PM' ? 12 : 0)) * 60 + p[1];
+  }
+  // A window's end in minutes since midnight, null when the
+  // window is unparseable. A window ending at 12AM runs to the end of the day.
+  function parseEndMinutes(timeStr) {
+    var m = typeof timeStr === 'string' ? TIME_RANGE_DISP_RE.exec(timeStr) : null;
+    if (!m) return null;
+    var start = _toMinutes(m[1], m[2], m[3]), end = _toMinutes(m[4], m[5], m[6]);
+    if (start === null || end === null) return null;
+    return end || 24 * 60 - 1;
   }
   function timeDisplay(raw) {
     if (typeof raw !== 'string') return 'N/A';
@@ -295,9 +289,8 @@
     return (every ? ['Every'] : []).concat([daysS]).concat(rest).join(' ').trim();
   }
 
-  // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". Mirrors
-  // normalize._pretty_ordinals. Uses a leading capture instead of lookbehind
-  // for broad mobile-browser support; results are identical.
+  // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". A leading
+  // capture instead of lookbehind, for older mobile browsers.
   function _prettyOrdinals(text) {
     return text.replace(/(^|[^\w])([1-5]{1,5})(?![\w])/g, function (_m, pre, run) {
       var parts = [];
@@ -326,7 +319,6 @@
     return d + ', ' + t;
   }
 
-  // Mirror analysis._code_weekday / _code_ordinals.
   function codeWeekday(code) {
     var p = codeParts(code);
     return (p && p.days.length) ? WEEKDAY_CODES[p.days[0]] : null;
@@ -389,7 +381,7 @@
       groups[key].items.push(w);
     }
 
-    // Mirror analysis.format_schedule_side: collapse every-week groups that
+    // Collapse every-week groups that
     // share one time across a contiguous 3+ weekday run into "Mon–Fri, <time>"
     // (all seven -> "Every day, <time>"); partial-ordinal groups stay per-day.
     var ranked = [];
@@ -460,7 +452,7 @@
     return lines;
   }
 
-  // Mirror analysis.side_lines: both sides' lines, unlabelled when identical,
+  // Both sides' lines, unlabelled when identical,
   // else "<label>: <line>" with the car's side first. labels = [even, odd].
   function formatBothSides(even, odd, now, carSide, labels) {
     labels = labels || ['Even', 'Odd'];
@@ -476,6 +468,10 @@
   }
 
   global.BroomUrgency = {
+    WEEKDAYS: WEEKDAYS,
+    addDays: addDays,
+    dayKey: function (p) { return dayKey(p.y, p.m, p.d); },
+    weekday: function (p) { return pyWeekday(p.y, p.m, p.d); },
     WEEKDAY_CODES: WEEKDAY_CODES,
     NO_SWEEP_CODES: NO_SWEEP_CODES,
     checkDaySweeping: checkDaySweeping,

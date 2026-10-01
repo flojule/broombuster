@@ -1,10 +1,8 @@
-// Minimal service worker — caches the app shell for instant load.
-// API calls (/check, /address, /prefs) are always fetched from the network.
-
-const CACHE = 'broombuster-v53';
+// Caches the app shell; API calls always go to the network.
+const CACHE = 'broombuster-v55';
 const SHELL = [
   '/', '/styles.css',
-  '/js/urgency.js', '/js/core.js', '/js/auth.js', '/js/ui.js', '/js/map.js',
+  '/js/urgency.js', '/js/core.js', '/js/ui.js', '/js/map.js',
   '/js/markers.js', '/js/calendar.js', '/js/data.js', '/js/cars.js', '/js/homes.js', '/js/app.js',
   '/vendor/maplibre-gl.mjs', '/vendor/maplibre-gl-shared.mjs',
   '/vendor/maplibre-gl-worker.mjs', '/vendor/maplibre-gl.css', '/vendor/pmtiles.js',
@@ -28,16 +26,7 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Always go to network for API calls
-  if (url.pathname.startsWith('/check') ||
-      url.pathname.startsWith('/address') ||
-      url.pathname.startsWith('/prefs') ||
-      url.pathname.startsWith('/cities') ||
-      url.pathname.startsWith('/health')) {
-    return;
-  }
-
-  // Cache-first for shell assets
+  if (['/check', '/address', '/cities', '/health'].some(p => url.pathname.startsWith(p))) return;
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request))
   );

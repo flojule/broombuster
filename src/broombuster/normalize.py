@@ -15,6 +15,16 @@ def is_text(v) -> bool:
     return isinstance(v, str) and v.strip() != ""
 
 
+# Placeholder strings source data uses for "no value".
+_PLACEHOLDERS = frozenset({"", "N/A", "NA", "NONE", "NAN"})
+
+
+def clean_text(v) -> str:
+    """Stripped string, or "" for non-strings and placeholders ("N/A", "nan", …)."""
+    s = v.strip() if isinstance(v, str) else ""
+    return "" if s.upper() in _PLACEHOLDERS else s
+
+
 # ── Street name ───────────────────────────────────────────────────────────────
 
 # Trailing street-type suffixes — both abbreviated and spelled-out forms.
@@ -35,7 +45,6 @@ _DIR_EXPAND = {
     "NE": "NORTHEAST", "NW": "NORTHWEST",
     "SE": "SOUTHEAST", "SW": "SOUTHWEST",
 }
-_DIR_COLLAPSE = {v: k for k, v in _DIR_EXPAND.items()}
 
 # Matches an abbreviated or full-word directional at the very start of the
 # name, followed by whitespace and at least one more character.
@@ -103,7 +112,7 @@ _SUFFIX_ABBR = {
     "TURNPIKE": "Tpke", "TPKE": "Tpke",
 }
 
-# Reverse mapping of full directional to short abbreviation.
+# Full directional -> short abbreviation.
 _DIR_ABBR = {v: k for k, v in _DIR_EXPAND.items()}
 
 
@@ -129,20 +138,9 @@ def street_display(raw: str) -> str:
     if not toks:
         return ""
 
-    # Leading directional?
-    first_up = toks[0].upper()
-    dir_token = None
-    rest = toks
-    # Match multi-word directionals (NORTHWEST etc.) or abbreviations
-    if first_up in _DIR_ABBR:
-        dir_token = _DIR_ABBR[first_up]
-        rest = toks[1:]
-    else:
-        # Also match spelled-out variants
-        f_up = first_up
-        if f_up in _DIR_EXPAND.values():
-            dir_token = _DIR_COLLAPSE.get(f_up)
-            rest = toks[1:]
+    # Leading spelled-out directional -> abbreviation ("NORTHWEST" -> "NW").
+    dir_token = _DIR_ABBR.get(toks[0].upper())
+    rest = toks[1:] if dir_token else toks
 
     # Trailing suffix?
     suffix = None
@@ -198,19 +196,15 @@ _TIME_RANGE_RE = re.compile(
 )
 
 
-def _digits_only(s: str | None) -> str | None:
-    """Strip whitespace from inside a captured digit group (Alameda PDF artifact)."""
-    return re.sub(r"\s+", "", s) if s else s
+def _clock_parts(h: str, m: str | None, ap: str) -> tuple[int, int, str]:
+    """(hour, minute, "AM"|"PM") from captured groups, minus PDF stray spaces."""
+    return int(re.sub(r"\s+", "", h)), int(re.sub(r"\s+", "", m)) if m else 0, \
+        re.sub(r"[\s,]+", "", ap).upper()
 
 
 def _fmt_part(h: str, m: str | None, ap: str) -> str:
-    ap = re.sub(r"[\s,]+", "", ap).upper()
-    h = _digits_only(h) or h
-    m = _digits_only(m)
-    mn = int(m) if m else 0
-    if mn:
-        return f"{int(h)}:{mn:02d}{ap}"
-    return f"{int(h)}{ap}"
+    hh, mn, ap = _clock_parts(h, m, ap)
+    return f"{hh}:{mn:02d}{ap}" if mn else f"{hh}{ap}"
 
 
 def time_display(raw: str) -> str:
@@ -237,28 +231,8 @@ def time_display(raw: str) -> str:
 
 # ── Sweep schedule display ────────────────────────────────────────────────────
 
-# Canonical weekday tokens. Source data mixes forms (Tue/Tues, Thu/Thurs); we
-# unify every surface to Mon/Tue/Wed/Thu/Fri/Sat/Sun. Value = (Mon..Sun rank,
-# display form).
-_WEEKDAY_CANON = {
-    "MON": (0, "Mon"), "MONDAY": (0, "Mon"),
-    "TUE": (1, "Tue"), "TUES": (1, "Tue"), "TUESDAY": (1, "Tue"),
-    "WED": (2, "Wed"), "WEDS": (2, "Wed"), "WEDNESDAY": (2, "Wed"),
-    "THU": (3, "Thu"), "THUR": (3, "Thu"), "THURS": (3, "Thu"), "THURSDAY": (3, "Thu"),
-    "FRI": (4, "Fri"), "FRIDAY": (4, "Fri"),
-    "SAT": (5, "Sat"), "SATURDAY": (5, "Sat"),
-    "SUN": (6, "Sun"), "SUNDAY": (6, "Sun"),
-}
-
-# Parenthetical recurrence qualifiers that are display noise: "(every)" is SF's
-# weekly marker; "(biweekly)" appears (often contradictorily) alongside a weekly
-# row for the same segment. The urgency engine works off the codes, not this
-# text, so dropping it only de-duplicates the display — it never changes timing.
-_QUALIFIER_PAREN_RE = re.compile(r"\s*\((?:every|bi-?weekly)\)", re.IGNORECASE)
-_OF_MONTH_RE = re.compile(r"\s*\bof\s+(?:the\s+)?month\b", re.IGNORECASE)
-_AND_RE = re.compile(r"\band\b", re.IGNORECASE)
-_TRIM_EDGE_RE = re.compile(r"^[\s,]+|[\s,]+$")
-
+# Weekday display forms, Mon=0..Sun=6.
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 # Bare week-of-month ordinal runs (digits 1–5 only) -> friendly ordinals:
 #   "13" -> "1st & 3rd", "135" -> "1st, 3rd & 5th", "2" -> "2nd".
 # Restricted to 1–5 so it never mangles other numbers (years, "10", …); a digit
@@ -267,69 +241,14 @@ _BARE_ORD_RE = re.compile(r"(?<!\w)([1-5]{1,5})(?!\w)")
 _ORD_SUFFIX = {"1": "st", "2": "nd", "3": "rd"}
 
 
-def _pretty_ordinals(text: str) -> str:
+def pretty_ordinals(text: str) -> str:
+    """Bare week-of-month digit runs -> ordinals: "13" -> "1st & 3rd"."""
     def _repl(m: "re.Match") -> str:
         parts = [d + _ORD_SUFFIX.get(d, "th") for d in m.group(1)]
         if len(parts) == 1:
             return parts[0]
         return ", ".join(parts[:-1]) + " & " + parts[-1]
     return _BARE_ORD_RE.sub(_repl, text)
-
-
-def _weekday_first(desc: str) -> str:
-    """Move the weekday (or weekday list) to the front, canonicalized.
-
-    "1st & 3rd Wed" -> "Wed 1st & 3rd"; "Every Mon, Wed, Fri" -> "Every Mon,
-    Wed & Fri"; "Every Tues & Thurs" -> "Every Tue & Thu". Leaves descriptors
-    with no weekday untouched.
-    """
-    toks = desc.split()
-    if not toks:
-        return desc
-    every = toks[0].lower() == "every"
-    body = toks[1:] if every else toks
-    wd = [i for i, t in enumerate(body) if t.strip(".,").upper() in _WEEKDAY_CANON]
-    if not wd:
-        return desc
-    lo, hi = wd[0], wd[-1]
-    # Only a contiguous run of weekdays joined by "&" moves as one list.
-    if any(i not in wd and body[i] != "&" for i in range(lo, hi + 1)):
-        hi = lo
-    days = [_WEEKDAY_CANON[body[i].strip(".,").upper()][1] for i in range(lo, hi + 1) if i in wd]
-    days_s = days[0] if len(days) == 1 else ", ".join(days[:-1]) + " & " + days[-1]
-    rest = body[:lo] + body[hi + 1:]
-    return " ".join((["Every"] if every else []) + [days_s] + rest).strip()
-
-
-def _has_weekday(desc: str) -> bool:
-    return any(t.strip(".,").upper() in _WEEKDAY_CANON for t in desc.split())
-
-
-def sweep_body(desc: str, time: str = "") -> str:
-    """Canonical schedule line from a raw desc + time, e.g. "Wed 1st & 3rd, 9AM-12PM".
-
-    Rules (unified across card, hover, zone popup): drop "(every)"/"(biweekly)"
-    and "of month", "and" -> "&", weekday first, bare ordinal runs -> "1st &
-    3rd", time via time_display (minutes only when non-zero) appended once.
-    Returns "" for empty input.
-    """
-    d = desc if isinstance(desc, str) else ""
-    d = _QUALIFIER_PAREN_RE.sub("", d)
-    d = _TIME_RANGE_RE.sub("", d)          # drop time embedded in desc (SF)
-    d = _OF_MONTH_RE.sub("", d)
-    d = _AND_RE.sub("&", d)
-    d = _WHITESPACE_RE.sub(" ", d)
-    d = _TRIM_EDGE_RE.sub("", d)           # strip dangling commas/space
-    d = _WHITESPACE_RE.sub(" ", d).strip()
-    # Weekday schedules only: "2 lines" must not become "2nd lines".
-    if _has_weekday(d):
-        d = _pretty_ordinals(_weekday_first(d))
-    if not d or d.upper() == "N/A":
-        return ""
-    t = time_display(time or "")
-    if t in ("", "N/A") or t in d:
-        return d
-    return f"{d}, {t}"
 
 
 # ── House number ──────────────────────────────────────────────────────────────
