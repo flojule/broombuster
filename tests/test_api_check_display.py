@@ -16,7 +16,15 @@ os.environ.setdefault("DEV_MODE", "1")
 import pytest
 from fastapi.testclient import TestClient
 
-from broombuster import data_loader, normalize
+from broombuster import data_loader, gps, normalize
+
+
+@pytest.fixture(autouse=True)
+def _fresh_geocode_cache():
+    """Each test mocks Nominatim for the same coordinate; don't share answers."""
+    gps.clear_cache()
+    yield
+    gps.clear_cache()
 
 
 def _nearest_row_for_point(gdf_3857, lat, lon):

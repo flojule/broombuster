@@ -16,7 +16,7 @@ import time
 import geopandas
 import pandas as pd
 
-from broombuster import data_loader
+from broombuster import analysis, data_loader
 from broombuster.cities import CITIES, REGIONS, in_bbox, region_of
 from broombuster.config import DATA_AUTO_REFRESH, PMTILES_MODE, REPO_ROOT
 
@@ -59,6 +59,7 @@ def _load_city(city_key: str, force: bool = False) -> bool:
     except Exception:  # noqa: BLE001 — any failure must release waiters
         logger.exception("could not load city '%s'", city_key)
         ev.set()
+        _warm_if_region_settled(region)
         return False
     with _swap_lock:
         _city_gdfs[city_key] = new_4326
@@ -66,10 +67,23 @@ def _load_city(city_key: str, force: bool = False) -> bool:
         _city_loaded_at[city_key] = time.time()
         _region_combined.pop(region, None)
     ev.set()
+    _warm_if_region_settled(region)
     if force:
         logger.info("[freshness] %s refreshed", CITIES[city_key]["name"])
         _rebuild_region_tiles([region])
     return True
+
+
+def _warm_if_region_settled(region: str | None) -> None:
+    """Warm `region` once every city in it has finished loading (or failed).
+
+    Runs on the loader thread of the last city to settle, and after a hot-swap.
+    """
+    if region and all(
+        _city_events.get(ck) is not None and _city_events[ck].is_set()
+        for ck in REGIONS[region]["cities"]
+    ):
+        warm_region(region)
 
 
 def _rebuild_region_tiles(region_keys) -> None:
@@ -185,6 +199,15 @@ def _get_region_gdfs(lat: float, lon: float, region_key: str):
         if ck in _city_gdfs:
             break  # have data for the user's city; good enough to proceed
 
+    return _combined_region(region_key)
+
+
+def _combined_region(region_key: str):
+    """(gdf_4326, gdf_3857) over the region's loaded cities, or (None, None).
+
+    Cached until the set of loaded cities changes, so the per-GDF indexes
+    (spatial index, analysis.segment_index) are reused across requests.
+    """
     # Hold _swap_lock for the entire snapshot + combine + cache step so a
     # concurrent _load_city(force=True) cannot replace a city's GDF in the middle of
     # building the combined frame. Hot swaps are hourly and the concat is
@@ -206,3 +229,18 @@ def _get_region_gdfs(lat: float, lon: float, region_key: str):
             crs="EPSG:3857")
         _region_combined[region_key] = (loaded, c4, c3)
         return c4, c3
+
+
+def warm_region(region_key: str) -> None:
+    """Build the region's combined frames and per-request indexes ahead of traffic.
+
+    Without this the first /check after a boot or hot-swap pays for the
+    spatial index and analysis.segment_index (~1-2 s on the Pi) in-band.
+    """
+    try:
+        _, c3 = _combined_region(region_key)
+        if c3 is not None:
+            c3.sindex  # noqa: B018 — geopandas builds the STRtree lazily on access
+            analysis.segment_index(c3)
+    except Exception:  # noqa: BLE001 — warming is best-effort; requests build lazily
+        logger.exception("could not warm region '%s'", region_key)

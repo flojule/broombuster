@@ -11,6 +11,7 @@ async function checkCarWithRender(car) {
     }
     const data = await res.json();
     carSchedules[car.id] = data;
+    upgradeAddress(car, data);
     renderZones(data.geojson);
     if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
     updateCarMarkers();
@@ -23,9 +24,29 @@ async function checkCarSilently(car) {
   try {
     const res = await postCheck(car.lat, car.lon);
     if (!res.ok) return;
-    carSchedules[car.id] = await res.json();
+    const data = await res.json();
+    carSchedules[car.id] = data;
+    upgradeAddress(car, data);
     updateStatusFromSchedules();
     updateCarMarkers();
+  } catch (_) {}
+}
+
+// /check answers without the Nominatim house number (it can take ~1 s); when
+// it flags one as possible, fetch the full server address and re-render.
+async function upgradeAddress(car, sched) {
+  if (!sched?.address_pending) return;
+  const q = new URLSearchParams({ lat: car.lat, lon: car.lon });
+  if (sched.region) q.set('region', sched.region);
+  try {
+    const res = await apiFetch(`/address?${q}`);
+    if (!res.ok) return;
+    const { address } = await res.json();
+    // Ignore a stale answer: the car was re-checked (moved) meanwhile.
+    if (!address || carSchedules[car.id] !== sched) return;
+    sched.address = address;
+    sched.address_pending = false;
+    renderCarsPanel();
   } catch (_) {}
 }
 

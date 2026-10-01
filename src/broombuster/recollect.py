@@ -28,7 +28,9 @@ import requests
 from broombuster.config import env_flag
 
 _HOST = os.environ.get("RECOLLECT_HOST", "https://api.recollect.net")
-_TIMEOUT_S = float(os.environ.get("RECOLLECT_TIMEOUT_S", "8"))
+# The API answers in ~0.5 s; /check-home chains up to two calls after a
+# Nominatim lookup, so a hung request must not hold the response for long.
+_TIMEOUT_S = float(os.environ.get("RECOLLECT_TIMEOUT_S", "3"))
 
 
 def enabled() -> bool:
@@ -36,10 +38,13 @@ def enabled() -> bool:
     return env_flag("RECOLLECT_ENABLED", True)
 
 
-# place cache: (area, service_id, norm_address) -> (ts, place_id|None)
+# place cache: (area, service_id, norm_address) -> (expires_at, place_id|None)
 _PLACE_TTL_S = 30 * 24 * 3600
-# pickups cache: (place_id, service_id, today_iso) -> (ts, {stream: [date,...]})
+# pickups cache: (place_id, service_id, today_iso) -> (expires_at, {stream: [date,...]})
 _PICKUPS_TTL_S = 12 * 3600
+# A failed request (timeout, HTTP error, bad JSON) is remembered only briefly:
+# long enough not to hammer a down API, short enough not to pin a blip.
+_FAILURE_TTL_S = 5 * 60
 
 _place_cache: dict[tuple, tuple[float, str | None]] = {}
 _pickups_cache: dict[tuple, tuple[float, dict]] = {}
@@ -58,9 +63,10 @@ def suggest_place(area: str, service_id, address: str) -> str | None:
     now = time.time()
     with _lock:
         hit = _place_cache.get(key)
-        if hit and now - hit[0] < _PLACE_TTL_S:
+        if hit and now < hit[0]:
             return hit[1]
     place_id = None
+    ttl = _PLACE_TTL_S
     try:
         r = requests.get(
             f"{_HOST}/api/areas/{area}/services/{service_id}/address-suggest",
@@ -72,9 +78,9 @@ def suggest_place(area: str, service_id, address: str) -> str | None:
         if isinstance(suggestions, list) and suggestions:
             place_id = suggestions[0].get("place_id")
     except (requests.RequestException, ValueError):
-        place_id = None
+        place_id, ttl = None, _FAILURE_TTL_S
     with _lock:
-        _place_cache[key] = (now, place_id)
+        _place_cache[key] = (now + ttl, place_id)
     return place_id
 
 
@@ -93,9 +99,10 @@ def fetch_pickups(place_id: str, service_id, *,
     now = time.time()
     with _lock:
         hit = _pickups_cache.get(key)
-        if hit and now - hit[0] < _PICKUPS_TTL_S:
+        if hit and now < hit[0]:
             return hit[1]
     pickups: dict[str, list[datetime.date]] = {}
+    ttl = _PICKUPS_TTL_S
     try:
         r = requests.get(
             f"{_HOST}/api/places/{place_id}/services/{service_id}/events",
@@ -112,9 +119,9 @@ def fetch_pickups(place_id: str, service_id, *,
         events = data.get("events", data) if isinstance(data, dict) else data
         pickups = parse_pickups(events, today)
     except (requests.RequestException, ValueError):
-        pickups = {}
+        pickups, ttl = {}, _FAILURE_TTL_S
     with _lock:
-        _pickups_cache[key] = (now, pickups)
+        _pickups_cache[key] = (now + ttl, pickups)
     return pickups
 
 

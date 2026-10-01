@@ -2,8 +2,12 @@ import datetime
 import functools
 import logging
 import re
+import threading
 import weakref
 from typing import NamedTuple
+
+import numpy as np
+import shapely
 
 from broombuster import normalize
 
@@ -206,34 +210,19 @@ def schedules_for_all_matching_rows(gdf_3857, resolved):
     if target_key == "" or not target_endpoints:
         return schedules_for_segment(resolved.segment)
 
-    # Iterate the name index — only rows with the same STREET_KEY are candidates
-    # (avoids touching every row in the GDF).
-    name_idx = _get_name_index(gdf_3857)
-    candidates = name_idx.get(target_key, [])
+    # Only rows sharing the street key AND a sub-line endpoint can match; the
+    # prebuilt index maps exactly those pairs to row positions.
+    index = segment_index(gdf_3857)
+    positions = sorted({p for ep in target_endpoints
+                        for p in index.by_key.get((target_key, ep), ())})
 
     seen_even: set = set()
     seen_odd:  set = set()
     even_out: list = []
     odd_out:  list = []
 
-    for i in candidates:
-        try:
-            row = gdf_3857.loc[i]
-        except KeyError:
-            continue
-        geom = row.geometry
-        if geom is None or geom.is_empty:
-            continue
-        if geom.geom_type not in ("LineString", "MultiLineString"):
-            continue
-        cand = _segment_endpoints(geom)
-        # Match if any sub-line endpoint pair is shared. Alameda lumps a
-        # whole street into one MultiLineString row, so blocks of the same
-        # street are siblings (same STREET_KEY) but only some sub-line keys
-        # overlap with the resolved row's geometry.
-        if not cand or cand.isdisjoint(target_endpoints):
-            continue
-
+    for p in positions:
+        row = {col: arr[p] for col, arr in index.cols.items()}
         e = get_schedule(row, 0)
         o = get_schedule(row, 1)
         if e and e not in seen_even:
@@ -348,6 +337,77 @@ def _get_name_index(gdf) -> dict:
             idx.setdefault(_norm_name(n), []).append(i)
     _name_index_cache[gdf_id] = (weakref.ref(gdf), idx)
     return idx
+
+
+class SegmentIndex(NamedTuple):
+    """Per-GDF lookup behind schedules_for_all_matching_rows."""
+    by_key: dict  # (street_key, line_key) -> [row positions], ascending
+    cols: dict    # schedule column -> object ndarray, indexed by row position
+
+
+_SCHEDULE_COLS = ("DAY_EVEN", "DESC_EVEN", "TIME_EVEN", "DAY_ODD", "DESC_ODD", "TIME_ODD")
+
+# id(gdf) -> (weakref.ref(gdf), SegmentIndex); the weakref callback drops the
+# entry when the GDF is collected, so replaced region frames don't leak.
+_segment_index_cache: dict[int, tuple] = {}
+_segment_index_lock = threading.Lock()
+
+
+def segment_index(gdf) -> SegmentIndex:
+    """Cached SegmentIndex for `gdf` (built once; ~1 s for the Bay Area on a Pi).
+
+    Keys mirror the per-row rules schedules_for_all_matching_rows used to
+    apply: STREET_KEY when it is text, else the normalised STREET_NAME; one
+    entry per non-empty LineString part with at least two coordinates.
+    """
+    gdf_id = id(gdf)
+    cached = _segment_index_cache.get(gdf_id)  # lock-free hit: another region's
+    if cached is not None and cached[0]() is gdf:  # build must not stall it
+        return cached[1]
+    with _segment_index_lock:
+        cached = _segment_index_cache.get(gdf_id)
+        if cached is not None and cached[0]() is gdf:
+            return cached[1]
+        index = _build_segment_index(gdf)
+        _segment_index_cache[gdf_id] = (
+            weakref.ref(gdf, lambda _r, k=gdf_id: _segment_index_cache.pop(k, None)),
+            index,
+        )
+        return index
+
+
+def _build_segment_index(gdf) -> SegmentIndex:
+    n = len(gdf)
+    keys = gdf["STREET_KEY"].to_numpy(object) if "STREET_KEY" in gdf else [None] * n
+    names = gdf["STREET_NAME"].to_numpy(object) if "STREET_NAME" in gdf else [None] * n
+    street_keys = [
+        k if normalize.is_text(k) else (_norm_name(nm) if normalize.is_text(nm) else None)
+        for k, nm in zip(keys, names)
+    ]
+
+    geoms = np.asarray(gdf.geometry.values, dtype=object)
+    type_ids = shapely.get_type_id(geoms)
+    is_line = (type_ids == 1) | (type_ids == 5)  # LineString | MultiLineString
+    rows = np.flatnonzero(is_line)
+    parts, part_row = shapely.get_parts(geoms[rows], return_index=True)
+    part_row = rows[part_row]
+    ok = ~shapely.is_empty(parts) & (shapely.get_num_coordinates(parts) >= 2)
+    parts, part_row = parts[ok], part_row[ok]
+    first, last = shapely.get_point(parts, 0), shapely.get_point(parts, -1)
+    xy = np.column_stack([shapely.get_x(first), shapely.get_y(first),
+                          shapely.get_x(last), shapely.get_y(last)]).tolist()
+
+    by_key: dict = {}
+    for pos, (x0, y0, x1, y1) in zip(part_row.tolist(), xy):
+        sk = street_keys[pos]
+        if not sk:
+            continue
+        lst = by_key.setdefault((sk, line_key(((x0, y0), (x1, y1)))), [])
+        if not lst or lst[-1] != pos:  # a row's parts can share one key
+            lst.append(pos)
+
+    cols = {c: gdf[c].to_numpy(object) for c in _SCHEDULE_COLS if c in gdf}
+    return SegmentIndex(by_key, cols)
 
 
 def get_schedule(street_section, side):

@@ -20,8 +20,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import pyproj
-from shapely.geometry import MultiPolygon, Point, Polygon
+import shapely
+from shapely.geometry import Point
 
 from broombuster import normalize
 
@@ -87,42 +89,43 @@ def resolve_car_segment(
     # Search radius: wider than max_distance_m so polygons that enclose the
     # car but whose bbox center is distant are still found.
     search_buffer = max(max_distance_m * 3.0, 100.0)
-    candidate_idxs = gdf_3857.sindex.query(car_pt.buffer(search_buffer))
+    cand = np.asarray(gdf_3857.sindex.query(car_pt.buffer(search_buffer)))
 
+    # Vectorised over the candidates (in sindex order, so ties resolve as a
+    # row-by-row scan would); only the winning row is materialised.
+    if city_key and len(cand) and "_city" in gdf_3857:
+        cities = gdf_3857["_city"].iloc[cand].to_numpy(object)
+        cand = cand[[not (c and c != city_key) for c in cities]]
+    geoms = np.asarray(gdf_3857.geometry.values[cand], dtype=object)
+    valid = ~(shapely.is_missing(geoms) | shapely.is_empty(geoms))
+    type_ids = shapely.get_type_id(geoms)
+    is_poly = valid & ((type_ids == 3) | (type_ids == 6))  # Polygon | MultiPolygon
+
+    # Polygon / MultiPolygon: if the car is inside, that's the answer.
+    inside = np.flatnonzero(is_poly)
+    inside = inside[shapely.contains(geoms[inside], car_pt)]
+    if len(inside):
+        row = gdf_3857.iloc[int(cand[inside[0]])]
+        return ResolvedCar(
+            segment=row,
+            street_name=_safe_str(row.get("STREET_NAME")),
+            street_display=_safe_str(
+                row.get("STREET_DISPLAY") or row.get("STREET_NAME")
+            ),
+            side=None,
+            distance_m=0.0,
+            projected_point=(car_x, car_y),
+            is_polygon=True,
+        )
+
+    # Line / MultiLineString: track the nearest.
+    lines = np.flatnonzero(valid & ~is_poly)
     best_line_idx: int | None = None
     best_line_dist = float("inf")
-
-    for i in candidate_idxs:
-        row = gdf_3857.iloc[i]
-        if city_key:
-            seg_city = row.get("_city")
-            if seg_city and seg_city != city_key:
-                continue
-        geom = row.geometry
-        if geom is None or geom.is_empty:
-            continue
-
-        # Polygon / MultiPolygon: if the car is inside, that's the answer.
-        if isinstance(geom, (Polygon, MultiPolygon)):
-            if geom.contains(car_pt):
-                return ResolvedCar(
-                    segment=row,
-                    street_name=_safe_str(row.get("STREET_NAME")),
-                    street_display=_safe_str(
-                        row.get("STREET_DISPLAY") or row.get("STREET_NAME")
-                    ),
-                    side=None,
-                    distance_m=0.0,
-                    projected_point=(car_x, car_y),
-                    is_polygon=True,
-                )
-            continue
-
-        # Line / MultiLineString: track the nearest.
-        d = car_pt.distance(geom)
-        if d < best_line_dist:
-            best_line_dist = d
-            best_line_idx = int(i)
+    if len(lines):
+        dists = shapely.distance(car_pt, geoms[lines])
+        j = int(np.argmin(dists))
+        best_line_idx, best_line_dist = int(cand[lines[j]]), float(dists[j])
 
     if best_line_idx is None or best_line_dist > max_distance_m:
         raise NoSegmentNearby(

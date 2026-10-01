@@ -44,7 +44,7 @@ from broombuster.schemas import SCHEMA_COLS, SCHEMA_PROFILES
 #   1. _GDF_CACHE (here)         path -> (mtime, gdf)     skip FGB disk reads
 #   2. state._city_gdfs[_3857]   city -> projected gdf    runtime serving cache
 #   3. state._region_combined    region -> concat gdf     skip per-request concat
-#   4. analysis._*_cache         id(gdf) -> name index    skip O(n) index rebuild
+#   4. analysis.segment_index    id(gdf) -> street/endpoint index (schedule union)
 # Layer 1 serves the CLI and tests (repeat load_city_data); the API loads each
 # city once into layer 2, so layer 1 is keep-warm, not on the request path.
 

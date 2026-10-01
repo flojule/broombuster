@@ -28,24 +28,32 @@ def _resolve_region(req):
     return region, local_now
 
 
-def _build_address(resolved, city_key: str, lat: float, lon: float) -> str:
-    """Canonical address string from the resolved segment.
+def _build_address(resolved, city_key: str, lat: float, lon: float,
+                   *, network: bool = True) -> tuple[str, bool]:
+    """(canonical address, house_number_pending) from the resolved segment.
 
     Polygon zones → "Zone: <name>, <city>". Line segments → optional
     Nominatim house number (gated to the resolved street) + display name.
     Falls back to raw lat/lon when nothing resolves.
+
+    network=False never calls Nominatim: the house number comes from the
+    cache only, and `house_number_pending` is True when a lookup could still
+    add one (the client then asks GET /address).
     """
     coords = f"{lat:.4f}, {lon:.4f}"
     if resolved is None:
-        return coords
+        return coords, False
     display = resolved.label
     if not display:
-        return coords
+        return coords, False
     city_short = CITIES[city_key]["name"].split(",")[0]
     if resolved.is_polygon:
-        return f"Zone: {display}, {city_short}"
-    hn = gps.maybe_house_number(lat, lon, resolved.street_name)
-    return f"{hn} {display}, {city_short}" if hn else f"{display}, {city_short}"
+        return f"Zone: {display}, {city_short}", False
+    pending = (not network and bool(resolved.street_name)
+               and not gps.house_number_cached(lat, lon))
+    hn = gps.maybe_house_number(lat, lon, resolved.street_name, network=network)
+    addr = f"{hn} {display}, {city_short}" if hn else f"{display}, {city_short}"
+    return addr, pending
 
 
 def _tiles_to_geom(tiles):
