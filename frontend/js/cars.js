@@ -80,6 +80,7 @@ function updateStatusFromSchedules() {
 // unobstructed. Right-click (desktop) is the alternative for an off-center spot.
 function _beginPlacing() {
   setSheetCollapsed(true);
+  syncPlacingUi();
   placeBanner.classList.add('active');
   _crosshair.classList.add('placing');
   if (map) map.getCanvas().style.cursor = 'crosshair';
@@ -109,7 +110,13 @@ function stopPlacing() {
   placingEditId = null;
   placeBanner.classList.remove('active');
   _crosshair.classList.remove('placing');
+  syncPlacingUi();
   if (map) map.getCanvas().style.cursor = '';
+}
+
+// Hide the bottom info stack while placing/naming: it would cover the aim target and name box.
+function syncPlacingUi() {
+  document.body.classList.toggle('placing', placingCar || placingHome || !!_namePopup);
 }
 
 // Commit at the current map center (the point the crosshair marks).
@@ -202,7 +209,8 @@ function openNameBox(lat, lon) {
     closeButton: false, closeOnClick: false, anchor: 'bottom', offset: 22,
     className: 'name-popup',
   }).setLngLat([lon, lat]).setDOMContent(row).addTo(map);
-  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; });
+  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; syncPlacingUi(); });
+  syncPlacingUi();
   setTimeout(() => { input.focus(); input.select(); }, 30);
 }
 
@@ -211,6 +219,7 @@ function openNameBox(lat, lon) {
 function closeNameBox(keepPending = false) {
   if (_namePopup) { _namePopup.remove(); _namePopup = null; }
   _nameInput = null;
+  syncPlacingUi();
   if (!keepPending) {
     removeTempPin();
     pendingLat = pendingLon = null;
@@ -325,7 +334,7 @@ function renderCarsPanel() {
     // ── Schedule header / strip → toggle the month calendar ──
     if (hasSweeping(sched)) {
       for (const el of entry.querySelectorAll('.ce-sched-header.clickable, .sw-strip')) {
-        el.addEventListener('click', e => { e.stopPropagation(); toggleCardDetail(car.id); });
+        el.addEventListener('click', e => { e.stopPropagation(); showCarCalendar(car.id); });
       }
     }
 
@@ -378,7 +387,6 @@ function renderCarsPanel() {
       cars = cars.filter(c => c.id !== car.id);
       if (activeCarId === car.id) activeCarId = cars[0]?.id ?? null;
       if (_selectedCarId === car.id) _selectedCarId = null;
-      if (_cardDetailCarId === car.id) closeCardDetail();
       savePrefs();
       updateCarMarkers();
       renderCarsPanel();
@@ -388,6 +396,6 @@ function renderCarsPanel() {
 
     carsPanel.appendChild(entry);
   });
-  if (_cardDetailCarId) renderCardDetail();
+  renderCalTab();
   updateSheetSummary();
 }

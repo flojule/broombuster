@@ -77,19 +77,24 @@
     <!-- Center crosshair: marks the point the center banner reads -->
     <div id="center-crosshair"></div>
 
-    <!-- Center banner: live readout of the street at the viewport center -->
-    <div id="snap-chip"></div>
+    <!-- Bottom-center info stack: sweep calendar tab above the live street banner.
+         Hidden on mobile while the cars/homes sheet is expanded. -->
+    <div id="info-stack">
+      <div id="cal-tab">
+        <div id="cal-tab-handle" role="button" tabindex="0" aria-label="Toggle sweep calendar">
+          <span id="cal-tab-title"></span>
+          <span id="cal-tab-chevron">▾</span>
+        </div>
+        <div id="cal-tab-body"></div>
+      </div>
+      <!-- Center banner: live readout of the street at the viewport center -->
+      <div id="snap-chip"></div>
+    </div>
   </div>
 </div>
 
 <!-- Toast container -->
 <div id="toast-container"></div>
-
-<!-- ══════════════════ CARD SCHEDULE DETAIL WINDOW ══════════════════ -->
-<div id="card-detail">
-  <button id="btn-card-detail-close" class="popup-close" title="Close (Esc)" aria-label="Close">✕</button>
-  <div id="card-detail-body"></div>
-</div>
 
 <!-- ══════════════════ CUSTOM HOVER ══════════════════ -->
 <div id="custom-hover"></div>

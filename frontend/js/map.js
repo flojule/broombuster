@@ -59,12 +59,12 @@ function attachMapListeners() {
   // Tap → the feature's schedule popup; a tap elsewhere dismisses any open
   // window (popup, GPS pin popup, car selection) — like Esc. The action is
   // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
-  // placement commits immediately, and a tap while the name box is open cancels it.
+  // placement commits immediately, and a tap while the name box is open is ignored.
   map.on('click', (e) => {
     // Placement commits via the center target ("Place here") or right-click, not
     // a stray tap — a tap during place mode is ignored so panning can't misfire.
     if (placingCar || placingHome) return;
-    if (_namePopup) { closeNameBox(); return; }
+    if (_namePopup) return;  // name box open: taps don't open windows or close it
     if (_tapTimer) clearTimeout(_tapTimer);
     const point = e.point, lngLat = e.lngLat;
     _tapTimer = setTimeout(() => { _tapTimer = null; handleMapTap(point, lngLat); }, 280);

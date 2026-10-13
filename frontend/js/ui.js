@@ -62,11 +62,12 @@ function _centerFeature() {
 }
 
 function updateCenterBanner() {
-  if (!map) { _snapChip.classList.remove('visible'); _crosshair.classList.remove('visible'); return; }
+  if (!map) { _snapChip.classList.remove('visible'); _crosshair.classList.remove('visible'); renderCalTab(null); return; }
   // The center target is always on once the map is up — it marks the point the
   // banner reads (the nearest projected street), independent of any hit.
   _crosshair.classList.add('visible');
   const f = _centerFeature();
+  renderCalTab(f);
   if (!f) { _snapChip.classList.remove('visible'); return; }
   const props = f.properties || {};
   const isPoly = props.render_type === 'polygon';
