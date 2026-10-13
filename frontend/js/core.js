@@ -143,16 +143,17 @@ const sheetSummary   = document.getElementById('sheet-summary');
 const btnConfirmPlace = document.getElementById('btn-confirm-place');
 
 // ── Bottom sheet (cars & homes) ───────────────────────────────────────────────
-// Collapses to a handle so the map + placement center-target stay clear. The
+// Collapses to a handle (default) so the map + placement center-target stay clear. The
 // expanded/collapsed state persists; `body.sheet-expanded` gates the center band.
-let _sheetCollapsed = localStorage.getItem('bb_sheet') === '1';
+localStorage.removeItem('bb_sheet');  // pre-v2 key: reset everyone to the default (down)
+let _sheetCollapsed = localStorage.getItem('bb_sheet_v2') !== 'open';
 function applySheet() {
   sheet.classList.toggle('collapsed', _sheetCollapsed);
   document.body.classList.toggle('sheet-expanded', !_sheetCollapsed);
 }
 function setSheetCollapsed(v) {
   _sheetCollapsed = !!v;
-  localStorage.setItem('bb_sheet', _sheetCollapsed ? '1' : '0');
+  localStorage.setItem('bb_sheet_v2', _sheetCollapsed ? 'closed' : 'open');
   applySheet();
 }
 function updateSheetSummary() {

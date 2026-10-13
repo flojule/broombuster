@@ -8,18 +8,10 @@ mapDiv.addEventListener('contextmenu', e => {
   showCtxMenu(e.clientX, e.clientY);
 });
 
+// The name box closes only via its ✕, Esc, or saving: a stray/retargeted tap
+// (soft keyboard, touch) must not discard it.
 document.addEventListener('click', e => {
   if (!e.target.closest('#ctx-menu')) hideCtxMenu();
-  // Click outside the name box cancels it. Map-canvas clicks are excluded here
-  // and handled by the map 'click' listener so the opening tap can't self-close.
-  if (_namePopup
-      && !e.target.closest('.maplibregl-popup')
-      && !e.target.closest('#ctx-menu')
-      && !e.target.closest('#gps-pin-popup')
-      && !e.target.closest('#btn-add-car')
-      && !e.target.closest('#map')) {
-    closeNameBox();
-  }
 });
 
 // Holistic Escape: dismiss whichever transient UI is open (one layer per
@@ -33,7 +25,6 @@ document.addEventListener('keydown', e => {
   let dismissed = false;
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
   if (_namePopup)                               { closeNameBox();     dismissed = true; }
-  if (_cardDetailCarId)                         { closeCardDetail();  dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
   if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
   if (placingCar || placingHome)                { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
