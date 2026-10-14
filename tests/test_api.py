@@ -106,3 +106,13 @@ def test_get_schedule(row, expected):
 ])
 def test_address_range_parity(args, expected):
     assert resolve._parity(*args) == expected
+
+
+def test_locate_uses_cloudflare_headers(client):
+    r = client.get("/locate", headers={"cf-iplatitude": "41.9", "cf-iplongitude": "-87.7"})
+    assert r.json()["region"] == "chicago"
+
+
+def test_shell_revalidates_and_api_is_not_cached(client):
+    assert client.get("/styles.css").headers["cache-control"] == "no-cache"
+    assert client.get("/cities").headers["cache-control"] == "no-store"

@@ -16,12 +16,12 @@ async function initApp() {
     for (const car of cars.slice(1)) checkCarSilently(car);
     return;
   }
-  // No cars: device position if already allowed, else the IP's area overview,
+  // No cars: device position if already allowed, else the area nearest the IP,
   // else the area labels.
   const gps = await getPermittedGPS();
   if (gps) { map.jumpTo({ center: [gps.lon, gps.lat], zoom: 15 }); return; }
   const ip = await getIPLocation();
-  const rk = ip && regionAt(ip.lat, ip.lon);
+  const rk = ip && (ip.region in regions ? ip.region : nearestRegion(ip.lat, ip.lon));
   if (rk) map.jumpTo({ center: [regions[rk].center.lon, regions[rk].center.lat], zoom: regions[rk].zoom || 11 });
 }
 initApp();

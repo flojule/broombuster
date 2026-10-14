@@ -74,9 +74,9 @@ function savePrefs() {
 // off): used only to pick the region, never to place the map.
 async function getIPLocation() {
   try {
-    const r = await fetch('https://ipapi.co/json/');
+    const r = await fetch('/locate');
     const d = await r.json();
-    if (d.latitude && d.longitude) return { lat: d.latitude, lon: d.longitude };
+    if (d.lat != null && d.lon != null) return { lat: d.lat, lon: d.lon, region: d.region };
   } catch (_) {}
   return null;
 }

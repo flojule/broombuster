@@ -1,7 +1,10 @@
+import json
 import logging
 import os
+import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime
+from functools import lru_cache
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -40,10 +43,24 @@ _SECURITY_HEADERS = {
 }
 
 
+# Cloudflare caches .js/.css/.png at the edge for hours when the origin sends no
+# Cache-Control, serving stale scripts against fresh HTML. The shell must always
+# revalidate (ETag makes that a cheap 304); tiles and vendored libs change rarely.
+_API_PATHS = ("/check", "/address", "/cities", "/health", "/auth", "/me", "/locate")
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update(_SECURITY_HEADERS)
+    if "cache-control" not in response.headers:
+        path = request.url.path
+        if path.startswith(_API_PATHS):
+            response.headers["Cache-Control"] = "no-store"
+        elif path.startswith(("/tiles/", "/vendor/")):
+            response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
     return response
 
 
@@ -97,6 +114,38 @@ def cities():
              "zoom": rv["zoom"]}
         for rk, rv in REGIONS.items()
     }
+
+
+@lru_cache(maxsize=512)
+def _ip_lookup(ip: str) -> tuple[float, float] | None:
+    try:
+        req = urllib.request.Request(f"https://ipapi.co/{ip}/json/",
+                                     headers={"User-Agent": "broombuster"})
+        with urllib.request.urlopen(req, timeout=3.0) as r:
+            d = json.load(r)
+        return (float(d["latitude"]), float(d["longitude"]))
+    except Exception:
+        return None
+
+
+@app.get("/locate")
+def locate(request: Request):
+    """Approximate visitor position from the IP, and the nearest area.
+
+    Uses Cloudflare's visitor-location headers when enabled, else a lookup of the
+    client IP. Done server-side so ad blockers and CORS can't break it.
+    """
+    h = request.headers
+    pos = None
+    try:
+        pos = (float(h["cf-iplatitude"]), float(h["cf-iplongitude"]))
+    except (KeyError, ValueError):
+        ip = h.get("cf-connecting-ip") or (request.client.host if request.client else "")
+        if ip and not ip.startswith(("127.", "10.", "192.168.", "::1")):
+            pos = _ip_lookup(ip)
+    if pos is None:
+        return {"lat": None, "lon": None, "region": None}
+    return {"lat": pos[0], "lon": pos[1], "region": region_for_point(*pos)}
 
 
 class CheckRequest(BaseModel):
