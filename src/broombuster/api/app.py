@@ -1,7 +1,9 @@
-import logging
+import json
 import os
+import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime
+from functools import lru_cache
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -14,11 +16,10 @@ from broombuster import analysis, gps, resolve, trash
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_for_point
 from broombuster.config import REPO_ROOT
 
-from . import auth
+from . import auth, web
 from .state import load_all, region_gdf
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+web.setup_logging()
 
 
 @asynccontextmanager
@@ -32,21 +33,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="BroomBuster", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
 
-_SECURITY_HEADERS = {
-    "X-Content-Type-Options":  "nosniff",
-    "Referrer-Policy":         "strict-origin-when-cross-origin",
-    "X-Frame-Options":         "DENY",
-    "Content-Security-Policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
-}
-
-
-@app.middleware("http")
-async def security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers.update(_SECURITY_HEADERS)
-    return response
-
-
+app.middleware("http")(web.http_middleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.include_router(auth.router)
 
@@ -97,6 +84,38 @@ def cities():
              "zoom": rv["zoom"]}
         for rk, rv in REGIONS.items()
     }
+
+
+@lru_cache(maxsize=512)
+def _ip_lookup(ip: str) -> tuple[float, float] | None:
+    try:
+        req = urllib.request.Request(f"https://ipapi.co/{ip}/json/",
+                                     headers={"User-Agent": "broombuster"})
+        with urllib.request.urlopen(req, timeout=3.0) as r:
+            d = json.load(r)
+        return (float(d["latitude"]), float(d["longitude"]))
+    except Exception:
+        return None
+
+
+@app.get("/locate")
+def locate(request: Request):
+    """Approximate visitor position from the IP, and the nearest area.
+
+    Uses Cloudflare's visitor-location headers when enabled, else a lookup of the
+    client IP. Done server-side so ad blockers and CORS can't break it.
+    """
+    h = request.headers
+    pos = None
+    try:
+        pos = (float(h["cf-iplatitude"]), float(h["cf-iplongitude"]))
+    except (KeyError, ValueError):
+        ip = h.get("cf-connecting-ip") or (request.client.host if request.client else "")
+        if ip and not ip.startswith(("127.", "10.", "192.168.", "::1")):
+            pos = _ip_lookup(ip)
+    if pos is None:
+        return {"lat": None, "lon": None, "region": None}
+    return {"lat": pos[0], "lon": pos[1], "region": region_for_point(*pos)}
 
 
 class CheckRequest(BaseModel):
@@ -152,4 +171,9 @@ def check_home(req: CheckHomeRequest):
 
 
 _frontend_dir = os.path.join(REPO_ROOT, "frontend")
+@app.get("/", include_in_schema=False)
+def index():
+    return web.index_response()
+
+
 app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

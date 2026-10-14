@@ -25,3 +25,7 @@ data/**/*.cpg
 # Local secrets and the user database
 .env
 data/users.sqlite*
+
+# Legacy pre-Google user database (unused)
+data/app.sqlite*
+.deploy-bad

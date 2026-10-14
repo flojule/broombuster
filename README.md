@@ -55,3 +55,27 @@ Sessions are 30-day cookies backed by SQLite. Unit changes need `./deploy/instal
 | 1 | Cloudflare Zero Trust > Networks > Tunnels > Create (Cloudflared), name `broombuster`. |
 | 2 | Run the shown install command on the host (`cloudflared service install <token>`). |
 | 3 | Public hostname: `broombuster.com`, service `HTTP`, URL `localhost:8000`. |
+
+### Cloudflare cache
+
+The app sends its own `Cache-Control` (`api/web.py`); Cloudflare follows it.
+Scripts and styles are requested as `/js/app.js?v=<content hash>` (the hash is
+computed at startup and written into the page), so a deploy changes every URL
+and nothing stale can be served. The page itself is `no-cache`; API paths are `no-store`.
+
+| Step | Action |
+|---|---|
+| Once, after the first deploy of this | Caching > Configuration > Purge Everything. |
+| Optional | Rules > Cache Rules: `/check*`, `/address*`, `/locate*`, `/me*`, `/auth*` > Bypass cache (belt and braces). |
+| Optional | Rules > Transform Rules > Managed Transforms > "Add visitor location headers" (exact `/locate` without the fallback lookup). |
+
+## Operations
+
+- Logs are JSON lines (`journalctl -u broombuster -o cat | jq 'select(.status>=500)'`);
+  every response carries `X-Request-ID`, which matches the log's `rid`.
+- Rate limits are per client IP (`LIMITS` in `api/web.py`; `/check*` 60/min, `/address` and
+  `/locate` 20/min). `BB_RATE_LIMIT=0` turns them off.
+- `update.sh` rolls back to the previous revision if the new one is not healthy within
+  3 minutes and records it in `.deploy-bad`, so the timer skips it until a newer commit lands.
+  To roll back by hand: `./deploy/update.sh <sha>`.
+- Dependabot opens weekly PRs for Python deps and monthly for Actions.

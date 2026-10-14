@@ -96,6 +96,16 @@ function regionAt(lat, lon) {
   return best;
 }
 
+// Region whose center is nearest (lat, lon), however far; null if there are none.
+function nearestRegion(lat, lon) {
+  let best = null, bestD = Infinity;
+  for (const [key, r] of Object.entries(regions)) {
+    const d = (r.center.lat - lat) ** 2 + (r.center.lon - lon) ** 2;
+    if (d < bestD) { bestD = d; best = key; }
+  }
+  return best;
+}
+
 // ── Map (MapLibre) ────────────────────────────────────────────────────────────
 let map = null;
 const _carMarkers  = new Map();  // carId → maplibregl.Marker
