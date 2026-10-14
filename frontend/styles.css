@@ -84,7 +84,7 @@
     }
 
     /* ── Context menu (right-click) ── */
-    #ctx-menu {
+    #ctx-menu, #account-menu {
       position: fixed; z-index: 200; display: none;
       background: var(--card); border: 1px solid var(--border);
       border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.14);
@@ -92,6 +92,10 @@
     }
     .ctx-item { padding: 7px 14px; cursor: pointer; font-size: .85rem; }
     .ctx-item:hover { background: var(--bg); }
+    .ctx-item.ctx-note { color: var(--muted); cursor: default; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ctx-item.ctx-note:hover { background: none; }
+    #btn-account.signed-in { background: var(--blue); color: #fff; border: 1px solid var(--blue); }
+    #btn-account:not(.signed-in) { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
 
     /* ── Bottom sheet (cars & homes) ──
        Mobile: floating card, bottom-center, clear of the home indicator, same width

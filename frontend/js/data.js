@@ -131,6 +131,7 @@ function loadPrefs() {
 }
 function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
+  syncPrefs();
 }
 
 async function getIPLocation() {
