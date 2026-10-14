@@ -188,7 +188,7 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         time_series = pd.Series(
             [
                 f"{_fmt_h(f)}–{_fmt_h(t)}" if v else "N/A"
-                for f, t, v in zip(fh_int, th_int, valid)
+                for f, t, v in zip(fh_int, th_int, valid, strict=False)
             ],
             index=out.index,
             dtype=object,
@@ -198,7 +198,7 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
     # --- DESC string ---
     desc_series = pd.Series(
-        [_sf_desc(c, t) for c, t in zip(code_series, time_series)],
+        [_sf_desc(c, t) for c, t in zip(code_series, time_series, strict=False)],
         index=out.index,
         dtype=object,
     )
@@ -362,7 +362,7 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         return code, analysis.format_dates_by_month(dates)
 
     day_codes, descs, names = [], [], []
-    for pairs, (_, row) in zip(per_row, rows):
+    for pairs, (_, row) in zip(per_row, rows, strict=False):
         code, desc = _schedule(pairs)
         day_codes.append(code)
         descs.append(desc)

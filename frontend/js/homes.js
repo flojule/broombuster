@@ -162,7 +162,7 @@ async function checkHome(id) {
   try {
     // Region is derived server-side from the home coordinate — a home can sit
     // in a different region than the map's currently selected one.
-    const res = await postJSON('/check-home', { lat: h.lat, lon: h.lon, address: h.address });
+    const res = await postJSON('/api/check-home', { lat: h.lat, lon: h.lon, address: h.address });
     if (res.ok) {
       const data = await res.json();
       homeSchedules[h.id] = data;

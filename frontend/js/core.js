@@ -32,7 +32,7 @@ function postJSON(path, body) {
 
 // POST /check for a lat/lon (the server picks the region if none is nearby); returns the Response.
 function postCheck(lat, lon) {
-  return postJSON('/check', { lat, lon, region: regionAt(lat, lon) || undefined });
+  return postJSON('/api/check', { lat, lon, region: regionAt(lat, lon) || undefined });
 }
 
 function newId() {

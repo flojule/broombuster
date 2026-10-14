@@ -25,3 +25,10 @@ jobs:
       - run: uv sync --locked --extra api --extra dev
       - run: uv run ruff check .
       - run: uv run pytest -q   # node (preinstalled) runs tests/test_urgency.py
+      - name: Frontend scripts parse
+        run: |
+          node --version
+          for f in frontend/js/*.js frontend/sw.js; do
+            [ "$f" = frontend/js/maplibre-global.js ] && continue   # ES module
+            node --check "$f"
+          done

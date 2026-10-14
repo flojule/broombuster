@@ -39,7 +39,12 @@ where = ["src"]
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "UP"]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # en dashes and emoji are intentional
+    "B008",                        # FastAPI Depends() in defaults
+    "SIM105", "SIM108",            # explicit try/except and if/else read better here
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["broombuster"]

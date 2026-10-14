@@ -1,11 +1,12 @@
 [Unit]
 Description=BroomBuster
-After=network-online.target tailscaled.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 User=__USER__
 WorkingDirectory=__REPO__
+Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=-__REPO__/.env
 UMask=0077
 ExecStart=__REPO__/.venv/bin/python -m uvicorn broombuster.api.app:app --host 127.0.0.1 --port 8000
@@ -14,7 +15,7 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=__REPO__
+ReadWritePaths=__REPO__/data
 ProtectHome=read-only
 PrivateDevices=true
 ProtectKernelTunables=true

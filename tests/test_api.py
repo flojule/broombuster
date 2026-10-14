@@ -17,14 +17,14 @@ def client(app_client):
 
 
 def _check(client, payload):
-    resp = client.post("/check", json=payload)
+    resp = client.post("/api/check", json=payload)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
 def test_health_and_cities(client):
     assert client.get("/health").json() == {"status": "ok"}
-    regions = client.get("/cities").json()
+    regions = client.get("/api/cities").json()
     assert set(regions) == {"bay_area", "chicago"}
     assert regions["chicago"]["tz"] == "America/Chicago"
     assert {"name", "center", "zoom", "tz"} <= set(regions["bay_area"])
@@ -63,7 +63,7 @@ def test_check_without_street_falls_back_to_coords(client):
 
 
 def test_check_rejects_bad_coordinates(client):
-    assert client.post("/check", json={"lat": 91, "lon": 0}).status_code == 422
+    assert client.post("/api/check", json={"lat": 91, "lon": 0}).status_code == 422
 
 
 @pytest.mark.parametrize("road,number,expected", [
@@ -109,20 +109,20 @@ def test_address_range_parity(args, expected):
 
 
 def test_locate_uses_cloudflare_headers(client):
-    r = client.get("/locate", headers={"cf-iplatitude": "41.9", "cf-iplongitude": "-87.7"})
+    r = client.get("/api/locate", headers={"cf-iplatitude": "41.9", "cf-iplongitude": "-87.7"})
     assert r.json()["region"] == "chicago"
 
 
 def test_shell_revalidates_and_api_is_not_cached(client):
     assert client.get("/styles.css").headers["cache-control"] == "no-cache"
-    assert client.get("/cities").headers["cache-control"] == "no-store"
+    assert client.get("/api/cities").headers["cache-control"] == "no-store"
 
 
 def test_index_assets_are_versioned_and_cacheable(client):
     r = client.get("/")
     assert r.headers["cache-control"] == "no-cache"
     assert 'src="/js/app.js?v=' in r.text and 'href="/styles.css?v=' in r.text
-    assert "/vendor/maplibre-gl.mjs?v=" in r.text
+    assert "/vendor/pmtiles.js?v=" in r.text and "/js/maplibre-global.js?v=" in r.text
     v = r.text.split("/js/app.js?v=")[1].split('"')[0]
     js = client.get(f"/js/app.js?v={v}")
     assert js.headers["cache-control"] == "public, max-age=31536000, immutable"
@@ -133,6 +133,37 @@ def test_rate_limit_blocks_bursts(client, monkeypatch):
     monkeypatch.setattr(web, "RATE_LIMIT", True)
     monkeypatch.setattr(web, "_limiter", web.RateLimiter())
     hdr = {"cf-connecting-ip": "9.9.9.9", "cf-iplatitude": "37.8", "cf-iplongitude": "-122.3"}
-    codes = [client.get("/locate", headers=hdr).status_code for _ in range(22)]
+    codes = [client.get("/api/locate", headers=hdr).status_code for _ in range(22)]
     assert codes[-1] == 429 and 429 not in codes[:20]
     assert client.get("/health", headers={"cf-connecting-ip": "9.9.9.9"}).status_code == 200
+
+
+def test_client_ip_ignores_garbage_header():
+    from types import SimpleNamespace
+
+    from broombuster.api import web
+    req = lambda h: SimpleNamespace(headers=h, client=SimpleNamespace(host="127.0.0.1"))  # noqa: E731
+    assert web.client_ip(req({"cf-connecting-ip": "9.9.9.9"})) == "9.9.9.9"
+    assert web.client_ip(req({"cf-connecting-ip": "evil/../x"})) == "127.0.0.1"
+
+
+def test_service_worker_is_templated(client):
+    r = client.get("/sw.js")
+    assert "__VERSION__" not in r.text and "__API_PATHS__" not in r.text
+    assert '["/api", "/auth", "/health"]' in r.text and r.headers["cache-control"] == "no-cache"
+
+
+def test_csp_forbids_inline_and_remote_scripts(client):
+    h = client.get("/").headers
+    assert "content-security-policy-report-only" in h  # default; BB_CSP=enforce switches
+    csp = h["content-security-policy-report-only"]
+    assert "script-src 'self'" in csp and "unsafe-inline" not in csp.split("style-src")[0]
+    html = client.get("/").text
+    assert "<script>" not in html and "onclick=" not in html
+    assert 'type="module">' not in html  # no inline module script
+
+
+def test_service_worker_precaches_every_script(client):
+    sw = client.get("/sw.js").text
+    for f in ("/js/app.js", "/js/maplibre-global.js", "/vendor/maplibre-gl.mjs"):
+        assert f'"{f}"' in sw

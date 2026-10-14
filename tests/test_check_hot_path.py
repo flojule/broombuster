@@ -266,9 +266,9 @@ def client(app_client):
 
 def test_check_does_not_call_nominatim(client, monkeypatch):
     def _boom(lat, lon):
-        raise AssertionError("/check must not call Nominatim")
+        raise AssertionError("/api/check must not call Nominatim")
     monkeypatch.setattr(gps, "_nominatim", _boom)
-    data = client.post("/check", json=_OAKLAND).json()
+    data = client.post("/api/check", json=_OAKLAND).json()
     assert data["address_pending"] is True
     assert data["address"] == "Chestnut St, Oakland"
 
@@ -277,18 +277,18 @@ def test_address_endpoint_adds_house_number_then_check_uses_cache(client, monkey
     monkeypatch.setattr(gps, "_nominatim",
                         lambda lat, lon: {"road": "Chestnut Street", "house_number": "2931"})
     street = "Chestnut St"
-    client.post("/check", json=_OAKLAND)
-    resp = client.get("/address", params=_OAKLAND)
+    client.post("/api/check", json=_OAKLAND)
+    resp = client.get("/api/address", params=_OAKLAND)
     assert resp.status_code == 200
     assert resp.json()["address"].startswith(f"2931 {street}")
     # Now cached: /check answers with the number and nothing pending.
-    data = client.post("/check", json=_OAKLAND).json()
+    data = client.post("/api/check", json=_OAKLAND).json()
     assert data["address"].startswith(f"2931 {street}")
     assert data["address_pending"] is False
 
 
 def test_zone_address_is_never_pending(client):
-    data = client.post("/check", json={"lat": 41.8781, "lon": -87.6298,
+    data = client.post("/api/check", json={"lat": 41.8781, "lon": -87.6298,
                                        "region": "chicago"}).json()
     assert data["address"].startswith("Zone:")
     assert data["address_pending"] is False
@@ -324,6 +324,17 @@ def test_warm_check_is_fast(app_client):
 
     body = {"lat": 37.7749, "lon": -122.4194, "region": "bay_area"}
     t0 = time.perf_counter()
-    resp = app_client.post("/check", json=body)
+    resp = app_client.post("/api/check", json=body)
     assert resp.status_code == 200, resp.text
     assert time.perf_counter() - t0 < 1.0
+
+
+def test_geocoder_backlog_is_skipped_not_queued(monkeypatch):
+    gps._cache.clear()
+    monkeypatch.setattr(gps, "_nominatim", lambda lat, lon: pytest.fail("queued"))
+    held = [gps._slots.acquire() for _ in range(3)]  # all slots busy
+    try:
+        assert gps.maybe_house_number(37.5, -122.5, "Grand Ave") is None
+    finally:
+        for _ in held:
+            gps._slots.release()
