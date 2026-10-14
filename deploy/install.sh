@@ -5,6 +5,9 @@ cd "$(dirname "$0")/.."
 
 uv sync --locked --extra api
 
+# Sign-in settings (secrets): created once, edited by hand.
+[ -f .env ] || install -m 600 .env.example .env
+
 for unit in broombuster.service broombuster-update.service broombuster-update.timer; do
   sed -e "s#__USER__#$(id -un)#g" -e "s#__REPO__#$PWD#g" "deploy/$unit" \
     | sudo tee "/etc/systemd/system/$unit" >/dev/null
