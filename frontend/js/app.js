@@ -11,19 +11,17 @@ async function initApp() {
 
   if (cars.length) {
     activeCarId = cars[0].id;
-    setNearestRegion(cars[0].lat, cars[0].lon);
     await checkCarWithRender(cars[0]);
     for (const car of cars.slice(1)) checkCarSilently(car);
     return;
   }
-  const ipLoc = await getIPLocation();
-  if (ipLoc) {
-    setNearestRegion(ipLoc.lat, ipLoc.lon);
-    setLocationKnown('ip', null, null, ipLoc.city);
-    loadAreaMap(ipLoc.lat, ipLoc.lon, 13);
-  } else {
-    setStatus('idle', 'Select a region or add a car to load the map.');
-  }
+  // No cars: device position if already allowed, else the IP's area overview,
+  // else the area labels.
+  const gps = await getPermittedGPS();
+  if (gps) { map.jumpTo({ center: [gps.lon, gps.lat], zoom: 15 }); return; }
+  const ip = await getIPLocation();
+  const rk = ip && regionAt(ip.lat, ip.lon);
+  if (rk) map.jumpTo({ center: [regions[rk].center.lon, regions[rk].center.lat], zoom: regions[rk].zoom || 11 });
 }
 initApp();
 
@@ -38,23 +36,19 @@ setInterval(() => {
   _liveUrgencySig = sig;
   renderCarsPanel();
   renderHomePanel();
-  updateStatusFromSchedules();
+  updateSheetSummary();
 }, 60 * 1000);
 
 // ── Locate button (GPS) ───────────────────────────────────────────────────────
 btnLocate.addEventListener('click', () => {
   const btn = btnLocate;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner" style="border-top-color:var(--blue);border-color:rgba(0,0,0,.15)"></span>';
+  btn.disabled = true; btn.classList.add('busy');
   getGPS(async (lat, lon) => {
-    btn.disabled = false; btn.textContent = '📍';
-    setLocationKnown('gps', lat, lon);
-    setNearestRegion(lat, lon);
+    btn.disabled = false; btn.classList.remove('busy');
     if (_gpsLocPinTimer) clearTimeout(_gpsLocPinTimer);
     _gpsLocPin = { lat, lon };
     if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
     updateCarMarkers();
-    loadAreaMap(lat, lon, 16);
     updateGpsPinPopup();
     _gpsLocPinTimer = setTimeout(() => {
       _gpsLocPin = null; _gpsLocPinTimer = null;
@@ -62,7 +56,7 @@ btnLocate.addEventListener('click', () => {
       updateCarMarkers();
     }, 15000);
     for (const car of cars) checkCarSilently(car);
-  }, msg => { btn.disabled = false; btn.textContent = '📍'; showToast(`GPS: ${msg}`, true); });
+  }, msg => { btn.disabled = false; btn.classList.remove('busy'); showToast(`GPS: ${msg}`, true); });
 });
 
 // ── Service Worker ────────────────────────────────────────────────────────────

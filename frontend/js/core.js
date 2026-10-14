@@ -1,4 +1,4 @@
-// Every urgency surface reads this one table: card/banner colour (CSS vars in
+// Every urgency surface reads this one table: card colour (CSS vars in
 // styles.css), labels, and the map paint (MapLibre needs literal colours).
 const URGENCY = {
   today:    { color: 'var(--urg-today)',    car: '🚨 Move car today!',   short: '🚨 Today',
@@ -14,6 +14,9 @@ const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16',
 function carColor(idx) { return CAR_COLORS[idx % CAR_COLORS.length]; }
 
 // ── Shared utilities ──────────────────────────────────────────────────────────
+// Inline SVG icon from the sprite in index.html (stroke follows text colour).
+function icon(name) { return `<svg class="ic"><use href="#i-${name}"/></svg>`; }
+
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -27,9 +30,9 @@ function postJSON(path, body) {
   });
 }
 
-// POST /check for a lat/lon in the selected region; returns the Response.
+// POST /check for a lat/lon (the server picks the region if none is nearby); returns the Response.
 function postCheck(lat, lon) {
-  return postJSON('/check', { lat, lon, region: regionSelect.value || undefined });
+  return postJSON('/check', { lat, lon, region: regionAt(lat, lon) || undefined });
 }
 
 function newId() {
@@ -44,13 +47,14 @@ async function geocode(q) {
   return hits.length ? { lat: parseFloat(hits[0].lat), lon: parseFloat(hits[0].lon) } : null;
 }
 
-// Double-click to edit; Enter commits, Escape or empty/unchanged restores original().
+// Double-click (or el.startEdit()) to edit; Enter commits, Escape or empty/unchanged restores original().
 function makeEditable(el, original, onCommit) {
-  el.addEventListener('dblclick', () => {
+  el.startEdit = () => {
     el.contentEditable = 'true'; el.focus();
     const r = document.createRange(); r.selectNodeContents(el);
     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-  });
+  };
+  el.addEventListener('dblclick', el.startEdit);
   el.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
     if (e.key === 'Escape') { el.textContent = original(); el.blur(); }
@@ -63,8 +67,6 @@ function makeEditable(el, original, onCommit) {
   });
 }
 
-function setStatus(cls, text) { statusText.className = cls; statusText.textContent = text; }
-
 // ── State ─────────────────────────────────────────────────────────────────────
 let cars           = [];
 let activeCarId    = null;
@@ -76,12 +78,23 @@ let pendingLat     = null, pendingLon = null;
 let carSchedules   = {};
 let _tempPin        = null;   // {lat,lon} while naming a new car
 let _selectedCarId  = null;
-let _locSource = null, _locLat = null, _locLon = null, _locCity = null;
 let _gpsLocPin = null;
 let _gpsLocPinTimer = null;
 let _hoverSuppressed = false;
-let _renderedRegion  = null;
-let _settingRegion   = false;  // true while setNearestRegion() is updating the select
+let _region          = null;   // region key under the map center (null: none nearby)
+const REGION_RADIUS  = 1.5;    // degrees: a region applies this close to its center
+const AREA_ZOOM      = 9;      // below this the map shows area labels instead of streets
+const isDesktop = () => window.matchMedia('(min-width: 768px)').matches;
+
+// Region whose center is within REGION_RADIUS of (lat, lon), nearest first; else null.
+function regionAt(lat, lon) {
+  let best = null, bestD = REGION_RADIUS ** 2;
+  for (const [key, r] of Object.entries(regions)) {
+    const d = (r.center.lat - lat) ** 2 + (r.center.lon - lon) ** 2;
+    if (d < bestD) { bestD = d; best = key; }
+  }
+  return best;
+}
 
 // ── Map (MapLibre) ────────────────────────────────────────────────────────────
 let map = null;
@@ -110,8 +123,19 @@ function _urgCase(prop) {
     URGENCY.safe[prop],
   ];
 }
-// Street line width scales with zoom so it stays thin on city-wide views.
-const ZONE_LINE_WIDTH = ['interpolate', ['linear'], ['zoom'], 11, 0.8, 14, 1.5, 16, 2.5, 18, 4];
+// Street line width scales with zoom so it stays thin on city-wide views; it also
+// grows with urgency (today x2, tomorrow x1.5) so colour is not the only cue.
+const LINE_W = { 11: 0.8, 14: 1.5, 16: 2.5, 18: 4 };
+const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1 };
+function _lineWidth() {
+  const stops = Object.entries(LINE_W).flatMap(([z, w]) => [Number(z), [
+    'case',
+    ['==', ['feature-state', 'urgency'], 'today'],    w * LINE_MULT.today,
+    ['==', ['feature-state', 'urgency'], 'tomorrow'], w * LINE_MULT.tomorrow,
+    w,
+  ]]);
+  return ['interpolate', ['linear'], ['zoom'], ...stops];
+}
 
 const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const DARK_STYLE  = 'https://tiles.openfreemap.org/styles/dark';
@@ -125,8 +149,6 @@ let _mapStyle = _wantDark() ? DARK_STYLE : LIGHT_STYLE;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const btnLocate      = document.getElementById('btn-locate');
-const regionSelect   = document.getElementById('region-select');
-const statusText     = document.getElementById('status-text');
 const mapDiv         = document.getElementById('map');
 const placeBanner    = document.getElementById('place-banner');
 const placeBannerText = document.getElementById('place-banner-text');
@@ -146,22 +168,33 @@ const btnConfirmPlace = document.getElementById('btn-confirm-place');
 // Collapses to a handle (default) so the map + placement center-target stay clear. The
 // expanded/collapsed state persists.
 let _sheetCollapsed = localStorage.getItem('bb_sheet_v2') !== 'open';
+// Empty (no car or home, not placing): only the two add buttons, no minimize.
 function applySheet() {
-  sheet.classList.toggle('collapsed', _sheetCollapsed);
+  const empty = !cars.length && !homes.length && !placingCar && !placingHome;
+  sheet.classList.toggle('empty', empty);
+  sheet.classList.toggle('collapsed', _sheetCollapsed && !empty);
 }
 function setSheetCollapsed(v) {
   _sheetCollapsed = !!v;
   localStorage.setItem('bb_sheet_v2', _sheetCollapsed ? 'closed' : 'open');
   applySheet();
 }
+// Handle text: the most urgent car verdict, else counts.
 function updateSheetSummary() {
-  const parts = [];
-  if (cars.length)  parts.push(`🚗 ${cars.length}`);
-  if (homes.length) parts.push(`🏠 ${homes.length}`);
-  sheetSummary.textContent = parts.length ? parts.join('  ·  ') : 'Add a car or home';
+  const { today, tomorrow } = urgentCars();
+  sheetSummary.textContent = today.length ? `🚨 Move ${today.join(', ')} today`
+    : tomorrow.length ? `⚠️ Move ${tomorrow.join(', ')} tomorrow`
+    : cars.length ? '✅ All clear'
+    : homes.length ? `🏠 ${homes.length}` : 'Cars & homes';
+  applySheet();
 }
 sheetHandle.addEventListener('click', () => setSheetCollapsed(!_sheetCollapsed));
 sheetHandle.addEventListener('keydown', e => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSheetCollapsed(!_sheetCollapsed); }
 });
 applySheet();
+
+// Sheet height lifts the map controls above it on mobile.
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--sheet-h', sheet.offsetHeight + 'px');
+}).observe(sheet);

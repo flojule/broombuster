@@ -1,5 +1,5 @@
 // Caches the app shell; API calls always go to the network.
-const CACHE = 'broombuster-v58';
+const CACHE = 'broombuster-v64';
 const SHELL = [
   '/', '/styles.css',
   '/js/urgency.js', '/js/core.js', '/js/ui.js', '/js/map.js',

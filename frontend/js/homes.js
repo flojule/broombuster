@@ -7,6 +7,8 @@ function _nextPickups(sched) {
     .sort((a, b) => a[1].localeCompare(b[1]));
 }
 
+let _openHomeId = null;  // home card showing its schedule
+
 function homeUrgency(sched) {
   const next = _nextPickups(sched)[0]?.[1];
   if (!next) return 'safe';
@@ -23,11 +25,9 @@ function homeScheduleHTML(sched) {
     return '<div class="ce-sched-item" style="color:var(--muted)">'
          + 'No collection info for this address.</div>';
   }
-  const u = homeUrgency(sched);
   const fmt = iso => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US',
     { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-  return _urgencyLine(u, URGENCY[u].short)
-       + '<div class="ce-sched-header">Trash day:</div>'
+  return '<div class="ce-sched-header">Trash day:</div>'
        + _itemsHTML(next.map(([stream, iso]) => `${stream}: ${fmt(iso)}`));
 }
 
@@ -38,16 +38,6 @@ function renderHomePanel() {
   if (homePanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT')) return;
   homePanel.innerHTML = '';
 
-  // "Add home" button — always available (multiple homes allowed, like cars).
-  // Tap-to-place mode; the map equivalent is the right-click "Set home here".
-  const btn = document.createElement('button');
-  btn.id = 'btn-add-home';
-  btn.className = 'add-car-btn add-home-btn';
-  btn.textContent = '🏠 Add home';
-  btn.title = 'Add a home to see trash & recycling day';
-  btn.addEventListener('click', startPlacingHome);
-  homePanel.appendChild(btn);
-
   homes.forEach((h, i) => {
     const sched    = homeSchedules[h.id];
     const urgency  = homeUrgency(sched);
@@ -55,29 +45,48 @@ function renderHomePanel() {
     const label    = homes.length > 1 ? `Home ${i + 1}` : 'Home';
 
     const entry = document.createElement('div');
-    entry.className = 'car-entry home-entry';
+    entry.className = 'car-entry home-entry' + (h.id === _openHomeId ? ' selected' : '');
     entry.dataset.id = h.id;
     entry.dataset.urgency = urgency;
     entry.style.cssText = '--car-color:#16a34a;--urg-color:#16a34a';
+    // Click toggles the schedule, as on a car card.
+    entry.addEventListener('click', e => {
+      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
+      _openHomeId = _openHomeId === h.id ? null : h.id;
+      entry.classList.toggle('selected', _openHomeId === h.id);
+      for (const o of homePanel.children) if (o !== entry) o.classList.remove('selected');
+    });
     entry.innerHTML = `
       <div class="ce-header">
         <span class="ce-dot ce-dot-home">🏠</span>
         <span class="ce-name">${esc(label)}</span>
-        <button class="ce-remove" title="Remove home">✕</button>
+        ${_nextPickups(sched).length ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
+        <button class="ce-remove" title="Remove home" aria-label="Remove home">${icon('close')}</button>
       </div>
       <div class="ce-addr" contenteditable="false" title="Double-click to edit this address">${esc(addrText)}</div>
-      <div class="ce-sched">${homeScheduleHTML(sched)}</div>`;
+      <div class="ce-detail">
+        <div class="ce-sched">${homeScheduleHTML(sched)}</div>
+        <div class="ce-actions">
+          <button class="ce-btn ce-btn-addr">Set address</button>
+          <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
+        </div>
+      </div>`;
 
     // ── Address editing → geocode + trash refresh ──
     const addrEl = entry.querySelector('.ce-addr');
     makeEditable(addrEl, () => addrText, q => setHomeAddress(h.id, q));
 
+    entry.querySelector('.ce-btn-addr').addEventListener('click', () => addrEl.startEdit());
+    entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacingHome(h.id));
     entry.querySelector('.ce-remove').addEventListener('click', () => removeHome(h.id));
 
     homePanel.appendChild(entry);
   });
   updateSheetSummary();
 }
+
+// Tap-to-place mode; the map equivalent is the right-click "Add home here".
+document.getElementById('btn-add-home').addEventListener('click', () => startPlacingHome());
 
 // Add a home at a coordinate (map tap / right-click); the backend
 // reverse-geocodes its address unless the user types one into the card.
@@ -103,6 +112,18 @@ async function setHomeAddress(id, query) {
     h.lat = hit.lat; h.lon = hit.lon; h.address = query;
   } catch (_) { showToast('Could not look up address', true); renderHomePanel(); return; }
   savePrefs();
+  updateHomeMarkers();
+  renderHomePanel();
+  await checkHome(id);
+}
+
+// Move a home to a map spot: its address is re-derived from the new location.
+async function moveHome(id, lat, lon) {
+  const h = homes.find(x => x.id === id);
+  if (!h) return;
+  h.lat = lat; h.lon = lon; h.address = '';
+  savePrefs();
+  setSheetCollapsed(false);
   updateHomeMarkers();
   renderHomePanel();
   await checkHome(id);

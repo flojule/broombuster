@@ -14,7 +14,7 @@ const _btnDark = document.getElementById('btn-dark-mode');
 // (the toggle); otherwise the choice follows local time (night -> dark).
 function _applyDark(on, persist) {
   document.body.classList.toggle('dark', on);
-  _btnDark.textContent = on ? '☀️' : '🌙';
+  _btnDark.innerHTML = icon(on ? 'sun' : 'moon');
   _btnDark.title = on ? 'Switch to light' : 'Switch to dark';
   if (persist) localStorage.setItem('bb_dark', on ? '1' : '0');
   document.querySelector('meta[name="theme-color"]').content = on ? '#1e293b' : '#ffffff';
@@ -65,3 +65,17 @@ function updateInfoCard() {
   _crosshair.classList.add('visible');
   renderInfoCard(_centerFeature());
 }
+
+// ── Map color key (ⓘ) ──────────────────────────────────────────────────
+const _btnLegend = document.getElementById('btn-legend');
+const _legendPop = document.getElementById('legend-pop');
+function setLegendOpen(on) {
+  _legendPop.hidden = !on;
+  _btnLegend.setAttribute('aria-expanded', String(on));
+}
+_btnLegend.addEventListener('click', e => { e.stopPropagation(); setLegendOpen(_legendPop.hidden); });
+document.addEventListener('click', () => setLegendOpen(false));
+
+// ── Zoom buttons (desktop) ────────────────────────────────────────────────────
+document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());
+document.getElementById('btn-zoom-out').addEventListener('click', () => map?.zoomOut());
