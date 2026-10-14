@@ -6,11 +6,13 @@
       --bg: #f8fafc; --card: #ffffff; --text: #1e293b;
       --muted: #64748b; --border: #e2e8f0;
       --sheet-peek: 40px;  /* collapsed bottom-sheet handle height */
-      --panel-w: min(360px, calc(100vw - 24px));  /* info card + sheet width (mobile) */
+      --panel-w: min(360px, calc(100vw - 24px));  /* calendar card + sheet width */
       --inset-b: env(safe-area-inset-bottom, 0px);
-      --info-h: 0px;  /* info card height, set from JS */
+      --info-h: 0px;  /* calendar card height, set from JS */
+      --sheet-h: 0px; /* sheet height, set from JS */
+      --street: #15803d;  /* street sweeping days in the calendar */
 
-      /* Layers: crosshair 15 < info card, place banner 20 < sheet 25 < GPS popup 30
+      /* Layers: crosshair 15 < info card, place banner 20 < street sign 21 < map controls 24 < sheet 25 < legend 28 < GPS popup 30
          < hover 90 < ctx menu 200 < toast 9999. */
     }
     html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
@@ -18,42 +20,34 @@
     html, body { overflow: hidden; overscroll-behavior: none; }
 
     [hidden] { display: none !important; }
+    svg.ic { width: 1.15em; height: 1.15em; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+             stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; pointer-events: none; }
+    .busy svg.ic { animation: spin .8s linear infinite; }
     button { display: block; width: 100%; padding: 10px; margin-top: 16px; background: var(--blue); color: #fff; border: none; border-radius: 10px; font-size: .95rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
     button:disabled { opacity: .5; cursor: default; }
     button:not(:disabled):hover { opacity: .9; }
 
     /* ── App ── */
-    #app-screen { display: flex; flex-direction: column; height: 100dvh; }
+    #app-screen { height: 100dvh; }
 
-    /* ── Topbar ── */
-    #topbar {
-      display: flex; align-items: center; gap: 5px;
-      padding: calc(6px + env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px))
-              6px max(10px, env(safe-area-inset-left, 0px)); background: var(--card);
-      border-bottom: 1px solid var(--border); flex-shrink: 0;
-      overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;
+    /* ── Right column: map info (area, theme, color key, zoom, locate) ──
+       Mobile: above the sheet. Desktop: top-right (see media query). */
+    #map-ctrl {
+      position: absolute; right: 10px; z-index: 24;
+      bottom: calc(var(--inset-b) + 12px + var(--sheet-h) + 10px);
+      display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
     }
-    .app-title { font-size: .88rem; font-weight: 700; flex-shrink: 0; }
-    .tb-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; align-self: center; margin: 0 3px; }
-    .tb-select, .tb-btn {
-      display: inline-flex; align-items: center; width: auto;
-      height: 26px; box-sizing: border-box; padding: 0 8px; margin: 0;
-      font-size: .78rem; font-weight: 600; border-radius: 6px; flex-shrink: 0;
+    body.placing #map-ctrl { display: none; }
+    .map-btn {
+      width: 40px; height: 40px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center;
+      background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2); font-size: 1.1rem;
     }
-    .tb-select { border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; }
-    #region-select { max-width: 90px; }
-    #status-text   { flex: 1; font-size: .78rem; font-weight: 600; text-align: center; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; min-width: 60px; }
-    #status-text.today    { color: #b91c1c; }
-    #status-text.tomorrow { color: #c2410c; }
-    #status-text.safe     { color: #1d4ed8; }
-    #status-text.idle     { color: var(--muted); }
-    #btn-locate        { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
-    #btn-locate.ip     { background: #eef1f7; color: #94a3b8; border-color: #d1d9ea; }
-    #btn-locate.gps    { background: var(--blue); color: #fff; border-color: var(--blue); }
-    #locate-info { font-size: .72rem; color: var(--muted); flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+    #legend-wrap { position: relative; }
+    .zoom-btn { display: none; }
 
     /* ── Map container ── */
-    #map-container { flex: 1; min-height: 0; position: relative; }
+    #map-container { height: 100%; position: relative; }
     #map { width: 100%; height: 100%; touch-action: none; }
     #map canvas, #map img { -webkit-user-drag: none; user-select: none; }
 
@@ -74,7 +68,7 @@
     }
     #place-banner.active { display: flex; }
     #btn-confirm-place, #btn-cancel-place {
-      width: auto; margin: 0; padding: 3px 12px; border-radius: 12px;
+      width: auto; margin: 0; padding: 7px 14px; border-radius: 12px;
       font-size: .75rem; font-weight: 600;
     }
     #btn-confirm-place { background: #fff; color: var(--blue); border: none; }
@@ -108,38 +102,44 @@
       border-radius: 14px;
       box-shadow: 0 3px 16px rgba(0,0,0,.2);
       /* Stays below the info card (top of the map) so the two never overlap. */
-      max-height: min(62%, calc(100% - var(--info-h) - var(--inset-b) - 44px));
+      max-height: min(40%, calc(100% - var(--info-h) - var(--inset-b) - 44px));
       pointer-events: auto;
     }
     #sheet-handle {
       flex-shrink: 0; display: flex; align-items: center; gap: 8px;
-      padding: 7px 14px 8px; cursor: pointer; user-select: none;
+      padding: 10px 14px; cursor: pointer; user-select: none;
       position: relative;
     }
-    #sheet-grip {
-      position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
-      width: 34px; height: 4px; border-radius: 2px; background: var(--border);
-    }
-    #sheet-summary { flex: 1; font-size: .8rem; font-weight: 600; color: var(--text); padding-top: 3px; }
-    #sheet-chevron { font-size: .8rem; color: var(--muted); padding-top: 3px; transition: transform .15s; }
+    #sheet-summary { flex: 1; font-size: .8rem; font-weight: 600; color: var(--text); }
+    #sheet-chevron { color: var(--muted); display: flex; transition: transform .15s; }
     #sheet.collapsed #sheet-chevron { transform: rotate(180deg); }
     #sheet.collapsed #cars-panel { display: none; }
+    /* Empty: just the two add buttons. */
+    #sheet.empty #sheet-handle { display: none; }
+    #sheet.empty #cars-panel { padding-top: 12px; }
 
     #cars-panel {
       display: flex; flex-direction: column; gap: 8px;
       padding: 0 12px 12px; overflow-y: auto;
       pointer-events: auto; scrollbar-gutter: stable;
     }
-    .cars-legend {
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 8px; padding: 6px 10px; overflow: hidden;
-      font-size: .7rem; display: flex; gap: 8px; flex-wrap: wrap;
-      box-shadow: 0 2px 6px rgba(0,0,0,.08);
-      user-select: none; width: 100%; flex-shrink: 0;
+    #add-row { display: flex; gap: 8px; flex-shrink: 0; }
+    #add-row .add-car-btn { flex: 1; width: auto; min-width: 0; white-space: nowrap; }
+    #home-panel { display: flex; flex-direction: column; gap: 8px; }
+    #home-panel:empty { display: none; }
+    /* Colour key: opens to the left of its button. */
+    #legend-pop {
+      position: absolute; top: 0; right: 48px; z-index: 28;
+      display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; font-size: .74rem; font-weight: 600;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 3px 12px rgba(0,0,0,.2); white-space: nowrap;
     }
-    .cars-legend span { white-space: nowrap; font-weight: 500; }
+    #btn-legend[aria-expanded="true"] { border-color: var(--blue); }
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
-    .urg-safe { color: var(--urg-safe); }
+    .urg-safe { color: var(--urg-safe); } .urg-none { color: var(--muted); }
+    /* Legend swatch: line thickness mirrors the map (today thickest). */
+    .lg { display: inline-block; width: 16px; border-radius: 2px; background: currentColor; vertical-align: middle; margin-right: 5px; }
+    .lg-3 { height: 4px; } .lg-2 { height: 3px; } .lg-1 { height: 2px; } .lg-0 { height: 1px; }
     .car-entry {
       position: relative;
       background: var(--card); border: 1px solid var(--border);
@@ -157,20 +157,24 @@
     .car-entry[data-urgency="tomorrow"] { background: #ffedd5; }
     body.dark .car-entry[data-urgency="today"]    { background: #3b2020; }
     body.dark .car-entry[data-urgency="tomorrow"] { background: #3b2e1a; }
-    .ce-header { display: flex; align-items: center; gap: 6px; padding-right: 16px; }
+    .ce-header { display: flex; align-items: center; gap: 8px; padding-right: 28px; }
+    /* Verdict beside the title; schedule + location buttons show on the open card only. */
+    .ce-status { flex: none; font-size: .75rem; font-weight: 600; white-space: nowrap; }
+    .ce-detail { display: flex; flex-direction: column; gap: 5px; }
+    .car-entry:not(.selected) .ce-detail { display: none; }
     .ce-dot {
-      width: 10px; height: 10px; border-radius: 50%;
-      background: var(--car-color, #3b82f6); flex-shrink: 0;
+      width: 16px; height: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(circle, var(--car-color, #3b82f6) 0 5px, transparent 5.5px);
     }
     .ce-name {
-      flex: 1; font-weight: 600; font-size: .84rem; outline: none;
+      flex: 0 1 auto; font-weight: 600; font-size: .84rem; outline: none;
       cursor: default; border-bottom: 1px solid transparent; min-width: 0;
       user-select: none;
     }
     .ce-name[contenteditable="true"] { cursor: text; border-bottom-color: var(--blue); user-select: text; }
     .ce-remove {
-      position: absolute; top: 6px; right: 8px;
-      width: 18px; height: 18px; margin: 0; padding: 0;
+      position: absolute; top: 2px; right: 4px;
+      width: 32px; height: 32px; margin: 0; padding: 0;
       display: flex; align-items: center; justify-content: center;
       background: transparent; border: none; color: var(--muted);
       font-size: .8rem; cursor: pointer; opacity: .55; line-height: 1;
@@ -184,13 +188,13 @@
     .ce-addr[contenteditable="true"] { cursor: text; color: var(--text); border-bottom-color: var(--blue); user-select: text; }
     .ce-addr:empty::before { content: 'double-click to set address'; opacity: .45; font-size: .7rem; }
     .ce-sched { font-size: .73rem; line-height: 1.45; }
-    .ce-sched-urgency { font-weight: 600; }
     .ce-sched-header  { font-size: .68rem; font-weight: 600; color: var(--muted); margin-top: 4px; white-space: nowrap; }
-    .ce-sched-item    { font-size: .73rem; color: var(--muted); padding-left: 4px; line-height: 1.4; }
+    .ce-sched-item    { font-size: .73rem; color: var(--muted); line-height: 1.4; }
     .ce-actions { display: flex; gap: 5px; margin-top: 3px; }
     .ce-btn {
-      flex: 1; width: auto; margin: 0; padding: 4px 6px;
-      font-size: .71rem; font-weight: 500; border-radius: 6px; white-space: nowrap;
+      flex: 1; width: auto; margin: 0; padding: 8px 6px;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      font-size: .75rem; font-weight: 500; border-radius: 6px; white-space: nowrap;
       background: transparent; border: 1px solid var(--border);
       color: var(--text); cursor: pointer; text-align: center;
     }
@@ -205,11 +209,11 @@
       transform: translate(-50%, calc(-100% - 24px));
       white-space: nowrap; overflow: visible;
     }
-    #btn-gps-add { width: auto; margin: 0; padding: 4px 10px; font-size: .76rem; font-weight: 600; border-radius: 6px; }
+    #btn-gps-add { display: flex; align-items: center; gap: 5px; width: auto; margin: 0; padding: 8px 12px; font-size: .78rem; font-weight: 600; border-radius: 8px; }
     /* Shared top-right corner close button for popups/boxes. */
     .popup-close {
       position: absolute; top: 4px; right: 4px;
-      width: 20px; height: 20px; margin: 0; padding: 0;
+      width: 32px; height: 32px; margin: 0; padding: 0;
       display: flex; align-items: center; justify-content: center;
       background: transparent; border: none; color: var(--muted);
       font-size: .85rem; line-height: 1; cursor: pointer; border-radius: 5px;
@@ -229,9 +233,9 @@
       border-top-color: var(--card); border-bottom-color: var(--card);
     }
     .np-row { display: flex; gap: 6px; align-items: center; }
-    #name-panel-input { flex: 1; padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; min-width: 0; width: 0; background: var(--bg); color: var(--text); }
+    #name-panel-input { flex: 1; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; min-width: 0; width: 0; background: var(--bg); color: var(--text); }
     #name-panel-input:focus { border-color: var(--blue); }
-    #btn-np-save { margin: 0; padding: 4px 8px; width: auto; min-width: 30px; border-radius: 6px; font-size: 1rem; line-height: 1; font-weight: 700; }
+    #btn-np-save { margin: 0; padding: 6px 10px; width: auto; min-width: 36px; border-radius: 6px; font-size: 1rem; line-height: 1; font-weight: 700; }
 
     /* ── + Add car button (cars panel) ── */
     .add-car-btn {
@@ -244,66 +248,91 @@
     /* "Add home" shares the add-car shape but takes the home green. */
     .add-home-btn { background: #16a34a; }
 
-    /* ── Info card: street under the target + sweep calendar ──
-       Mobile: top-center of the map. Desktop: bottom-left (see media query). */
+    /* ── Calendar card (sweep calendar; fixed content, independent of the target) ──
+       Top of the left column (mobile: centered). The header stays put; the body scrolls. */
     #info-card {
-      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      position: absolute; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 50%; transform: translateX(-50%);
       z-index: 20; width: var(--panel-w); pointer-events: auto;
+      display: flex; flex-direction: column; max-height: calc(50% - 18px);
       background: var(--card); color: var(--text);
       border: 1px solid var(--border); border-radius: 12px;
       box-shadow: 0 3px 12px rgba(0,0,0,.22); font-size: .8rem;
-      padding: 0 12px 10px; cursor: pointer;
+      padding: 0 12px; cursor: pointer;
     }
+    #ic-cal { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding-bottom: 10px; }
     #info-card.expanded { cursor: default; }
     #ic-head {
       display: flex; align-items: center; gap: 8px; user-select: none;
-      padding: 8px 0 6px; font-weight: 600; font-size: .8rem;
+      padding: 4px 0; font-weight: 600; font-size: .8rem;
     }
     #info-card.expanded #ic-head { cursor: pointer; }
-    #ic-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #ic-chevron { color: var(--muted); font-size: .8rem; transition: transform .15s; }
-    #info-card.expanded #ic-chevron { transform: rotate(180deg); }
-    #ic-lines { margin-bottom: 6px; max-height: 5.6em; overflow-y: auto; }
-    .sc-line { font-size: .74rem; line-height: 1.4; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
-    .sc-line::-webkit-scrollbar { display: none; }
-    .sc-muted, .cal-muted { font-size: .72rem; color: var(--muted); }
+    #ic-title { flex: 1; min-width: 0; display: flex; align-items: center; }
+    #ic-title b { flex: 1; text-align: center; }
+    #ic-chevron { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+    .cal-muted { font-size: .72rem; color: var(--muted); }
 
+    /* ── Street sign: a no-parking sign for the street at the target ──
+       Docked bottom-center (mobile: just above the sheet) so nothing covers it. */
+    #street-sign {
+      position: absolute; left: 50%; transform: translateX(-50%); z-index: 21; pointer-events: none;
+      bottom: calc(var(--inset-b) + 12px + var(--sheet-h) + 10px);
+      width: max-content; max-width: calc(100% - 120px); text-align: center;
+      background: #fff; color: #b91c1c; border: 2.5px solid #b91c1c; border-radius: 12px;
+      padding: 8px 16px 9px; box-shadow: 0 0 0 3px #fff, 0 4px 16px rgba(0,0,0,.28);
+      text-transform: uppercase; font-weight: 700; line-height: 1.25;
+    }
+    #ss-head { font-size: 1.05rem; letter-spacing: .06em; }
+    #ss-lines { font-size: .84rem; margin-top: 2px; }
+    #ss-foot { font-size: .62rem; letter-spacing: .14em; margin-top: 3px; }
+    #ss-name { font-size: .62rem; letter-spacing: .08em; color: #475569; font-weight: 600; margin-top: 5px;
+               padding-top: 4px; border-top: 1px solid #fecaca; }
+    /* No sweeping: muted, no "no parking" header. */
+    #street-sign.clear { color: #475569; border-color: #cbd5e1; }
+    #street-sign.clear #ss-head, #street-sign.clear #ss-foot { display: none; }
+    #street-sign.clear #ss-lines { font-size: .76rem; font-weight: 600; margin: 0; }
+    body.placing #street-sign { bottom: calc(var(--inset-b) + 12px + var(--sheet-peek) + 62px); }
+
+    /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
+    .area-label {
+      width: auto; margin: 0; padding: 7px 14px; border-radius: 18px;
+      background: var(--card); color: var(--text); border: 1px solid var(--border);
+      box-shadow: 0 3px 12px rgba(0,0,0,.25); font-size: .85rem; font-weight: 700;
+    }
+
+    .cal-nav, .cal-day {
+      width: auto; margin: 0; padding: 0; border: none; border-radius: 4px;
+      background: transparent; cursor: pointer; font: inherit; color: inherit;
+    }
     .sw-strip { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; }
     .sw-cell, .cal-day {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       border-radius: 4px; font-size: .62rem; line-height: 1.15; color: var(--text);
       font-variant-numeric: tabular-nums;
     }
-    .sw-cell { padding: 1px 0; }
+    .sw-cell { padding: 1px 0; min-height: 40px; }
     .sw-cell i { font-style: normal; font-size: .52rem; color: var(--muted); }
-    .sw-day { background: var(--red); color: #fff; }
-    .sw-day i { color: #fff; opacity: .85; }
-    .sw-today { font-weight: 700; outline: 2px solid var(--blue); outline-offset: -1px; }
+    /* Street days: light green; red today, orange tomorrow (as on the map). */
+    .sw-day { background: color-mix(in srgb, var(--street) 24%, transparent); }
+    .sw-now  { background: var(--urg-today);    color: #fff; }
+    .sw-next { background: var(--urg-tomorrow); color: #fff; }
+    .sw-now i, .sw-next i { color: #fff; opacity: .85; }
+    /* Today: underlined digit, same in both views. Selected (month view): ring. */
+    .sw-today { font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+    .cal-sel { box-shadow: inset 0 0 0 2px var(--blue); }
     /* One dot per car with sweeping that day, in the car's colour. */
     .cal-dots { display: flex; justify-content: center; gap: 2px; height: 5px; margin-top: 1px; }
     .cal-dot { width: 5px; height: 5px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
 
-    .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-    .cal-nav, .cal-day {
-      width: auto; margin: 0; padding: 0; border: none; border-radius: 4px;
-      background: transparent; cursor: pointer; font: inherit; color: inherit;
-    }
-    .cal-nav { font-size: 1.1rem; padding: 0 8px; color: var(--muted); }
+    .cal-nav { font-size: 1.2rem; width: 40px; height: 36px; color: var(--muted); }
     .cal-nav:hover { color: var(--text); }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
     .cal-wd { font-size: .62rem; color: var(--muted); font-weight: 600; }
-    .cal-day { font-size: .75rem; aspect-ratio: 1.5; min-width: 0; }
-    .cal-day.cal-out { opacity: .4; }
-    .cal-day.cal-sel { text-decoration: underline; text-underline-offset: 2px; font-weight: 700; }
-    .cal-detail { margin-top: 6px; font-size: .74rem; line-height: 1.4; max-height: 6.5em; overflow-y: auto; }
-    .cal-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: .68rem; color: var(--muted); margin-top: 4px; }
+    .cal-day { font-size: .75rem; height: 34px; min-width: 0; }
+    .cal-out { opacity: .4; }
+    .cal-detail { margin-top: 6px; font-size: .74rem; line-height: 1.4; min-height: 3em; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
     .cal-round { border-radius: 50%; }
-    /* Short phones: tighter month grid keeps the card above the center target. */
-    @media (max-height: 740px) {
-      .cal-day { aspect-ratio: 2.1; }
-      .cal-detail { max-height: 3.8em; }
-    }
+    body.naming #street-sign { display: none; }
 
     /* ── Custom hover tooltip ── */
     #custom-hover {
@@ -329,9 +358,9 @@
     }
     .zone-detail-popup .maplibregl-popup-close-button {
       position: absolute; top: 4px; right: 6px; left: auto; bottom: auto;
-      width: 22px; height: 22px; padding: 0;
+      width: 32px; height: 32px; padding: 0;
       display: flex; align-items: center; justify-content: center;
-      font-size: 1.05rem; line-height: 1; color: var(--muted); border-radius: 5px;
+      font-size: 1.2rem; line-height: 1; color: var(--muted); border-radius: 5px;
     }
     .zone-detail-popup .maplibregl-popup-close-button:hover { color: var(--text); background: var(--bg); }
 
@@ -347,7 +376,7 @@
       font-size: 22px; line-height: 1; cursor: pointer;
       filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
     }
-    .ce-dot-home { background: transparent !important; font-size: 14px; line-height: 1; }
+    .ce-dot-home { background: none; font-size: 14px; line-height: 1; }
 
     /* ── Spinner ── */
     .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
@@ -397,17 +426,16 @@
     }
     body.dark #center-crosshair.placing { box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 0 0 3.5px var(--blue); }
 
-    /* ── Desktop: cars/homes dock as a narrow panel top-right; the info card sits
-       bottom-left, so the two never overlap and the center stays clear. ── */
+    /* ── Desktop: same vertical layout, as a 300px left column (calendar top,
+       cars/homes bottom); the map controls take the top-right corner. ── */
     @media (min-width: 768px) {
-      #sheet {
-        left: auto; right: 12px; bottom: auto; top: 12px;
-        transform: none; width: 300px; max-height: calc(100% - 24px);
-        border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.18);
-      }
-      #sheet-grip { display: none; }            /* bottom-sheet drag affordance */
-      #sheet-handle { padding-top: 8px; }
-      #info-card { top: auto; bottom: 12px; left: 12px; transform: none; width: 340px; }
+      :root { --panel-w: 300px; }
+      #info-card { top: 12px; left: 12px; transform: none; }
+      #sheet { left: 12px; bottom: 12px; transform: none; max-height: calc(100% - var(--info-h) - 36px); }
+      #map-ctrl { top: 12px; bottom: auto; right: 12px; }
+      #street-sign { bottom: 12px; }
+      body.placing #street-sign { bottom: 12px; }
+      .zoom-btn { display: flex; }
       #place-banner { bottom: auto; top: 10px; }
       #toast-container { bottom: 24px; }
     }

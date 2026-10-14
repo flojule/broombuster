@@ -56,7 +56,7 @@ function updateCarMarkers() {
 // ── Car selection ─────────────────────────────────────────────────────────────
 function clearCarSelection() {
   _selectedCarId = null;
-  for (const e of carsPanel.querySelectorAll('.car-entry')) e.classList.remove('selected');
+  for (const e of carsPanel.querySelectorAll('.car-entry:not(.home-entry)')) e.classList.remove('selected');
   updateCarMarkers();
 }
 
@@ -67,7 +67,7 @@ function isCarInView(car) {
 
 function setSelectedCar(carId) {
   _selectedCarId = carId;
-  for (const e of carsPanel.querySelectorAll('.car-entry')) {
+  for (const e of carsPanel.querySelectorAll('.car-entry:not(.home-entry)')) {
     e.classList.toggle('selected', e.dataset.id === carId);
   }
   const car = cars.find(c => c.id === carId);

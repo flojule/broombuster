@@ -1,23 +1,20 @@
 // ── Per-car schedule checks ───────────────────────────────────────────────────
 async function checkCarWithRender(car) {
-  setStatus('idle', 'Checking…');
-  const warmupTimer = setTimeout(() => setStatus('idle', '⏳ Server warming up, please wait…'), 5000);
+  const warmupTimer = setTimeout(() => showToast('Server warming up, please wait…'), 5000);
   try {
     const res = await postCheck(car.lat, car.lon);
     clearTimeout(warmupTimer);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
-      setStatus('idle', `Error: ${err.detail}`); return;
+      showToast(`Error: ${err.detail}`, true); return;
     }
     const data = await res.json();
     carSchedules[car.id] = data;
     upgradeAddress(car, data);
-    ensureTiles();
     if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
     updateCarMarkers();
-    updateStatusFromSchedules();
     renderCarsPanel();
-  } catch (e) { clearTimeout(warmupTimer); setStatus('idle', `Network error: ${e.message}`); }
+  } catch (e) { clearTimeout(warmupTimer); showToast(`Network error: ${e.message}`, true); }
 }
 
 async function checkCarSilently(car) {
@@ -27,7 +24,7 @@ async function checkCarSilently(car) {
     const data = await res.json();
     carSchedules[car.id] = data;
     upgradeAddress(car, data);
-    updateStatusFromSchedules();
+    updateSheetSummary();
     updateCarMarkers();
   } catch (_) {}
 }
@@ -50,28 +47,15 @@ async function upgradeAddress(car, sched) {
   } catch (_) {}
 }
 
-function updateStatusFromSchedules() {
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  const todayNames    = [];
-  const tomorrowNames = [];
+// Car names by sweeping verdict; feeds the sheet handle (textContent: no escaping).
+function urgentCars() {
+  const out = { today: [], tomorrow: [] };
   for (const [carId, s] of Object.entries(carSchedules)) {
     const car = cars.find(c => c.id === carId);
-    if (!car) continue;
-    const u = sweepUrgency(s);
-    if (u === 'today')    todayNames.push(esc(car.name));
-    if (u === 'tomorrow') tomorrowNames.push(esc(car.name));
+    const u = car && sweepUrgency(s);
+    if (out[u]) out[u].push(car.name);
   }
-  const dateSpan = `<span style="color:var(--muted);font-weight:400">${today}</span>&emsp;`;
-  if (todayNames.length) {
-    statusText.className = 'today';
-    statusText.innerHTML = `${dateSpan}🚨 Move ${todayNames.join(', ')} today!`;
-  } else if (tomorrowNames.length) {
-    statusText.className = 'tomorrow';
-    statusText.innerHTML = `${dateSpan}⚠️ Move ${tomorrowNames.join(', ')} tomorrow.`;
-  } else {
-    statusText.className = 'safe';
-    statusText.innerHTML = `${dateSpan}✅ No sweeping today or tomorrow.`;
-  }
+  return out;
 }
 
 // ── Car placement ─────────────────────────────────────────────────────────────
@@ -80,27 +64,27 @@ function updateStatusFromSchedules() {
 // unobstructed. Right-click (desktop) is the alternative for an off-center spot.
 function _beginPlacing() {
   setSheetCollapsed(true);
-  collapseCal();
+  if (!isDesktop()) collapseCal();  // phone: the card would cover the target
+  document.body.classList.add('placing');
   placeBanner.classList.add('active');
   _crosshair.classList.add('placing');
   if (map) map.getCanvas().style.cursor = 'crosshair';
 }
 
-function startPlacing(editCarId = null) {
+// Place (or, with an id, move) a car or home; the banner shows just the icon.
+function startPlacing(editId = null) {
   placingCar    = true;
   placingHome   = false;
-  placingEditId = editCarId;
-  placeBannerText.textContent = editCarId
-    ? '📍 Aim the target, then Place'
-    : '🚗 Aim the target, then Place';
+  placingEditId = editId;
+  placeBannerText.textContent = editId ? '📌' : '🚗';
   _beginPlacing();
 }
 
-function startPlacingHome() {
+function startPlacingHome(editId = null) {
   placingHome   = true;
   placingCar    = false;
-  placingEditId = null;
-  placeBannerText.textContent = '🏠 Aim the target, then Place';
+  placingEditId = editId;
+  placeBannerText.textContent = '🏠';
   _beginPlacing();
 }
 
@@ -109,15 +93,21 @@ function stopPlacing() {
   placingHome   = false;
   placingEditId = null;
   placeBanner.classList.remove('active');
+  document.body.classList.remove('placing');
   _crosshair.classList.remove('placing');
   if (map) map.getCanvas().style.cursor = '';
+  applySheet();
 }
 
 // Commit at the current map center (the point the crosshair marks).
 function confirmPlacementAtCenter() {
   if (!map) return;
   const c = map.getCenter();
-  if (placingHome) { stopPlacing(); addHome(c.lat, c.lng); }
+  if (placingHome) {
+    const editId = placingEditId;
+    stopPlacing();
+    if (editId) moveHome(editId, c.lat, c.lng); else addHome(c.lat, c.lng);
+  }
   else if (placingCar) { commitPlacement(c.lat, c.lng); }
 }
 
@@ -188,7 +178,7 @@ function openNameBox(lat, lon) {
   const close = document.createElement('button');
   close.className = 'popup-close inline-close';
   close.title = 'Close (Esc)'; close.setAttribute('aria-label', 'Close');
-  close.textContent = '✕';
+  close.innerHTML = icon('close');
   row.append(input, save, close);
 
   save.addEventListener('click', savePendingCar);
@@ -203,7 +193,8 @@ function openNameBox(lat, lon) {
     closeButton: false, closeOnClick: false, anchor: 'bottom', offset: 22,
     className: 'name-popup',
   }).setLngLat([lon, lat]).setDOMContent(row).addTo(map);
-  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; });
+  document.body.classList.add('naming');
+  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; document.body.classList.remove('naming'); });
   setTimeout(() => { input.focus(); input.select(); }, 30);
 }
 
@@ -228,7 +219,6 @@ async function savePendingCar() {
   if (_gpsLocPin) hideGpsPinPopup();
   savePrefs();
   activeCarId = id;
-  setNearestRegion(pendingLat, pendingLon);
   setSheetCollapsed(false);  // reveal the new card
   updateCarMarkers();
   checkCarSilently(cars[cars.length - 1]);
@@ -249,7 +239,7 @@ function defaultCarName() {
 // ── Cars panel ────────────────────────────────────────────────────────────────
 // Region-local clock for a /check response (the car's region, not the selected one).
 function schedNow(sched) {
-  return BroomUrgency.nowForTimeZone(regions[sched?.region || regionSelect.value]?.tz || 'UTC');
+  return BroomUrgency.nowForTimeZone(regions[sched?.region || _region]?.tz || 'UTC');
 }
 
 // Sweeping urgency from the raw schedules against the live clock — the same
@@ -261,8 +251,9 @@ function sweepUrgency(sched) {
   return BroomUrgency.checkDaySweeping(entries, schedNow(sched));
 }
 
-function _urgencyLine(u, label) {
-  return `<div class="ce-sched-urgency" style="color:${URGENCY[u].color}">${esc(label)}</div>`;
+// Verdict next to the card title, in the urgency colour.
+function _statusHTML(u, label) {
+  return `<span class="ce-status" style="color:${URGENCY[u].color}">${esc(label)}</span>`;
 }
 function _itemsHTML(lines) {
   return lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
@@ -274,8 +265,7 @@ function scheduleHTML(sched) {
   const u = sweepUrgency(sched);
   const lines = BroomUrgency.formatBothSides(
     sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
-  return _urgencyLine(u, URGENCY[u].car)
-       + '<div class="ce-sched-header">Street sweeping schedule:</div>'
+  return '<div class="ce-sched-header">Sweeping:</div>'
        + _itemsHTML(lines.length ? lines : ['No sweeping scheduled']);
 }
 
@@ -295,23 +285,28 @@ function renderCarsPanel() {
     // Urgency tint is theme-aware via [data-urgency] CSS (dark mode needs
     // different backgrounds), so set the attribute instead of a hardcoded hex.
     entry.dataset.urgency = urgency;
-    entry.style.cssText = `--car-color:${color};--urg-color:${URGENCY[urgency].color}`;
+    entry.style.cssText = `--car-color:${color}`;
+    // Click: expand (schedule + location buttons) and centre the target; click
+    // the open card again to collapse it.
     entry.addEventListener('click', e => {
       if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
-      focusCar(car.id);
+      if (_selectedCarId === car.id) clearCarSelection(); else focusCar(car.id);
     });
 
     entry.innerHTML = `
       <div class="ce-header">
         <span class="ce-dot"></span>
         <span class="ce-name" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(car.name)}</span>
-        <button class="ce-remove" data-id="${esc(car.id)}" title="Remove">✕</button>
+        ${sched ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
+        <button class="ce-remove" data-id="${esc(car.id)}" title="Remove" aria-label="Remove">${icon('close')}</button>
       </div>
       <div class="ce-addr" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(addrText)}</div>
+      <div class="ce-detail">
       <div class="ce-sched">${scheduleHTML(sched)}</div>
       <div class="ce-actions">
-        <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">📍 GPS</button>
-        <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">📌 Set location</button>
+        <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">${icon('locate')} GPS</button>
+        <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">${icon('pin')} Set location</button>
+      </div>
       </div>`;
 
     // ── Name editing ──
@@ -332,7 +327,7 @@ function renderCarsPanel() {
         }
         car.lat = hit.lat; car.lon = hit.lon;
         savePrefs();
-        setNearestRegion(car.lat, car.lon);
+        if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
         updateCarMarkers();
         checkCarSilently(car);
       } catch (_) { addrEl.textContent = addrText; }
@@ -341,15 +336,14 @@ function renderCarsPanel() {
     // ── GPS button ──
     entry.querySelector('.ce-btn-gps').addEventListener('click', () => {
       const btn = entry.querySelector('.ce-btn-gps');
-      btn.disabled = true; btn.textContent = '…';
+      btn.disabled = true; btn.classList.add('busy');
       getGPS(async (lat, lon) => {
         car.lat = lat; car.lon = lon;
         savePrefs();
-        btn.disabled = false; btn.textContent = '📍 GPS';
-        setNearestRegion(lat, lon); setLocationKnown('gps', lat, lon);
+        btn.disabled = false; btn.classList.remove('busy');
         if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
         await checkCarWithRender(car);
-      }, msg => { btn.disabled = false; btn.textContent = '📍 GPS'; showToast(`GPS: ${msg}`, true); });
+      }, msg => { btn.disabled = false; btn.classList.remove('busy'); showToast(`GPS: ${msg}`, true); });
     });
 
     // ── Set location button ──
@@ -366,8 +360,6 @@ function renderCarsPanel() {
       savePrefs();
       updateCarMarkers();
       renderCarsPanel();
-      if (!cars.length) setStatus('idle', 'Add a car to check street sweeping.');
-      else updateStatusFromSchedules();
     });
 
     carsPanel.appendChild(entry);

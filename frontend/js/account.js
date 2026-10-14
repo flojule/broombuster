@@ -85,9 +85,10 @@ btnAccount.addEventListener('click', e => {
     : [_menuItem('Sync cars and homes across devices'),
        _menuItem('Sign in with Google', () => { location.href = '/auth/login'; })];
   accountMenu.replaceChildren(...items);
+  // Opens to the left of the button (it sits in the right column).
   const r = btnAccount.getBoundingClientRect();
-  accountMenu.style.top = (r.bottom + 4) + 'px';
-  accountMenu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+  accountMenu.style.top = r.top + 'px';
+  accountMenu.style.right = (window.innerWidth - r.left + 8) + 'px';
   accountMenu.style.display = 'block';
 });
 document.addEventListener('click', hideAccountMenu);

@@ -23,6 +23,7 @@ document.addEventListener('keydown', e => {
   const ae = document.activeElement;
   if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
   let dismissed = false;
+  if (!_legendPop.hidden)                       { setLegendOpen(false); dismissed = true; }
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
   if (_namePopup)                               { closeNameBox();     dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
@@ -48,77 +49,12 @@ function abbreviate(s) {
     .replace(/\bEast\b/gi, 'E').replace(/\bWest\b/gi, 'W');
 }
 
-// Key of the region whose center is nearest (lat, lon) — cities.region_for_point.
-function nearestRegionKey(lat, lon) {
-  let best = null, bestDist = Infinity;
-  for (const [key, r] of Object.entries(regions)) {
-    const d = (r.center.lat - lat) ** 2 + (r.center.lon - lon) ** 2;
-    if (d < bestDist) { bestDist = d; best = key; }
-  }
-  return best;
-}
-
-function setLocationKnown(source, lat = null, lon = null, city = null) {
-  _locSource = source || null; _locLat = lat; _locLon = lon; _locCity = city || null;
-  btnLocate.classList.remove('ip', 'gps');
-  if (source) btnLocate.classList.add(source);
-  updateLocateInfo();
-}
-
-function updateLocateInfo() {
-  const el = document.getElementById('locate-info');
-  if (!_locSource) { el.textContent = ''; return; }
-  if (_locSource === 'ip') {
-    el.textContent = _locCity ? `IP: ${_locCity}` : 'IP';
-  } else {
-    const coords = (_locLat !== null && _locLon !== null)
-      ? `${_locLat.toFixed(4)}, ${_locLon.toFixed(4)}` : '';
-    const area = _locCity || regions[nearestRegionKey(_locLat, _locLon)]?.name || '';
-    el.textContent = coords
-      ? `GPS: ${coords}${area ? ' · ' + area : ''}`
-      : `GPS${area ? ': ' + area : ''}`;
-  }
-}
-
 // ── Cities / regions ──────────────────────────────────────────────────────────
 async function loadCities() {
   try {
     const res = await fetch('/cities');
-    if (!res.ok) return;
-    regions = await res.json();
-    regionSelect.innerHTML = '';
-    for (const [key, val] of Object.entries(regions)) {
-      const opt = document.createElement('option');
-      opt.value = key; opt.textContent = val.name;
-      regionSelect.appendChild(opt);
-    }
+    if (res.ok) regions = await res.json();
   } catch (_) {}
-}
-
-regionSelect.addEventListener('change', () => {
-  if (_settingRegion) return;  // programmatic update — don't cascade
-  const rk    = regionSelect.value;
-  const rc    = regions[rk]?.center;
-  const newCenter = rc || DEFAULT_CENTER;
-
-  _renderedRegion  = rk;
-  ensureTiles();
-  if (map) map.jumpTo({ center: [newCenter.lon, newCenter.lat], zoom: regions[rk]?.zoom || 11 });
-  updateCarMarkers();
-
-  const carInRegion = cars.find(c => nearestRegionKey(c.lat, c.lon) === rk);
-  if (carInRegion) { activeCarId = carInRegion.id; checkCarWithRender(carInRegion); }
-  else { setStatus('idle', 'Add a car to check street sweeping.'); }
-});
-
-function setNearestRegion(lat, lon) {
-  const best = nearestRegionKey(lat, lon);
-  if (best && regionSelect.value !== best) {
-    _settingRegion = true;
-    regionSelect.value = best;
-    _settingRegion = false;
-  }
-  if (best) _renderedRegion = best;
 }
 
 // ── Saved cars + homes (this browser only) ───────────────────────────────────
@@ -134,21 +70,24 @@ function savePrefs() {
   syncPrefs();
 }
 
+// Coarse position from the IP address (ISP routing point, often a city or more
+// off): used only to pick the region, never to place the map.
 async function getIPLocation() {
   try {
     const r = await fetch('https://ipapi.co/json/');
     const d = await r.json();
-    if (d.latitude && d.longitude) return { lat: d.latitude, lon: d.longitude, city: d.city || '' };
+    if (d.latitude && d.longitude) return { lat: d.latitude, lon: d.longitude };
   } catch (_) {}
   return null;
 }
 
-function loadAreaMap(lat, lon, zoom = 11) {
-  _renderedRegion = regionSelect.value || _renderedRegion;
-  if (!map || !_renderedRegion) return;
-  map.jumpTo({ center: [lon, lat], zoom });
-  setStatus('idle', 'Add a car to check street sweeping.');
-  ensureTiles();
+// Device position (Wi-Fi/GPS) when the user already allowed it: no prompt on load.
+async function getPermittedGPS() {
+  try {
+    const p = await navigator.permissions.query({ name: 'geolocation' });
+    if (p.state !== 'granted') return null;
+  } catch (_) { return null; }
+  return new Promise(resolve => getGPS((lat, lon) => resolve({ lat, lon }), () => resolve(null)));
 }
 
 function getGPS(onSuccess, onError) {

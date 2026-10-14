@@ -1,7 +1,7 @@
-// ── Info card: street under the target + one sweep calendar ──────────────────
-// Layers: the street under the target (solid red day) and every car with a
-// schedule (dot in the car's colour). Days are {y, m, d}; arithmetic and weekday
-// come from urgency.js.
+// ── Calendar: one sweep calendar + the street sign at the target ─────────────
+// Layers: the street under the target (day tint) and every car with a schedule
+// (dot in the car's colour). Days are {y, m, d}; arithmetic and weekday come from
+// urgency.js.
 const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, WEEKDAYS } = BroomUrgency;
 const _WD1 = WEEKDAYS.map(w => w[0]);
 const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -9,7 +9,7 @@ const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
 
 // Region-local "today" for the map's tile region (browser tz before one loads).
 function calNow() {
-  return BroomUrgency.nowForTimeZone(regions[_tilesRegion || regionSelect.value]?.tz);
+  return BroomUrgency.nowForTimeZone(regions[_tilesRegion || _region]?.tz);
 }
 
 // key -> text for sweep days in [start, end]. `side` limits to one street side.
@@ -64,23 +64,27 @@ function _dotsHTML(layers, k) {
   return `<span class="cal-dots">${dots}</span>`;
 }
 
-// Street first, then each car with sweeping that day: [{mark (HTML), text}].
+// Each car with sweeping that day: [{mark (HTML), text}]. The street is shown by
+// the day tint and the sign, not repeated here.
 function _dayLines(layers, k) {
-  const out = [];
-  if (layers.ptr.has(k)) out.push({ mark: '📍', text: layers.ptr.get(k) });
-  for (const l of layers.cars) {
-    if (l.days.has(k)) out.push({ mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
-                                  text: `${l.car.name}: ${l.days.get(k)}` });
-  }
-  return out;
+  return layers.cars.filter(l => l.days.has(k)).map(l => ({
+    mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
+    text: `${l.car.name}: ${l.days.get(k)}`,
+  }));
+}
+
+// Street day tint: red today, orange tomorrow (as on the map), else light green.
+function _streetCls(layers, k, today) {
+  if (!layers.ptr.has(k)) return '';
+  return 'sw-day' + (k === _ymdKey(today) ? ' sw-now' : k === _ymdKey(_ymdAdd(today, 1)) ? ' sw-next' : '');
 }
 
 function sweepStripHTML(layers, today) {
   let cells = '';
   for (let i = 0; i < 14; i++) {
     const p = _ymdAdd(today, i), k = _ymdKey(p);
-    const cls = ['sw-cell', layers.ptr.has(k) ? 'sw-day' : '', i === 0 ? 'sw-today' : ''].filter(Boolean).join(' ');
-    const title = `${_dayLabel(p)}: ${_dayLines(layers, k).map(l => l.text).join('; ') || 'no sweeping'}`;
+    const cls = ['sw-cell', _streetCls(layers, k, today), i === 0 ? 'sw-today' : ''].filter(Boolean).join(' ');
+    const title = `${_dayLabel(p)}: ${_dayLines(layers, k).map(l => l.text).join('; ') || (layers.ptr.has(k) ? `Sweeping: ${layers.ptr.get(k)}` : 'No sweeping')}`;
     cells += `<span class="${cls}" data-cal-day="${k}" title="${esc(title)}">`
            + `<i>${_WD1[_dow(p)]}</i>${p.d}${_dotsHTML(layers, k)}</span>`;
   }
@@ -91,42 +95,38 @@ function sweepStripHTML(layers, today) {
 function calendarHTML(ptrSched, ym, sel, today) {
   const first = { y: ym.y, m: ym.m, d: 1 };
   const start = _ymdAdd(first, -_dow(first));
-  const inMonth = new Date(Date.UTC(ym.y, ym.m, 0)).getUTCDate();
-  const n = Math.ceil((_dow(first) + inMonth) / 7) * 7;
+  const n = 42;  // six weeks always: the card keeps its shape across months
   const layers = calLayers(ptrSched, start, _ymdAdd(start, n - 1));
   const todayK = _ymdKey(today);
   let cells = _WD1.map(w => `<span class="cal-wd">${w}</span>`).join('');
   for (let i = 0; i < n; i++) {
     const p = _ymdAdd(start, i), k = _ymdKey(p);
-    const cls = ['cal-day', layers.ptr.has(k) ? 'sw-day' : '', p.m !== ym.m ? 'cal-out' : '',
+    const cls = ['cal-day', _streetCls(layers, k, today), p.m !== ym.m ? 'cal-out' : '',
                  k === todayK ? 'sw-today' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
     cells += `<button class="${cls}" data-cal-day="${k}">${p.d}${_dotsHTML(layers, k)}</button>`;
   }
   const detail = sel
     ? `<b>${_dayLabel(_keyDay(sel))}</b>` + (_dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('')
-        || '<div class="cal-muted">No sweeping</div>')
+        || (layers.ptr.has(sel) ? `<div>Sweeping: ${esc(layers.ptr.get(sel))}</div>`
+                                : '<div class="cal-muted">No sweeping</div>'))
     : '<span class="cal-muted">Tap a day for details</span>';
-  const legend = (ptrSched ? '<span><i class="cal-key sw-day"></i>street at target</span>' : '')
-    + layers.cars.map(l => `<span><i class="cal-key" style="background:${l.color}"></i>${esc(l.car.name)}</span>`).join('');
-  return `<div class="cal-head">`
-       + `<button class="cal-nav" data-cal-nav="-1" aria-label="Previous month">‹</button>`
-       + `<b>${_MONTHS[ym.m - 1]} ${ym.y}</b>`
-       + `<button class="cal-nav" data-cal-nav="1" aria-label="Next month">›</button></div>`
-       + `<div class="cal-grid">${cells}</div>`
-       + `<div class="cal-detail">${detail}</div>`
-       + `<div class="cal-legend">${legend}</div>`;
+  return `<div class="cal-grid">${cells}</div><div class="cal-detail">${detail}</div>`;
 }
 
-// ── Info card ────────────────────────────────────────────────────────────────
-// Compact: street name, schedule lines, 14-day strip. Tap anywhere on the card
-// to open the month view; tap the header (chevron) or press Esc to close it.
+// ── Calendar card ────────────────────────────────────────────────────────────
+// Compact: 14-day strip. Tap anywhere on the card to open the month view; tap
+// the header (chevron) or press Esc to close it. Its size never depends on the
+// target; only day marks change.
 const infoCard  = document.getElementById('info-card');
 const icHead    = document.getElementById('ic-head');
 const icTitle   = document.getElementById('ic-title');
-const icLines   = document.getElementById('ic-lines');
 const icCal     = document.getElementById('ic-cal');
-let _cal = { expanded: false, ym: null, sel: null, srcKey: '' };
+const sign      = document.getElementById('street-sign');
+const signName  = document.getElementById('ss-name');
+const signLines = document.getElementById('ss-lines');
+let _cal = { expanded: isDesktop(), ym: null, sel: null };  // desktop opens the month view
 let _calKey = '';       // last rendered state, to skip no-op re-renders
+let _signKey = '';
 let _ptrSched = null;   // street schedule under the target (null: none)
 const _schedIds = new WeakMap();
 let _schedSeq = 0;
@@ -136,37 +136,48 @@ function _schedId(s) {
   return _schedIds.get(s);
 }
 
+// Street sign for the street at the target: "No parking" + schedule lines as
+// published + street name (hidden: no street; muted "clear" form: no sweeping).
+function renderStreetSign(props, lines) {
+  const key = props ? [props.street, props.render_type, lines.join('~')].join('|') : '';
+  if (key === _signKey) return;
+  _signKey = key;
+  sign.hidden = !props;
+  if (!props) return;
+  sign.classList.toggle('clear', !lines.length);
+  signName.textContent = (props.render_type === 'polygon' ? 'Zone: ' : '') + (props.street || '');
+  signLines.innerHTML = lines.length ? lines.map(l => `<div>${esc(l)}</div>`).join('')
+                                     : '<div>No sweeping</div>';
+}
+
 // f = center feature (undefined: look it up).
 function renderInfoCard(f) {
   if (!infoCard) return;
   if (f === undefined) f = _centerFeature();
   const props = f?.properties || null;
-  const street = props ? (props.street || '') : '';
-  const srcKey = props ? 'ptr:' + street : '';
-  const today = calNow(), todayK = _ymdKey(today);
-  if (srcKey !== _cal.srcKey) {                     // new street: back to today's month
-    _cal.srcKey = srcKey;
-    _cal.sel = null;
-    _cal.ym = { y: today.y, m: today.m };
-  }
-  _cal.ym = _cal.ym || { y: today.y, m: today.m };
   const lines = props ? tileSchedLines(props) : [];
+  renderStreetSign(props, lines);
+  const today = calNow(), todayK = _ymdKey(today);
+  _cal.ym = _cal.ym || { y: today.y, m: today.m };
+  if (_cal.expanded && _cal.sel == null) _cal.sel = todayK;
   _ptrSched = props && lines.length ? pointerSched(f) : null;
   const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
-  const key = [srcKey, props?.sched, lines.join('~'), carSig, todayK, _cal.expanded,
+  const key = [_ptrSched ? props.sched : '', carSig, todayK, _cal.expanded,
                _cal.ym.y * 100 + _cal.ym.m, _cal.sel].join('|');
   if (key === _calKey) return;
   _calKey = key;
 
   infoCard.classList.toggle('expanded', _cal.expanded);
+  document.body.classList.toggle('cal-open', _cal.expanded);
+  document.getElementById('ic-chevron').innerHTML = icon(_cal.expanded ? 'close' : 'chevron');
+  // Month view: the header row carries the month nav (saves a row).
+  icTitle.innerHTML = _cal.expanded
+    ? `<button class="cal-nav" data-cal-nav="-1" aria-label="Previous month">‹</button>`
+      + `<b>${_MONTHS[_cal.ym.m - 1]} ${_cal.ym.y}</b>`
+      + `<button class="cal-nav" data-cal-nav="1" aria-label="Next month">›</button>`
+    : '📅 Calendar';
   icHead.setAttribute('aria-expanded', String(_cal.expanded));
   icHead.title = _cal.expanded ? 'Collapse calendar' : 'Expand calendar';
-  icTitle.textContent = !props ? '📍 No street at target'
-    : (props.render_type === 'polygon' ? '📍 Zone: ' : '📍 ') + street;
-  icLines.hidden = _cal.expanded;
-  icLines.innerHTML = !props ? '<div class="sc-muted">Pan the target onto a street.</div>'
-    : lines.length ? lines.map(l => `<div class="sc-line">${esc(l)}</div>`).join('')
-    : '<div class="sc-muted">No sweeping scheduled.</div>';
   icCal.innerHTML = _cal.expanded
     ? calendarHTML(_ptrSched, _cal.ym, _cal.sel, today)
     : sweepStripHTML(calLayers(_ptrSched, today, _ymdAdd(today, 13)), today);

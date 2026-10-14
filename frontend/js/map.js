@@ -81,11 +81,11 @@ function attachMapListeners() {
   map.on('moveend', updateInfoCard);
   map.on('idle', updateInfoCard);
 
-  // Mount the selected region's tiles (it may change without a map event) and
-  // recolour newly loaded tile features once the map settles.
-  map.on('moveend', ensureTiles);
+  // Follow the map center to its region (mounts its tiles) and recolour newly
+  // loaded tile features once the map settles.
+  map.on('moveend', syncRegion);
   map.on('idle', scheduleUrgencyUpdate);
-  ensureTiles();
+  syncRegion();
 }
 
 // Run `cb` once the style can accept sources/layers. `style.load` is a one-shot
@@ -154,13 +154,43 @@ function addTilePaintLayers() {
     id: 'zones-line', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['get', 'render_type'], 'line'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': _urgCase('line'), 'line-width': ZONE_LINE_WIDTH },
+    paint: { 'line-color': _urgCase('line'), 'line-width': _lineWidth() },
   });
+}
+
+// ── Areas ─────────────────────────────────────────────────────────────────────
+// The region follows the map center (no picker). Zoomed out past AREA_ZOOM the
+// map shows one label per available area; a click flies to it.
+const _areaMarkers = new Map();  // region key -> maplibregl.Marker
+
+function _ensureAreaLabels() {
+  for (const [key, r] of Object.entries(regions)) {
+    if (_areaMarkers.has(key)) continue;
+    const el = document.createElement('button');
+    el.className = 'area-label';
+    el.textContent = r.name;
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      map.flyTo({ center: [r.center.lon, r.center.lat], zoom: r.zoom || 11 });
+    });
+    _areaMarkers.set(key, new maplibregl.Marker({ element: el }).setLngLat([r.center.lon, r.center.lat]).addTo(map));
+  }
+}
+
+function syncRegion() {
+  if (!map) return;
+  _ensureAreaLabels();
+  const zoomedOut = map.getZoom() < AREA_ZOOM;
+  for (const m of _areaMarkers.values()) m.getElement().hidden = !zoomedOut;
+  const c = map.getCenter();
+  const key = zoomedOut ? null : regionAt(c.lat, c.lng);
+  if (key) _region = key;
+  ensureTiles();
 }
 
 function ensureTiles() {
   if (!map) return;
-  const region = regionSelect.value || _renderedRegion;
+  const region = _region;
   if (!region) return;
   whenStyleReady(() => {
     if (!_pmtilesProtocol) {
@@ -216,7 +246,7 @@ function applyUrgencyStates() {
 
 // Canonical schedule lines for a tile feature (day-first, "Every <Wd>" merge,
 // Mon->Sun order, merged next-cluster dates), as on the car card. Shared by the
-// hover tooltip, the tap popup and the center banner.
+// hover tooltip, the tap popup and the street sign.
 function tileSchedLines(props) {
   let sched = [];
   try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}

@@ -18,74 +18,98 @@
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  </defs>
+</svg>
+
 <div id="app-screen">
-  <div id="topbar">
-    <span class="app-title" title="BroomBuster">🧹</span>
-    <span class="tb-sep"></span>
-    <select id="region-select" class="tb-select"></select>
-    <span class="tb-sep"></span>
-    <span id="status-text" class="idle">—</span>
-    <span id="locate-info"></span>
-    <button id="btn-locate" class="tb-btn" title="Use GPS location">📍</button>
-    <span class="tb-sep"></span>
-    <button id="btn-dark-mode" class="tb-btn" title="Toggle dark mode">🌙</button>
-    <button id="btn-account" class="tb-btn" title="Account" aria-haspopup="menu" hidden>👤</button>
-  </div>
   <div id="map-container">
     <div id="map"></div>
+
+    <!-- Right column (map info): account (when sign-in is on), theme, color key, zoom (desktop), locate. -->
+    <div id="map-ctrl">
+      <button id="btn-account" class="map-btn" title="Account" aria-label="Account" aria-haspopup="menu" hidden>👤</button>
+      <button id="btn-dark-mode" class="map-btn" title="Toggle dark mode" aria-label="Toggle dark mode"></button>
+      <div id="legend-wrap">
+        <button id="btn-legend" class="map-btn" title="Map colors" aria-label="Map colors" aria-expanded="false" aria-controls="legend-pop"><svg class="ic"><use href="#i-info"/></svg></button>
+        <div id="legend-pop" hidden>
+          <span class="urg-today"><i class="lg lg-3"></i>Today</span>
+          <span class="urg-tomorrow"><i class="lg lg-2"></i>Tomorrow</span>
+          <span class="urg-safe"><i class="lg lg-1"></i>Clear</span>
+          <span class="urg-none"><i class="lg lg-0"></i>Not covered</span>
+        </div>
+      </div>
+      <button id="btn-zoom-in" class="map-btn zoom-btn" title="Zoom in" aria-label="Zoom in"><svg class="ic"><use href="#i-plus"/></svg></button>
+      <button id="btn-zoom-out" class="map-btn zoom-btn" title="Zoom out" aria-label="Zoom out"><svg class="ic"><use href="#i-minus"/></svg></button>
+      <button id="btn-locate" class="map-btn" title="Use GPS location" aria-label="Use GPS location"><svg class="ic"><use href="#i-locate"/></svg></button>
+    </div>
 
     <!-- Floating pill shown during place mode: pan so the center target sits on
          the spot, then confirm. (Right-click is the desktop alternative.) -->
     <div id="place-banner">
-      <span id="place-banner-text">Move the map to aim the target</span>
-      <button id="btn-confirm-place">Place here</button>
+      <span id="place-banner-text"></span>
+      <button id="btn-confirm-place">Set here</button>
       <button id="btn-cancel-place">Cancel</button>
     </div>
 
     <!-- Right-click context menu -->
     <div id="ctx-menu">
       <div class="ctx-item" id="ctx-add-car">+ Add car here</div>
-      <div class="ctx-item" id="ctx-add-home">🏠 Set home here</div>
+      <div class="ctx-item" id="ctx-add-home">🏠 Add home here</div>
     </div>
 
-    <!-- Bottom sheet: cars & homes. Collapses to a handle so the map stays
-         clear (and so placement's center target is unobstructed). Body order:
-         legend, home-panel (add-home + home cards), add-car, then car cards
+    <!-- Bottom sheet: cars & homes. Empty: just the two add buttons. Otherwise it
+         minimizes to a handle so the map (and placement's center target) stays
+         clear. Body order: add-row, legend, home cards, then car cards
          (appended by renderCarsPanel). -->
     <div id="sheet">
-      <div id="sheet-handle" role="button" tabindex="0" aria-label="Toggle cars & homes panel">
-        <span id="sheet-grip"></span>
-        <span id="sheet-summary"></span>
-        <span id="sheet-chevron">▾</span>
+      <div id="sheet-handle" role="button" tabindex="0" aria-label="Minimize or show cars & homes">
+          <span id="sheet-summary"></span>
+        <span id="sheet-chevron"><svg class="ic"><use href="#i-chevron"/></svg></span>
       </div>
       <div id="cars-panel">
-        <div id="map-legend" class="cars-legend">
-          <span class="urg-today">■ Today</span>
-          <span class="urg-tomorrow">■ Tomorrow</span>
-          <span class="urg-safe">■ Clear</span>
+        <div id="add-row">
+          <button id="btn-add-home" class="add-car-btn add-home-btn" title="Add a home to see trash & recycling day">🏠 Add home</button>
+          <button id="btn-add-car" class="add-car-btn">🚗 Add car</button>
         </div>
         <div id="home-panel"></div>
-        <button id="btn-add-car" class="add-car-btn">🚗 Add car</button>
       </div>
     </div>
 
     <!-- GPS "you are here" pin popup -->
     <div id="gps-pin-popup">
-      <button id="btn-gps-add">📍 Add car here</button>
-      <button id="btn-gps-close" class="popup-close inline-close" title="Close (Esc)" aria-label="Close">✕</button>
+      <button id="btn-gps-add"><svg class="ic"><use href="#i-pin"/></svg> Add car here</button>
+      <button id="btn-gps-close" class="popup-close inline-close" title="Close (Esc)" aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button>
     </div>
 
-    <!-- Center crosshair: marks the point the info card reads -->
+    <!-- Center target: marks the point the street sign reads -->
     <div id="center-crosshair"></div>
 
-    <!-- Info card: street under the center target + the sweep calendar (always
-         present; compact strip, tap to open the month view). -->
+    <!-- Street sign for the street at the target: schedule as published. -->
+    <div id="street-sign" hidden>
+      <div id="ss-head">No parking</div>
+      <div id="ss-lines"></div>
+      <div id="ss-foot">Street sweeping</div>
+      <div id="ss-name"></div>
+    </div>
+
+    <!-- Calendar: fixed content (strip, or month view on tap); the street under
+         the target and the cars appear only as marks on its days. -->
     <div id="info-card">
       <div id="ic-head" role="button" tabindex="0" aria-expanded="false">
-        <span id="ic-title"></span>
-        <span id="ic-chevron">▾</span>
+        <span id="ic-title">📅 Calendar</span>
+        <span id="ic-chevron"><svg class="ic"><use href="#i-chevron"/></svg></span>
       </div>
-      <div id="ic-lines"></div>
       <div id="ic-cal"></div>
     </div>
   </div>
