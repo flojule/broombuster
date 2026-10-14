@@ -244,7 +244,7 @@ function applyUrgencyStates() {
   }
 }
 
-// Canonical schedule lines for a tile feature (day-first, "Every <Wd>" merge,
+// Canonical schedule lines for a tile feature (days merged per time: "Tue, Thu · 3AM–5AM",
 // Mon->Sun order, merged next-cluster dates), as on the car card. Shared by the
 // hover tooltip, the tap popup and the street sign.
 function tileSchedLines(props) {

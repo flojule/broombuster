@@ -271,8 +271,7 @@
   function weekdayFirst(desc) {
     var toks = desc.split(' ').filter(Boolean);
     if (!toks.length) return desc;
-    var every = toks[0].toLowerCase() === 'every';
-    var body = every ? toks.slice(1) : toks;
+    var body = toks[0].toLowerCase() === 'every' ? toks.slice(1) : toks;
     var wd = [];
     for (var i = 0; i < body.length; i++) if (_wdCanon(body[i])) wd.push(i);
     if (!wd.length) return desc;
@@ -283,10 +282,8 @@
     }
     var days = [];
     for (var k = lo; k <= hi; k++) if (wd.indexOf(k) >= 0) days.push(_wdCanon(body[k])[1]);
-    var daysS = days.length === 1 ? days[0]
-              : days.slice(0, -1).join(', ') + ' & ' + days[days.length - 1];
     var rest = body.slice(0, lo).concat(body.slice(hi + 1));
-    return (every ? ['Every'] : []).concat([daysS]).concat(rest).join(' ').trim();
+    return [days.join(', ')].concat(rest).join(' ').trim();
   }
 
   // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". A leading
@@ -304,6 +301,9 @@
     });
   }
 
+  // Between what days and when: "Tue, Thu · 3AM–5AM".
+  var SEP = ' \u00b7 ';
+
   function sweepBody(desc, time) {
     var d = (typeof desc === 'string') ? desc : '';
     d = d.replace(/\s*\((?:every|bi-?weekly)\)/ig, '');
@@ -316,7 +316,7 @@
     if (!d || d.toUpperCase() === 'N/A') return '';
     var t = timeDisplay(time || '');
     if (t === '' || t === 'N/A' || d.indexOf(t) !== -1) return d;
-    return d + ', ' + t;
+    return d + SEP + t;
   }
 
   function codeWeekday(code) {
@@ -336,20 +336,22 @@
     return ords[1] && ords[2] && ords[3] && ords[4];
   }
 
-  // Split sorted weekday ranks into runs of consecutive days.
-  function contiguousRuns(ranks) {
-    var runs = [], cur = [];
-    for (var i = 0; i < ranks.length; i++) {
-      if (cur.length && ranks[i] === cur[cur.length - 1] + 1) cur.push(ranks[i]);
-      else { if (cur.length) runs.push(cur); cur = [ranks[i]]; }
+  // Sorted weekday ranks -> "Mon, Wed, Fri"; runs of 3+ become "Mon–Fri".
+  function dayList(ranks) {
+    var parts = [];
+    for (var i = 0; i < ranks.length; ) {
+      var j = i;
+      while (j + 1 < ranks.length && ranks[j + 1] === ranks[j] + 1) j++;
+      if (j - i >= 2) parts.push(WEEKDAYS[ranks[i]] + '–' + WEEKDAYS[ranks[j]]);
+      else for (var k = i; k <= j; k++) parts.push(WEEKDAYS[ranks[k]]);
+      i = j + 1;
     }
-    if (cur.length) runs.push(cur);
-    return runs;
+    return parts.join(', ');
   }
 
-  function weekdayRangeBody(label, time) {
+  function withTime(label, time) {
     var t = timeDisplay(time || '');
-    return (t && t !== 'N/A') ? (label + ', ' + t) : label;
+    return (t && t !== 'N/A') ? (label + SEP + t) : label;
   }
 
   function _ent(e) {
@@ -370,55 +372,32 @@
       (parseDatesCode(clean[i].code) !== null ? datesE : weekly).push(clean[i]);
     }
 
-    var groups = {}, order = [], loose = [];
+    // Per (weekday, time): which weeks of the month. Then days sharing the same
+    // weeks and time collapse into one line: "Tue, Thu · 3AM–5AM".
+    var perDay = {}, perDayOrder = [], loose = [];
     for (i = 0; i < weekly.length; i++) {
       var w = weekly[i], wk = codeWeekday(w.code);
       if (wk === null) { loose.push(w); continue; }
-      var key = wk[0] + '|' + timeDisplay(w.time || '');
-      if (!groups[key]) { groups[key] = { rank: wk[0], disp: wk[1], ords: {}, time: w.time, items: [] }; order.push(key); }
+      var dk0 = wk[0] + '|' + timeDisplay(w.time || '');
+      if (!perDay[dk0]) { perDay[dk0] = { rank: wk[0], time: w.time, ords: {} }; perDayOrder.push(dk0); }
       var ords = codeOrdinals(w.code);
-      for (var o in ords) groups[key].ords[o] = 1;
-      groups[key].items.push(w);
+      for (var o in ords) perDay[dk0].ords[o] = 1;
     }
-
-    // Collapse every-week groups that
-    // share one time across a contiguous 3+ weekday run into "Mon–Fri, <time>"
-    // (all seven -> "Every day, <time>"); partial-ordinal groups stay per-day.
+    var slots = {}, slotOrder = [];
+    for (i = 0; i < perDayOrder.length; i++) {
+      var pd = perDay[perDayOrder[i]];
+      var weeks = hasAllFour(pd.ords) ? '' : Object.keys(pd.ords).sort().join('');
+      var sk = weeks + '|' + timeDisplay(pd.time || '');
+      if (!slots[sk]) { slots[sk] = { weeks: weeks, time: pd.time, ranks: [] }; slotOrder.push(sk); }
+      slots[sk].ranks.push(pd.rank);
+    }
     var ranked = [];
-    var everyweek = {};   // td -> {time, days: {rank: [disp, fallback]}}
-    var ewOrder = [];
-    for (i = 0; i < order.length; i++) {
-      var g = groups[order[i]];
-      var ordCount = 0;
-      for (var ok in g.ords) if (g.ords[ok]) ordCount++;
-      if (ordCount === 0 || hasAllFour(g.ords)) {
-        var fallback = hasAllFour(g.ords)
-          ? sweepBody('Every ' + g.disp, g.time)
-          : sweepBody(g.items[0].desc, g.items[0].time);
-        var td = timeDisplay(g.time || '');
-        if (!everyweek[td]) { everyweek[td] = { time: g.time, days: {} }; ewOrder.push(td); }
-        everyweek[td].days[g.rank] = [g.disp, fallback];
-      } else {
-        for (var j = 0; j < g.items.length; j++) ranked.push([g.rank, 0, sweepBody(g.items[j].desc, g.items[j].time)]);
-      }
-    }
-    for (i = 0; i < ewOrder.length; i++) {
-      var slot = everyweek[ewOrder[i]];
-      var ordRanks = Object.keys(slot.days).map(Number).sort(function (a, b) { return a - b; });
-      if (ordRanks.length === 7) {
-        ranked.push([0, -1, weekdayRangeBody('Every day', slot.time)]);
-        continue;
-      }
-      var runs = contiguousRuns(ordRanks);
-      for (var ri = 0; ri < runs.length; ri++) {
-        var run = runs[ri];
-        if (run.length >= 3) {
-          var label = slot.days[run[0]][0] + '–' + slot.days[run[run.length - 1]][0];
-          ranked.push([run[0], -1, weekdayRangeBody(label, slot.time)]);
-        } else {
-          for (var rr = 0; rr < run.length; rr++) ranked.push([run[rr], -1, slot.days[run[rr]][1]]);
-        }
-      }
+    for (i = 0; i < slotOrder.length; i++) {
+      var sl = slots[slotOrder[i]];
+      sl.ranks.sort(function (a, b) { return a - b; });
+      var label = sl.ranks.length === 7 && !sl.weeks ? 'Every day' : dayList(sl.ranks);
+      if (sl.weeks) label += ' ' + _prettyOrdinals(sl.weeks);
+      ranked.push([sl.ranks[0], sl.weeks ? 1 : 0, withTime(label, sl.time)]);
     }
     ranked.sort(function (a, b) { return (a[0] - b[0]) || (a[1] - b[1]); });
 
