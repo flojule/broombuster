@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 git fetch --quiet origin main || exit 0   # offline: try next tick
 rev="$(git rev-parse origin/main)"
 [ "$rev" = "$(git rev-parse HEAD)" ] && exit 0
+[ "$rev" = "$(cat .deploy-bad 2>/dev/null)" ] && exit 0   # failed its health check; wait for a newer commit
 
 ci="$(gh run list --commit "$rev" --workflow ci.yml --json status,conclusion \
         --jq '.[0] | "\(.status) \(.conclusion)"')"

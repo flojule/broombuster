@@ -116,3 +116,23 @@ def test_locate_uses_cloudflare_headers(client):
 def test_shell_revalidates_and_api_is_not_cached(client):
     assert client.get("/styles.css").headers["cache-control"] == "no-cache"
     assert client.get("/cities").headers["cache-control"] == "no-store"
+
+
+def test_index_assets_are_versioned_and_cacheable(client):
+    r = client.get("/")
+    assert r.headers["cache-control"] == "no-cache"
+    assert 'src="/js/app.js?v=' in r.text and 'href="/styles.css?v=' in r.text
+    assert "/vendor/maplibre-gl.mjs?v=" in r.text
+    v = r.text.split("/js/app.js?v=")[1].split('"')[0]
+    js = client.get(f"/js/app.js?v={v}")
+    assert js.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_rate_limit_blocks_bursts(client, monkeypatch):
+    from broombuster.api import web
+    monkeypatch.setattr(web, "RATE_LIMIT", True)
+    monkeypatch.setattr(web, "_limiter", web.RateLimiter())
+    hdr = {"cf-connecting-ip": "9.9.9.9", "cf-iplatitude": "37.8", "cf-iplongitude": "-122.3"}
+    codes = [client.get("/locate", headers=hdr).status_code for _ in range(22)]
+    assert codes[-1] == 429 and 429 not in codes[:20]
+    assert client.get("/health", headers={"cf-connecting-ip": "9.9.9.9"}).status_code == 200

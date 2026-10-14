@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import urllib.request
 from contextlib import asynccontextmanager
@@ -17,11 +16,10 @@ from broombuster import analysis, gps, resolve, trash
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_for_point
 from broombuster.config import REPO_ROOT
 
-from . import auth
+from . import auth, web
 from .state import load_all, region_gdf
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+web.setup_logging()
 
 
 @asynccontextmanager
@@ -35,35 +33,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="BroomBuster", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
 
-_SECURITY_HEADERS = {
-    "X-Content-Type-Options":  "nosniff",
-    "Referrer-Policy":         "strict-origin-when-cross-origin",
-    "X-Frame-Options":         "DENY",
-    "Content-Security-Policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
-}
-
-
-# Cloudflare caches .js/.css/.png at the edge for hours when the origin sends no
-# Cache-Control, serving stale scripts against fresh HTML. The shell must always
-# revalidate (ETag makes that a cheap 304); tiles and vendored libs change rarely.
-_API_PATHS = ("/check", "/address", "/cities", "/health", "/auth", "/me", "/locate")
-
-
-@app.middleware("http")
-async def security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers.update(_SECURITY_HEADERS)
-    if "cache-control" not in response.headers:
-        path = request.url.path
-        if path.startswith(_API_PATHS):
-            response.headers["Cache-Control"] = "no-store"
-        elif path.startswith(("/tiles/", "/vendor/")):
-            response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
-        else:
-            response.headers["Cache-Control"] = "no-cache"
-    return response
-
-
+app.middleware("http")(web.http_middleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.include_router(auth.router)
 
@@ -201,4 +171,9 @@ def check_home(req: CheckHomeRequest):
 
 
 _frontend_dir = os.path.join(REPO_ROOT, "frontend")
+@app.get("/", include_in_schema=False)
+def index():
+    return web.index_response()
+
+
 app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

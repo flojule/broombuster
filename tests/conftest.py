@@ -1,6 +1,10 @@
+import os
+
 import pytest
 
 from broombuster import data_loader
+
+os.environ.setdefault("BB_RATE_LIMIT", "0")  # one test client would trip the per-IP limits
 
 
 @pytest.fixture(scope="session")
