@@ -15,7 +15,7 @@ document.addEventListener('click', e => {
 });
 
 // Holistic Escape: dismiss whichever transient UI is open (one layer per
-// press), and if nothing is open, deselect the selected car card.
+// press), then close the month view, then deselect the selected car card.
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   // Editable fields own Escape locally (cancel rename / close name input);
@@ -29,6 +29,7 @@ document.addEventListener('keydown', e => {
   if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
   if (placingCar || placingHome)                { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
   if (dismissed) return;
+  if (_cal.expanded) { collapseCal(); return; }
   if (_selectedCarId) clearCarSelection();
 });
 

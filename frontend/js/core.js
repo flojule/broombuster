@@ -144,12 +144,10 @@ const btnConfirmPlace = document.getElementById('btn-confirm-place');
 
 // ── Bottom sheet (cars & homes) ───────────────────────────────────────────────
 // Collapses to a handle (default) so the map + placement center-target stay clear. The
-// expanded/collapsed state persists; `body.sheet-expanded` gates the center band.
-localStorage.removeItem('bb_sheet');  // pre-v2 key: reset everyone to the default (down)
+// expanded/collapsed state persists.
 let _sheetCollapsed = localStorage.getItem('bb_sheet_v2') !== 'open';
 function applySheet() {
   sheet.classList.toggle('collapsed', _sheetCollapsed);
-  document.body.classList.toggle('sheet-expanded', !_sheetCollapsed);
 }
 function setSheetCollapsed(v) {
   _sheetCollapsed = !!v;

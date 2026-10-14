@@ -80,7 +80,7 @@ function updateStatusFromSchedules() {
 // unobstructed. Right-click (desktop) is the alternative for an off-center spot.
 function _beginPlacing() {
   setSheetCollapsed(true);
-  syncPlacingUi();
+  collapseCal();
   placeBanner.classList.add('active');
   _crosshair.classList.add('placing');
   if (map) map.getCanvas().style.cursor = 'crosshair';
@@ -110,13 +110,7 @@ function stopPlacing() {
   placingEditId = null;
   placeBanner.classList.remove('active');
   _crosshair.classList.remove('placing');
-  syncPlacingUi();
   if (map) map.getCanvas().style.cursor = '';
-}
-
-// Hide the bottom info stack while placing/naming: it would cover the aim target and name box.
-function syncPlacingUi() {
-  document.body.classList.toggle('placing', placingCar || placingHome || !!_namePopup);
 }
 
 // Commit at the current map center (the point the crosshair marks).
@@ -209,8 +203,7 @@ function openNameBox(lat, lon) {
     closeButton: false, closeOnClick: false, anchor: 'bottom', offset: 22,
     className: 'name-popup',
   }).setLngLat([lon, lat]).setDOMContent(row).addTo(map);
-  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; syncPlacingUi(); });
-  syncPlacingUi();
+  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; });
   setTimeout(() => { input.focus(); input.select(); }, 30);
 }
 
@@ -219,7 +212,6 @@ function openNameBox(lat, lon) {
 function closeNameBox(keepPending = false) {
   if (_namePopup) { _namePopup.remove(); _namePopup = null; }
   _nameInput = null;
-  syncPlacingUi();
   if (!keepPending) {
     removeTempPin();
     pendingLat = pendingLon = null;
@@ -276,23 +268,15 @@ function _itemsHTML(lines) {
   return lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
 }
 
-function hasSweeping(sched) {
-  return !!(sched && (sched.schedule_even.length || sched.schedule_odd.length));
-}
-
-// Both sides (car's first, labelled when they differ — same as the map hover);
-// the header and the 14-day strip open the month calendar.
+// Both sides (car's first, labelled when they differ — same as the map hover).
 function scheduleHTML(sched) {
   if (!sched) return '<span style="color:var(--muted)">Loading…</span>';
   const u = sweepUrgency(sched);
   const lines = BroomUrgency.formatBothSides(
     sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
-  const has = hasSweeping(sched);
-  const chevron = has ? ' <span class="ce-sched-chevron">▸</span>' : '';
   return _urgencyLine(u, URGENCY[u].car)
-       + `<div class="ce-sched-header${has ? ' clickable' : ''}">Street sweeping schedule:${chevron}</div>`
-       + _itemsHTML(lines.length ? lines : ['No sweeping scheduled'])
-       + (has ? sweepStripHTML(sched) : '');
+       + '<div class="ce-sched-header">Street sweeping schedule:</div>'
+       + _itemsHTML(lines.length ? lines : ['No sweeping scheduled']);
 }
 
 function renderCarsPanel() {
@@ -313,9 +297,8 @@ function renderCarsPanel() {
     entry.dataset.urgency = urgency;
     entry.style.cssText = `--car-color:${color};--urg-color:${URGENCY[urgency].color}`;
     entry.addEventListener('click', e => {
-      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')
-          || e.target.closest('.ce-sched-header.clickable') || e.target.closest('.sw-strip')) return;
-      setSelectedCar(car.id);
+      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
+      focusCar(car.id);
     });
 
     entry.innerHTML = `
@@ -330,13 +313,6 @@ function renderCarsPanel() {
         <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">📍 GPS</button>
         <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">📌 Set location</button>
       </div>`;
-
-    // ── Schedule header / strip → toggle the month calendar ──
-    if (hasSweeping(sched)) {
-      for (const el of entry.querySelectorAll('.ce-sched-header.clickable, .sw-strip')) {
-        el.addEventListener('click', e => { e.stopPropagation(); showCarCalendar(car.id); });
-      }
-    }
 
     // ── Name editing ──
     const nameEl = entry.querySelector('.ce-name');
@@ -396,6 +372,6 @@ function renderCarsPanel() {
 
     carsPanel.appendChild(entry);
   });
-  renderCalTab();
+  renderInfoCard();
   updateSheetSummary();
 }

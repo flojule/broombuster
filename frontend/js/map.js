@@ -75,11 +75,11 @@ function attachMapListeners() {
   map.on('move', updateGpsPinPopup);
   map.on('moveend', updateGpsPinPopup);
 
-  // Center banner: live-read the street under the viewport center while the map
+  // Info card: live-read the street under the viewport center while the map
   // moves (drag/zoom), and once more after tiles finish streaming in (idle).
-  map.on('move', updateCenterBanner);
-  map.on('moveend', updateCenterBanner);
-  map.on('idle', updateCenterBanner);
+  map.on('move', updateInfoCard);
+  map.on('moveend', updateInfoCard);
+  map.on('idle', updateInfoCard);
 
   // Mount the selected region's tiles (it may change without a map event) and
   // recolour newly loaded tile features once the map settles.
