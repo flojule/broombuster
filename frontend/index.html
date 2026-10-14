@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="BroomBuster">
-  <meta name="theme-color" content="#2563eb">
+  <meta name="theme-color" content="#ffffff">
 
   <link rel="stylesheet" href="/vendor/maplibre-gl.css">
   <script src="/vendor/pmtiles.js"></script>
@@ -74,21 +74,18 @@
       <button id="btn-gps-close" class="popup-close inline-close" title="Close (Esc)" aria-label="Close">✕</button>
     </div>
 
-    <!-- Center crosshair: marks the point the center banner reads -->
+    <!-- Center crosshair: marks the point the info card reads -->
     <div id="center-crosshair"></div>
 
-    <!-- Bottom-center info stack: sweep calendar tab above the live street banner.
-         Hidden on mobile while the cars/homes sheet is expanded. -->
-    <div id="info-stack">
-      <div id="cal-tab">
-        <div id="cal-tab-handle" role="button" tabindex="0" aria-label="Toggle sweep calendar">
-          <span id="cal-tab-title"></span>
-          <span id="cal-tab-chevron">▾</span>
-        </div>
-        <div id="cal-tab-body"></div>
+    <!-- Info card: street under the center target + the sweep calendar (always
+         present; compact strip, tap to open the month view). -->
+    <div id="info-card">
+      <div id="ic-head" role="button" tabindex="0" aria-expanded="false">
+        <span id="ic-title"></span>
+        <span id="ic-chevron">▾</span>
       </div>
-      <!-- Center banner: live readout of the street at the viewport center -->
-      <div id="snap-chip"></div>
+      <div id="ic-lines"></div>
+      <div id="ic-cal"></div>
     </div>
   </div>
 </div>

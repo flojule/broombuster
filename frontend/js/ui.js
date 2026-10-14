@@ -17,6 +17,7 @@ function _applyDark(on, persist) {
   _btnDark.textContent = on ? '☀️' : '🌙';
   _btnDark.title = on ? 'Switch to light' : 'Switch to dark';
   if (persist) localStorage.setItem('bb_dark', on ? '1' : '0');
+  document.querySelector('meta[name="theme-color"]').content = on ? '#1e293b' : '#ffffff';
   const style = on ? DARK_STYLE : LIGHT_STYLE;
   const styleChanged = _mapStyle !== style;
   _mapStyle = style;
@@ -39,11 +40,9 @@ function _applyDark(on, persist) {
 (function _initDark() { _applyDark(_wantDark(), false); })();
 _btnDark.addEventListener('click', () => _applyDark(!document.body.classList.contains('dark'), true));
 
-// ── Center banner ─────────────────────────────────────────────────────────────
-// Always-on pill that reports the street under the viewport center (the
-// mobile-friendly equivalent of hovering). Multi-line: street/zone on line 1,
-// the schedule (even/odd on their own lines) below — same lines the hover shows.
-const _snapChip   = document.getElementById('snap-chip');
+// ── Center target ─────────────────────────────────────────────────────────────
+// The info card reports the street under the viewport center (the
+// mobile-friendly equivalent of hovering); the crosshair marks that point.
 const _crosshair  = document.getElementById('center-crosshair');
 
 // Query the feature under the viewport center (small pixel box so thin street
@@ -61,22 +60,8 @@ function _centerFeature() {
   return feats.length ? feats[0] : null;
 }
 
-function updateCenterBanner() {
-  if (!map) { _snapChip.classList.remove('visible'); _crosshair.classList.remove('visible'); renderCalTab(null); return; }
-  // The center target is always on once the map is up — it marks the point the
-  // banner reads (the nearest projected street), independent of any hit.
+function updateInfoCard() {
+  if (!map) { _crosshair.classList.remove('visible'); renderInfoCard(null); return; }
   _crosshair.classList.add('visible');
-  const f = _centerFeature();
-  renderCalTab(f);
-  if (!f) { _snapChip.classList.remove('visible'); return; }
-  const props = f.properties || {};
-  const isPoly = props.render_type === 'polygon';
-  const street = props.street || '';
-  const lines  = tileSchedLines(props);
-  // Line 1: the street/zone (no distance). Following lines: the schedule, one
-  // per line (even/odd already arrive on their own lines from tileSchedLines).
-  const head = isPoly ? `📍 Zone: ${esc(street)}` : `📍 ${esc(street)}`;
-  _snapChip.innerHTML = `<div class="sc-line sc-head">${head}</div>`
-    + lines.map(l => `<div class="sc-line sc-sched">${esc(l)}</div>`).join('');
-  _snapChip.classList.add('visible');
+  renderInfoCard(_centerFeature());
 }

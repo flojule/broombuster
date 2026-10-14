@@ -1,11 +1,11 @@
 // Caches the app shell; API calls always go to the network.
-const CACHE = 'broombuster-v56';
+const CACHE = 'broombuster-v58';
 const SHELL = [
   '/', '/styles.css',
   '/js/urgency.js', '/js/core.js', '/js/ui.js', '/js/map.js',
   '/js/markers.js', '/js/calendar.js', '/js/data.js', '/js/cars.js', '/js/homes.js', '/js/app.js',
-  '/vendor/maplibre-gl.mjs', '/vendor/maplibre-gl-shared.mjs',
-  '/vendor/maplibre-gl-worker.mjs', '/vendor/maplibre-gl.css', '/vendor/pmtiles.js',
+  '/vendor/maplibre-gl.mjs', '/vendor/maplibre-gl-worker.mjs',
+  '/vendor/maplibre-gl.css', '/vendor/pmtiles.js',
   '/manifest.json', '/icon-192.png', '/icon-512.png',
 ];
 

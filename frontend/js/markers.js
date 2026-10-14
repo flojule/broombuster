@@ -75,6 +75,13 @@ function setSelectedCar(carId) {
   updateCarMarkers();
 }
 
+// Select a car and centre the target on it, so the info card reads its street.
+function focusCar(carId) {
+  setSelectedCar(carId);
+  const car = cars.find(c => c.id === carId);
+  if (car && map) map.easeTo({ center: [car.lon, car.lat], zoom: Math.max(map.getZoom(), 16) });
+}
+
 // ── GPS pin popup ─────────────────────────────────────────────────────────────
 function updateGpsPinPopup() {
   const popup = document.getElementById('gps-pin-popup');
