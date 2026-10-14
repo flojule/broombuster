@@ -67,6 +67,7 @@ function loadPrefs() {
 }
 function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
+  syncPrefs();
 }
 
 // Coarse position from the IP address (ISP routing point, often a city or more

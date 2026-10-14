@@ -48,7 +48,7 @@ function renderHomePanel() {
     entry.className = 'car-entry home-entry' + (h.id === _openHomeId ? ' selected' : '');
     entry.dataset.id = h.id;
     entry.dataset.urgency = urgency;
-    entry.style.cssText = '--car-color:#16a34a;--urg-color:#16a34a';
+    entry.style.cssText = '--car-color:#16a34a';
     // Click toggles the schedule, as on a car card.
     entry.addEventListener('click', e => {
       if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;

@@ -21,3 +21,7 @@ data/**/*.cpg
 
 # Editor swap files
 *.swp
+
+# Local secrets and the user database
+.env
+data/users.sqlite*

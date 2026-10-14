@@ -2,6 +2,7 @@
 async function initApp() {
   // Cities and saved cars first, so the map opens at the right place.
   await loadCities();
+  await loadAccount();  // a signed-in user's saved cars and homes replace the local copy
   loadPrefs();
   initMap(cars.length ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 } : DEFAULT_CENTER);
 

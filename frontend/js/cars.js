@@ -285,7 +285,7 @@ function renderCarsPanel() {
     // Urgency tint is theme-aware via [data-urgency] CSS (dark mode needs
     // different backgrounds), so set the attribute instead of a hardcoded hex.
     entry.dataset.urgency = urgency;
-    entry.style.cssText = `--car-color:${color};--urg-color:${URGENCY[urgency].color}`;
+    entry.style.cssText = `--car-color:${color}`;
     // Click: expand (schedule + location buttons) and centre the target; click
     // the open card again to collapse it.
     entry.addEventListener('click', e => {

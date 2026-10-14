@@ -1,11 +1,11 @@
 // Every urgency surface reads this one table: card colour (CSS vars in
 // styles.css), labels, and the map paint (MapLibre needs literal colours).
 const URGENCY = {
-  today:    { color: 'var(--urg-today)',    car: '🚨 Move car today!',   short: '🚨 Today',
+  today:    { color: 'var(--urg-today)',    short: '🚨 Today',
               fill: 'rgba(220,60,60,0.55)',  border: 'rgba(220,60,60,0.90)',  line: 'tomato' },
-  tomorrow: { color: 'var(--urg-tomorrow)', car: '⚠️ Move car tomorrow', short: '⚠️ Tomorrow',
+  tomorrow: { color: 'var(--urg-tomorrow)', short: '⚠️ Tomorrow',
               fill: 'rgba(230,130,20,0.40)', border: 'rgba(230,130,20,0.80)', line: 'orange' },
-  safe:     { color: 'var(--urg-safe)',     car: '✅ All clear',          short: '✅ Clear',
+  safe:     { color: 'var(--urg-safe)',     short: '✅ Clear',
               fill: 'rgba(80,110,180,0.18)', border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
 };
 

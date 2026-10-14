@@ -14,6 +14,7 @@ from broombuster import analysis, gps, resolve, trash
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_for_point
 from broombuster.config import REPO_ROOT
 
+from . import auth
 from .state import load_all, region_gdf
 
 logging.basicConfig(level=logging.INFO,
@@ -23,6 +24,8 @@ logging.basicConfig(level=logging.INFO,
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_all()
+    if auth.check_config():
+        auth.init_db()
     yield
 
 
@@ -45,6 +48,7 @@ async def security_headers(request: Request, call_next):
 
 
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.include_router(auth.router)
 
 
 class Located(NamedTuple):

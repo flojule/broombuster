@@ -36,8 +36,9 @@
   <div id="map-container">
     <div id="map"></div>
 
-    <!-- Right column (map info): theme, color key, zoom (desktop), locate. -->
+    <!-- Right column (map info): account (when sign-in is on), theme, color key, zoom (desktop), locate. -->
     <div id="map-ctrl">
+      <button id="btn-account" class="map-btn" title="Account" aria-label="Account" aria-haspopup="menu" hidden>👤</button>
       <button id="btn-dark-mode" class="map-btn" title="Toggle dark mode" aria-label="Toggle dark mode"></button>
       <div id="legend-wrap">
         <button id="btn-legend" class="map-btn" title="Map colors" aria-label="Map colors" aria-expanded="false" aria-controls="legend-pop"><svg class="ic"><use href="#i-info"/></svg></button>
@@ -114,6 +115,9 @@
   </div>
 </div>
 
+<!-- Account menu (filled by js/account.js) -->
+<div id="account-menu" role="menu"></div>
+
 <!-- Toast container -->
 <div id="toast-container"></div>
 
@@ -132,6 +136,7 @@
 <script defer src="js/markers.js"></script>
 <script defer src="js/calendar.js"></script>
 <script defer src="js/data.js"></script>
+<script defer src="js/account.js"></script>
 <script defer src="js/cars.js"></script>
 <script defer src="js/homes.js"></script>
 <script defer src="js/app.js"></script>

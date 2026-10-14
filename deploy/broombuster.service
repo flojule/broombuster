@@ -6,6 +6,8 @@ Wants=network-online.target
 [Service]
 User=__USER__
 WorkingDirectory=__REPO__
+EnvironmentFile=-__REPO__/.env
+UMask=0077
 ExecStart=__REPO__/.venv/bin/python -m uvicorn broombuster.api.app:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
