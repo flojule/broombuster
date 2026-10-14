@@ -3,7 +3,7 @@
 Build per-region PMTiles vector-tile archives from the normalised city data.
 
 Each region's combined GeoDataFrame is merged to one feature per physical
-segment/zone (maps.merge_segment_rows), written as newline-delimited GeoJSON,
+segment/zone (tiles.merge_segment_rows), written as newline-delimited GeoJSON,
 and handed to tippecanoe. Tile features carry RAW schedule codes only — the
 frontend (urgency.js) colours them against the current date, so archives stay
 date-independent and only need rebuilding when the source data refreshes.
@@ -26,7 +26,7 @@ from pathlib import Path
 
 import shapely.geometry
 
-from broombuster import analysis, data_loader, maps
+from broombuster import analysis, data_loader, tiles
 from broombuster.cities import REGIONS
 from broombuster.config import REPO_ROOT
 
@@ -41,9 +41,9 @@ _MAXZOOM = 14
 def _write_ndjson(region_key: str, path: Path) -> int:
     """Write merged region features as newline-delimited GeoJSON; return count."""
     gdf = data_loader.load_region_data(region_key)
-    records = maps.merge_segment_rows(gdf)
+    records = tiles.merge_segment_rows(gdf)
     # Dissolved ward outlines (Chicago) drawn over the per-section fills.
-    records = records + maps.ward_boundary_features(records)
+    records = records + tiles.ward_boundary_features(records)
     n = 0
     with open(path, "w") as fh:
         for rec in records:

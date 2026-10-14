@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi.testclient import TestClient
 
+from broombuster import config
 from broombuster.api import auth
 from broombuster.api.app import app
 
@@ -63,15 +64,15 @@ def _sign_in(client, monkeypatch, **claim_over):
 
 
 def test_disabled_without_env(monkeypatch, client):
-    for key in auth._ENV_KEYS:
+    for key in config.OAUTH_ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
-    assert client.get("/me").json() == {"enabled": False, "user": None, "prefs": None}
+    assert client.get("/api/me").json() == {"enabled": False, "user": None, "prefs": None}
     assert client.get("/auth/login").status_code == 503
     assert auth.check_config() is False
 
 
 def test_blank_template_is_guest_mode(monkeypatch):
-    for key in auth._ENV_KEYS:
+    for key in config.OAUTH_ENV_KEYS:
         monkeypatch.setenv(key, "")
     assert auth.check_config() is False
 
@@ -97,24 +98,24 @@ def test_login_redirect_targets_google(env, client):
 def test_sign_in_save_prefs_sign_out(env, client, monkeypatch):
     r = _sign_in(client, monkeypatch)
     assert r.headers["location"] == "/"
-    me = client.get("/me").json()
+    me = client.get("/api/me").json()
     assert me["user"] == {"email": "a@example.com"} and me["prefs"] is None
 
-    assert client.put("/me/prefs", json=PREFS, headers={"Origin": BASE}).status_code == 204
-    assert client.get("/me").json()["prefs"] == PREFS
+    assert client.put("/api/me/prefs", json=PREFS, headers={"Origin": BASE}).status_code == 204
+    assert client.get("/api/me").json()["prefs"] == PREFS
 
     assert client.post("/auth/logout", headers={"Origin": BASE}).status_code == 204
-    assert client.get("/me").json()["user"] is None
+    assert client.get("/api/me").json()["user"] is None
 
 
 def test_prefs_need_session_and_same_origin(env, client, monkeypatch):
-    assert client.put("/me/prefs", json=PREFS, headers={"Origin": BASE}).status_code == 401
+    assert client.put("/api/me/prefs", json=PREFS, headers={"Origin": BASE}).status_code == 401
     _sign_in(client, monkeypatch)
-    assert client.put("/me/prefs", json=PREFS).status_code == 403
-    assert client.put("/me/prefs", json=PREFS,
+    assert client.put("/api/me/prefs", json=PREFS).status_code == 403
+    assert client.put("/api/me/prefs", json=PREFS,
                       headers={"Origin": "https://evil.example"}).status_code == 403
-    assert client.delete("/me").status_code == 403
-    assert client.get("/me").json()["prefs"] is None
+    assert client.delete("/api/me").status_code == 403
+    assert client.get("/api/me").json()["prefs"] is None
 
 
 @pytest.mark.parametrize("bad", [
@@ -124,7 +125,7 @@ def test_prefs_need_session_and_same_origin(env, client, monkeypatch):
 ])
 def test_prefs_validation(env, client, monkeypatch, bad):
     _sign_in(client, monkeypatch)
-    assert client.put("/me/prefs", json=bad, headers={"Origin": BASE}).status_code == 422
+    assert client.put("/api/me/prefs", json=bad, headers={"Origin": BASE}).status_code == 422
 
 
 @pytest.mark.parametrize("claims", [
@@ -138,7 +139,7 @@ def test_prefs_validation(env, client, monkeypatch, bad):
 def test_callback_rejects_bad_id_token(env, client, monkeypatch, claims):
     r = _sign_in(client, monkeypatch, **claims)
     assert r.headers["location"] == "/?auth_error=1"
-    assert client.get("/me").json()["user"] is None
+    assert client.get("/api/me").json()["user"] is None
 
 
 def test_callback_rejects_state_mismatch_and_missing_cookie(env, client):
@@ -152,11 +153,11 @@ def test_callback_rejects_state_mismatch_and_missing_cookie(env, client):
 
 def test_delete_account_removes_user_and_sessions(env, client, monkeypatch):
     _sign_in(client, monkeypatch)
-    client.put("/me/prefs", json=PREFS, headers={"Origin": BASE})
+    client.put("/api/me/prefs", json=PREFS, headers={"Origin": BASE})
     token = client.cookies.get("bb_session")
-    assert client.delete("/me", headers={"Origin": BASE}).status_code == 204
+    assert client.delete("/api/me", headers={"Origin": BASE}).status_code == 204
     client.cookies.set("bb_session", token)  # replay the old cookie
-    assert client.get("/me").json()["user"] is None
+    assert client.get("/api/me").json()["user"] is None
     with auth._connect() as db:
         assert db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0
@@ -166,7 +167,7 @@ def test_expired_session_is_ignored(env, client, monkeypatch):
     _sign_in(client, monkeypatch)
     with auth._connect() as db:
         db.execute("UPDATE sessions SET expires_at = 0")
-    assert client.get("/me").json()["user"] is None
+    assert client.get("/api/me").json()["user"] is None
 
 
 def test_callback_rate_limit(env, client, monkeypatch):
@@ -174,4 +175,4 @@ def test_callback_rate_limit(env, client, monkeypatch):
     assert _sign_in(client, monkeypatch).headers["location"] == "/"
     client.cookies.clear()
     assert _sign_in(client, monkeypatch).headers["location"] == "/?auth_error=1"
-    assert client.get("/me").json()["user"] is None
+    assert client.get("/api/me").json()["user"] is None

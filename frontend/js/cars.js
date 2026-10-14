@@ -36,7 +36,7 @@ async function upgradeAddress(car, sched) {
   const q = new URLSearchParams({ lat: car.lat, lon: car.lon });
   if (sched.region) q.set('region', sched.region);
   try {
-    const res = await fetch(`/address?${q}`);
+    const res = await fetch(`/api/address?${q}`);
     if (!res.ok) return;
     const { address } = await res.json();
     // Ignore a stale answer: the car was re-checked (moved) meanwhile.

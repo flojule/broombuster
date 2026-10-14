@@ -18,6 +18,7 @@ _TIMEOUT_S = 3
 _PLACE_TTL_S = 30 * 24 * 3600
 _PICKUPS_TTL_S = 12 * 3600
 _FAILURE_TTL_S = 5 * 60
+_CACHE_MAX = 2048
 
 _cache: dict[tuple, tuple[float, object]] = {}
 _lock = threading.Lock()
@@ -32,6 +33,9 @@ def _cached(key: tuple, ttl: float, fetch):
             return hit[1]
     value = fetch()
     with _lock:
+        if len(_cache) >= _CACHE_MAX:  # keys include user-typed addresses: bound memory
+            for k in [k for k, (exp, _) in _cache.items() if exp <= now] or [next(iter(_cache))]:
+                del _cache[k]
         _cache[key] = (now + (ttl if value is not None else _FAILURE_TTL_S), value)
     return value
 

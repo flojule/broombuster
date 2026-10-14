@@ -10,7 +10,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import secrets
 import sqlite3
 import threading
@@ -24,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from broombuster.config import REPO_ROOT
+from broombuster import config
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -38,13 +37,11 @@ _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_ISSUERS = ("https://accounts.google.com", "accounts.google.com")
 _CALLBACK_LIMIT = 30  # token exchanges per minute, all clients together
 
-_ENV_KEYS = ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "BB_BASE_URL")
-
 
 # ── Config ────────────────────────────────────────────────────────────────────
 def _config() -> tuple[str, str, str] | None:
     """(client_id, client_secret, base_url), or None when sign-in is off."""
-    cid, secret, base = (os.environ.get(k, "").strip() for k in _ENV_KEYS)
+    cid, secret, base = config.oauth_env()
     if not (cid and secret and base):
         return None
     return cid, secret, base.rstrip("/")
@@ -52,11 +49,11 @@ def _config() -> tuple[str, str, str] | None:
 
 def check_config() -> bool:
     """True when sign-in is on; raises on a partial or malformed setup."""
-    values = [os.environ.get(k, "").strip() for k in _ENV_KEYS]
+    values = config.oauth_env()
     if not any(values):
         return False
     if not all(values):
-        raise RuntimeError(f"Set all of {', '.join(_ENV_KEYS)} or none.")
+        raise RuntimeError(f"Set all of {', '.join(config.OAUTH_ENV_KEYS)} or none.")
     if not values[2].startswith(("https://", "http://")):
         raise RuntimeError("BB_BASE_URL must start with https:// (or http:// for local dev).")
     return True
@@ -70,12 +67,8 @@ def _require_config() -> tuple[str, str, str]:
 
 
 # ── Storage ───────────────────────────────────────────────────────────────────
-def _db_path() -> str:
-    return os.environ.get("BB_DB") or os.path.join(REPO_ROOT, "data", "users.sqlite")
-
-
 def _connect() -> sqlite3.Connection:
-    db = sqlite3.connect(_db_path(), timeout=10)
+    db = sqlite3.connect(config.db_path(), timeout=10)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
     return db
@@ -249,7 +242,7 @@ class Prefs(BaseModel):
     homes: list[Home] = Field(max_length=50)
 
 
-@router.get("/me")
+@router.get("/api/me")
 def me(request: Request, response: Response):
     """Sign-in state and saved prefs; `enabled` is false when sign-in is off."""
     response.headers["Cache-Control"] = "no-store"
@@ -262,14 +255,14 @@ def me(request: Request, response: Response):
             "prefs": json.loads(user["prefs"]) if user["prefs"] else None}
 
 
-@router.put("/me/prefs", status_code=204)
+@router.put("/api/me/prefs", status_code=204)
 def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
     with closing(_connect()) as db, db:
         db.execute("UPDATE users SET prefs = ? WHERE sub = ?",
                    (prefs.model_dump_json(), user["sub"]))
 
 
-@router.delete("/me")
+@router.delete("/api/me")
 def delete_me(user: sqlite3.Row = Depends(_signed_in_mutation)):
     """Delete the account: user row, prefs and every session."""
     with closing(_connect()) as db, db:

@@ -2,9 +2,9 @@
 and the index page with content-versioned asset URLs."""
 
 import hashlib
+import ipaddress
 import json
 import logging
-import os
 import re
 import threading
 import time
@@ -13,9 +13,9 @@ from collections import deque
 from pathlib import Path
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from broombuster.config import REPO_ROOT
+from broombuster import config
 
 log = logging.getLogger("broombuster.http")
 
@@ -49,15 +49,24 @@ def setup_logging() -> None:
 
 
 def client_ip(request: Request) -> str:
-    """The visitor behind Cloudflare (the app only listens on localhost)."""
-    return request.headers.get("cf-connecting-ip") or (
-        request.client.host if request.client else "-")
+    """The visitor behind Cloudflare (the app only listens on localhost).
+
+    Only Cloudflare's tunnel may reach the app, so CF-Connecting-IP is trusted,
+    but only when it parses as an IP address: anything else (a spoofed or
+    garbage value) falls back to the socket peer.
+    """
+    raw = request.headers.get("cf-connecting-ip", "")
+    try:
+        return str(ipaddress.ip_address(raw.strip()))
+    except ValueError:
+        return request.client.host if request.client else "-"
 
 
 # ── Rate limits ───────────────────────────────────────────────────────────────
 # (path prefix, requests per minute per client). /address and /locate also call
 # third-party services, so they get less.
-LIMITS = (("/address", 20), ("/locate", 20), ("/check", 60))  # /check also covers /check-home
+LIMITS = (("/api/address", 20), ("/api/locate", 20), ("/api/check-home", 20),
+          ("/api/check", 60), ("/api/me", 30), ("/auth/logout", 30))
 _WINDOW_S = 60
 
 
@@ -83,7 +92,7 @@ class RateLimiter:
 
 
 _limiter = RateLimiter()
-RATE_LIMIT = os.environ.get("BB_RATE_LIMIT", "1") != "0"  # tests turn it off
+RATE_LIMIT = config.rate_limit_enabled()  # tests turn it off
 
 
 def _limit_for(path: str) -> tuple[str, int] | None:
@@ -95,11 +104,11 @@ def _limit_for(path: str) -> tuple[str, int] | None:
 # Cache-Control, which served stale scripts against fresh HTML. So: the page and
 # unversioned files always revalidate (ETag makes that a cheap 304); files
 # requested with ?v=<content hash> never change and may be cached for good.
-_API_PATHS = ("/check", "/address", "/cities", "/health", "/auth", "/me", "/locate")
+API_PATHS = ("/api", "/auth", "/health")
 
 
 def cache_control(path: str, versioned: bool) -> str:
-    if path.startswith(_API_PATHS):
+    if path.startswith(API_PATHS):
         return "no-store"
     if versioned:
         return "public, max-age=31536000, immutable"
@@ -109,9 +118,10 @@ def cache_control(path: str, versioned: bool) -> str:
 
 
 # ── Versioned index page ──────────────────────────────────────────────────────
-_FRONTEND = Path(REPO_ROOT) / "frontend"
+_FRONTEND = Path(config.REPO_ROOT) / "frontend"
 _ASSET = re.compile(r"""(["'])/?((?:js|vendor)/[\w.\-]+\.(?:js|mjs|css)|styles\.css)\1""")
 _index_html: str | None = None
+_sw_js: str | None = None
 
 
 def _asset_version() -> str:
@@ -133,13 +143,43 @@ def index_response() -> HTMLResponse:
     return HTMLResponse(_index_html, headers={"Cache-Control": "no-cache"})
 
 
+def service_worker_response() -> Response:
+    """sw.js with the asset hash as its cache name (so every asset change installs a
+    new worker) and the server's API path list."""
+    global _sw_js
+    if _sw_js is None:
+        shell = ["/", "/styles.css", "/manifest.json", "/icon-192.png", "/icon-512.png",
+                 *(f"/{f.relative_to(_FRONTEND)}" for f in sorted(
+                     [*_FRONTEND.glob("js/*.js"), *_FRONTEND.glob("vendor/*.*js"),
+                      *_FRONTEND.glob("vendor/*.css")]))]
+        _sw_js = ((_FRONTEND / "sw.js").read_text()
+                  .replace("__VERSION__", _asset_version())
+                  .replace("__API_PATHS__", json.dumps(API_PATHS))
+                  .replace("__SHELL__", json.dumps(shell)))
+    return Response(_sw_js, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
 # ── Middleware ────────────────────────────────────────────────────────────────
+# Report-only until BB_CSP=enforce: the map's third-party requests are listed
+# from reading the code, so check the browser console for violations first.
+# No inline or remote scripts. Inline style attributes are allowed (the UI sets
+# colours that way). OpenFreeMap serves the basemap style, tiles, glyphs and
+# sprites; Nominatim answers address searches from the browser.
+CSP = "; ".join((
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https://tiles.openfreemap.org",
+    "connect-src 'self' https://tiles.openfreemap.org https://nominatim.openstreetmap.org",
+    "worker-src 'self' blob:",
+    "frame-ancestors 'none'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
+))
 SECURITY_HEADERS = {
     "X-Content-Type-Options":  "nosniff",
     "Referrer-Policy":         "strict-origin-when-cross-origin",
     "X-Frame-Options":         "DENY",
-    "Content-Security-Policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
 }
+CSP_ENFORCE = config.csp_enforced()
 
 
 async def http_middleware(request: Request, call_next):
@@ -157,6 +197,8 @@ async def http_middleware(request: Request, call_next):
                                                     "path": path, "ip": ip})
             response = JSONResponse({"detail": "Internal error."}, status_code=500)
     response.headers.update(SECURITY_HEADERS)
+    response.headers["Content-Security-Policy" if CSP_ENFORCE
+                     else "Content-Security-Policy-Report-Only"] = CSP
     response.headers["X-Request-ID"] = rid
     if "cache-control" not in response.headers:
         response.headers["Cache-Control"] = cache_control(path, "v" in request.query_params)

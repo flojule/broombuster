@@ -63,7 +63,16 @@ def test_failure_is_cached_briefly(monkeypatch):
 def test_check_home_endpoint(monkeypatch, app_client):
     monkeypatch.setattr(trash, "pickups", lambda city, address, today:
                         {"Trash": ["2026-10-01"]} if city == "oakland" else {})
-    data = app_client.post("/check-home", json={
+    data = app_client.post("/api/check-home", json={
         "lat": 37.8113, "lon": -122.2580, "address": "1200 Lakeshore Ave, Oakland"}).json()
     assert data == {"region": "bay_area", "address": "1200 Lakeshore Ave, Oakland",
                     "pickups": {"Trash": ["2026-10-01"]}}
+
+
+def test_cache_is_bounded(monkeypatch):
+    monkeypatch.setattr(trash, "_CACHE_MAX", 5)
+    trash._cache.clear()
+    for i in range(20):
+        trash._cached(("k", i), 3600, lambda i=i: i)
+    assert len(trash._cache) <= 5
+    trash._cache.clear()

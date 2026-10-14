@@ -14,6 +14,9 @@ _reverse_call = RateLimiter(Nominatim(user_agent="broombuster", timeout=5).rever
 # (lat, lon) rounded to 4 decimals (~11 m) -> Nominatim address dict. Only
 # answers are cached, so an outage is retried.
 _CACHE_MAX = 1024
+# Callers queue behind the 1 req/s throttle while holding a worker thread, so
+# only a few may wait; the rest skip the lookup (no house number) instead.
+_slots = threading.BoundedSemaphore(3)
 _cache: OrderedDict = OrderedDict()
 _lock = threading.Lock()
 
@@ -37,10 +40,14 @@ def _lookup(lat: float, lon: float, network: bool = True) -> dict | None:
             return _cache[key]
     if not network:
         return None
+    if not _slots.acquire(blocking=False):
+        return None
     try:
         addr = _nominatim(*key)
-    except Exception:  # noqa: BLE001 — any geocoder failure means "no address"
-        return None
+    except Exception:
+        return None  # any geocoder failure means "no address"
+    finally:
+        _slots.release()
     with _lock:
         _cache[key] = addr
         while len(_cache) > _CACHE_MAX:

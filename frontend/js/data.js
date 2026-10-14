@@ -52,7 +52,7 @@ function abbreviate(s) {
 // ── Cities / regions ──────────────────────────────────────────────────────────
 async function loadCities() {
   try {
-    const res = await fetch('/cities');
+    const res = await fetch('/api/cities');
     if (res.ok) regions = await res.json();
   } catch (_) {}
 }
@@ -74,7 +74,7 @@ function savePrefs() {
 // off): used only to pick the region, never to place the map.
 async function getIPLocation() {
   try {
-    const r = await fetch('/locate');
+    const r = await fetch('/api/locate');
     const d = await r.json();
     if (d.lat != null && d.lon != null) return { lat: d.lat, lon: d.lon, region: d.region };
   } catch (_) {}

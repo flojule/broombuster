@@ -182,7 +182,7 @@ def _build_segment_index(gdf) -> SegmentIndex:
     names = gdf["STREET_NAME"].to_numpy(object) if "STREET_NAME" in gdf else [None] * n
     # street_name() returns "" for non-text, which the loop below skips.
     street_keys = [k if normalize.is_text(k) else normalize.street_name(nm)
-                   for k, nm in zip(keys, names)]
+                   for k, nm in zip(keys, names, strict=False)]
 
     geoms = np.asarray(gdf.geometry.values, dtype=object)
     type_ids = shapely.get_type_id(geoms)
@@ -197,7 +197,7 @@ def _build_segment_index(gdf) -> SegmentIndex:
                           shapely.get_x(last), shapely.get_y(last)]).tolist()
 
     by_key: dict = {}
-    for pos, (x0, y0, x1, y1) in zip(part_row.tolist(), xy):
+    for pos, (x0, y0, x1, y1) in zip(part_row.tolist(), xy, strict=False):
         sk = street_keys[pos]
         if not sk:
             continue

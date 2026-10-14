@@ -456,7 +456,9 @@ class TestFGBSchemaAndKeys:
 
         # Spot-check: STREET_KEY must equal normalized STREET_NAME for non-empty names
         for n, k in zip(
-            gdf["STREET_NAME"].fillna("").iloc[:50], gdf["STREET_KEY"].fillna("").iloc[:50]
+            gdf["STREET_NAME"].fillna("").iloc[:50],
+            gdf["STREET_KEY"].fillna("").iloc[:50],
+            strict=False,
         ):
             if isinstance(n, str) and n.strip():
                 assert k == normalize.street_name(n)

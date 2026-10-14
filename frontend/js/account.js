@@ -12,7 +12,7 @@ async function loadAccount() {
     history.replaceState(null, '', '/');
   }
   try {
-    const res = await fetch('/me', { cache: 'no-store' });
+    const res = await fetch('/api/me', { cache: 'no-store' });
     if (!res.ok) return;
     const me = await res.json();
     btnAccount.hidden = !me.enabled;
@@ -26,7 +26,7 @@ async function loadAccount() {
 }
 
 function _putPrefs(body) {
-  return fetch('/me/prefs', {
+  return fetch('/api/me/prefs', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive: true,
   }).then(res => { if (!res.ok) showToast('Could not save to your account', true); })
     .catch(() => showToast('Could not save to your account', true));
@@ -80,7 +80,7 @@ btnAccount.addEventListener('click', e => {
        _menuItem('Delete account', () => {
          if (!confirm('Delete your account and its saved cars and homes?')) return;
          _syncTimer = null;
-         _leaveAccount(() => fetch('/me', { method: 'DELETE' }));
+         _leaveAccount(() => fetch('/api/me', { method: 'DELETE' }));
        })]
     : [_menuItem('Sync cars and homes across devices'),
        _menuItem('Sign in with Google', () => { location.href = '/auth/login'; })];

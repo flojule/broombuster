@@ -26,6 +26,4 @@ data/**/*.cpg
 .env
 data/users.sqlite*
 
-# Legacy pre-Google user database (unused)
-data/app.sqlite*
 .deploy-bad

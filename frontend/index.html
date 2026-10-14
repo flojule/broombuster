@@ -125,10 +125,7 @@
 <div id="custom-hover"></div>
 
 <!-- MapLibre 6 is ESM-only; expose it as a global before the deferred app scripts run. -->
-<script type="module">
-  import * as maplibregl from '/vendor/maplibre-gl.mjs';
-  window.maplibregl = maplibregl;
-</script>
+<script type="module" src="/js/maplibre-global.js"></script>
 <script defer src="js/urgency.js"></script>
 <script defer src="js/core.js"></script>
 <script defer src="js/ui.js"></script>

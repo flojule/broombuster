@@ -1,18 +1,16 @@
-import json
+import ipaddress
 import os
-import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime
-from functools import lru_cache
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Query, Request
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import analysis, gps, resolve, trash
+from broombuster import analysis, gps, iplocate, resolve, trash
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_for_point
 from broombuster.config import REPO_ROOT
 
@@ -35,6 +33,7 @@ app = FastAPI(title="BroomBuster", lifespan=lifespan,
 
 app.middleware("http")(web.http_middleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+api = APIRouter(prefix="/api")  # everything the frontend fetches, except /auth and /health
 app.include_router(auth.router)
 
 
@@ -77,7 +76,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/cities")
+@api.get("/cities")
 def cities():
     return {
         rk: {"name": rv["name"], "center": rv["center"], "tz": rv["tz"],
@@ -86,19 +85,7 @@ def cities():
     }
 
 
-@lru_cache(maxsize=512)
-def _ip_lookup(ip: str) -> tuple[float, float] | None:
-    try:
-        req = urllib.request.Request(f"https://ipapi.co/{ip}/json/",
-                                     headers={"User-Agent": "broombuster"})
-        with urllib.request.urlopen(req, timeout=3.0) as r:
-            d = json.load(r)
-        return (float(d["latitude"]), float(d["longitude"]))
-    except Exception:
-        return None
-
-
-@app.get("/locate")
+@api.get("/locate")
 def locate(request: Request):
     """Approximate visitor position from the IP, and the nearest area.
 
@@ -110,9 +97,12 @@ def locate(request: Request):
     try:
         pos = (float(h["cf-iplatitude"]), float(h["cf-iplongitude"]))
     except (KeyError, ValueError):
-        ip = h.get("cf-connecting-ip") or (request.client.host if request.client else "")
-        if ip and not ip.startswith(("127.", "10.", "192.168.", "::1")):
-            pos = _ip_lookup(ip)
+        try:
+            ip = ipaddress.ip_address(web.client_ip(request))
+        except ValueError:
+            ip = None
+        if ip is not None and ip.is_global:
+            pos = iplocate.lookup(str(ip))
     if pos is None:
         return {"lat": None, "lon": None, "region": None}
     return {"lat": pos[0], "lon": pos[1], "region": region_for_point(*pos)}
@@ -124,7 +114,7 @@ class CheckRequest(BaseModel):
     region: str | None = None
 
 
-@app.post("/check")
+@api.post("/check")
 def check(req: CheckRequest):
     """Sweeping schedule of the street (or zone) a car is parked on.
 
@@ -147,7 +137,7 @@ def check(req: CheckRequest):
     }
 
 
-@app.get("/address")
+@api.get("/address")
 def address(lat: float = Query(..., ge=-90.0, le=90.0),
             lon: float = Query(..., ge=-180.0, le=180.0),
             region: str | None = None):
@@ -159,7 +149,7 @@ class CheckHomeRequest(CheckRequest):
     address: str | None = Field(None, max_length=500)
 
 
-@app.post("/check-home")
+@api.post("/check-home")
 def check_home(req: CheckHomeRequest):
     """Trash pickup dates at a home; tap-placed homes are reverse-geocoded."""
     region = req.region if req.region in REGIONS else region_for_point(req.lat, req.lon)
@@ -170,10 +160,18 @@ def check_home(req: CheckHomeRequest):
             "pickups": trash.pickups(city, address, today)}
 
 
-_frontend_dir = os.path.join(REPO_ROOT, "frontend")
+app.include_router(api)  # after every route above is registered on it
+
+
 @app.get("/", include_in_schema=False)
 def index():
     return web.index_response()
 
 
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    return web.service_worker_response()
+
+
+_frontend_dir = os.path.join(REPO_ROOT, "frontend")
 app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
