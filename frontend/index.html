@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>BroomBuster</title>
   <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta name="description" content="Know when street sweeping applies to your parked car.">
@@ -37,6 +38,7 @@
     <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8 3v4M16 3v4"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
@@ -58,7 +60,8 @@
           <span class="urg-today"><i class="lg lg-3"></i>Today</span>
           <span class="urg-tomorrow"><i class="lg lg-2"></i>Tomorrow</span>
           <span class="urg-safe"><i class="lg lg-1"></i>Clear</span>
-          <span class="urg-none"><i class="lg lg-0"></i>Not covered</span>
+          <span class="urg-none"><i class="lg lg-0"></i>No sweeping</span>
+          <span class="legend-credit">Map: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a>, data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors<br>BroomBuster __APP_VERSION__</span>
         </div>
       </div>
       <button id="btn-zoom-in" class="map-btn zoom-btn" title="Zoom in" aria-label="Zoom in"><svg class="ic"><use href="#i-plus"/></svg></button>
@@ -119,7 +122,7 @@
          the target and the cars appear only as marks on its days. -->
     <div id="info-card">
       <div id="ic-head" role="button" tabindex="0" aria-expanded="false">
-        <span id="ic-title">📅 Calendar</span>
+        <span id="ic-title"><svg class="ic"><use href="#i-calendar"/></svg>&nbsp;Calendar</span>
         <span id="ic-chevron"><svg class="ic"><use href="#i-chevron"/></svg></span>
       </div>
       <div id="ic-cal"></div>

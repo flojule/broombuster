@@ -2,9 +2,10 @@
     :root {
       --blue: #2563eb; --red: #ef4444;
       /* Urgency colours (cards, banner, legend); the map paint lives in core.js URGENCY. */
-      --urg-today: #ef4444; --urg-tomorrow: #f97316; --urg-safe: #2563eb;
+      --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #2563eb;  /* text and swatches: AA on card tints */
+      --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
       --bg: #f8fafc; --card: #ffffff; --text: #1e293b;
-      --muted: #64748b; --border: #e2e8f0;
+      --muted: #526071; --border: #e2e8f0;
       --sheet-peek: 40px;  /* collapsed bottom-sheet handle height */
       --panel-w: min(360px, calc(100vw - 24px));  /* calendar card + sheet width */
       --inset-b: env(safe-area-inset-bottom, 0px);
@@ -12,7 +13,7 @@
       --sheet-h: 0px; /* sheet height, set from JS */
       --street: #15803d;  /* street sweeping days in the calendar */
 
-      /* Layers: crosshair 15 < info card, place banner 20 < street sign 21 < map controls 24 < sheet 25 < legend 28 < GPS popup 30
+      /* Layers: crosshair 15 < info card, place banner 20 < street sign 21 < sheet 25 < map controls 26 (their colour key opens over the sheet) < legend 28 < GPS popup 30
          < hover 90 < ctx menu 200 < toast 9999. */
     }
     html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
@@ -33,7 +34,7 @@
     /* ── Right column: map info (area, theme, color key, zoom, locate) ──
        Mobile: above the sheet. Desktop: top-right (see media query). */
     #map-ctrl {
-      position: absolute; right: 10px; z-index: 24;
+      position: absolute; right: 10px; z-index: 26;
       bottom: calc(var(--inset-b) + 12px + var(--sheet-h) + 10px);
       display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
     }
@@ -135,6 +136,8 @@
       box-shadow: 0 3px 12px rgba(0,0,0,.2); white-space: nowrap;
     }
     #btn-legend[aria-expanded="true"] { border-color: var(--blue); }
+    .legend-credit { white-space: normal; width: 230px; line-height: 1.4; margin-top: 2px; padding-top: 5px; border-top: 1px solid var(--border); font-size: .68rem; font-weight: 500; color: var(--muted); }
+    .legend-credit a { color: inherit; }
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
     .urg-safe { color: var(--urg-safe); } .urg-none { color: var(--muted); }
     /* Legend swatch: line thickness mirrors the map (today thickest). */
@@ -171,7 +174,7 @@
       cursor: default; border-bottom: 1px solid transparent; min-width: 0;
       user-select: none;
     }
-    .ce-name[contenteditable="true"] { cursor: text; border-bottom-color: var(--blue); user-select: text; }
+    .ce-name[contenteditable="true"] { font-size: 16px; cursor: text; border-bottom-color: var(--blue); user-select: text; }
     .ce-remove {
       position: absolute; top: 2px; right: 4px;
       width: 32px; height: 32px; margin: 0; padding: 0;
@@ -185,7 +188,7 @@
       cursor: default; border-bottom: 1px solid transparent; min-height: 1em;
       user-select: none;
     }
-    .ce-addr[contenteditable="true"] { cursor: text; color: var(--text); border-bottom-color: var(--blue); user-select: text; }
+    .ce-addr[contenteditable="true"] { font-size: 16px; cursor: text; color: var(--text); border-bottom-color: var(--blue); user-select: text; }
     .ce-addr:empty::before { content: 'double-click to set address'; opacity: .45; font-size: .7rem; }
     .ce-sched { font-size: .73rem; line-height: 1.45; }
     .ce-sched-header  { font-size: .68rem; font-weight: 600; color: var(--muted); margin-top: 4px; white-space: nowrap; }
@@ -203,7 +206,7 @@
     .ce-phone { display: flex; flex-direction: column; gap: 5px; margin-top: 3px; }
     .ce-token-note { font-size: .68rem; color: var(--muted); line-height: 1.4; }
     .ce-token {
-      width: 100%; box-sizing: border-box; padding: 6px; font: .7rem monospace;
+      width: 100%; box-sizing: border-box; padding: 6px; font: 16px monospace;
       background: var(--bg); color: var(--text);
       border: 1px solid var(--border); border-radius: 6px;
     }
@@ -241,7 +244,7 @@
       border-top-color: var(--card); border-bottom-color: var(--card);
     }
     .np-row { display: flex; gap: 6px; align-items: center; }
-    #name-panel-input { flex: 1; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; outline: none; min-width: 0; width: 0; background: var(--bg); color: var(--text); }
+    #name-panel-input { flex: 1; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 16px; outline: none; min-width: 0; width: 0; background: var(--bg); color: var(--text); }
     #name-panel-input:focus { border-color: var(--blue); }
     #btn-np-save { margin: 0; padding: 6px 10px; width: auto; min-width: 36px; border-radius: 6px; font-size: 1rem; line-height: 1; font-weight: 700; }
 
@@ -254,7 +257,7 @@
     }
     .add-car-btn:hover { opacity: .92; }
     /* "Add home" shares the add-car shape but takes the home green. */
-    .add-home-btn { background: #16a34a; }
+    .add-home-btn { background: #15803d; }
 
     /* ── Calendar card (sweep calendar; fixed content, independent of the target) ──
        Top of the left column (mobile: centered). The header stays put; the body scrolls. */
@@ -321,8 +324,8 @@
     .sw-cell i { font-style: normal; font-size: .52rem; color: var(--muted); }
     /* Street days: light green; red today, orange tomorrow (as on the map). */
     .sw-day { background: color-mix(in srgb, var(--street) 24%, transparent); }
-    .sw-now  { background: var(--urg-today);    color: #fff; }
-    .sw-next { background: var(--urg-tomorrow); color: #fff; }
+    .sw-now  { background: var(--urg-today-bg);    color: #fff; }
+    .sw-next { background: var(--urg-tomorrow-bg); color: #fff; }
     .sw-now i, .sw-next i { color: #fff; opacity: .85; }
     /* Today: underlined digit, same in both views. Selected (month view): ring. */
     .sw-today { font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
@@ -390,10 +393,16 @@
     .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* Month view (mobile): the sign and map buttons would cover days and the day detail. */
+    @media (max-width: 767px) {
+      body.cal-open #street-sign, body.cal-open #map-ctrl { display: none; }
+    }
+
     /* ── Dark mode ── */
     body.dark {
       --bg: #0f172a; --card: #1e293b; --text: #e2e8f0;
       --muted: #94a3b8; --border: #334155;
+      --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #60a5fa;
     }
     body.dark .maplibregl-map { filter: brightness(.92); }
 

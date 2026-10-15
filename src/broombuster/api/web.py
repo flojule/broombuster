@@ -16,6 +16,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from broombuster import config
+from broombuster.version import app_version
 
 log = logging.getLogger("broombuster.http")
 
@@ -140,7 +141,8 @@ def index_response() -> HTMLResponse:
         v = _asset_version()
         html = (_FRONTEND / "index.html").read_text()
         html = _ASSET.sub(lambda m: f"{m[1]}/{m[2]}?v={v}{m[1]}", html)
-        _index_html = html.replace("__BASE_URL__", config.base_url())
+        _index_html = (html.replace("__BASE_URL__", config.base_url())
+                       .replace("__APP_VERSION__", app_version()))
     return HTMLResponse(_index_html, headers={"Cache-Control": "no-cache"})
 
 
@@ -150,7 +152,7 @@ def service_worker_response() -> Response:
     global _sw_js
     if _sw_js is None:
         shell = ["/", "/styles.css", "/manifest.json", "/icon-192.png", "/icon-512.png",
-                 "/apple-touch-icon.png", "/favicon-32.png",
+                 "/apple-touch-icon.png", "/favicon-32.png", "/icon.svg", "/icon-maskable-512.png",
                  *(f"/{f.relative_to(_FRONTEND)}" for f in sorted(
                      [*_FRONTEND.glob("js/*.js"), *_FRONTEND.glob("vendor/*.*js"),
                       *_FRONTEND.glob("vendor/*.css")]))]

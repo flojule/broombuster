@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from broombuster import analysis, gps, iplocate, resolve, trash
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_for_point
 from broombuster.config import REPO_ROOT
+from broombuster.version import app_version
 
 from . import auth, web
 from .state import load_all, region_gdf
@@ -72,7 +73,7 @@ def _address(loc: Located, lat: float, lon: float, *, network: bool) -> tuple[st
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": app_version()}
 
 
 @api.get("/cities")

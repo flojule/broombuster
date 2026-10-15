@@ -161,7 +161,7 @@ function renderInfoCard(f) {
     ? `<button class="cal-nav" data-cal-nav="-1" aria-label="Previous month">‹</button>`
       + `<b>${_MONTHS[_cal.ym.m - 1]} ${_cal.ym.y}</b>`
       + `<button class="cal-nav" data-cal-nav="1" aria-label="Next month">›</button>`
-    : '📅 Calendar';
+    : `${icon('calendar')}&nbsp;Calendar`;
   icHead.setAttribute('aria-expanded', String(_cal.expanded));
   icHead.title = _cal.expanded ? 'Collapse calendar' : 'Expand calendar';
   icCal.innerHTML = _cal.expanded

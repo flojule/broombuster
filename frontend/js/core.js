@@ -7,6 +7,9 @@ const URGENCY = {
               fill: 'rgba(230,130,20,0.40)', border: 'rgba(230,130,20,0.80)', line: 'orange' },
   safe:     { color: 'var(--urg-safe)',     short: '✅ Clear',
               fill: 'rgba(80,110,180,0.18)', border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
+  // Map only: a street or zone with no sweeping at all (not a car verdict).
+  none:     { color: 'var(--muted)',       short: 'No sweeping',
+              fill: 'rgba(120,130,150,0.10)', border: 'rgba(120,130,150,0.35)', line: '#94a3b8' },
 };
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
@@ -134,18 +137,20 @@ function _urgCase(prop) {
     'case',
     ['==', ['feature-state', 'urgency'], 'today'],    URGENCY.today[prop],
     ['==', ['feature-state', 'urgency'], 'tomorrow'], URGENCY.tomorrow[prop],
+    ['==', ['feature-state', 'urgency'], 'none'],     URGENCY.none[prop],
     URGENCY.safe[prop],
   ];
 }
 // Street line width scales with zoom so it stays thin on city-wide views; it also
-// grows with urgency (today x2, tomorrow x1.5) so colour is not the only cue.
+// grows with urgency (today x2, tomorrow x1.5; no sweeping x0.6) so colour is not the only cue.
 const LINE_W = { 11: 0.8, 14: 1.5, 16: 2.5, 18: 4 };
-const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1 };
+const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.6 };
 function _lineWidth() {
   const stops = Object.entries(LINE_W).flatMap(([z, w]) => [Number(z), [
     'case',
     ['==', ['feature-state', 'urgency'], 'today'],    w * LINE_MULT.today,
     ['==', ['feature-state', 'urgency'], 'tomorrow'], w * LINE_MULT.tomorrow,
+    ['==', ['feature-state', 'urgency'], 'none'],     w * LINE_MULT.none,
     w,
   ]]);
   return ['interpolate', ['linear'], ['zoom'], ...stops];

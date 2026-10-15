@@ -265,7 +265,7 @@ function scheduleHTML(sched) {
   const lines = BroomUrgency.formatBothSides(
     sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
   return '<div class="ce-sched-header">Sweeping:</div>'
-       + _itemsHTML(lines.length ? lines : ['No sweeping scheduled']);
+       + _itemsHTML(lines.length ? lines : ['No sweeping']);
 }
 
 // ── Phone link: a token that lets a phone automation report where the car parked ──
