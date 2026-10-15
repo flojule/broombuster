@@ -27,15 +27,12 @@ document.addEventListener('keydown', e => {
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
   if (_namePopup)                               { closeNameBox();     dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
-  if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
   if (placingCar || placingHome)                { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
   if (dismissed) return;
   if (_cal.expanded) { collapseCal(); return; }
   if (_selectedCarId) clearCarSelection();
 });
 
-carsPanel.addEventListener('mouseenter', () => { _hoverSuppressed = true;  customHoverEl.style.display = 'none'; });
-carsPanel.addEventListener('mouseleave', () => { _hoverSuppressed = false; });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function abbreviate(s) {
@@ -91,6 +88,14 @@ async function getPermittedGPS() {
     if (p.state !== 'granted') return null;
   } catch (_) { return null; }
   return new Promise(resolve => getGPS((lat, lon) => resolve({ lat, lon }), () => resolve(null)));
+}
+
+// A button that reads the device position: busy while waiting, error as a toast.
+function locateWith(btn, onFix) {
+  const done = () => { btn.disabled = false; btn.classList.remove('busy'); };
+  btn.disabled = true; btn.classList.add('busy');
+  getGPS(async (lat, lon) => { done(); await onFix(lat, lon); },
+         msg => { done(); showToast(`GPS: ${msg}`, true); });
 }
 
 function getGPS(onSuccess, onError) {

@@ -14,25 +14,25 @@
       --edge: 12px;  /* gap between floating panels / map buttons and the screen edge */
       --panel-w: calc(100vw - 2 * var(--edge));  /* calendar card + sheet: edge to edge on mobile, so their right edge lines up with the map buttons */
       --inset-b: env(safe-area-inset-bottom, 0px);
+      --edge-b: max(var(--edge), calc(var(--inset-b) - 18px));  /* bottom gap: just above the iPhone home indicator */
       --info-h: 0px;  /* calendar card height, set from JS */
       --sheet-h: 0px; /* sheet height, set from JS */
       --street: #15803d;  /* street sweeping days in the calendar */
 
       /* Layers: crosshair 15 < info card, place banner 20 < street sign 21 < sheet 25 < map controls 26 (their colour key opens over the sheet) < legend 28 < GPS popup 30
-         < hover 90 < ctx menu 200 < toast 9999. */
+         < ctx menu 200 < toast 9999. */
     }
     html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
     /* Keep map drags from scrolling/rubber-banding the page behind it. */
     html, body { overflow: hidden; overscroll-behavior: none; }
 
     /* Floating surfaces are frosted glass where the browser supports it, opaque cards otherwise. */
-    body { --glass: var(--card); --glass-strong: var(--card); --hairline: var(--border); }
+    body { --glass: var(--card); --hairline: var(--border); }
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
       body { --glass: color-mix(in srgb, var(--card) 74%, transparent);
-             --glass-strong: color-mix(in srgb, var(--card) 92%, transparent);  /* text-heavy overlays */
              --hairline: color-mix(in srgb, var(--text) 14%, transparent); }
-      #info-card, #sheet, .map-btn, #app-menu, #ctx-menu, #gps-pin-popup, #custom-hover, .area-label,
-      .name-popup .maplibregl-popup-content, .zone-detail-popup .maplibregl-popup-content {
+      #info-card, #sheet, .map-btn, #app-menu, #ctx-menu, #gps-pin-popup, .area-label,
+      .name-popup .maplibregl-popup-content {
         -webkit-backdrop-filter: blur(20px) saturate(1.8); backdrop-filter: blur(20px) saturate(1.8);
       }
     }
@@ -54,20 +54,16 @@
     button:not(:disabled):hover { opacity: .9; }
 
     /* ── App ── */
-    /* Fixed to the full screen so the map runs under the status bar / Dynamic Island. */
-    #app-screen { position: fixed; inset: 0; }
-    /* Installed app only: the translucent iOS status bar has white text: a soft dark scrim keeps it legible over a light map. */
-    @media (display-mode: standalone) { #app-screen::before {
-      content: ''; position: absolute; top: 0; left: 0; right: 0; z-index: 19; pointer-events: none;
-      height: calc(env(safe-area-inset-top, 0px) + 12px);
-      background: linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,0));
-    } }
+    /* Fixed to the full screen so the map runs under the status bar / Dynamic Island.
+       The page behind it is map-coloured, so nothing white can show at an edge. */
+    html { background: #ecefea; } html:has(body.dark) { background: #121212; }
+    #app-screen { position: fixed; top: 0; left: 0; right: 0; bottom: 0; height: 100vh; height: 100lvh; }
 
     /* ── Right column: map info (area, theme, color key, zoom, locate) ──
        Mobile: above the sheet. Desktop: top-right (see media query). */
     #map-ctrl {
       position: absolute; right: var(--edge); z-index: 26;
-      bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-h) + var(--edge));
+      bottom: calc(var(--edge-b) + var(--sheet-h) + var(--edge));
       display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
     }
     body.placing #map-ctrl { display: none; }
@@ -89,7 +85,7 @@
 
     /* ── Place banner (tap-to-place mode) ── */
     #place-banner {
-      position: absolute; bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 8px);
+      position: absolute; bottom: calc(var(--edge-b) + var(--sheet-peek) + 8px);
       left: 50%; transform: translateX(-50%);
       z-index: 20; display: none; align-items: center; gap: 8px;
       background: rgba(37,99,235,.92); color: #fff;
@@ -108,7 +104,7 @@
 
     /* ── Context menu (right-click) and app menu (⋯) ── */
     #ctx-menu, #app-menu {
-      position: fixed; z-index: 200; background: var(--glass-strong); border: 1px solid var(--hairline);
+      position: fixed; z-index: 200; background: var(--glass); border: 1px solid var(--hairline);
       border-radius: var(--r-md); box-shadow: var(--shadow-2); overflow: hidden; min-width: 160px;
     }
     #ctx-menu { display: none; }
@@ -121,7 +117,7 @@
     .menu-item { display: block; width: 100%; margin: 0; padding: 0 14px; min-height: var(--tap); text-align: left;
                  background: none; border-radius: 0; color: var(--text); font-size: .85rem; font-weight: 500; }
     .menu-item:hover { background: var(--bg); }
-    .menu-note { padding: 8px 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .menu-note { padding: 8px 14px; color: var(--muted); overflow-wrap: anywhere; }
     .seg { display: flex; margin: 4px 14px 6px; padding: 2px; gap: 2px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: var(--r-sm); }
     .seg button { flex: 1; margin: 0; padding: 0; min-height: 36px; background: none; color: var(--text); border-radius: 6px; font-size: .8rem; font-weight: 500; }
     .seg button[aria-checked="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); font-weight: 600; }
@@ -134,14 +130,14 @@
        Mobile: floating card, bottom-center, clear of the home indicator, same width
        as the info card. Collapses to a handle so the map and target stay clear. */
     #sheet {
-      position: absolute; left: var(--edge); bottom: calc(var(--inset-b) + var(--edge));
+      position: absolute; left: var(--edge); bottom: var(--edge-b);
       z-index: 25; width: var(--panel-w);
       display: flex; flex-direction: column;
       background: var(--glass); border: 1px solid var(--hairline);
       border-radius: var(--r-lg);
       box-shadow: var(--shadow-2);
       /* Stays below the info card (top of the map) so the two never overlap. */
-      max-height: min(40%, calc(100% - var(--info-h) - var(--inset-b) - 44px));
+      max-height: min(40%, calc(100% - var(--info-h) - var(--edge-b) - 44px));
       pointer-events: auto;
     }
     #sheet-handle {
@@ -190,7 +186,7 @@
     body.dark .car-entry[data-urgency="tomorrow"] { background: #3b2e1a; }
     .ce-header { display: flex; align-items: center; gap: 8px; min-height: 28px; }
     /* Verdict beside the title; schedule + location buttons show on the open card only. */
-    .ce-header .ce-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ce-header .ce-name { flex: 1 1 auto; overflow-wrap: anywhere; }
     .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px;
                  font-size: .72rem; font-weight: 600; white-space: nowrap; background: color-mix(in srgb, currentColor 14%, transparent); }
     .ce-detail { display: flex; flex-direction: column; gap: 5px; }
@@ -211,7 +207,7 @@
       user-select: none;
     }
     .ce-addr[contenteditable="true"] { font-size: 16px; cursor: text; color: var(--text); border-bottom-color: var(--blue); user-select: text; }
-    .ce-addr:empty::before { content: 'double-click to set address'; opacity: .45; font-size: .7rem; }
+    .ce-addr:empty::before { content: 'Add address'; opacity: .45; font-size: .7rem; }
     .ce-sched { font-size: .73rem; line-height: 1.45; }
     .ce-sched-header  { font-size: .68rem; font-weight: 600; color: var(--muted); margin-top: 4px; white-space: nowrap; }
     .ce-sched-item    { font-size: .73rem; color: var(--muted); line-height: 1.4; }
@@ -226,7 +222,7 @@
     .ce-btn:hover { background: var(--bg); }
     .ce-danger { color: var(--urg-today); }
     .ce-danger:hover { background: color-mix(in srgb, var(--urg-today) 12%, transparent); }
-    .ce-upd { font-size: .68rem; color: var(--muted); margin-top: 3px; }
+    .ce-danger.armed { background: var(--urg-today); border-color: var(--urg-today); color: #fff; font-weight: 600; }
     .ce-phone { display: flex; flex-direction: column; gap: 5px; margin-top: 3px; }
     .ce-token-note { font-size: .68rem; color: var(--muted); line-height: 1.4; }
     .ce-token {
@@ -261,7 +257,7 @@
     /* ── Name box (arrow popup anchored at the new car's spot) ── */
     .name-popup .maplibregl-popup-content {
       background: var(--glass); border: 1px solid var(--hairline);
-      border-radius: var(--r-md); padding: 8px;
+      border-radius: var(--r-lg); padding: 8px;
       box-shadow: var(--shadow-2); min-width: 220px;
     }
     .name-popup .maplibregl-popup-tip {
@@ -283,13 +279,13 @@
     #info-card {
       position: absolute; top: calc(env(safe-area-inset-top, 0px) + var(--edge)); left: var(--edge);
       z-index: 20; width: var(--panel-w); pointer-events: auto;
-      display: flex; flex-direction: column; max-height: calc(50% - 18px);
+      display: flex; flex-direction: column;
       background: var(--glass); color: var(--text);
       border: 1px solid var(--hairline); border-radius: var(--r-lg);
       box-shadow: var(--shadow-2); font-size: .8rem;
       padding: 0 12px; cursor: pointer;
     }
-    #ic-cal { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding-bottom: 10px; }
+    #ic-cal { flex: 1 1 auto; min-height: 0; padding-bottom: 10px; }
     #info-card.expanded { cursor: default; }
     #ic-head {
       display: flex; align-items: center; gap: 8px; user-select: none;
@@ -305,7 +301,7 @@
        Docked bottom-center (mobile: just above the sheet) so nothing covers it. */
     #street-sign {
       position: absolute; left: 50%; transform: translateX(-50%); z-index: 21; pointer-events: none;
-      bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-h) + var(--edge));
+      bottom: calc(var(--edge-b) + var(--sheet-h) + var(--edge));
       width: max-content; max-width: calc(100% - 120px); text-align: center;
       background: #fff; color: #b91c1c; border: 2.5px solid #b91c1c; border-radius: 12px;
       padding: 8px 16px 9px; box-shadow: 0 0 0 3px #fff, 0 4px 16px rgba(0,0,0,.28);
@@ -320,7 +316,7 @@
     #street-sign.clear { color: #475569; border-color: #cbd5e1; }
     #street-sign.clear #ss-head, #street-sign.clear #ss-foot { display: none; }
     #street-sign.clear #ss-lines { font-size: .76rem; font-weight: 600; margin: 0; }
-    body.placing #street-sign { bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 62px); }
+    body.placing #street-sign { bottom: calc(var(--edge-b) + var(--sheet-peek) + 62px); }
 
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
@@ -329,23 +325,24 @@
       box-shadow: var(--shadow-1); font-size: .85rem; font-weight: 700;
     }
 
-    .cal-nav, .cal-day {
-      width: auto; margin: 0; padding: 0; border: none; border-radius: 4px;
-      background: transparent; cursor: pointer; font: inherit; color: inherit;
+    /* Compact: one row of days, scrolls sideways; seven fit the card. */
+    .sw-strip { display: flex; gap: 4px; overflow-x: auto; overscroll-behavior: contain; touch-action: pan-x;
+                scroll-snap-type: x proximity; scrollbar-width: none; }
+    .sw-strip::-webkit-scrollbar, .cal-scroll::-webkit-scrollbar { display: none; }
+    /* One day cell for both views; the strip's is taller and names the weekday. */
+    .cal-day {
+      position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-width: 0; border-radius: 4px; font-size: .75rem; line-height: 1.15; color: var(--text);
+      font-variant-numeric: tabular-nums; scroll-snap-align: start;
     }
-    .sw-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-    .sw-cell, .cal-day {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      border-radius: 4px; font-size: .62rem; line-height: 1.15; color: var(--text);
-      font-variant-numeric: tabular-nums;
-    }
-    .sw-cell { padding: 3px 0; min-height: 54px; font-size: .8rem; }
-    .sw-cell i { font-style: normal; font-size: .62rem; color: var(--muted); }
+    .cal-strip { flex: 0 0 calc((100% - 24px) / 7); padding: 3px 0; min-height: 54px; font-size: .8rem; }
+    .cal-strip i { font-style: normal; font-size: .62rem; color: var(--muted); }
+    .sw-now i, .sw-next i { color: #fff; opacity: .85; }
     /* Street days: light green; red today, orange tomorrow (as on the map). */
+    .cal-alt { background: color-mix(in srgb, var(--text) 5%, transparent); }  /* alternate months */
     .sw-day { background: color-mix(in srgb, var(--street) 24%, transparent); }
     .sw-now  { background: var(--urg-today-bg);    color: #fff; }
     .sw-next { background: var(--urg-tomorrow-bg); color: #fff; }
-    .sw-now i, .sw-next i { color: #fff; opacity: .85; }
     /* Today: underlined digit, same in both views. Selected (month view): ring. */
     .sw-today { font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
     .cal-sel { box-shadow: inset 0 0 0 2px var(--blue); }
@@ -355,44 +352,18 @@
 
     .cal-nav { font-size: 1.2rem; width: var(--tap); height: var(--tap); color: var(--muted); }
     .cal-nav:hover { color: var(--text); }
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
-    .cal-wd { font-size: .62rem; color: var(--muted); font-weight: 600; }
-    .cal-day { font-size: .75rem; height: 40px; min-width: 0; }
-    .cal-out { opacity: .4; }
+    /* Month view: weeks in a column, scrolls vertically; six rows show. */
+    .cal-wds { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center;
+               font-size: .62rem; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
+    .cal-scroll { height: calc(6 * 43px - 3px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+                  scroll-snap-type: y proximity; scrollbar-width: none; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 40px; gap: 3px; text-align: center; }
+    .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .56rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+    .sw-now .cal-mo, .sw-next .cal-mo { color: #fff; }
     .cal-detail { margin-top: 6px; font-size: .74rem; line-height: 1.4; min-height: 3em; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
     .cal-round { border-radius: 50%; }
     body.naming #street-sign, body.menu-open #street-sign { display: none; }
-
-    /* ── Custom hover tooltip ── */
-    #custom-hover {
-      position: fixed; z-index: 90; display: none; pointer-events: none;
-      background: var(--glass); border: 1px solid var(--hairline); border-radius: var(--r-md);
-      padding: 7px 10px; line-height: 1.45;
-      /* Each schedule line stays on one line; the box sizes to the widest. */
-      white-space: nowrap; max-width: 90vw;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: .76rem; color: var(--text);
-      box-shadow: 0 3px 10px rgba(0,0,0,.12);
-    }
-
-    /* ── Zone detail popup (click a section) ── */
-    .zone-detail-popup .maplibregl-popup-content {
-      background: var(--glass); color: var(--text);
-      border: 1px solid var(--hairline); border-radius: var(--r-md);
-      padding: 10px 26px 11px 12px; font-size: .78rem; line-height: 1.5;
-      box-shadow: var(--shadow-2);
-    }
-    .zone-detail-popup .maplibregl-popup-tip {
-      border-top-color: var(--card); border-bottom-color: var(--card);
-    }
-    .zone-detail-popup .maplibregl-popup-close-button {
-      position: absolute; top: 4px; right: 6px; left: auto; bottom: auto;
-      width: var(--tap); height: var(--tap); padding: 0;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.2rem; line-height: 1; color: var(--muted); border-radius: 5px;
-    }
-    .zone-detail-popup .maplibregl-popup-close-button:hover { color: var(--text); background: var(--bg); }
 
     /* ── Car marker (MapLibre HTML element) ── */
     .car-marker {
@@ -410,13 +381,12 @@
     .ce-dot-home { background: none; color: #15803d; }
 
     /* ── Spinner ── */
-    .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* Month view (mobile): the sign and map buttons would cover days and the day detail. */
     @media (max-width: 767px) {
       body.cal-open #street-sign, body.cal-open #map-ctrl { display: none; }
-      #info-card.expanded { max-height: calc(64% - var(--edge)); }  /* room for all six weeks + day detail */
+      #info-card.expanded { max-height: none; }  /* six weeks + day detail */
     }
 
     /* ── Dark mode ── */
@@ -429,7 +399,7 @@
 
     /* ── Toast notifications ── */
     #toast-container {
-      position: fixed; bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 16px);
+      position: fixed; bottom: calc(var(--edge-b) + var(--sheet-peek) + 16px);
       left: 50%; transform: translateX(-50%);
       z-index: 9999; display: flex; flex-direction: column; gap: 8px;
       pointer-events: none; align-items: center;

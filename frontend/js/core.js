@@ -38,6 +38,22 @@ function postCheck(lat, lon) {
   return postJSON('/api/check', { lat, lon, region: regionAt(lat, lon) || undefined });
 }
 
+// Two-step button: the first tap arms it ("Confirm?" for 3 s), the second runs `action`.
+function confirmTap(btn, action) {
+  let timer = null;
+  const label = btn.innerHTML;
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (btn.classList.toggle('armed')) {
+      btn.innerHTML = `${icon('trash')} Confirm?`;
+      timer = setTimeout(() => { btn.classList.remove('armed'); btn.innerHTML = label; }, 3000);
+      return;
+    }
+    clearTimeout(timer);
+    action();
+  });
+}
+
 function newId() {
   return crypto.randomUUID ? crypto.randomUUID()
                            : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -83,7 +99,6 @@ let _tempPin        = null;   // {lat,lon} while naming a new car
 let _selectedCarId  = null;
 let _gpsLocPin = null;
 let _gpsLocPinTimer = null;
-let _hoverSuppressed = false;
 let _region          = null;   // region key under the map center (null: none nearby)
 const REGION_RADIUS  = 1.5;    // degrees: a region applies this close to its center
 const AREA_ZOOM      = 9;      // below this the map shows area labels instead of streets
@@ -121,7 +136,6 @@ let homeSchedules  = {};         // homeId → /check-home response
 const _homeMarkers = new Map();  // homeId → maplibregl.Marker for the home pin
 let _gpsMarker     = null;
 let _tempPinMarker = null;
-let _zonePopup     = null;  // MapLibre popup for clicked zone detail
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
@@ -178,7 +192,6 @@ const ctxAddCar      = document.getElementById('ctx-add-car');
 const ctxAddHome     = document.getElementById('ctx-add-home');
 const carsPanel      = document.getElementById('cars-panel');
 const homePanel      = document.getElementById('home-panel');
-const customHoverEl  = document.getElementById('custom-hover');
 const sheet          = document.getElementById('sheet');
 const sheetHandle    = document.getElementById('sheet-handle');
 const sheetSummary   = document.getElementById('sheet-summary');

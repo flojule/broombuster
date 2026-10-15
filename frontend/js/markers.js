@@ -108,16 +108,3 @@ document.getElementById('btn-gps-add').addEventListener('click', () => {
 });
 
 document.getElementById('btn-gps-close').addEventListener('click', hideGpsPinPopup);
-
-// ── Zone detail popup (click a section) ─────────────────────────────────────────
-function showZoneDetail(lngLat, html) {
-  if (_zonePopup) _zonePopup.remove();
-  _zonePopup = new maplibregl.Popup({
-    closeButton: true, closeOnClick: false, maxWidth: '300px', className: 'zone-detail-popup',
-  }).setLngLat(lngLat).setHTML(html).addTo(map);
-  _zonePopup.on('close', () => { _zonePopup = null; });
-}
-
-function closeZoneDetail() {
-  if (_zonePopup) { _zonePopup.remove(); _zonePopup = null; }
-}

@@ -44,24 +44,15 @@ setInterval(() => {
 }, 60 * 1000);
 
 // ── Locate button (GPS) ───────────────────────────────────────────────────────
-btnLocate.addEventListener('click', () => {
-  const btn = btnLocate;
-  btn.disabled = true; btn.classList.add('busy');
-  getGPS(async (lat, lon) => {
-    btn.disabled = false; btn.classList.remove('busy');
-    if (_gpsLocPinTimer) clearTimeout(_gpsLocPinTimer);
-    _gpsLocPin = { lat, lon };
-    if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
-    updateCarMarkers();
-    updateGpsPinPopup();
-    _gpsLocPinTimer = setTimeout(() => {
-      _gpsLocPin = null; _gpsLocPinTimer = null;
-      document.getElementById('gps-pin-popup').style.display = 'none';
-      updateCarMarkers();
-    }, 15000);
-    for (const car of cars) checkCarSilently(car);
-  }, msg => { btn.disabled = false; btn.classList.remove('busy'); showToast(`GPS: ${msg}`, true); });
-});
+btnLocate.addEventListener('click', () => locateWith(btnLocate, async (lat, lon) => {
+  if (_gpsLocPinTimer) clearTimeout(_gpsLocPinTimer);
+  _gpsLocPin = { lat, lon };
+  if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
+  updateCarMarkers();
+  updateGpsPinPopup();
+  _gpsLocPinTimer = setTimeout(hideGpsPinPopup, 15000);
+  for (const car of cars) checkCarSilently(car);
+}));
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

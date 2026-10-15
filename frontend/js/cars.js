@@ -1,6 +1,6 @@
 // ── Per-car schedule checks ───────────────────────────────────────────────────
 async function checkCarWithRender(car) {
-  const warmupTimer = setTimeout(() => showToast('Server warming up, please wait…'), 5000);
+  const warmupTimer = setTimeout(() => showToast('Server warming up'), 5000);
   try {
     const res = await postCheck(car.lat, car.lon);
     clearTimeout(warmupTimer);
@@ -170,7 +170,7 @@ function openNameBox(lat, lon) {
   row.className = 'np-row';
   const input = document.createElement('input');
   input.type = 'text'; input.id = 'name-panel-input';
-  input.placeholder = 'Car name…'; input.maxLength = 32;
+  input.placeholder = 'Car name'; input.maxLength = 32;
   input.value = defaultCarName();
   const save = document.createElement('button');
   save.id = 'btn-np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
@@ -343,17 +343,17 @@ function renderCarsPanel() {
     entry.innerHTML = `
       <div class="ce-header">
         <span class="ce-dot"></span>
-        <span class="ce-name" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(car.name)}</span>
+        <span class="ce-name" contenteditable="false">${esc(car.name)}</span>
         ${sched ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
       </div>
-      <div class="ce-addr" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(addrText)}</div>
+      <div class="ce-addr" contenteditable="false">${esc(addrText)}</div>
       <div class="ce-detail">
       <div class="ce-sched">${scheduleHTML(sched)}</div>
       <div class="ce-actions">
-        <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">${icon('locate')} GPS</button>
-        <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">${icon('pin')} Set location</button>
+        <button class="ce-btn ce-btn-gps">${icon('locate')} GPS</button>
+        <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
         ${account ? `<button class="ce-btn ce-btn-phone">${car.id in phoneLinks ? 'Unlink phone' : 'Link phone'}</button>` : ''}
-        <button class="ce-btn ce-remove ce-danger" data-id="${esc(car.id)}">${icon('trash')} Remove</button>
+        <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
       </div>
       ${account ? phoneLinkHTML(car) : ''}
       </div>`;
@@ -383,16 +383,13 @@ function renderCarsPanel() {
     });
 
     // ── GPS button ──
-    entry.querySelector('.ce-btn-gps').addEventListener('click', () => {
-      const btn = entry.querySelector('.ce-btn-gps');
-      btn.disabled = true; btn.classList.add('busy');
-      getGPS(async (lat, lon) => {
+    entry.querySelector('.ce-btn-gps').addEventListener('click', e => {
+      locateWith(e.currentTarget, async (lat, lon) => {
         car.lat = lat; car.lon = lon; touchCarLocation(car);
         savePrefs();
-        btn.disabled = false; btn.classList.remove('busy');
         if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
         await checkCarWithRender(car);
-      }, msg => { btn.disabled = false; btn.classList.remove('busy'); showToast(`GPS: ${msg}`, true); });
+      });
     });
 
     // ── Set location button ──
@@ -406,7 +403,7 @@ function renderCarsPanel() {
     });
 
     // ── Remove button ──
-    entry.querySelector('.ce-remove').addEventListener('click', async () => {
+    confirmTap(entry.querySelector('.ce-remove'), () => {
       const marker = _carMarkers.get(car.id);
       if (marker) { marker.remove(); _carMarkers.delete(car.id); }
       delete carSchedules[car.id];

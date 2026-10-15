@@ -109,6 +109,5 @@ function renderAccountSection() {
          _syncTimer = null;
          _leaveAccount(() => fetch('/api/me', { method: 'DELETE' }));
        })]
-    : [_menuItem('Sync cars and homes across devices'),
-       _menuItem('Sign in with Google', () => { location.href = '/auth/login'; })]));
+    : [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; })]));
 }
