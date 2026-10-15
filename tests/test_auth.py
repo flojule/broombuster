@@ -176,3 +176,92 @@ def test_callback_rate_limit(env, client, monkeypatch):
     client.cookies.clear()
     assert _sign_in(client, monkeypatch).headers["location"] == "/?auth_error=1"
     assert client.get("/api/me").json()["user"] is None
+
+
+# ── Phone position updates ────────────────────────────────────────────────────
+OAKLAND = {"lat": 37.8044, "lon": -122.2712}
+ORIGIN = {"Origin": BASE}
+
+
+def _signed_in_with_car(client, monkeypatch):
+    _sign_in(client, monkeypatch)
+    assert client.put("/api/me/prefs", json=PREFS, headers=ORIGIN).status_code == 204
+    r = client.post("/api/cars/c1/token", headers=ORIGIN)
+    assert r.status_code == 200
+    return r.json()["token"]
+
+
+def _bearer(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_phone_token_moves_car_and_bumps_version(env, client, monkeypatch):
+    token = _signed_in_with_car(client, monkeypatch)
+    r = client.post("/api/cars/location", json={**OAKLAND, "accuracy": 8}, headers=_bearer(token))
+    assert r.status_code == 200 and r.json()["summary"].startswith("Parked at ")
+    car = client.get("/api/me").json()["prefs"]["cars"][0]
+    assert (car["lat"], car["lon"], car["loc_rev"]) == (OAKLAND["lat"], OAKLAND["lon"], 1)
+    assert client.get("/api/me").json()["phone_links"]["c1"] is not None  # last_used set
+    # Shortcuts may send the coordinates as text.
+    r = client.post("/api/cars/location", json={"lat": "37.81", "lon": "-122.27"},
+                    headers=_bearer(token))
+    assert r.status_code == 200
+    assert client.get("/api/me").json()["prefs"]["cars"][0]["loc_rev"] == 2
+
+
+def test_phone_token_rejections(env, client, monkeypatch):
+    token = _signed_in_with_car(client, monkeypatch)
+    no_cookie = TestClient(app)  # the phone sends no session cookie
+    assert no_cookie.post("/api/cars/location", json=OAKLAND).status_code == 401
+    assert no_cookie.post("/api/cars/location", json=OAKLAND,
+                          headers=_bearer("bbc_nope")).status_code == 401
+    rough = no_cookie.post("/api/cars/location", json={**OAKLAND, "accuracy": 500},
+                           headers=_bearer(token))
+    assert rough.status_code == 422
+    assert client.get("/api/me").json()["prefs"]["cars"][0]["lat"] == PREFS["cars"][0]["lat"]
+
+
+def test_phone_token_revoked_and_replaced(env, client, monkeypatch):
+    old = _signed_in_with_car(client, monkeypatch)
+    new = client.post("/api/cars/c1/token", headers=ORIGIN).json()["token"]
+    assert client.post("/api/cars/location", json=OAKLAND, headers=_bearer(old)).status_code == 401
+    assert client.post("/api/cars/location", json=OAKLAND, headers=_bearer(new)).status_code == 200
+    assert client.delete("/api/cars/c1/token", headers=ORIGIN).status_code == 204
+    assert client.post("/api/cars/location", json=OAKLAND, headers=_bearer(new)).status_code == 401
+    assert client.get("/api/me").json()["phone_links"] == {}
+
+
+def test_token_needs_saved_car_session_and_origin(env, client, monkeypatch):
+    assert client.post("/api/cars/c1/token", headers=ORIGIN).status_code == 401
+    _sign_in(client, monkeypatch)
+    assert client.post("/api/cars/c1/token", headers=ORIGIN).status_code == 404  # not saved yet
+    client.put("/api/me/prefs", json=PREFS, headers=ORIGIN)
+    assert client.post("/api/cars/c1/token").status_code == 403
+
+
+def test_stale_device_cannot_overwrite_phone_position(env, client, monkeypatch):
+    token = _signed_in_with_car(client, monkeypatch)
+    client.post("/api/cars/location", json=OAKLAND, headers=_bearer(token))
+    # A browser that never saw the phone update syncs its old copy, plus a rename.
+    stale = {**PREFS, "cars": [{**PREFS["cars"][0], "name": "Renamed"}]}
+    assert client.put("/api/me/prefs", json=stale, headers=ORIGIN).status_code == 204
+    car = client.get("/api/me").json()["prefs"]["cars"][0]
+    assert car["name"] == "Renamed" and car["lat"] == OAKLAND["lat"] and car["loc_rev"] == 1
+    # A newer manual move on the browser does win.
+    moved = {**PREFS, "cars": [{**PREFS["cars"][0], "lat": 37.7, "lon": -122.4, "loc_rev": 2}]}
+    client.put("/api/me/prefs", json=moved, headers=ORIGIN)
+    assert client.get("/api/me").json()["prefs"]["cars"][0]["lat"] == 37.7
+
+
+def test_removing_a_car_drops_its_token(env, client, monkeypatch):
+    token = _signed_in_with_car(client, monkeypatch)
+    client.put("/api/me/prefs", json={"cars": [], "homes": []}, headers=ORIGIN)
+    r = client.post("/api/cars/location", json=OAKLAND, headers=_bearer(token))
+    assert r.status_code == 401
+
+
+def test_delete_account_removes_tokens(env, client, monkeypatch):
+    token = _signed_in_with_car(client, monkeypatch)
+    assert client.delete("/api/me", headers=ORIGIN).status_code == 204
+    r = client.post("/api/cars/location", json=OAKLAND, headers=_bearer(token))
+    assert r.status_code == 401

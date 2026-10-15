@@ -3,6 +3,7 @@ const btnAccount  = document.getElementById('btn-account');
 const accountMenu = document.getElementById('account-menu');
 let account    = null;   // { email } while signed in
 let _syncTimer = null;
+let phoneLinks = {};     // car id -> epoch seconds of the phone's last report (null: never)
 
 // Sign-in state. A signed-in user's saved prefs replace the local copy; an
 // account without prefs adopts the local one.
@@ -17,6 +18,7 @@ async function loadAccount() {
     const me = await res.json();
     btnAccount.hidden = !me.enabled;
     account = me.user;
+    phoneLinks = me.phone_links || {};
     btnAccount.classList.toggle('signed-in', !!account);
     btnAccount.title = account ? account.email : 'Sign in';
     if (!account) return;
@@ -46,8 +48,37 @@ function _flushPrefs() {
   return _putPrefs(JSON.stringify({ cars, homes }));
 }
 
+// Back in the foreground: a phone may have moved a car meanwhile. Push our own
+// edits first, then adopt each server position with a higher version (the same
+// rule the server applies, auth._merge_cars).
+async function refreshFromAccount() {
+  if (!account) return;
+  try {
+    await _flushPrefs();
+    const res = await fetch('/api/me', { cache: 'no-store' });
+    if (!res.ok) return;
+    const me = await res.json();
+    phoneLinks = me.phone_links || phoneLinks;
+    const moved = [];
+    for (const s of me.prefs?.cars || []) {
+      const car = cars.find(c => c.id === s.id);
+      if (car && (s.loc_rev || 0) > (car.loc_rev || 0)) {
+        Object.assign(car, { lat: s.lat, lon: s.lon, loc_rev: s.loc_rev });
+        moved.push(car);
+      }
+    }
+    if (moved.length) {
+      try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
+      for (const car of moved) checkCarSilently(car);
+      updateCarMarkers();
+    }
+    renderCarsPanel();
+  } catch (_) {}
+}
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') _flushPrefs();
+  else refreshFromAccount();
 });
 
 // ── Account menu ──────────────────────────────────────────────────────────────

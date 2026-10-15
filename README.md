@@ -20,7 +20,7 @@ The frontend tests (`tests/test_urgency.py` and most of `tests/test_datetime.py`
 - `src/broombuster/api/`: FastAPI app. `POST /api/check` returns a car's street
   schedule, `GET /api/address` adds the house number, `POST /api/check-home` returns
   trash pickups. `api/auth.py` adds Google sign-in (`/auth/*`) and account data
-  (`/api/me`, `/api/me/prefs`) in `data/users.sqlite`. It also serves `frontend/`.
+  (`/api/me`, `/api/me/prefs`, phone tokens under `/api/cars/`) in `data/users.sqlite`. It also serves `frontend/`.
   `config.py` holds every setting read from the environment.
 - `frontend/`: the PWA. Urgency is computed client-side in `js/urgency.js`, and
   the map draws the PMTiles in `tiles/`. MapLibre and PMTiles are vendored in
@@ -47,6 +47,39 @@ run `./deploy/update.sh`. Logs: `journalctl -u broombuster -u broombuster-update
 | 3 | Restart the service. `/me` reports `"enabled": true`. |
 
 Sessions are 30-day cookies backed by SQLite. Unit changes need `./deploy/install.sh`; `update.sh` only restarts.
+
+## Phone position updates
+
+A signed-in user can let their phone report where the car was parked. In the app,
+open a car and tap **Link phone**: it shows a token once. **Unlink phone** revokes it
+(link again for a new one). The token can only move that one car. Each car needs its
+own automation and token: the trigger (that car's CarPlay or Bluetooth) picks the
+moment, the token picks the car.
+
+The phone sends, when it leaves the car:
+
+```
+POST https://<your-site>/api/cars/location
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"lat": 37.8044, "lon": -122.2712, "accuracy": 8}
+```
+
+The reply's `summary` ("Parked at 12 Oak St, Oakland.") is meant to be shown as a
+notification. `accuracy` (metres) is optional; above 50 m the position is refused
+(422). Coordinates may be numbers or numeric text.
+
+- **iPhone**: Shortcuts → Automation → *CarPlay* (or *Bluetooth*, your car) →
+  *Is Disconnected* → *Run Immediately*. Actions: *Get Current Location*, then *Get
+  Contents of URL* (method POST, JSON body with `lat`/`lon` from the location,
+  header `Authorization: Bearer <token>`), then *Show Notification* with the
+  `summary` from the result.
+- **Android**: the same request from Tasker or MacroDroid on Bluetooth disconnect.
+
+Each car keeps a position version (`loc_rev`); a device that never saw a phone update
+cannot overwrite it when it syncs, and the app refreshes cars when it returns to the
+foreground.
 
 ## Public access (Cloudflare Tunnel)
 
