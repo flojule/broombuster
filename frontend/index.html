@@ -20,7 +20,7 @@
   <meta property="og:image:alt" content="A hooded reaper sweeping a street of parked cars with ticket-stamped windshields">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="BroomBuster">
   <meta name="theme-color" content="#ffffff">
 
@@ -42,6 +42,7 @@
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
     <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
   </defs>
 </svg>
@@ -50,20 +51,9 @@
   <div id="map-container">
     <div id="map"></div>
 
-    <!-- Right column (map info): account (when sign-in is on), theme, color key, zoom (desktop), locate. -->
+    <!-- Right column (map controls): menu, zoom (desktop), locate. -->
     <div id="map-ctrl">
-      <button id="btn-account" class="map-btn" title="Account" aria-label="Account" aria-haspopup="menu" hidden>👤</button>
-      <button id="btn-dark-mode" class="map-btn" title="Toggle dark mode" aria-label="Toggle dark mode"></button>
-      <div id="legend-wrap">
-        <button id="btn-legend" class="map-btn" title="Map colors" aria-label="Map colors" aria-expanded="false" aria-controls="legend-pop"><svg class="ic"><use href="#i-info"/></svg></button>
-        <div id="legend-pop" hidden>
-          <span class="urg-today"><i class="lg lg-3"></i>Today</span>
-          <span class="urg-tomorrow"><i class="lg lg-2"></i>Tomorrow</span>
-          <span class="urg-safe"><i class="lg lg-1"></i>Clear</span>
-          <span class="urg-none"><i class="lg lg-0"></i>No sweeping</span>
-          <span class="legend-credit">Map: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a>, data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors<br>BroomBuster __APP_VERSION__</span>
-        </div>
-      </div>
+      <button id="btn-menu" class="map-btn" title="Menu" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="app-menu"><svg class="ic"><use href="#i-more"/></svg></button>
       <button id="btn-zoom-in" class="map-btn zoom-btn" title="Zoom in" aria-label="Zoom in"><svg class="ic"><use href="#i-plus"/></svg></button>
       <button id="btn-zoom-out" class="map-btn zoom-btn" title="Zoom out" aria-label="Zoom out"><svg class="ic"><use href="#i-minus"/></svg></button>
       <button id="btn-locate" class="map-btn" title="Use GPS location" aria-label="Use GPS location"><svg class="ic"><use href="#i-locate"/></svg></button>
@@ -130,8 +120,26 @@
   </div>
 </div>
 
-<!-- Account menu (filled by js/account.js) -->
-<div id="account-menu" role="menu"></div>
+<!-- App menu: account (when sign-in is on), appearance, map colors, about. Account part filled by js/account.js. -->
+<div id="app-menu" role="menu" hidden>
+  <div class="menu-sec" id="menu-account" hidden></div>
+  <div class="menu-sec">
+    <div class="menu-label">Appearance</div>
+    <div class="seg" id="theme-seg" role="radiogroup" aria-label="Appearance">
+      <button type="button" role="radio" data-theme="auto">Auto</button>
+      <button type="button" role="radio" data-theme="light">Light</button>
+      <button type="button" role="radio" data-theme="dark">Dark</button>
+    </div>
+  </div>
+  <div class="menu-sec menu-legend">
+    <div class="menu-label">Map colors</div>
+    <span class="urg-today"><i class="lg lg-3"></i>Today</span>
+    <span class="urg-tomorrow"><i class="lg lg-2"></i>Tomorrow</span>
+    <span class="urg-safe"><i class="lg lg-1"></i>Clear</span>
+    <span class="urg-none"><i class="lg lg-0"></i>No sweeping</span>
+  </div>
+  <div class="menu-sec menu-about">Map: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a>, data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors<br>BroomBuster __APP_VERSION__</div>
+</div>
 
 <!-- Toast container -->
 <div id="toast-container"></div>

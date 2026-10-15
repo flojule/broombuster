@@ -158,12 +158,13 @@ function _lineWidth() {
 
 const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const DARK_STYLE  = 'https://tiles.openfreemap.org/styles/dark';
-// Night ~= 7pm–7am local time; picks the default basemap + UI chrome.
-function _isNight() { const h = new Date().getHours(); return h >= 19 || h < 7; }
-function _wantDark() {
-  const stored = localStorage.getItem('bb_dark');
-  return stored !== null ? stored === '1' : _isNight();
+// Appearance: 'auto' follows the system; 'light' / 'dark' pin it (menu).
+const _sysDark = window.matchMedia('(prefers-color-scheme: dark)');
+function _themePref() {
+  const v = localStorage.getItem('bb_theme');
+  return v === 'light' || v === 'dark' ? v : 'auto';
 }
+function _wantDark() { const p = _themePref(); return p === 'auto' ? _sysDark.matches : p === 'dark'; }
 let _mapStyle = _wantDark() ? DARK_STYLE : LIGHT_STYLE;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────

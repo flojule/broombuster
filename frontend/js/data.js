@@ -23,7 +23,7 @@ document.addEventListener('keydown', e => {
   const ae = document.activeElement;
   if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
   let dismissed = false;
-  if (!_legendPop.hidden)                       { setLegendOpen(false); dismissed = true; }
+  if (!_appMenu.hidden)                         { setMenuOpen(false); dismissed = true; }
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
   if (_namePopup)                               { closeNameBox();     dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
