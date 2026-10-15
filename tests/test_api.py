@@ -23,7 +23,8 @@ def _check(client, payload):
 
 
 def test_health_and_cities(client):
-    assert client.get("/health").json() == {"status": "ok"}
+    health = client.get("/health").json()
+    assert health["status"] == "ok" and health["version"]
     regions = client.get("/api/cities").json()
     assert set(regions) == {"bay_area", "chicago"}
     assert regions["chicago"]["tz"] == "America/Chicago"

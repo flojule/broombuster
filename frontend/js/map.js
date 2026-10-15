@@ -27,7 +27,7 @@ function handleMapTap(point, lngLat) {
   const props = features[0]?.properties;
   if (!props) { dismissMapWindows(); return; }
   showZoneDetail(lngLat, tileHoverHtml(props)
-    || `<b>${esc(props.street || '')}</b><br>No sweeping scheduled`);
+    || `<b>${esc(props.street || '')}</b><br>No sweeping`);
 }
 
 function attachMapListeners() {
@@ -107,7 +107,7 @@ function whenStyleReady(cb) {
 let _tilesRegion      = null;   // region currently mounted as a tile source
 let _pmtilesProtocol  = false;  // pmtiles:// protocol registered once
 let _featStateCache   = new Map();  // feature id -> [urgency, y-m-d-minute it was computed]
-let _featSchedCache   = new Map();  // feature id -> parsed sched entries
+let _featSchedCache   = new Map();  // feature id -> { parsed sched entries, whether the street has no sweeping }
 let _urgencyTimer     = null;
 
 function _archiveUrl(region) {
@@ -228,12 +228,15 @@ function applyUrgencyStates() {
     if (f.id === undefined || f.id === null) continue;
     const prev = _featStateCache.get(f.id);
     if (prev && prev[1] === stamp) continue;
-    let entries = _featSchedCache.get(f.id);
-    if (entries === undefined) {
+    let sched = _featSchedCache.get(f.id);
+    if (sched === undefined) {
+      let entries;
       try { entries = JSON.parse(f.properties.sched || '[]') || []; } catch (_) { entries = []; }
-      _featSchedCache.set(f.id, entries);
+      // Same test as the street sign's "No sweeping": nothing real to display.
+      sched = { entries, none: !tileSchedLines(f.properties).length };
+      _featSchedCache.set(f.id, sched);
     }
-    const u = BroomUrgency.checkDaySweeping(entries, now);
+    const u = sched.none ? 'none' : BroomUrgency.checkDaySweeping(sched.entries, now);
     _featStateCache.set(f.id, [u, stamp]);
     if (prev && prev[0] === u) continue;
     map.setFeatureState(

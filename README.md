@@ -26,7 +26,7 @@ The frontend tests (`tests/test_urgency.py` and most of `tests/test_datetime.py`
   the map draws the PMTiles in `tiles/`. MapLibre and PMTiles are vendored in
   `vendor/`.
 - `data/`: one manifest and one FlatGeobuf per city (see `data/README.md`).
-- `scripts/`: data rebuild and tile build.
+- `scripts/`: data rebuild, tile build, and `build_icons.py` (PNG icons from `frontend/icon.svg`).
 
 ## Deploy (Raspberry Pi, systemd, Cloudflare Tunnel)
 
