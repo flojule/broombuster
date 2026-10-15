@@ -139,7 +139,8 @@ def index_response() -> HTMLResponse:
     if _index_html is None:
         v = _asset_version()
         html = (_FRONTEND / "index.html").read_text()
-        _index_html = _ASSET.sub(lambda m: f"{m[1]}/{m[2]}?v={v}{m[1]}", html)
+        html = _ASSET.sub(lambda m: f"{m[1]}/{m[2]}?v={v}{m[1]}", html)
+        _index_html = html.replace("__BASE_URL__", config.base_url())
     return HTMLResponse(_index_html, headers={"Cache-Control": "no-cache"})
 
 
@@ -149,6 +150,7 @@ def service_worker_response() -> Response:
     global _sw_js
     if _sw_js is None:
         shell = ["/", "/styles.css", "/manifest.json", "/icon-192.png", "/icon-512.png",
+                 "/apple-touch-icon.png", "/favicon-32.png",
                  *(f"/{f.relative_to(_FRONTEND)}" for f in sorted(
                      [*_FRONTEND.glob("js/*.js"), *_FRONTEND.glob("vendor/*.*js"),
                       *_FRONTEND.glob("vendor/*.css")]))]
