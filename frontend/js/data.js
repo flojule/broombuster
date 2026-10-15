@@ -27,15 +27,12 @@ document.addEventListener('keydown', e => {
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
   if (_namePopup)                               { closeNameBox();     dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
-  if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
   if (placingCar || placingHome)                { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
   if (dismissed) return;
   if (_cal.expanded) { collapseCal(); return; }
   if (_selectedCarId) clearCarSelection();
 });
 
-carsPanel.addEventListener('mouseenter', () => { _hoverSuppressed = true;  customHoverEl.style.display = 'none'; });
-carsPanel.addEventListener('mouseleave', () => { _hoverSuppressed = false; });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function abbreviate(s) {

@@ -62,7 +62,7 @@ function renderHomePanel() {
         <span class="ce-name">${esc(label)}</span>
         ${_nextPickups(sched).length ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
       </div>
-      <div class="ce-addr" contenteditable="false" title="Double-click to edit this address">${esc(addrText)}</div>
+      <div class="ce-addr" contenteditable="false">${esc(addrText)}</div>
       <div class="ce-detail">
         <div class="ce-sched">${homeScheduleHTML(sched)}</div>
         <div class="ce-actions">
@@ -78,7 +78,7 @@ function renderHomePanel() {
 
     entry.querySelector('.ce-btn-addr').addEventListener('click', () => addrEl.startEdit());
     entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacingHome(h.id));
-    entry.querySelector('.ce-remove').addEventListener('click', () => removeHome(h.id));
+    confirmTap(entry.querySelector('.ce-remove'), () => removeHome(h.id));
 
     homePanel.appendChild(entry);
   });

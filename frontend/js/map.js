@@ -20,15 +20,8 @@ function initMap(center) {
 let _mapListenersAttached = false;
 let _tapTimer = null;  // deferred single-tap (cancelled by a double-tap zoom)
 
-// A settled single tap shows the tapped feature's schedule (the hover text, for
-// touch screens), else dismisses any open window.
-function handleMapTap(point, lngLat) {
-  const features = map.queryRenderedFeatures(point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
-  const props = features[0]?.properties;
-  if (!props) { dismissMapWindows(); return; }
-  showZoneDetail(lngLat, tileHoverHtml(props)
-    || `<b>${esc(props.street || '')}</b><br>No sweeping`);
-}
+// A settled single tap dismisses any open window (the street is read on the sign).
+function handleMapTap() { dismissMapWindows(); }
 
 function attachMapListeners() {
   // Event listeners live on the map instance and survive style changes, so only
@@ -36,28 +29,7 @@ function attachMapListeners() {
   if (_mapListenersAttached) return;
   _mapListenersAttached = true;
 
-  // Hover tooltip
-  map.on('mousemove', (e) => {
-    if (_hoverSuppressed) return;
-    const features = map.queryRenderedFeatures(e.point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
-    if (!features.length) { customHoverEl.style.display = 'none'; return; }
-    const html = tileHoverHtml(features[0].properties || {});
-    if (!html) { customHoverEl.style.display = 'none'; return; }
-    customHoverEl.innerHTML = html;
-    customHoverEl.style.display = 'block';
-    // Clamp using the box's actual width (it now sizes to its widest line).
-    const w = customHoverEl.offsetWidth;
-    const x = Math.min(e.originalEvent.clientX + 14, window.innerWidth - w - 10);
-    const y = Math.max(e.originalEvent.clientY - 10, 10);
-    customHoverEl.style.left = Math.max(x, 6) + 'px';
-    customHoverEl.style.top  = y + 'px';
-  });
-
-  map.getCanvas().addEventListener('mouseleave', () => { customHoverEl.style.display = 'none'; });
-  map.on('movestart', () => { customHoverEl.style.display = 'none'; });
-
-  // Tap → the feature's schedule popup; a tap elsewhere dismisses any open
-  // window (popup, GPS pin popup, car selection) — like Esc. The action is
+  // A tap dismisses any open window (GPS pin popup, car selection), like Esc. The action is
   // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
   // placement commits immediately, and a tap while the name box is open is ignored.
   map.on('click', (e) => {
@@ -66,8 +38,7 @@ function attachMapListeners() {
     if (placingCar || placingHome) return;
     if (_namePopup) return;  // name box open: taps don't open windows or close it
     if (_tapTimer) clearTimeout(_tapTimer);
-    const point = e.point, lngLat = e.lngLat;
-    _tapTimer = setTimeout(() => { _tapTimer = null; handleMapTap(point, lngLat); }, 280);
+    _tapTimer = setTimeout(() => { _tapTimer = null; handleMapTap(); }, 280);
   });
   map.on('dblclick', () => { if (_tapTimer) { clearTimeout(_tapTimer); _tapTimer = null; } });
 
@@ -247,8 +218,8 @@ function applyUrgencyStates() {
 }
 
 // Canonical schedule lines for a tile feature (days merged per time: "Tue, Thu · 3AM–5AM",
-// Mon->Sun order, merged next-cluster dates), as on the car card. Shared by the
-// hover tooltip, the tap popup and the street sign.
+// Mon->Sun order, merged next-cluster dates), as on the car card. Used by the
+// street sign.
 function tileSchedLines(props) {
   let sched = [];
   try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}
@@ -256,10 +227,4 @@ function tileSchedLines(props) {
   const labels = [props.side_even || 'Even', props.side_odd || 'Odd'];
   return BroomUrgency.formatBothSides(
     sched.filter(e => e.side === 'even'), sched.filter(e => e.side === 'odd'), now, null, labels);
-}
-
-function tileHoverHtml(props) {
-  const lines = tileSchedLines(props);
-  // No real schedule (only N/A / no-sweep) → no hover at all.
-  return lines.length ? `<b>${esc(props.street || '')}</b><br>${lines.map(esc).join('<br>')}` : '';
 }
