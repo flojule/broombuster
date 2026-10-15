@@ -23,6 +23,11 @@ def oauth_env() -> tuple[str, str, str]:
     return cid, secret, base
 
 
+def base_url() -> str:
+    """Public site URL, no trailing slash ("" if unset); link previews need absolute URLs."""
+    return os.environ.get("BB_BASE_URL", "").strip().rstrip("/")
+
+
 def db_path() -> str:
     return os.environ.get("BB_DB") or os.path.join(REPO_ROOT, "data", "users.sqlite")
 
