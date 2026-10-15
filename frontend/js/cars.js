@@ -76,7 +76,7 @@ function startPlacing(editId = null) {
   placingCar    = true;
   placingHome   = false;
   placingEditId = editId;
-  placeBannerText.textContent = editId ? '📌' : '🚗';
+  placeBannerText.innerHTML = icon(editId ? 'pin' : 'car');
   _beginPlacing();
 }
 
@@ -84,7 +84,7 @@ function startPlacingHome(editId = null) {
   placingHome   = true;
   placingCar    = false;
   placingEditId = editId;
-  placeBannerText.textContent = '🏠';
+  placeBannerText.innerHTML = icon('home');
   _beginPlacing();
 }
 
@@ -132,7 +132,7 @@ async function commitPlacement(lat, lon) {
 btnConfirmPlace.addEventListener('click', confirmPlacementAtCenter);
 btnCancelPlace.addEventListener('click', () => { stopPlacing(); setSheetCollapsed(false); });
 
-// "🚗 Add car" — enters center-target place mode.
+// "Add car" — enters center-target place mode.
 document.getElementById('btn-add-car').addEventListener('click', () => {
   closeNameBox();
   startPlacing(null);
@@ -251,8 +251,10 @@ function sweepUrgency(sched) {
 }
 
 // Verdict next to the card title, in the urgency colour.
+// Verdict pill: icon + word (never colour alone).
 function _statusHTML(u, label) {
-  return `<span class="ce-status" style="color:${URGENCY[u].color}">${esc(label)}</span>`;
+  const ic = URGENCY[u].icon;
+  return `<span class="ce-status" data-urgency="${esc(u)}" style="color:${URGENCY[u].color}">${ic ? icon(ic) + ' ' : ''}${esc(label)}</span>`;
 }
 function _itemsHTML(lines) {
   return lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
@@ -343,7 +345,6 @@ function renderCarsPanel() {
         <span class="ce-dot"></span>
         <span class="ce-name" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(car.name)}</span>
         ${sched ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
-        <button class="ce-remove" data-id="${esc(car.id)}" title="Remove" aria-label="Remove">${icon('close')}</button>
       </div>
       <div class="ce-addr" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(addrText)}</div>
       <div class="ce-detail">
@@ -352,6 +353,7 @@ function renderCarsPanel() {
         <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">${icon('locate')} GPS</button>
         <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">${icon('pin')} Set location</button>
         ${account ? `<button class="ce-btn ce-btn-phone">${car.id in phoneLinks ? 'Unlink phone' : 'Link phone'}</button>` : ''}
+        <button class="ce-btn ce-remove ce-danger" data-id="${esc(car.id)}">${icon('trash')} Remove</button>
       </div>
       ${account ? phoneLinkHTML(car) : ''}
       </div>`;
@@ -368,7 +370,7 @@ function renderCarsPanel() {
         const hit = await geocode(q);
         if (!hit) {
           addrEl.style.color = 'var(--red)';
-          addrEl.textContent = '⚠️ Address not found';
+          addrEl.textContent = 'Address not found';
           setTimeout(() => { addrEl.style.color = ''; addrEl.textContent = addrText; }, 2500);
           return;
         }

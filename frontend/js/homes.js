@@ -58,10 +58,9 @@ function renderHomePanel() {
     });
     entry.innerHTML = `
       <div class="ce-header">
-        <span class="ce-dot ce-dot-home">🏠</span>
+        <span class="ce-dot ce-dot-home">${icon('home')}</span>
         <span class="ce-name">${esc(label)}</span>
         ${_nextPickups(sched).length ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
-        <button class="ce-remove" title="Remove home" aria-label="Remove home">${icon('close')}</button>
       </div>
       <div class="ce-addr" contenteditable="false" title="Double-click to edit this address">${esc(addrText)}</div>
       <div class="ce-detail">
@@ -69,6 +68,7 @@ function renderHomePanel() {
         <div class="ce-actions">
           <button class="ce-btn ce-btn-addr">Set address</button>
           <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
+          <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
         </div>
       </div>`;
 
@@ -147,7 +147,7 @@ function updateHomeMarkers() {
     _homeMarkers.set(h.id, placeMarker(_homeMarkers.get(h.id), h, () => {
       const el = document.createElement('div');
       el.className = 'home-marker';
-      el.textContent = '🏠';
+      el.innerHTML = icon('home');
       el.title = 'Home';
       return el;
     }));

@@ -6,8 +6,13 @@
       --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
       --bg: #f8fafc; --card: #ffffff; --text: #1e293b;
       --muted: #526071; --border: #e2e8f0;
-      --sheet-peek: 40px;  /* collapsed bottom-sheet handle height */
-      --panel-w: min(360px, calc(100vw - 24px));  /* calendar card + sheet width */
+      --r-sm: 8px; --r-md: 12px; --r-lg: 16px;  /* corner radii: controls, cards, floating panels */
+      --shadow-1: 0 2px 8px rgba(0,0,0,.16);    /* controls */
+      --shadow-2: 0 6px 24px rgba(0,0,0,.22);   /* floating panels, menus */
+      --tap: 44px;                              /* minimum touch target */
+      --sheet-peek: var(--tap);  /* collapsed bottom-sheet handle height */
+      --edge: 12px;  /* gap between floating panels / map buttons and the screen edge */
+      --panel-w: calc(100vw - 2 * var(--edge));  /* calendar card + sheet: edge to edge on mobile, so their right edge lines up with the map buttons */
       --inset-b: env(safe-area-inset-bottom, 0px);
       --info-h: 0px;  /* calendar card height, set from JS */
       --sheet-h: 0px; /* sheet height, set from JS */
@@ -20,31 +25,57 @@
     /* Keep map drags from scrolling/rubber-banding the page behind it. */
     html, body { overflow: hidden; overscroll-behavior: none; }
 
+    /* Floating surfaces are frosted glass where the browser supports it, opaque cards otherwise. */
+    body { --glass: var(--card); --glass-strong: var(--card); --hairline: var(--border); }
+    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+      body { --glass: color-mix(in srgb, var(--card) 74%, transparent);
+             --glass-strong: color-mix(in srgb, var(--card) 92%, transparent);  /* text-heavy overlays */
+             --hairline: color-mix(in srgb, var(--text) 14%, transparent); }
+      #info-card, #sheet, .map-btn, #app-menu, #ctx-menu, #gps-pin-popup, #custom-hover, .area-label,
+      .name-popup .maplibregl-popup-content, .zone-detail-popup .maplibregl-popup-content {
+        -webkit-backdrop-filter: blur(20px) saturate(1.8); backdrop-filter: blur(20px) saturate(1.8);
+      }
+    }
+    :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
     [hidden] { display: none !important; }
     svg.ic { width: 1.15em; height: 1.15em; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
              stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; pointer-events: none; }
     .busy svg.ic { animation: spin .8s linear infinite; }
-    button { display: block; width: 100%; padding: 10px; margin-top: 16px; background: var(--blue); color: #fff; border: none; border-radius: 10px; font-size: .95rem; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+    /* Buttons start bare; .btn is the filled primary action. */
+    button { font: inherit; color: inherit; background: none; border: none; padding: 0; margin: 0; cursor: pointer; }
+    .btn, .add-car-btn, #btn-gps-add, #btn-np-save, #btn-confirm-place, #btn-cancel-place {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      min-height: var(--tap); padding: 0 16px; background: var(--blue); color: #fff;
+      border-radius: var(--r-md); font-size: .88rem; font-weight: 600; transition: opacity .15s;
+    }
     button:disabled { opacity: .5; cursor: default; }
     button:not(:disabled):hover { opacity: .9; }
 
     /* ── App ── */
-    #app-screen { height: 100dvh; }
+    /* Fixed to the full screen so the map runs under the status bar / Dynamic Island. */
+    #app-screen { position: fixed; inset: 0; }
+    /* Installed app only: the translucent iOS status bar has white text: a soft dark scrim keeps it legible over a light map. */
+    @media (display-mode: standalone) { #app-screen::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; z-index: 19; pointer-events: none;
+      height: calc(env(safe-area-inset-top, 0px) + 12px);
+      background: linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,0));
+    } }
 
     /* ── Right column: map info (area, theme, color key, zoom, locate) ──
        Mobile: above the sheet. Desktop: top-right (see media query). */
     #map-ctrl {
-      position: absolute; right: 10px; z-index: 26;
-      bottom: calc(var(--inset-b) + 12px + var(--sheet-h) + 10px);
+      position: absolute; right: var(--edge); z-index: 26;
+      bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-h) + var(--edge));
       display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
     }
     body.placing #map-ctrl { display: none; }
     .map-btn {
-      width: 40px; height: 40px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center;
-      background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.2); font-size: 1.1rem;
+      width: var(--tap); height: var(--tap); margin: 0; padding: 0; display: flex; align-items: center; justify-content: center;
+      background: var(--glass); color: var(--text); border: 1px solid var(--hairline); border-radius: var(--r-md);
+      box-shadow: var(--shadow-1); font-size: 1.1rem;
     }
-    #legend-wrap { position: relative; }
     .zoom-btn { display: none; }
 
     /* ── Map container ── */
@@ -58,7 +89,7 @@
 
     /* ── Place banner (tap-to-place mode) ── */
     #place-banner {
-      position: absolute; bottom: calc(var(--inset-b) + 12px + var(--sheet-peek) + 8px);
+      position: absolute; bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 8px);
       left: 50%; transform: translateX(-50%);
       z-index: 20; display: none; align-items: center; gap: 8px;
       background: rgba(37,99,235,.92); color: #fff;
@@ -68,51 +99,58 @@
       white-space: nowrap; pointer-events: auto;
     }
     #place-banner.active { display: flex; }
-    #btn-confirm-place, #btn-cancel-place {
-      width: auto; margin: 0; padding: 7px 14px; border-radius: 12px;
-      font-size: .75rem; font-weight: 600;
-    }
+    #btn-confirm-place, #btn-cancel-place { min-height: 36px; padding: 0 14px; font-size: .78rem; }
     #btn-confirm-place { background: #fff; color: var(--blue); border: none; }
     #btn-cancel-place {
       background: rgba(255,255,255,.2); color: #fff;
       border: 1px solid rgba(255,255,255,.4); font-weight: 500;
     }
 
-    /* ── Context menu (right-click) ── */
-    #ctx-menu, #account-menu {
-      position: fixed; z-index: 200; display: none;
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.14);
-      overflow: hidden; min-width: 140px;
+    /* ── Context menu (right-click) and app menu (⋯) ── */
+    #ctx-menu, #app-menu {
+      position: fixed; z-index: 200; background: var(--glass-strong); border: 1px solid var(--hairline);
+      border-radius: var(--r-md); box-shadow: var(--shadow-2); overflow: hidden; min-width: 160px;
     }
-    .ctx-item { padding: 7px 14px; cursor: pointer; font-size: .85rem; }
+    #ctx-menu { display: none; }
+    .ctx-item { padding: 11px 14px; cursor: pointer; font-size: .85rem; }
     .ctx-item:hover { background: var(--bg); }
-    .ctx-item.ctx-note { color: var(--muted); cursor: default; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ctx-item.ctx-note:hover { background: none; }
-    #btn-account.signed-in { background: var(--blue); color: #fff; border: 1px solid var(--blue); }
-    #btn-account:not(.signed-in) { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
+    #app-menu { width: 250px; max-height: calc(100dvh - 24px); overflow-y: auto; font-size: .82rem; }
+    .menu-sec { padding: 6px 0; }
+    .menu-sec + .menu-sec { border-top: 1px solid var(--hairline); }
+    .menu-label { padding: 4px 14px; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+    .menu-item { display: block; width: 100%; margin: 0; padding: 0 14px; min-height: var(--tap); text-align: left;
+                 background: none; border-radius: 0; color: var(--text); font-size: .85rem; font-weight: 500; }
+    .menu-item:hover { background: var(--bg); }
+    .menu-note { padding: 8px 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .seg { display: flex; margin: 4px 14px 6px; padding: 2px; gap: 2px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: var(--r-sm); }
+    .seg button { flex: 1; margin: 0; padding: 0; min-height: 36px; background: none; color: var(--text); border-radius: 6px; font-size: .8rem; font-weight: 500; }
+    .seg button[aria-checked="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); font-weight: 600; }
+    .menu-legend { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: .78rem; }
+    .menu-legend > span { padding: 0 14px; }
+    .menu-about { font-size: .68rem; line-height: 1.45; color: var(--muted); padding: 8px 14px; }
+    .menu-about a { color: inherit; }
 
     /* ── Bottom sheet (cars & homes) ──
        Mobile: floating card, bottom-center, clear of the home indicator, same width
        as the info card. Collapses to a handle so the map and target stay clear. */
     #sheet {
-      position: absolute; left: 50%; bottom: calc(var(--inset-b) + 12px); transform: translateX(-50%);
+      position: absolute; left: var(--edge); bottom: calc(var(--inset-b) + var(--edge));
       z-index: 25; width: var(--panel-w);
       display: flex; flex-direction: column;
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: 0 3px 16px rgba(0,0,0,.2);
+      background: var(--glass); border: 1px solid var(--hairline);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow-2);
       /* Stays below the info card (top of the map) so the two never overlap. */
       max-height: min(40%, calc(100% - var(--info-h) - var(--inset-b) - 44px));
       pointer-events: auto;
     }
     #sheet-handle {
       flex-shrink: 0; display: flex; align-items: center; gap: 8px;
-      padding: 10px 14px; cursor: pointer; user-select: none;
+      padding: 0 var(--edge) 0 14px; min-height: var(--tap); cursor: pointer; user-select: none;
       position: relative;
     }
-    #sheet-summary { flex: 1; font-size: .8rem; font-weight: 600; color: var(--text); }
-    #sheet-chevron { color: var(--muted); display: flex; transition: transform .15s; }
+    #sheet-summary { flex: 1; display: flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; color: var(--text); }
+    #sheet-chevron { width: var(--tap); height: var(--tap); align-items: center; justify-content: center; color: var(--muted); display: flex; transition: transform .15s; }
     #sheet.collapsed #sheet-chevron { transform: rotate(180deg); }
     #sheet.collapsed #cars-panel { display: none; }
     /* Empty: just the two add buttons. */
@@ -128,16 +166,6 @@
     #add-row .add-car-btn { flex: 1; width: auto; min-width: 0; white-space: nowrap; }
     #home-panel { display: flex; flex-direction: column; gap: 8px; }
     #home-panel:empty { display: none; }
-    /* Colour key: opens to the left of its button. */
-    #legend-pop {
-      position: absolute; top: 0; right: 48px; z-index: 28;
-      display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; font-size: .74rem; font-weight: 600;
-      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-      box-shadow: 0 3px 12px rgba(0,0,0,.2); white-space: nowrap;
-    }
-    #btn-legend[aria-expanded="true"] { border-color: var(--blue); }
-    .legend-credit { white-space: normal; width: 230px; line-height: 1.4; margin-top: 2px; padding-top: 5px; border-top: 1px solid var(--border); font-size: .68rem; font-weight: 500; color: var(--muted); }
-    .legend-credit a { color: inherit; }
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
     .urg-safe { color: var(--urg-safe); } .urg-none { color: var(--muted); }
     /* Legend swatch: line thickness mirrors the map (today thickest). */
@@ -146,8 +174,8 @@
     .car-entry {
       position: relative;
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 10px; padding: 10px 12px; overflow: hidden;
-      box-shadow: 0 2px 10px rgba(0,0,0,.10);
+      border-radius: var(--r-md); padding: 10px 12px; overflow: hidden;
+      box-shadow: var(--shadow-1);
       width: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 5px;
       cursor: pointer; transition: border .12s, background .12s;
     }
@@ -160,9 +188,11 @@
     .car-entry[data-urgency="tomorrow"] { background: #ffedd5; }
     body.dark .car-entry[data-urgency="today"]    { background: #3b2020; }
     body.dark .car-entry[data-urgency="tomorrow"] { background: #3b2e1a; }
-    .ce-header { display: flex; align-items: center; gap: 8px; padding-right: 28px; }
+    .ce-header { display: flex; align-items: center; gap: 8px; min-height: 28px; }
     /* Verdict beside the title; schedule + location buttons show on the open card only. */
-    .ce-status { flex: none; font-size: .75rem; font-weight: 600; white-space: nowrap; }
+    .ce-header .ce-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px;
+                 font-size: .72rem; font-weight: 600; white-space: nowrap; background: color-mix(in srgb, currentColor 14%, transparent); }
     .ce-detail { display: flex; flex-direction: column; gap: 5px; }
     .car-entry:not(.selected) .ce-detail { display: none; }
     .ce-dot {
@@ -175,14 +205,6 @@
       user-select: none;
     }
     .ce-name[contenteditable="true"] { font-size: 16px; cursor: text; border-bottom-color: var(--blue); user-select: text; }
-    .ce-remove {
-      position: absolute; top: 2px; right: 4px;
-      width: 32px; height: 32px; margin: 0; padding: 0;
-      display: flex; align-items: center; justify-content: center;
-      background: transparent; border: none; color: var(--muted);
-      font-size: .8rem; cursor: pointer; opacity: .55; line-height: 1;
-    }
-    .ce-remove:hover { opacity: 1; color: var(--red); }
     .ce-addr {
       font-size: .75rem; color: var(--muted); outline: none;
       cursor: default; border-bottom: 1px solid transparent; min-height: 1em;
@@ -193,15 +215,17 @@
     .ce-sched { font-size: .73rem; line-height: 1.45; }
     .ce-sched-header  { font-size: .68rem; font-weight: 600; color: var(--muted); margin-top: 4px; white-space: nowrap; }
     .ce-sched-item    { font-size: .73rem; color: var(--muted); line-height: 1.4; }
-    .ce-actions { display: flex; gap: 5px; margin-top: 3px; }
+    .ce-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
     .ce-btn {
-      flex: 1; width: auto; margin: 0; padding: 8px 6px;
+      flex: 1 1 40%; width: auto; margin: 0; padding: 0 6px; min-height: var(--tap);
       display: flex; align-items: center; justify-content: center; gap: 5px;
       font-size: .75rem; font-weight: 500; border-radius: 6px; white-space: nowrap;
       background: transparent; border: 1px solid var(--border);
       color: var(--text); cursor: pointer; text-align: center;
     }
     .ce-btn:hover { background: var(--bg); }
+    .ce-danger { color: var(--urg-today); }
+    .ce-danger:hover { background: color-mix(in srgb, var(--urg-today) 12%, transparent); }
     .ce-upd { font-size: .68rem; color: var(--muted); margin-top: 3px; }
     .ce-phone { display: flex; flex-direction: column; gap: 5px; margin-top: 3px; }
     .ce-token-note { font-size: .68rem; color: var(--muted); line-height: 1.4; }
@@ -215,16 +239,16 @@
     #gps-pin-popup {
       position: absolute; z-index: 30; display: none;
       align-items: center; gap: 6px;
-      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-      padding: 8px 8px; box-shadow: 0 2px 10px rgba(0,0,0,.14);
+      background: var(--glass); border: 1px solid var(--hairline); border-radius: var(--r-md);
+      padding: 8px 8px; box-shadow: var(--shadow-1);
       transform: translate(-50%, calc(-100% - 24px));
       white-space: nowrap; overflow: visible;
     }
-    #btn-gps-add { display: flex; align-items: center; gap: 5px; width: auto; margin: 0; padding: 8px 12px; font-size: .78rem; font-weight: 600; border-radius: 8px; }
+    #btn-gps-add { font-size: .8rem; }
     /* Shared top-right corner close button for popups/boxes. */
     .popup-close {
       position: absolute; top: 4px; right: 4px;
-      width: 32px; height: 32px; margin: 0; padding: 0;
+      width: var(--tap); height: var(--tap); margin: 0; padding: 0;
       display: flex; align-items: center; justify-content: center;
       background: transparent; border: none; color: var(--muted);
       font-size: .85rem; line-height: 1; cursor: pointer; border-radius: 5px;
@@ -236,9 +260,9 @@
 
     /* ── Name box (arrow popup anchored at the new car's spot) ── */
     .name-popup .maplibregl-popup-content {
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 10px; padding: 8px;
-      box-shadow: 0 4px 14px rgba(0,0,0,.18); min-width: 220px;
+      background: var(--glass); border: 1px solid var(--hairline);
+      border-radius: var(--r-md); padding: 8px;
+      box-shadow: var(--shadow-2); min-width: 220px;
     }
     .name-popup .maplibregl-popup-tip {
       border-top-color: var(--card); border-bottom-color: var(--card);
@@ -246,15 +270,10 @@
     .np-row { display: flex; gap: 6px; align-items: center; }
     #name-panel-input { flex: 1; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 16px; outline: none; min-width: 0; width: 0; background: var(--bg); color: var(--text); }
     #name-panel-input:focus { border-color: var(--blue); }
-    #btn-np-save { margin: 0; padding: 6px 10px; width: auto; min-width: 36px; border-radius: 6px; font-size: 1rem; line-height: 1; font-weight: 700; }
+    #btn-np-save { min-height: 36px; padding: 0 12px; border-radius: var(--r-sm); }
 
     /* ── + Add car button (cars panel) ── */
-    .add-car-btn {
-      width: 100%; flex-shrink: 0; margin: 0; padding: 8px 12px;
-      background: var(--blue); color: #fff; border: none; border-radius: 10px;
-      font-size: .82rem; font-weight: 600; cursor: pointer;
-      box-shadow: 0 2px 10px rgba(0,0,0,.12);
-    }
+    .add-car-btn { width: 100%; flex-shrink: 0; font-size: .85rem; box-shadow: var(--shadow-1); }
     .add-car-btn:hover { opacity: .92; }
     /* "Add home" shares the add-car shape but takes the home green. */
     .add-home-btn { background: #15803d; }
@@ -262,12 +281,12 @@
     /* ── Calendar card (sweep calendar; fixed content, independent of the target) ──
        Top of the left column (mobile: centered). The header stays put; the body scrolls. */
     #info-card {
-      position: absolute; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 50%; transform: translateX(-50%);
+      position: absolute; top: calc(env(safe-area-inset-top, 0px) + var(--edge)); left: var(--edge);
       z-index: 20; width: var(--panel-w); pointer-events: auto;
       display: flex; flex-direction: column; max-height: calc(50% - 18px);
-      background: var(--card); color: var(--text);
-      border: 1px solid var(--border); border-radius: 12px;
-      box-shadow: 0 3px 12px rgba(0,0,0,.22); font-size: .8rem;
+      background: var(--glass); color: var(--text);
+      border: 1px solid var(--hairline); border-radius: var(--r-lg);
+      box-shadow: var(--shadow-2); font-size: .8rem;
       padding: 0 12px; cursor: pointer;
     }
     #ic-cal { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding-bottom: 10px; }
@@ -279,14 +298,14 @@
     #info-card.expanded #ic-head { cursor: pointer; }
     #ic-title { flex: 1; min-width: 0; display: flex; align-items: center; }
     #ic-title b { flex: 1; text-align: center; }
-    #ic-chevron { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+    #ic-chevron { width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center; color: var(--muted); }
     .cal-muted { font-size: .72rem; color: var(--muted); }
 
     /* ── Street sign: a no-parking sign for the street at the target ──
        Docked bottom-center (mobile: just above the sheet) so nothing covers it. */
     #street-sign {
       position: absolute; left: 50%; transform: translateX(-50%); z-index: 21; pointer-events: none;
-      bottom: calc(var(--inset-b) + 12px + var(--sheet-h) + 10px);
+      bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-h) + var(--edge));
       width: max-content; max-width: calc(100% - 120px); text-align: center;
       background: #fff; color: #b91c1c; border: 2.5px solid #b91c1c; border-radius: 12px;
       padding: 8px 16px 9px; box-shadow: 0 0 0 3px #fff, 0 4px 16px rgba(0,0,0,.28);
@@ -301,27 +320,27 @@
     #street-sign.clear { color: #475569; border-color: #cbd5e1; }
     #street-sign.clear #ss-head, #street-sign.clear #ss-foot { display: none; }
     #street-sign.clear #ss-lines { font-size: .76rem; font-weight: 600; margin: 0; }
-    body.placing #street-sign { bottom: calc(var(--inset-b) + 12px + var(--sheet-peek) + 62px); }
+    body.placing #street-sign { bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 62px); }
 
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
       width: auto; margin: 0; padding: 7px 14px; border-radius: 18px;
-      background: var(--card); color: var(--text); border: 1px solid var(--border);
-      box-shadow: 0 3px 12px rgba(0,0,0,.25); font-size: .85rem; font-weight: 700;
+      background: var(--glass); color: var(--text); border: 1px solid var(--hairline);
+      box-shadow: var(--shadow-1); font-size: .85rem; font-weight: 700;
     }
 
     .cal-nav, .cal-day {
       width: auto; margin: 0; padding: 0; border: none; border-radius: 4px;
       background: transparent; cursor: pointer; font: inherit; color: inherit;
     }
-    .sw-strip { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; }
+    .sw-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
     .sw-cell, .cal-day {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       border-radius: 4px; font-size: .62rem; line-height: 1.15; color: var(--text);
       font-variant-numeric: tabular-nums;
     }
-    .sw-cell { padding: 1px 0; min-height: 40px; }
-    .sw-cell i { font-style: normal; font-size: .52rem; color: var(--muted); }
+    .sw-cell { padding: 3px 0; min-height: 54px; font-size: .8rem; }
+    .sw-cell i { font-style: normal; font-size: .62rem; color: var(--muted); }
     /* Street days: light green; red today, orange tomorrow (as on the map). */
     .sw-day { background: color-mix(in srgb, var(--street) 24%, transparent); }
     .sw-now  { background: var(--urg-today-bg);    color: #fff; }
@@ -334,21 +353,21 @@
     .cal-dots { display: flex; justify-content: center; gap: 2px; height: 5px; margin-top: 1px; }
     .cal-dot { width: 5px; height: 5px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
 
-    .cal-nav { font-size: 1.2rem; width: 40px; height: 36px; color: var(--muted); }
+    .cal-nav { font-size: 1.2rem; width: var(--tap); height: var(--tap); color: var(--muted); }
     .cal-nav:hover { color: var(--text); }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
     .cal-wd { font-size: .62rem; color: var(--muted); font-weight: 600; }
-    .cal-day { font-size: .75rem; height: 34px; min-width: 0; }
+    .cal-day { font-size: .75rem; height: 40px; min-width: 0; }
     .cal-out { opacity: .4; }
     .cal-detail { margin-top: 6px; font-size: .74rem; line-height: 1.4; min-height: 3em; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
     .cal-round { border-radius: 50%; }
-    body.naming #street-sign { display: none; }
+    body.naming #street-sign, body.menu-open #street-sign { display: none; }
 
     /* ── Custom hover tooltip ── */
     #custom-hover {
       position: fixed; z-index: 90; display: none; pointer-events: none;
-      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      background: var(--glass); border: 1px solid var(--hairline); border-radius: var(--r-md);
       padding: 7px 10px; line-height: 1.45;
       /* Each schedule line stays on one line; the box sizes to the widest. */
       white-space: nowrap; max-width: 90vw;
@@ -359,17 +378,17 @@
 
     /* ── Zone detail popup (click a section) ── */
     .zone-detail-popup .maplibregl-popup-content {
-      background: var(--card); color: var(--text);
-      border: 1px solid var(--border); border-radius: 10px;
+      background: var(--glass); color: var(--text);
+      border: 1px solid var(--hairline); border-radius: var(--r-md);
       padding: 10px 26px 11px 12px; font-size: .78rem; line-height: 1.5;
-      box-shadow: 0 4px 14px rgba(0,0,0,.18);
+      box-shadow: var(--shadow-2);
     }
     .zone-detail-popup .maplibregl-popup-tip {
       border-top-color: var(--card); border-bottom-color: var(--card);
     }
     .zone-detail-popup .maplibregl-popup-close-button {
       position: absolute; top: 4px; right: 6px; left: auto; bottom: auto;
-      width: 32px; height: 32px; padding: 0;
+      width: var(--tap); height: var(--tap); padding: 0;
       display: flex; align-items: center; justify-content: center;
       font-size: 1.2rem; line-height: 1; color: var(--muted); border-radius: 5px;
     }
@@ -384,10 +403,11 @@
 
     /* Home pin — emoji marker, distinct from the round car dots. */
     .home-marker {
-      font-size: 22px; line-height: 1; cursor: pointer;
-      filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
+      width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+      background: #15803d; color: #fff; border: 2.5px solid #fff; border-radius: 50%; font-size: 15px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.45);
     }
-    .ce-dot-home { background: none; font-size: 14px; line-height: 1; }
+    .ce-dot-home { background: none; color: #15803d; }
 
     /* ── Spinner ── */
     .spinner { width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 3px; }
@@ -396,6 +416,7 @@
     /* Month view (mobile): the sign and map buttons would cover days and the day detail. */
     @media (max-width: 767px) {
       body.cal-open #street-sign, body.cal-open #map-ctrl { display: none; }
+      #info-card.expanded { max-height: calc(64% - var(--edge)); }  /* room for all six weeks + day detail */
     }
 
     /* ── Dark mode ── */
@@ -408,7 +429,7 @@
 
     /* ── Toast notifications ── */
     #toast-container {
-      position: fixed; bottom: calc(var(--inset-b) + 12px + var(--sheet-peek) + 16px);
+      position: fixed; bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 16px);
       left: 50%; transform: translateX(-50%);
       z-index: 9999; display: flex; flex-direction: column; gap: 8px;
       pointer-events: none; align-items: center;
@@ -447,12 +468,12 @@
        cars/homes bottom); the map controls take the top-right corner. ── */
     @media (min-width: 768px) {
       :root { --panel-w: 300px; }
-      #info-card { top: 12px; left: 12px; transform: none; }
-      #sheet { left: 12px; bottom: 12px; transform: none; max-height: calc(100% - var(--info-h) - 36px); }
-      #map-ctrl { top: 12px; bottom: auto; right: 12px; }
-      #street-sign { bottom: 12px; }
-      body.placing #street-sign { bottom: 12px; }
+      #info-card { top: var(--edge); }
+      #sheet { bottom: var(--edge); max-height: calc(100% - var(--info-h) - 3 * var(--edge)); }
+      #map-ctrl { top: var(--edge); bottom: auto; }
+      #street-sign { bottom: var(--edge); }
+      body.placing #street-sign { bottom: var(--edge); }
       .zoom-btn { display: flex; }
-      #place-banner { bottom: auto; top: 10px; }
+      #place-banner { bottom: auto; top: var(--edge); }
       #toast-container { bottom: 24px; }
     }

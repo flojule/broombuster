@@ -9,14 +9,9 @@ function showToast(msg, isError = false) {
 }
 
 // ── Dark mode ─────────────────────────────────────────────────────────────────
-const _btnDark = document.getElementById('btn-dark-mode');
-// Switch UI chrome AND basemap together. persist=true pins an explicit override
-// (the toggle); otherwise the choice follows local time (night -> dark).
-function _applyDark(on, persist) {
+// Switch UI chrome AND basemap together.
+function _applyDark(on) {
   document.body.classList.toggle('dark', on);
-  _btnDark.innerHTML = icon(on ? 'sun' : 'moon');
-  _btnDark.title = on ? 'Switch to light' : 'Switch to dark';
-  if (persist) localStorage.setItem('bb_dark', on ? '1' : '0');
   document.querySelector('meta[name="theme-color"]').content = on ? '#1e293b' : '#ffffff';
   const style = on ? DARK_STYLE : LIGHT_STYLE;
   const styleChanged = _mapStyle !== style;
@@ -37,8 +32,18 @@ function _applyDark(on, persist) {
     });
   }
 }
-(function _initDark() { _applyDark(_wantDark(), false); })();
-_btnDark.addEventListener('click', () => _applyDark(!document.body.classList.contains('dark'), true));
+// Menu choice (auto / light / dark); auto also reacts to the system changing.
+function setThemePref(pref) {
+  if (pref === 'auto') localStorage.removeItem('bb_theme'); else localStorage.setItem('bb_theme', pref);
+  _applyDark(_wantDark());
+  document.querySelectorAll('#theme-seg button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.theme === pref)));
+}
+setThemePref(_themePref());
+_sysDark.addEventListener('change', () => { if (_themePref() === 'auto') _applyDark(_wantDark()); });
+document.getElementById('theme-seg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-theme]');
+  if (b) setThemePref(b.dataset.theme);
+});
 
 // ── Center target ─────────────────────────────────────────────────────────────
 // The info card reports the street under the viewport center (the
@@ -66,15 +71,24 @@ function updateInfoCard() {
   renderInfoCard(_centerFeature());
 }
 
-// ── Map color key (ⓘ) ──────────────────────────────────────────────────
-const _btnLegend = document.getElementById('btn-legend');
-const _legendPop = document.getElementById('legend-pop');
-function setLegendOpen(on) {
-  _legendPop.hidden = !on;
-  _btnLegend.setAttribute('aria-expanded', String(on));
+// ── App menu (⋯): account, appearance, map colors, about ────────────────────────
+const _btnMenu = document.getElementById('btn-menu');
+const _appMenu = document.getElementById('app-menu');
+function setMenuOpen(on) {
+  _appMenu.hidden = !on;
+  document.body.classList.toggle('menu-open', on);
+  _btnMenu.setAttribute('aria-expanded', String(on));
+  if (!on) return;
+  if (typeof renderAccountSection === 'function') renderAccountSection();
+  // Opens to the left of the button, kept inside the screen.
+  const r = _btnMenu.getBoundingClientRect();
+  _appMenu.style.right = (window.innerWidth - r.left + 8) + 'px';
+  const h = _appMenu.offsetHeight;
+  _appMenu.style.top = Math.max(12, Math.min(r.top, window.innerHeight - h - 12)) + 'px';
 }
-_btnLegend.addEventListener('click', e => { e.stopPropagation(); setLegendOpen(_legendPop.hidden); });
-document.addEventListener('click', () => setLegendOpen(false));
+_btnMenu.addEventListener('click', e => { e.stopPropagation(); setMenuOpen(_appMenu.hidden); });
+_appMenu.addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => setMenuOpen(false));
 
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());

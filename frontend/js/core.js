@@ -1,11 +1,11 @@
 // Every urgency surface reads this one table: card colour (CSS vars in
 // styles.css), labels, and the map paint (MapLibre needs literal colours).
 const URGENCY = {
-  today:    { color: 'var(--urg-today)',    short: '🚨 Today',
+  today:    { color: 'var(--urg-today)',    short: 'Today', icon: 'alert',
               fill: 'rgba(220,60,60,0.55)',  border: 'rgba(220,60,60,0.90)',  line: 'tomato' },
-  tomorrow: { color: 'var(--urg-tomorrow)', short: '⚠️ Tomorrow',
+  tomorrow: { color: 'var(--urg-tomorrow)', short: 'Tomorrow', icon: 'alert',
               fill: 'rgba(230,130,20,0.40)', border: 'rgba(230,130,20,0.80)', line: 'orange' },
-  safe:     { color: 'var(--urg-safe)',     short: '✅ Clear',
+  safe:     { color: 'var(--urg-safe)',     short: 'Clear', icon: 'check',
               fill: 'rgba(80,110,180,0.18)', border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
   // Map only: a street or zone with no sweeping at all (not a car verdict).
   none:     { color: 'var(--muted)',       short: 'No sweeping',
@@ -158,12 +158,13 @@ function _lineWidth() {
 
 const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const DARK_STYLE  = 'https://tiles.openfreemap.org/styles/dark';
-// Night ~= 7pm–7am local time; picks the default basemap + UI chrome.
-function _isNight() { const h = new Date().getHours(); return h >= 19 || h < 7; }
-function _wantDark() {
-  const stored = localStorage.getItem('bb_dark');
-  return stored !== null ? stored === '1' : _isNight();
+// Appearance: 'auto' follows the system; 'light' / 'dark' pin it (menu).
+const _sysDark = window.matchMedia('(prefers-color-scheme: dark)');
+function _themePref() {
+  const v = localStorage.getItem('bb_theme');
+  return v === 'light' || v === 'dark' ? v : 'auto';
 }
+function _wantDark() { const p = _themePref(); return p === 'auto' ? _sysDark.matches : p === 'dark'; }
 let _mapStyle = _wantDark() ? DARK_STYLE : LIGHT_STYLE;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -201,10 +202,10 @@ function setSheetCollapsed(v) {
 // Handle text: the most urgent car verdict, else counts.
 function updateSheetSummary() {
   const { today, tomorrow } = urgentCars();
-  sheetSummary.textContent = today.length ? `🚨 Move ${today.join(', ')} today`
-    : tomorrow.length ? `⚠️ Move ${tomorrow.join(', ')} tomorrow`
-    : cars.length ? '✅ All clear'
-    : homes.length ? `🏠 ${homes.length}` : 'Cars & homes';
+  sheetSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
+    : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
+    : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
+    : homes.length ? `${icon('home')} ${homes.length}` : 'Cars & homes';
   applySheet();
 }
 sheetHandle.addEventListener('click', () => setSheetCollapsed(!_sheetCollapsed));
