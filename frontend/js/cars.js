@@ -238,9 +238,7 @@ function defaultCarName() {
 
 // ── Cars panel ────────────────────────────────────────────────────────────────
 // Region-local clock for a /check response (the car's region, not the selected one).
-function schedNow(sched) {
-  return BroomUrgency.nowForTimeZone(regions[sched?.region || _region]?.tz || 'UTC');
-}
+function schedNow(sched) { return regionNow(sched?.region || _region); }
 
 // Sweeping urgency from the raw schedules against the live clock — the same
 // verdict as the map colour, so cards roll over when a window closes.

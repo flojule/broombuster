@@ -9,7 +9,7 @@ README.md covers running, deploying and operations.
 ```bash
 uv sync --locked --all-extras
 uv run ruff check .
-uv run pytest -q          # test_urgency.py needs node and is skipped without it
+uv run pytest -q          # frontend (JS) tests need node and are skipped without it
 ./run.sh                  # http://localhost:8000
 ```
 

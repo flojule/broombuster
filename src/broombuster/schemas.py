@@ -53,7 +53,10 @@ def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     out["DESC_ODD"]  = out.get("DescDayOdd")
     out["TIME_EVEN"] = out.get("DescTimeEv")
     out["TIME_ODD"]  = out.get("DescTimeOd")
-    # DAY_EVEN, DAY_ODD, L_F_ADD, L_T_ADD, R_F_ADD, R_T_ADD already correct.
+    # The source codes "Every Mon to Fri" as MF, which reads as Mon and Fri only.
+    for s in ("EVEN", "ODD"):
+        out.loc[out[f"DESC_{s}"].eq("Every Mon to Fri"), f"DAY_{s}"] = "MTWTHF"
+    # L_F_ADD, L_T_ADD, R_F_ADD, R_T_ADD already correct.
     return out
 
 
@@ -81,15 +84,23 @@ _SF_DAY_MAP = {
     "fri": "F", "sat": "S", "sun": "SU",
 }
 
+def _sf_clock(hour: float) -> str:
+    """Hour of day 0–24, fractions allowed -> "6AM", "6:30AM"; 0 and 24 are 12AM."""
+    hh, mm = divmod(round(hour * 60), 60)
+    hh %= 24
+    return f"{hh % 12 or 12}{f':{mm:02d}' if mm else ''}{'AM' if hh < 12 else 'PM'}"
+
+
 def _sf_desc(code, time) -> str:
+    """ "Every Mon (every), 8AM–10AM" / "Mon 1st & 3rd of month, 8AM–10AM"."""
     if not isinstance(code, str):
         return "N/A"
     letter = code.rstrip("0123456789E")
     day_label = analysis.WEEKDAY_CODES.get(letter, (None, code))[1]
     suffix = code[len(letter):]
-    if suffix == "E":
-        return f"Every {day_label} (every), {time}"
-    return f"{day_label} {normalize.pretty_ordinals(suffix)} of month, {time}"
+    desc = (f"Every {day_label} (every)" if suffix == "E"
+            else f"{day_label} {normalize.pretty_ordinals(suffix)} of month")
+    return f"{desc}, {time}" if time else desc
 
 
 _OPPOSITE_SIDE = {
@@ -176,25 +187,14 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     suffix_series = on_flags.apply(_suffix, axis=1)
     code_series   = (letter_series + suffix_series).where(letter_series != "", other=None)
 
-    # --- TIME string ---
-    def _fmt_h(h):
-        return f"{h % 12 or 12}{'AM' if h < 12 else 'PM'}"
-    if fh_col and th_col:
-        fh_num = pd.to_numeric(out[fh_col], errors="coerce")
-        th_num = pd.to_numeric(out[th_col], errors="coerce")
-        valid  = fh_num.notna() & th_num.notna()
-        fh_int = fh_num.fillna(0).astype(int)
-        th_int = th_num.fillna(0).astype(int)
-        time_series = pd.Series(
-            [
-                f"{_fmt_h(f)}–{_fmt_h(t)}" if v else "N/A"
-                for f, t, v in zip(fh_int, th_int, valid, strict=False)
-            ],
-            index=out.index,
-            dtype=object,
-        )
-    else:
-        time_series = pd.Series("N/A", index=out.index, dtype=object)
+    # --- TIME string ("" when the source has no hours) ---
+    def _hours(c):
+        return (pd.to_numeric(out[c], errors="coerce") if c
+                else pd.Series(float("nan"), index=out.index))
+    time_series = pd.Series(
+        [f"{_sf_clock(f)}–{_sf_clock(t)}" if pd.notna(f) and pd.notna(t) else ""
+         for f, t in zip(_hours(fh_col), _hours(th_col), strict=True)],
+        index=out.index, dtype=object)
 
     # --- DESC string ---
     desc_series = pd.Series(

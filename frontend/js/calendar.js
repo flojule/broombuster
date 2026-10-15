@@ -2,37 +2,23 @@
 // Layers: the street under the target (day tint) and every car with a schedule
 // (dot in the car's colour). Days are {y, m, d}; arithmetic and weekday come from
 // urgency.js.
-const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, WEEKDAYS } = BroomUrgency;
+const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, dayLabel: _dayLabel, WEEKDAYS } = BroomUrgency;
 const _WD1 = WEEKDAYS.map(w => w[0]);
 const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
                  'August', 'September', 'October', 'November', 'December'];
 
 // Region-local "today" for the map's tile region (browser tz before one loads).
-function calNow() {
-  return BroomUrgency.nowForTimeZone(regions[_tilesRegion || _region]?.tz);
-}
+function calNow() { return regionNow(_tilesRegion || _region); }
 
 // key -> text for sweep days in [start, end]. `side` limits to one street side.
 function sweepDayMap(sched, start, end, side = null) {
   const out = new Map();
   if (!sched) return out;
-  const labels = sched.side_labels;
   for (const day of BroomUrgency.sweepDays(sched.schedule_even, sched.schedule_odd, start, end)) {
     const items = side ? day.items.filter(it => it.side === side) : day.items;
-    if (!items.length) continue;
-    const sides = new Set(items.map(it => it.side));
-    const text = items.map(it => {
-      const t = it.time ? BroomUrgency.timeDisplay(it.time) : 'time n/a';
-      return sides.size > 1 ? `${labels[it.side === 'even' ? 0 : 1]} ${t}` : t;
-    });
-    const where = sides.size > 1 ? '' : `${labels[sides.has('even') ? 0 : 1]} side `;
-    out.set(_ymdKey(day), where + [...new Set(text)].join(', '));
+    if (items.length) out.set(_ymdKey(day), BroomUrgency.dayText(items, sched.side_labels));
   }
   return out;
-}
-
-function _dayLabel(p) {
-  return `${WEEKDAYS[_dow(p)]} ${_MONTHS[p.m - 1].slice(0, 3)} ${p.d}`;
 }
 function _keyDay(k) { return { y: Math.floor(k / 10000), m: Math.floor(k / 100) % 100, d: k % 100 }; }
 

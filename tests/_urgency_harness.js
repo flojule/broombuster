@@ -5,9 +5,7 @@ const fs = require('fs');
 require(path.join(__dirname, '..', 'frontend', 'js', 'urgency.js'));
 const U = globalThis.BroomUrgency;
 
-function iso(d) {
-  return d.y + '-' + String(d.m).padStart(2, '0') + '-' + String(d.d).padStart(2, '0');
-}
+const iso = U.isoDay;
 
 const cases = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).map(g => g.case);
 const out = cases.map(function (c) {
@@ -24,9 +22,6 @@ const out = cases.map(function (c) {
     return { id: c.id, days: U.sweepDays(c.even, c.odd, c.start, c.end).map(function (d) {
       return [iso(d), d.items.map(function (it) { return [it.side, it.time]; })];
     }) };
-  }
-  if (c.kind === 'body') {
-    return { id: c.id, out: U.sweepBody(c.desc, c.time) };
   }
   if (c.kind === 'side') {
     return { id: c.id, lines: U.formatScheduleSide(c.entries, c.now) };

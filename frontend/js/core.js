@@ -96,6 +96,10 @@ function regionAt(lat, lon) {
   return best;
 }
 
+// The one clock for sweeping and trash days: {y, m, d, min} in the region's
+// timezone (the browser's until /cities has loaded).
+function regionNow(regionKey) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz); }
+
 // Region whose center is nearest (lat, lon), however far; null if there are none.
 function nearestRegion(lat, lon) {
   let best = null, bestD = Infinity;

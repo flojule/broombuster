@@ -21,7 +21,7 @@ new.
 |---|---|
 | `STREET_NAME`, `STREET_KEY`, `STREET_DISPLAY` | Upper-case name, comparison key, display form |
 | `DAY_EVEN`, `DAY_ODD` | Sweep code per side (below); empty = no sweeping |
-| `DESC_*`, `TIME_*` | Source description, time window (`8AM–11AM`) |
+| `DESC_*`, `TIME_*` | Source description, time window (`8AM–11AM`; a bare `AM` / `PM` is a morning / afternoon route) |
 | `L_F_ADD`, `L_T_ADD`, `R_F_ADD`, `R_T_ADD` | Address ranges, used to pick the car's side |
 | `SIDE_EVEN`, `SIDE_ODD` | Optional side labels (SF compass sides) |
 | `geometry` | Street line, or zone polygon (Chicago) |

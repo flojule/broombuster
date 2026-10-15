@@ -219,8 +219,7 @@ function scheduleUrgencyUpdate() {
 // feature-state is written only when the verdict changed.
 function applyUrgencyStates() {
   if (!map || !_tilesRegion || !map.getSource(TILES_SOURCE)) return;
-  const tz  = regions[_tilesRegion]?.tz || 'UTC';
-  const now = BroomUrgency.nowForTimeZone(tz);
+  const now = regionNow(_tilesRegion);
   const stamp = now.y + '-' + now.m + '-' + now.d + '-' + now.min;
   let feats;
   try { feats = map.querySourceFeatures(TILES_SOURCE, { sourceLayer: TILES_SRC_LAYER }); }
@@ -250,8 +249,7 @@ function applyUrgencyStates() {
 function tileSchedLines(props) {
   let sched = [];
   try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}
-  const tz  = regions[_tilesRegion]?.tz || 'UTC';
-  const now = BroomUrgency.nowForTimeZone(tz);
+  const now = regionNow(_tilesRegion);
   const labels = [props.side_even || 'Even', props.side_odd || 'Odd'];
   return BroomUrgency.formatBothSides(
     sched.filter(e => e.side === 'even'), sched.filter(e => e.side === 'odd'), now, null, labels);

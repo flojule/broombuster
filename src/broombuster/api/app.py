@@ -39,7 +39,6 @@ app.include_router(auth.router)
 
 class Located(NamedTuple):
     region: str
-    local_now: datetime
     gdf_3857: object
     resolved: resolve.ResolvedCar | None
     city_key: str
@@ -49,7 +48,7 @@ def _locate(lat: float, lon: float, region: str | None) -> Located:
     region = region if region in REGIONS else region_for_point(lat, lon)
     gdf = region_gdf(region)
     resolved, city_key = resolve.locate(gdf, lat, lon, region)
-    return Located(region, datetime.now(ZoneInfo(REGIONS[region]["tz"])), gdf, resolved, city_key)
+    return Located(region, gdf, resolved, city_key)
 
 
 def _address(loc: Located, lat: float, lon: float, *, network: bool) -> tuple[str, bool]:

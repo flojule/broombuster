@@ -26,13 +26,16 @@ async function initApp() {
 }
 initApp();
 
-// Minute tick: map colours and car cards follow the clock (a window closes, a
-// day starts). Cards re-render only when some urgency or the date changed.
+// Minute tick: map colours, the calendar and the cards follow the clock (a
+// window closes, a day starts). Cards re-render only when some urgency or a
+// region-local date changed.
 let _liveUrgencySig = '';
 setInterval(() => {
   scheduleUrgencyUpdate();
-  const sig = new Date().toDateString() + '|' + Object.entries(carSchedules)
-    .map(([id, s]) => id + ':' + sweepUrgency(s)).join('|');
+  renderInfoCard();  // no-op unless today changed
+  const day = s => BroomUrgency.isoDay(schedNow(s));
+  const sig = [...Object.entries(carSchedules).map(([id, s]) => `${id}:${sweepUrgency(s)}:${day(s)}`),
+               ...Object.entries(homeSchedules).map(([id, s]) => `${id}:${day(s)}`)].join('|');
   if (sig === _liveUrgencySig) return;
   _liveUrgencySig = sig;
   renderCarsPanel();

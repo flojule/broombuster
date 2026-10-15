@@ -1,9 +1,11 @@
 // ── Homes — trash pickup days (cities with ReCollect data) ──────────────────────
-// [stream, next ISO date] per pickup stream, soonest first.
+// [stream, next ISO date] per pickup stream, soonest first. Dates before the
+// region's today are dropped: a response can outlive its day.
 function _nextPickups(sched) {
+  const today = BroomUrgency.isoDay(schedNow(sched));
   return Object.entries(sched?.pickups || {})
-    .filter(([, dates]) => dates.length)
-    .map(([stream, dates]) => [stream, dates[0]])
+    .map(([stream, dates]) => [stream, dates.find(d => d >= today)])
+    .filter(([, next]) => next)
     .sort((a, b) => a[1].localeCompare(b[1]));
 }
 
@@ -13,9 +15,8 @@ function homeUrgency(sched) {
   const next = _nextPickups(sched)[0]?.[1];
   if (!next) return 'safe';
   const today = schedNow(sched);
-  const key = p => `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
-  if (next === key(today)) return 'today';
-  return next === key(BroomUrgency.addDays(today, 1)) ? 'tomorrow' : 'safe';
+  if (next === BroomUrgency.isoDay(today)) return 'today';
+  return next === BroomUrgency.isoDay(BroomUrgency.addDays(today, 1)) ? 'tomorrow' : 'safe';
 }
 
 function homeScheduleHTML(sched) {
@@ -25,8 +26,7 @@ function homeScheduleHTML(sched) {
     return '<div class="ce-sched-item" style="color:var(--muted)">'
          + 'No collection info for this address.</div>';
   }
-  const fmt = iso => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US',
-    { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const fmt = iso => { const [y, m, d] = iso.split('-').map(Number); return BroomUrgency.dayLabel({ y, m, d }); };
   return '<div class="ce-sched-header">Trash day:</div>'
        + _itemsHTML(next.map(([stream, iso]) => `${stream}: ${fmt(iso)}`));
 }
