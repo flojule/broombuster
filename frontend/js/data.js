@@ -90,6 +90,14 @@ async function getPermittedGPS() {
   return new Promise(resolve => getGPS((lat, lon) => resolve({ lat, lon }), () => resolve(null)));
 }
 
+// A button that reads the device position: busy while waiting, error as a toast.
+function locateWith(btn, onFix) {
+  const done = () => { btn.disabled = false; btn.classList.remove('busy'); };
+  btn.disabled = true; btn.classList.add('busy');
+  getGPS(async (lat, lon) => { done(); await onFix(lat, lon); },
+         msg => { done(); showToast(`GPS: ${msg}`, true); });
+}
+
 function getGPS(onSuccess, onError) {
   if (!navigator.geolocation) { onError?.('Geolocation not supported.'); return; }
   navigator.geolocation.getCurrentPosition(

@@ -81,10 +81,10 @@ function sweepStripHTML(layers, range, today) {
   let cells = '';
   for (let i = 0; i < CAL_WEEKS * 7; i++) {
     const p = _ymdAdd(range.start, i), k = _ymdKey(p);
-    const cls = ['sw-cell', _streetCls(layers, k, today), k === _ymdKey(today) ? 'sw-today' : '',
+    const cls = ['cal-day', 'cal-strip', _streetCls(layers, k, today), k === _ymdKey(today) ? 'sw-today' : '',
                  p.m % 2 ? 'cal-alt' : ''].filter(Boolean).join(' ');
-    cells += `<span class="${cls}" data-cal-day="${k}">`
-           + `<i>${_WD1[_dow(p)]}</i>${p.d}${_dotsHTML(layers, k)}</span>`;
+    cells += `<button class="${cls}" data-cal-day="${k}">`
+           + `<i>${_WD1[_dow(p)]}</i>${p.d}${_dotsHTML(layers, k)}</button>`;
   }
   return `<div class="sw-strip" aria-label="Days">${cells}</div>`;
 }
