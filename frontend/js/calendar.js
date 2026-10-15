@@ -65,16 +65,17 @@ function _streetCls(layers, k, today) {
   return 'sw-day' + (k === _ymdKey(today) ? ' sw-now' : k === _ymdKey(_ymdAdd(today, 1)) ? ' sw-next' : '');
 }
 
-function sweepStripHTML(layers, today) {
+// Compact view: 7 days from `start` (today, or a week-step away from it).
+function sweepStripHTML(layers, today, start) {
   let cells = '';
-  for (let i = 0; i < 14; i++) {
-    const p = _ymdAdd(today, i), k = _ymdKey(p);
-    const cls = ['sw-cell', _streetCls(layers, k, today), i === 0 ? 'sw-today' : ''].filter(Boolean).join(' ');
+  for (let i = 0; i < 7; i++) {
+    const p = _ymdAdd(start, i), k = _ymdKey(p);
+    const cls = ['sw-cell', _streetCls(layers, k, today), k === _ymdKey(today) ? 'sw-today' : ''].filter(Boolean).join(' ');
     const title = `${_dayLabel(p)}: ${_dayLines(layers, k).map(l => l.text).join('; ') || (layers.ptr.has(k) ? `Sweeping: ${layers.ptr.get(k)}` : 'No sweeping')}`;
     cells += `<span class="${cls}" data-cal-day="${k}" title="${esc(title)}">`
            + `<i>${_WD1[_dow(p)]}</i>${p.d}${_dotsHTML(layers, k)}</span>`;
   }
-  return `<div class="sw-strip" aria-label="Next 14 days">${cells}</div>`;
+  return `<div class="sw-strip" aria-label="Week">${cells}</div>`;
 }
 
 // Month grid; `sel` is the selected day key (details shown under the grid).
@@ -100,8 +101,9 @@ function calendarHTML(ptrSched, ym, sel, today) {
 }
 
 // ── Calendar card ────────────────────────────────────────────────────────────
-// Compact: 14-day strip. Tap anywhere on the card to open the month view; tap
-// the header (chevron) or press Esc to close it. Its size never depends on the
+// Compact: 7-day strip. Tap a day to open the month view; tap the header's
+// chevron or press Esc to close it. ‹ › (and swipe, or the wheel) step a week
+// in the strip and a month in the month view. Its size never depends on the
 // target; only day marks change.
 const infoCard  = document.getElementById('info-card');
 const icHead    = document.getElementById('ic-head');
@@ -110,7 +112,7 @@ const icCal     = document.getElementById('ic-cal');
 const sign      = document.getElementById('street-sign');
 const signName  = document.getElementById('ss-name');
 const signLines = document.getElementById('ss-lines');
-let _cal = { expanded: isDesktop(), ym: null, sel: null };  // desktop opens the month view
+let _cal = { expanded: isDesktop(), ym: null, sel: null, off: 0 };  // off: strip start, days from today  // desktop opens the month view
 let _calKey = '';       // last rendered state, to skip no-op re-renders
 let _signKey = '';
 let _ptrSched = null;   // street schedule under the target (null: none)
@@ -149,24 +151,26 @@ function renderInfoCard(f) {
   _ptrSched = props && lines.length ? pointerSched(f) : null;
   const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
   const key = [_ptrSched ? props.sched : '', carSig, todayK, _cal.expanded,
-               _cal.ym.y * 100 + _cal.ym.m, _cal.sel].join('|');
+               _cal.ym.y * 100 + _cal.ym.m, _cal.sel, _cal.off].join('|');
   if (key === _calKey) return;
   _calKey = key;
 
   infoCard.classList.toggle('expanded', _cal.expanded);
   document.body.classList.toggle('cal-open', _cal.expanded);
   document.getElementById('ic-chevron').innerHTML = icon(_cal.expanded ? 'close' : 'chevron');
-  // Month view: the header row carries the month nav (saves a row).
-  icTitle.innerHTML = _cal.expanded
-    ? `<button class="cal-nav" data-cal-nav="-1" aria-label="Previous month">‹</button>`
-      + `<b>${_MONTHS[_cal.ym.m - 1]} ${_cal.ym.y}</b>`
-      + `<button class="cal-nav" data-cal-nav="1" aria-label="Next month">›</button>`
-    : `${icon('calendar')}&nbsp;Calendar`;
+  // Same header in both views: ‹ month year ›.
+  const stripStart = _ymdAdd(today, _cal.off), stripEnd = _ymdAdd(stripStart, 6);
+  const title = _cal.expanded || stripStart.m === stripEnd.m
+    ? `${_MONTHS[(_cal.expanded ? _cal.ym : stripStart).m - 1]} ${(_cal.expanded ? _cal.ym : stripStart).y}`
+    : `${_MONTHS[stripStart.m - 1].slice(0, 3)} – ${_MONTHS[stripEnd.m - 1].slice(0, 3)} ${stripEnd.y}`;
+  icTitle.innerHTML = `<button class="cal-nav" data-cal-nav="-1" aria-label="${_cal.expanded ? 'Previous month' : 'Previous week'}">‹</button>`
+    + `<b>${title}</b>`
+    + `<button class="cal-nav" data-cal-nav="1" aria-label="${_cal.expanded ? 'Next month' : 'Next week'}">›</button>`;
   icHead.setAttribute('aria-expanded', String(_cal.expanded));
   icHead.title = _cal.expanded ? 'Collapse calendar' : 'Expand calendar';
   icCal.innerHTML = _cal.expanded
     ? calendarHTML(_ptrSched, _cal.ym, _cal.sel, today)
-    : sweepStripHTML(calLayers(_ptrSched, today, _ymdAdd(today, 13)), today);
+    : sweepStripHTML(calLayers(_ptrSched, stripStart, stripEnd), today, stripStart);
 }
 
 // Earliest sweep day in the next 60 days (street or any car), else today.
@@ -187,21 +191,29 @@ function expandCal(sel) {
 function collapseCal() {
   if (!_cal.expanded) return;
   _cal.expanded = false;
+  _cal.off = 0;
   renderInfoCard();
 }
 
-infoCard.addEventListener('click', e => {
-  if (!_cal.expanded) {
-    const day = e.target.closest('[data-cal-day]');
-    expandCal(day ? Number(day.dataset.calDay) : undefined);
-    return;
-  }
-  const nav = e.target.closest('[data-cal-nav]');
-  const day = e.target.closest('[data-cal-day]');
-  if (nav) {
-    const d = new Date(Date.UTC(_cal.ym.y, _cal.ym.m - 1 + Number(nav.dataset.calNav), 1));
+// One step back/forward: a week in the strip, a month in the month view.
+function calStep(dir) {
+  if (_cal.expanded) {
+    const d = new Date(Date.UTC(_cal.ym.y, _cal.ym.m - 1 + dir, 1));
     _cal.ym = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 };
-    renderInfoCard();
+  } else {
+    _cal.off = Math.max(-364, Math.min(364, _cal.off + 7 * dir));
+  }
+  renderInfoCard();
+}
+
+let _swipedAt = 0;  // a swipe must not also count as a tap
+infoCard.addEventListener('click', e => {
+  if (Date.now() - _swipedAt < 400) return;
+  const nav = e.target.closest('[data-cal-nav]');
+  if (nav) { calStep(Number(nav.dataset.calNav)); return; }
+  const day = e.target.closest('[data-cal-day]');
+  if (!_cal.expanded) {
+    expandCal(day ? Number(day.dataset.calDay) : undefined);
   } else if (day) {
     _cal.sel = Number(day.dataset.calDay);
     renderInfoCard();
@@ -209,6 +221,31 @@ infoCard.addEventListener('click', e => {
     collapseCal();
   }
 });
+
+// Swipe sideways (touch) or scroll (wheel / trackpad) to move through time.
+let _touch = null;
+infoCard.addEventListener('touchstart', e => {
+  _touch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+}, { passive: true });
+infoCard.addEventListener('touchend', e => {
+  if (!_touch) return;
+  const dx = e.changedTouches[0].clientX - _touch.x, dy = e.changedTouches[0].clientY - _touch.y;
+  _touch = null;
+  if (Math.abs(dx) < 40 || Math.abs(dx) < 1.5 * Math.abs(dy)) return;
+  _swipedAt = Date.now();
+  calStep(dx < 0 ? 1 : -1);
+});
+let _wheelLock = 0;
+infoCard.addEventListener('wheel', e => {
+  const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+  // A month view taller than its card keeps its native vertical scroll.
+  if (!horizontal && icCal.scrollHeight > icCal.clientHeight + 1) return;
+  e.preventDefault();
+  const d = horizontal ? e.deltaX : e.deltaY;
+  if (Math.abs(d) < 8 || Date.now() < _wheelLock) return;
+  _wheelLock = Date.now() + 300;
+  calStep(d > 0 ? 1 : -1);
+}, { passive: false });
 icHead.addEventListener('keydown', e => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
   e.preventDefault();

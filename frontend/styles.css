@@ -10,8 +10,9 @@
       --shadow-1: 0 2px 8px rgba(0,0,0,.16);    /* controls */
       --shadow-2: 0 6px 24px rgba(0,0,0,.22);   /* floating panels, menus */
       --tap: 44px;                              /* minimum touch target */
-      --sheet-peek: 40px;  /* collapsed bottom-sheet handle height */
-      --panel-w: min(360px, calc(100vw - 24px));  /* calendar card + sheet width */
+      --sheet-peek: var(--tap);  /* collapsed bottom-sheet handle height */
+      --edge: 12px;  /* gap between floating panels / map buttons and the screen edge */
+      --panel-w: calc(100vw - 2 * var(--edge));  /* calendar card + sheet: edge to edge on mobile, so their right edge lines up with the map buttons */
       --inset-b: env(safe-area-inset-bottom, 0px);
       --info-h: 0px;  /* calendar card height, set from JS */
       --sheet-h: 0px; /* sheet height, set from JS */
@@ -65,8 +66,8 @@
     /* ── Right column: map info (area, theme, color key, zoom, locate) ──
        Mobile: above the sheet. Desktop: top-right (see media query). */
     #map-ctrl {
-      position: absolute; right: 10px; z-index: 26;
-      bottom: calc(var(--inset-b) + 12px + var(--sheet-h) + 10px);
+      position: absolute; right: var(--edge); z-index: 26;
+      bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-h) + var(--edge));
       display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
     }
     body.placing #map-ctrl { display: none; }
@@ -88,7 +89,7 @@
 
     /* ── Place banner (tap-to-place mode) ── */
     #place-banner {
-      position: absolute; bottom: calc(var(--inset-b) + 12px + var(--sheet-peek) + 8px);
+      position: absolute; bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 8px);
       left: 50%; transform: translateX(-50%);
       z-index: 20; display: none; align-items: center; gap: 8px;
       background: rgba(37,99,235,.92); color: #fff;
@@ -133,7 +134,7 @@
        Mobile: floating card, bottom-center, clear of the home indicator, same width
        as the info card. Collapses to a handle so the map and target stay clear. */
     #sheet {
-      position: absolute; left: 50%; bottom: calc(var(--inset-b) + 12px); transform: translateX(-50%);
+      position: absolute; left: var(--edge); bottom: calc(var(--inset-b) + var(--edge));
       z-index: 25; width: var(--panel-w);
       display: flex; flex-direction: column;
       background: var(--glass); border: 1px solid var(--hairline);
@@ -145,11 +146,11 @@
     }
     #sheet-handle {
       flex-shrink: 0; display: flex; align-items: center; gap: 8px;
-      padding: 0 14px; min-height: var(--tap); cursor: pointer; user-select: none;
+      padding: 0 var(--edge) 0 14px; min-height: var(--tap); cursor: pointer; user-select: none;
       position: relative;
     }
     #sheet-summary { flex: 1; display: flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; color: var(--text); }
-    #sheet-chevron { color: var(--muted); display: flex; transition: transform .15s; }
+    #sheet-chevron { width: var(--tap); height: var(--tap); align-items: center; justify-content: center; color: var(--muted); display: flex; transition: transform .15s; }
     #sheet.collapsed #sheet-chevron { transform: rotate(180deg); }
     #sheet.collapsed #cars-panel { display: none; }
     /* Empty: just the two add buttons. */
@@ -280,7 +281,7 @@
     /* ── Calendar card (sweep calendar; fixed content, independent of the target) ──
        Top of the left column (mobile: centered). The header stays put; the body scrolls. */
     #info-card {
-      position: absolute; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 50%; transform: translateX(-50%);
+      position: absolute; top: calc(env(safe-area-inset-top, 0px) + var(--edge)); left: var(--edge);
       z-index: 20; width: var(--panel-w); pointer-events: auto;
       display: flex; flex-direction: column; max-height: calc(50% - 18px);
       background: var(--glass); color: var(--text);
@@ -304,7 +305,7 @@
        Docked bottom-center (mobile: just above the sheet) so nothing covers it. */
     #street-sign {
       position: absolute; left: 50%; transform: translateX(-50%); z-index: 21; pointer-events: none;
-      bottom: calc(var(--inset-b) + 12px + var(--sheet-h) + 10px);
+      bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-h) + var(--edge));
       width: max-content; max-width: calc(100% - 120px); text-align: center;
       background: #fff; color: #b91c1c; border: 2.5px solid #b91c1c; border-radius: 12px;
       padding: 8px 16px 9px; box-shadow: 0 0 0 3px #fff, 0 4px 16px rgba(0,0,0,.28);
@@ -319,7 +320,7 @@
     #street-sign.clear { color: #475569; border-color: #cbd5e1; }
     #street-sign.clear #ss-head, #street-sign.clear #ss-foot { display: none; }
     #street-sign.clear #ss-lines { font-size: .76rem; font-weight: 600; margin: 0; }
-    body.placing #street-sign { bottom: calc(var(--inset-b) + 12px + var(--sheet-peek) + 62px); }
+    body.placing #street-sign { bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 62px); }
 
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
@@ -332,14 +333,14 @@
       width: auto; margin: 0; padding: 0; border: none; border-radius: 4px;
       background: transparent; cursor: pointer; font: inherit; color: inherit;
     }
-    .sw-strip { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; }
+    .sw-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
     .sw-cell, .cal-day {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       border-radius: 4px; font-size: .62rem; line-height: 1.15; color: var(--text);
       font-variant-numeric: tabular-nums;
     }
-    .sw-cell { padding: 1px 0; min-height: 40px; }
-    .sw-cell i { font-style: normal; font-size: .52rem; color: var(--muted); }
+    .sw-cell { padding: 3px 0; min-height: 54px; font-size: .8rem; }
+    .sw-cell i { font-style: normal; font-size: .62rem; color: var(--muted); }
     /* Street days: light green; red today, orange tomorrow (as on the map). */
     .sw-day { background: color-mix(in srgb, var(--street) 24%, transparent); }
     .sw-now  { background: var(--urg-today-bg);    color: #fff; }
@@ -415,6 +416,7 @@
     /* Month view (mobile): the sign and map buttons would cover days and the day detail. */
     @media (max-width: 767px) {
       body.cal-open #street-sign, body.cal-open #map-ctrl { display: none; }
+      #info-card.expanded { max-height: calc(64% - var(--edge)); }  /* room for all six weeks + day detail */
     }
 
     /* ── Dark mode ── */
@@ -427,7 +429,7 @@
 
     /* ── Toast notifications ── */
     #toast-container {
-      position: fixed; bottom: calc(var(--inset-b) + 12px + var(--sheet-peek) + 16px);
+      position: fixed; bottom: calc(var(--inset-b) + var(--edge) + var(--sheet-peek) + 16px);
       left: 50%; transform: translateX(-50%);
       z-index: 9999; display: flex; flex-direction: column; gap: 8px;
       pointer-events: none; align-items: center;
@@ -466,12 +468,12 @@
        cars/homes bottom); the map controls take the top-right corner. ── */
     @media (min-width: 768px) {
       :root { --panel-w: 300px; }
-      #info-card { top: 12px; left: 12px; transform: none; }
-      #sheet { left: 12px; bottom: 12px; transform: none; max-height: calc(100% - var(--info-h) - 36px); }
-      #map-ctrl { top: 12px; bottom: auto; right: 12px; }
-      #street-sign { bottom: 12px; }
-      body.placing #street-sign { bottom: 12px; }
+      #info-card { top: var(--edge); }
+      #sheet { bottom: var(--edge); max-height: calc(100% - var(--info-h) - 3 * var(--edge)); }
+      #map-ctrl { top: var(--edge); bottom: auto; }
+      #street-sign { bottom: var(--edge); }
+      body.placing #street-sign { bottom: var(--edge); }
       .zoom-btn { display: flex; }
-      #place-banner { bottom: auto; top: 10px; }
+      #place-banner { bottom: auto; top: var(--edge); }
       #toast-container { bottom: 24px; }
     }
