@@ -13,7 +13,7 @@ uv sync --locked --extra api
 uv sync --locked --all-extras && uv run pytest && uv run ruff check .
 ```
 
-Tests in `tests/test_urgency.py` need `node`.
+The frontend tests (`tests/test_urgency.py` and most of `tests/test_datetime.py`) need `node`; without it they are skipped.
 
 ## Layout
 

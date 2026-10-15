@@ -1,11 +1,14 @@
 // Sweep-code evaluation and schedule display (grammar: data/README.md). Tiles
 // and /check carry raw codes; checkDaySweeping gives today/tomorrow/safe
-// against a region-local "now". Tested by tests/test_urgency.py.
+// against a region-local "now". Tested by tests/test_urgency.py and
+// tests/test_datetime.py.
 (function (global) {
   'use strict';
 
   // Same tables as analysis.WEEKDAY_CODES / NO_SWEEP_CODES.
   var WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var WEEKDAY_CODES = {};
   ['M', 'T', 'W', 'TH', 'F', 'S', 'SU'].forEach(function (t, i) { WEEKDAY_CODES[t] = [i, WEEKDAYS[i]]; });
   var NO_SWEEP_CODES = [
@@ -22,7 +25,7 @@
     return typeof code === 'string' && NO_SWEEP[code.trim().toUpperCase()] === 1;
   }
 
-  // ── Date helpers (calendar arithmetic only; no JS Date tz pitfalls) ──────────
+  // ── Days (calendar arithmetic only; no JS Date tz pitfalls) ──────────────────
   // Days are {y, m, d}. Python weekday(): Mon=0..Sun=6; JS getUTCDay(): Sun=0.
   function pyWeekday(y, m, d) { return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; }
 
@@ -32,44 +35,81 @@
     var dt = new Date(Date.UTC(p.y, p.m - 1, p.d + n));
     return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
   }
-  function addOneDay(y, m, d) { return addDays({ y: y, m: m, d: d }, 1); }
+
+  function diffDays(a, b) {
+    return Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / 86400000);
+  }
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  // "2026-10-14" (the /check-home pickup format).
+  function isoDay(p) { return p.y + '-' + pad2(p.m) + '-' + pad2(p.d); }
+
+  // "Wed Oct 14".
+  function dayLabel(p) { return WEEKDAYS[pyWeekday(p.y, p.m, p.d)] + ' ' + MONTH_ABBR[p.m] + ' ' + p.d; }
+
+  // ── Region-local clock ───────────────────────────────────────────────────────
+  var _clockFmt = {};
+  // {y, m, d, min} for the instant `when` (default now) in IANA zone `tz`
+  // (undefined: the browser's zone); min = minutes since local midnight.
+  function nowForTimeZone(tz, when) {
+    var d = when || new Date(), parts = {};
+    try {
+      var fmt = _clockFmt[tz] || (_clockFmt[tz] = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      }));
+      fmt.formatToParts(d).forEach(function (p) { parts[p.type] = p.value; });
+    } catch (e) {  // unknown zone: the browser's
+      parts = { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(),
+                hour: d.getHours(), minute: d.getMinutes() };
+    }
+    var hour = parseInt(parts.hour, 10) % 24; // Intl may emit "24" at midnight
+    return {
+      y: parseInt(parts.year, 10), m: parseInt(parts.month, 10),
+      d: parseInt(parts.day, 10), min: hour * 60 + parseInt(parts.minute, 10),
+    };
+  }
 
   // ── Sweep-code rules ─────────────────────────────────────────────────────────
-  var _partsCache = {};
-  // {days: [token...], suffix} for a weekly code, or null.
-  function codeParts(code) {
-    if (Object.prototype.hasOwnProperty.call(_partsCache, code)) return _partsCache[code];
-    var c = code.trim().toUpperCase(), out = null;
-    if (!NO_SWEEP[c]) {
-      var m = CODE_RE.exec(c);
-      if (m && (m[1] || m[2] === 'E')) out = { days: m[1].match(DAY_TOKEN_RE) || [], suffix: m[2] };
+  // Sorted, valid days of a 'DATES:' code; null for any other code.
+  function parseDatesCode(code) {
+    if (typeof code !== 'string' || code.trim().toUpperCase().indexOf('DATES:') !== 0) return null;
+    var out = [], parts = code.trim().slice(6).split(',');
+    for (var i = 0; i < parts.length; i++) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(parts[i].trim());
+      var p = m && { y: +m[1], m: +m[2], d: +m[3] }, real = p && addDays(p, 0);
+      if (p && real.m === p.m && real.d === p.d) out.push(p);  // drops "2026-02-30"
     }
-    _partsCache[code] = out;
+    out.sort(function (a, b) { return dayKey(a.y, a.m, a.d) - dayKey(b.y, b.m, b.d); });
     return out;
   }
 
   var _ruleCache = {};
-  // {weekdays: {wd:1}, ordinals: {n:1}|null, dates: {dayKey:1}|null}, or null.
+  // Weekly code: {ranks: [weekday...] ascending, weekdays: {rank: 1},
+  // ordinals: {n: 1} | null (every week)}. 'DATES:' code: {dates: [day...],
+  // keys: {dayKey: 1}}. null for no-sweep and unreadable codes.
   function codeRule(code) {
+    if (typeof code !== 'string') return null;
     if (Object.prototype.hasOwnProperty.call(_ruleCache, code)) return _ruleCache[code];
-    var rule = null, i;
-    var dates = parseDatesCode(code);
+    var rule = null, i, dates = parseDatesCode(code);
     if (dates !== null) {
-      var set = {};
-      for (i = 0; i < dates.length; i++) set[dayKey(dates[i].y, dates[i].m, dates[i].d)] = 1;
-      rule = { weekdays: null, ordinals: null, dates: set };
+      var keys = {};
+      for (i = 0; i < dates.length; i++) keys[dayKey(dates[i].y, dates[i].m, dates[i].d)] = 1;
+      rule = { dates: dates, keys: keys };
     } else {
-      var p = codeParts(code);
-      if (p) {
-        var wds = {};
-        if (p.days.length) for (i = 0; i < p.days.length; i++) wds[WEEKDAY_CODES[p.days[i]][0]] = 1;
-        else for (i = 0; i < 7; i++) wds[i] = 1;
+      var c = code.trim().toUpperCase(), m = !NO_SWEEP[c] && CODE_RE.exec(c);
+      if (m && (m[1] || m[2] === 'E')) {
+        var wds = {}, toks = m[1].match(DAY_TOKEN_RE) || [];
+        for (i = 0; i < toks.length; i++) wds[WEEKDAY_CODES[toks[i]][0]] = 1;
+        if (!toks.length) for (i = 0; i < 7; i++) wds[i] = 1;  // "E": every day
         var ords = null;
-        if (/^[1-5]+$/.test(p.suffix)) {
+        if (m[2] && m[2] !== 'E') {
           ords = {};
-          for (i = 0; i < p.suffix.length; i++) ords[+p.suffix.charAt(i)] = 1;
+          for (i = 0; i < m[2].length; i++) ords[+m[2].charAt(i)] = 1;
         }
-        rule = { weekdays: wds, ordinals: ords, dates: null };
+        rule = { weekdays: wds, ordinals: ords,
+                 ranks: Object.keys(wds).map(Number).sort(function (a, b) { return a - b; }) };
       }
     }
     _ruleCache[code] = rule;
@@ -77,10 +117,9 @@
   }
 
   function sweepsOn(code, y, m, d) {
-    if (typeof code !== 'string') return false;
     var r = codeRule(code);
     if (!r) return false;
-    if (r.dates) return r.dates[dayKey(y, m, d)] === 1;
+    if (r.dates) return r.keys[dayKey(y, m, d)] === 1;
     if (!r.weekdays[pyWeekday(y, m, d)]) return false;
     return !r.ordinals || r.ordinals[Math.floor((d - 1) / 7) + 1] === 1;
   }
@@ -90,7 +129,7 @@
     var out = [], cur = start, endK = dayKey(end.y, end.m, end.d);
     while (dayKey(cur.y, cur.m, cur.d) <= endK) {
       if (sweepsOn(code, cur.y, cur.m, cur.d)) out.push(cur);
-      cur = addOneDay(cur.y, cur.m, cur.d);
+      cur = addDays(cur, 1);
     }
     return out;
   }
@@ -114,81 +153,80 @@
       .map(function (k) { return byKey[k]; });
   }
 
+  // ── Time windows ─────────────────────────────────────────────────────────────
+  // Lenient (same pattern as normalize._TIME_RANGE_RE): tolerates the PDF
+  // artifacts in raw tile data — bullet/middot/"o" separators, stray spaces
+  // inside hours/minutes and around colons, "A M"/"P,M".
+  var TIME_RANGE_RE = new RegExp(
+    '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)' +
+    '[\\s,]*(?:[-–—•·o]|to)\\s*' +
+    '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)', 'i');
+  // A bare "AM" / "PM" (Berkeley) is a morning / afternoon route.
+  var HALF_DAY = { AM: [0, 720], PM: [720, 1440] };
+
+  // [hour 1–12, minute, 'AM'|'PM'] minus stray spaces, or null when not a clock time.
+  function _clock(h, mn, ap) {
+    var hh = parseInt(h.replace(/\s+/g, ''), 10), mm = mn ? parseInt(mn.replace(/\s+/g, ''), 10) : 0;
+    if (hh < 1 || hh > 12 || mm > 59) return null;
+    return [hh, mm, ap.replace(/[\s,]+/g, '').toUpperCase()];
+  }
+  function _minutes(c) { return (c[0] % 12 + (c[2] === 'PM' ? 12 : 0)) * 60 + c[1]; }
+  function _fmtClock(c) { return c[0] + (c[1] ? ':' + pad2(c[1]) : '') + c[2]; }
+
+  // [start, end] clocks of a "8:00AM-10:00AM"-style window, or null.
+  function _range(raw) {
+    var m = typeof raw === 'string' ? TIME_RANGE_RE.exec(raw) : null;
+    if (!m) return null;
+    var a = _clock(m[1], m[2], m[3]), b = _clock(m[4], m[5], m[6]);
+    return a && b ? [a, b] : null;
+  }
+
+  // [start, end] minutes since midnight, or null when unreadable. A window
+  // ending at 12AM ends at 1440; end < start runs past midnight.
+  function timeWindow(raw) {
+    var r = _range(raw);
+    if (r) return [_minutes(r[0]), _minutes(r[1]) || 1440];
+    var half = typeof raw === 'string' && HALF_DAY[raw.trim().toUpperCase()];
+    return half ? half.slice() : null;
+  }
+
+  // Compact window "8AM–9:30AM"; 'N/A' when missing; anything unreadable as is.
+  function timeDisplay(raw) {
+    if (typeof raw !== 'string') return 'N/A';
+    var s = raw.trim();
+    if (s === '' || /^(n\/a|na|none|nan)$/i.test(s)) return 'N/A';
+    var r = _range(s);
+    if (r) return _fmtClock(r[0]) + '–' + _fmtClock(r[1]);
+    return HALF_DAY[s.toUpperCase()] ? s.toUpperCase() : s;
+  }
+
   // ── Urgency verdict ──────────────────────────────────────────────────────────
+  // A sweep starting this soon is today's problem even when it falls after
+  // midnight: a 12AM window means moving the car tonight, not tomorrow.
+  var LEAD_MIN = 6 * 60;
+
   // entries: [{code, time}, ...]; now: {y, m, d, min} (min = minutes since
-  // region-local midnight). Returns 'today' | 'tomorrow' | 'safe'.
+  // region-local midnight). 'today' while a window today is still to come or
+  // running (all day when untimed), while yesterday's runs past midnight, or
+  // when tomorrow's starts within LEAD_MIN (untimed: at midnight); 'tomorrow'
+  // when one is tomorrow; else 'safe'.
   function checkDaySweeping(entries, now) {
-    var tmr = addOneDay(now.y, now.m, now.d);
-    var todayEnds = [], sweptTomorrow = false;
+    var yst = addDays(now, -1), tmr = addDays(now, 1), tomorrow = false;
     for (var i = 0; i < entries.length; i++) {
-      var code = entries[i].code;
-      if (sweepsOn(code, now.y, now.m, now.d)) todayEnds.push(parseEndMinutes(entries[i].time || ''));
-      if (sweepsOn(code, tmr.y, tmr.m, tmr.d)) sweptTomorrow = true;
-    }
-    for (var t = 0; t < todayEnds.length; t++) {
-      // null end = untimed or unparseable window: open all day.
-      if (todayEnds[t] === null || now.min <= todayEnds[t]) return 'today';
-    }
-    return sweptTomorrow ? 'tomorrow' : 'safe';
-  }
-
-  // Build a `now` from a JS Date interpreted in the region's IANA tz.
-  function nowForTimeZone(tz, when) {
-    var d = when || new Date();
-    var parts;
-    try {
-      var fmt = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', hour12: false,
-      });
-      parts = {};
-      fmt.formatToParts(d).forEach(function (p) { parts[p.type] = p.value; });
-    } catch (e) {
-      parts = {
-        year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(),
-        hour: d.getHours(), minute: d.getMinutes(),
-      };
-    }
-    var hour = parseInt(parts.hour, 10) % 24; // Intl may emit "24" at midnight
-    return {
-      y: parseInt(parts.year, 10), m: parseInt(parts.month, 10),
-      d: parseInt(parts.day, 10), min: hour * 60 + parseInt(parts.minute, 10),
-    };
-  }
-
-  // ── 'DATES:' codes: parsing and next sweep cluster ───────────────────────────
-  var MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  function parseDatesCode(code) {
-    if (typeof code !== 'string' || code.toUpperCase().indexOf('DATES:') !== 0) return null;
-    var out = [];
-    var parts = code.slice(6).split(',');
-    for (var i = 0; i < parts.length; i++) {
-      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(parts[i].trim());
-      if (m) out.push({ y: +m[1], m: +m[2], d: +m[3] });
-    }
-    out.sort(function (a, b) { return dayKey(a.y, a.m, a.d) - dayKey(b.y, b.m, b.d); });
-    return out;
-  }
-
-  function diffDays(a, b) {
-    return Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / 86400000);
-  }
-
-  function clusterDates(dates, maxGap) {
-    maxGap = maxGap || 4;  // a zone's sides are swept a few days apart
-    var clusters = [], cur = [];
-    for (var i = 0; i < dates.length; i++) {
-      if (cur.length && diffDays(cur[cur.length - 1], dates[i]) > maxGap) {
-        clusters.push(cur); cur = [];
+      var code = entries[i].code, w = timeWindow(entries[i].time || '');
+      var overnight = w && w[1] < w[0];
+      if (sweepsOn(code, now.y, now.m, now.d) && (!w || overnight || now.min <= w[1])) return 'today';
+      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d)) return 'today';
+      if (sweepsOn(code, tmr.y, tmr.m, tmr.d)) {
+        if (1440 - now.min + (w ? w[0] : 0) <= LEAD_MIN) return 'today';
+        tomorrow = true;
       }
-      cur.push(dates[i]);
     }
-    if (cur.length) clusters.push(cur);
-    return clusters;
+    return tomorrow ? 'tomorrow' : 'safe';
   }
 
+  // ── Schedule display (card, hover and center banner) ────────────────────────
+  // "Apr 17, 18; May 15" (dates sorted).
   function formatDatesByMonth(dates) {
     var grouped = {}, order = [];
     for (var i = 0; i < dates.length; i++) {
@@ -201,135 +239,25 @@
     }).join('; ');
   }
 
-  // Dates of the next cluster for a DATES code; null for non-DATES, [] when none.
-  function nextClusterDates(code, now, maxDates) {
-    maxDates = maxDates || 3;
-    var dates = parseDatesCode(code);
-    if (dates === null) return null;
-    var todayK = dayKey(now.y, now.m, now.d);
-    var future = dates.filter(function (d) { return dayKey(d.y, d.m, d.d) >= todayK; });
-    if (!future.length) return [];
-    return clusterDates(future)[0].slice(0, maxDates);
-  }
-
-  // ── Schedule display (card, hover and center banner) ────────────────────────
-  // Time parsing is lenient (same pattern as normalize._TIME_RANGE_RE): tolerates the
-  // PDF artifacts in raw tile data — bullet/middot/"o" separators, stray spaces
-  // inside hours/minutes and around colons, "A M"/"P,M".
-  var _DISP_SRC =
-    '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)' +
-    '[\\s,]*(?:[-–—•·o]|to)\\s*' +
-    '(\\d\\s*\\d?)\\s*(?::\\s*(\\d\\s*\\d))?\\s*(A[\\s,]*M|P[\\s,]*M)';
-  var TIME_RANGE_DISP_RE   = new RegExp(_DISP_SRC, 'i');
-  var TIME_RANGE_DISP_RE_G = new RegExp(_DISP_SRC, 'ig');
-  var WEEKDAY_CANON = {
-    MON: [0, 'Mon'], MONDAY: [0, 'Mon'],
-    TUE: [1, 'Tue'], TUES: [1, 'Tue'], TUESDAY: [1, 'Tue'],
-    WED: [2, 'Wed'], WEDS: [2, 'Wed'], WEDNESDAY: [2, 'Wed'],
-    THU: [3, 'Thu'], THUR: [3, 'Thu'], THURS: [3, 'Thu'], THURSDAY: [3, 'Thu'],
-    FRI: [4, 'Fri'], FRIDAY: [4, 'Fri'],
-    SAT: [5, 'Sat'], SATURDAY: [5, 'Sat'],
-    SUN: [6, 'Sun'], SUNDAY: [6, 'Sun'],
-  };
-
-  // [hour, minute, 'AM'|'PM'] minus stray spaces.
-  function _clockParts(h, mn, ap) {
-    return [parseInt(h.replace(/\s+/g, ''), 10), mn ? parseInt(mn.replace(/\s+/g, ''), 10) : 0,
-            ap.replace(/[\s,]+/g, '').toUpperCase()];
-  }
-  function _fmtPart(h, mn, ap) {
-    var p = _clockParts(h, mn, ap);
-    return p[1] ? (p[0] + ':' + (p[1] < 10 ? '0' + p[1] : p[1]) + p[2]) : (p[0] + p[2]);
-  }
-  // Minutes since midnight, or null when out of range.
-  function _toMinutes(h, mn, ap) {
-    var p = _clockParts(h, mn, ap);
-    if (p[0] < 1 || p[0] > 12 || p[1] > 59) return null;
-    return (p[0] % 12 + (p[2] === 'PM' ? 12 : 0)) * 60 + p[1];
-  }
-  // A window's end in minutes since midnight, null when the
-  // window is unparseable. A window ending at 12AM runs to the end of the day.
-  function parseEndMinutes(timeStr) {
-    var m = typeof timeStr === 'string' ? TIME_RANGE_DISP_RE.exec(timeStr) : null;
-    if (!m) return null;
-    var start = _toMinutes(m[1], m[2], m[3]), end = _toMinutes(m[4], m[5], m[6]);
-    if (start === null || end === null) return null;
-    return end || 24 * 60 - 1;
-  }
-  function timeDisplay(raw) {
-    if (typeof raw !== 'string') return 'N/A';
-    var s = raw.trim();
-    if (s === '' || /^(n\/a|na|none|nan)$/i.test(s)) return 'N/A';
-    var m = TIME_RANGE_DISP_RE.exec(s);
-    if (!m) return s;
-    return _fmtPart(m[1], m[2], m[3]) + '–' + _fmtPart(m[4], m[5], m[6]);
-  }
-
-  function _wdCanon(tok) { return WEEKDAY_CANON[tok.replace(/[.,]/g, '').toUpperCase()]; }
-  function hasWeekday(desc) { return desc.split(' ').some(function (t) { return !!_wdCanon(t); }); }
-
-  function weekdayFirst(desc) {
-    var toks = desc.split(' ').filter(Boolean);
-    if (!toks.length) return desc;
-    var body = toks[0].toLowerCase() === 'every' ? toks.slice(1) : toks;
-    var wd = [];
-    for (var i = 0; i < body.length; i++) if (_wdCanon(body[i])) wd.push(i);
-    if (!wd.length) return desc;
-    var lo = wd[0], hi = wd[wd.length - 1];
-    // Only a contiguous run of weekdays joined by "&" moves as one list.
-    for (var j = lo; j <= hi; j++) {
-      if (wd.indexOf(j) < 0 && body[j] !== '&') { hi = lo; break; }
+  // The next run of dates from today on (a zone's sides are swept a few days apart).
+  function nextCluster(dates, now, maxGap, maxDates) {
+    var todayK = dayKey(now.y, now.m, now.d), out = [];
+    for (var i = 0; i < dates.length && out.length < maxDates; i++) {
+      var d = dates[i];
+      if (dayKey(d.y, d.m, d.d) < todayK) continue;
+      if (out.length && diffDays(out[out.length - 1], d) > maxGap) break;
+      out.push(d);
     }
-    var days = [];
-    for (var k = lo; k <= hi; k++) if (wd.indexOf(k) >= 0) days.push(_wdCanon(body[k])[1]);
-    var rest = body.slice(0, lo).concat(body.slice(hi + 1));
-    return [days.join(', ')].concat(rest).join(' ').trim();
+    return out;
   }
 
-  // Bare week-of-month ordinal runs (1–5 only) -> "1st & 3rd". A leading
-  // capture instead of lookbehind, for older mobile browsers.
-  function _prettyOrdinals(text) {
-    return text.replace(/(^|[^\w])([1-5]{1,5})(?![\w])/g, function (_m, pre, run) {
-      var parts = [];
-      for (var i = 0; i < run.length; i++) {
-        var d = run.charAt(i);
-        parts.push(d + (d === '1' ? 'st' : d === '2' ? 'nd' : d === '3' ? 'rd' : 'th'));
-      }
-      var out = parts.length === 1 ? parts[0]
-              : parts.slice(0, -1).join(', ') + ' & ' + parts[parts.length - 1];
-      return pre + out;
+  // Bare week-of-month ordinals "13" -> "1st & 3rd".
+  function _prettyOrdinals(run) {
+    var parts = run.split('').map(function (d) {
+      return d + (d === '1' ? 'st' : d === '2' ? 'nd' : d === '3' ? 'rd' : 'th');
     });
-  }
-
-  // Between what days and when: "Tue, Thu · 3AM–5AM".
-  var SEP = ' \u00b7 ';
-
-  function sweepBody(desc, time) {
-    var d = (typeof desc === 'string') ? desc : '';
-    d = d.replace(/\s*\((?:every|bi-?weekly)\)/ig, '');
-    d = d.replace(TIME_RANGE_DISP_RE_G, '');
-    d = d.replace(/\s*\bof\s+(?:the\s+)?month\b/ig, '');
-    d = d.replace(/\band\b/ig, '&');
-    d = d.replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '').trim();
-    // Weekday schedules only: "2 lines" must not become "2nd lines".
-    if (hasWeekday(d)) d = _prettyOrdinals(weekdayFirst(d));
-    if (!d || d.toUpperCase() === 'N/A') return '';
-    var t = timeDisplay(time || '');
-    if (t === '' || t === 'N/A' || d.indexOf(t) !== -1) return d;
-    return d + SEP + t;
-  }
-
-  function codeWeekday(code) {
-    var p = codeParts(code);
-    return (p && p.days.length) ? WEEKDAY_CODES[p.days[0]] : null;
-  }
-
-  function codeOrdinals(code) {
-    var p = codeParts(code), s = {};
-    if (p && /^[1-5]+$/.test(p.suffix)) {
-      for (var i = 0; i < p.suffix.length; i++) s[+p.suffix.charAt(i)] = 1;
-    }
-    return s;
+    return parts.length === 1 ? parts[0]
+         : parts.slice(0, -1).join(', ') + ' & ' + parts[parts.length - 1];
   }
 
   function hasAllFour(ords) {
@@ -349,9 +277,10 @@
     return parts.join(', ');
   }
 
-  function withTime(label, time) {
-    var t = timeDisplay(time || '');
-    return (t && t !== 'N/A') ? (label + SEP + t) : label;
+  // Between what days and when: "Tue, Thu · 3AM–5AM" (t is a timeDisplay).
+  var SEP = ' · ';
+  function withTime(label, t) {
+    return (t && t !== 'N/A' && label.indexOf(t) === -1) ? (label + SEP + t) : label;
   }
 
   function _ent(e) {
@@ -361,33 +290,29 @@
 
   // entries: array of {code,desc,time} or [code,desc,time]. Returns display lines.
   function formatScheduleSide(entries, now) {
-    var clean = [], i;
+    var perDay = {}, perDayOrder = [], loose = [], dated = [], i;
     for (i = 0; i < (entries || []).length; i++) {
-      var e = _ent(entries[i]);
-      if (typeof e.code !== 'string' || isNoSweepCode(e.code)) continue;
-      clean.push(e);
+      var e = _ent(entries[i]), r = codeRule(e.code);
+      if (r && r.dates) { dated = dated.concat(r.dates); continue; }
+      if (!r) {
+        if (typeof e.code === 'string' && !isNoSweepCode(e.code)) loose.push(e);
+        continue;
+      }
+      // Per (weekday, time): which weeks of the month (every: all of them).
+      var t = timeDisplay(e.time);
+      for (var j = 0; j < r.ranks.length; j++) {
+        var dk = r.ranks[j] + '|' + t;
+        if (!perDay[dk]) { perDay[dk] = { rank: r.ranks[j], time: t, every: false, ords: {} }; perDayOrder.push(dk); }
+        if (!r.ordinals) perDay[dk].every = true;
+        else for (var o in r.ordinals) perDay[dk].ords[o] = 1;
+      }
     }
-    var datesE = [], weekly = [];
-    for (i = 0; i < clean.length; i++) {
-      (parseDatesCode(clean[i].code) !== null ? datesE : weekly).push(clean[i]);
-    }
-
-    // Per (weekday, time): which weeks of the month. Then days sharing the same
-    // weeks and time collapse into one line: "Tue, Thu · 3AM–5AM".
-    var perDay = {}, perDayOrder = [], loose = [];
-    for (i = 0; i < weekly.length; i++) {
-      var w = weekly[i], wk = codeWeekday(w.code);
-      if (wk === null) { loose.push(w); continue; }
-      var dk0 = wk[0] + '|' + timeDisplay(w.time || '');
-      if (!perDay[dk0]) { perDay[dk0] = { rank: wk[0], time: w.time, ords: {} }; perDayOrder.push(dk0); }
-      var ords = codeOrdinals(w.code);
-      for (var o in ords) perDay[dk0].ords[o] = 1;
-    }
+    // Days sharing the same weeks and time collapse into one line.
     var slots = {}, slotOrder = [];
     for (i = 0; i < perDayOrder.length; i++) {
       var pd = perDay[perDayOrder[i]];
-      var weeks = hasAllFour(pd.ords) ? '' : Object.keys(pd.ords).sort().join('');
-      var sk = weeks + '|' + timeDisplay(pd.time || '');
+      var weeks = pd.every || hasAllFour(pd.ords) ? '' : Object.keys(pd.ords).sort().join('');
+      var sk = weeks + '|' + pd.time;
       if (!slots[sk]) { slots[sk] = { weeks: weeks, time: pd.time, ranks: [] }; slotOrder.push(sk); }
       slots[sk].ranks.push(pd.rank);
     }
@@ -401,34 +326,23 @@
     }
     ranked.sort(function (a, b) { return (a[0] - b[0]) || (a[1] - b[1]); });
 
-    var lines = [], seen = {};
-    for (i = 0; i < ranked.length; i++) {
-      var b = ranked[i][2];
-      if (b && !seen[b]) { seen[b] = 1; lines.push(b); }
-    }
+    var lines = ranked.map(function (x) { return x[2]; });
+    // Unreadable codes: the source description, as published.
     for (i = 0; i < loose.length; i++) {
-      var bl = sweepBody(loose[i].desc, loose[i].time);
-      if (bl && !seen[bl]) { seen[bl] = 1; lines.push(bl); }
+      var d = loose[i].desc.trim();
+      if (d && d.toUpperCase() !== 'N/A') lines.push(withTime(d, timeDisplay(loose[i].time)));
     }
-
-    if (datesE.length) {
-      var merged = [];
-      for (i = 0; i < datesE.length; i++) {
-        var nc = nextClusterDates(datesE[i].code, now);
-        if (nc) merged = merged.concat(nc);
-      }
-      var mk = {}, uniq = [];
-      for (i = 0; i < merged.length; i++) {
-        var dk = dayKey(merged[i].y, merged[i].m, merged[i].d);
-        if (!mk[dk]) { mk[dk] = 1; uniq.push(merged[i]); }
-      }
-      uniq.sort(function (a, b) { return dayKey(a.y, a.m, a.d) - dayKey(b.y, b.m, b.d); });
-      if (uniq.length) {
-        var dl = formatDatesByMonth(uniq);
-        if (!seen[dl]) lines.push(dl);
-      }
+    if (dated.length) {
+      var uniq = {}, sorted = [];
+      dated.forEach(function (p) {
+        var k = dayKey(p.y, p.m, p.d);
+        if (!uniq[k]) { uniq[k] = 1; sorted.push(p); }
+      });
+      sorted.sort(function (a, b) { return dayKey(a.y, a.m, a.d) - dayKey(b.y, b.m, b.d); });
+      var next = nextCluster(sorted, now, 4, 3);
+      if (next.length) lines.push(formatDatesByMonth(next));
     }
-    return lines;
+    return lines.filter(function (ln, k) { return lines.indexOf(ln) === k; });
   }
 
   // Both sides' lines, unlabelled when identical,
@@ -446,11 +360,28 @@
     return out;
   }
 
+  // One calendar day's sweeps (sweepDays items) as text: "9AM–12PM" when both
+  // sides share the times, "Even side 9AM–12PM" for one side, else per side.
+  function dayText(items, labels) {
+    labels = labels || ['Even', 'Odd'];
+    var per = { even: [], odd: [] };
+    items.forEach(function (it) {
+      var t = it.time ? timeDisplay(it.time) : 'time n/a';
+      if (per[it.side].indexOf(t) < 0) per[it.side].push(t);
+    });
+    if (!per.odd.length) return labels[0] + ' side ' + per.even.join(', ');
+    if (!per.even.length) return labels[1] + ' side ' + per.odd.join(', ');
+    if (per.even.join() === per.odd.join()) return per.even.join(', ');
+    return [labels[0] + ' ' + per.even.join(', '), labels[1] + ' ' + per.odd.join(', ')].join(', ');
+  }
+
   global.BroomUrgency = {
     WEEKDAYS: WEEKDAYS,
     addDays: addDays,
     dayKey: function (p) { return dayKey(p.y, p.m, p.d); },
     weekday: function (p) { return pyWeekday(p.y, p.m, p.d); },
+    isoDay: isoDay,
+    dayLabel: dayLabel,
     WEEKDAY_CODES: WEEKDAY_CODES,
     NO_SWEEP_CODES: NO_SWEEP_CODES,
     checkDaySweeping: checkDaySweeping,
@@ -458,9 +389,10 @@
     datesInRange: datesInRange,
     nowForTimeZone: nowForTimeZone,
     isNoSweepCode: isNoSweepCode,
-    sweepBody: sweepBody,
     sweepDays: sweepDays,
     timeDisplay: timeDisplay,
+    timeWindow: timeWindow,
+    dayText: dayText,
     formatScheduleSide: formatScheduleSide,
     formatBothSides: formatBothSides,
   };

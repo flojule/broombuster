@@ -215,17 +215,21 @@ def time_display(raw: str) -> str:
       "8:00 AM -11:00 AM"  →  "8AM–11AM"
       "10AM–1PM"           →  "10AM–1PM"   (already clean, returned as-is)
       "8:00 AM • 9:30 AM"  →  "8AM–9:30AM"
-    Returns the raw string if the pattern does not match.
+    Returns the raw string if it is not a range of clock times (as
+    frontend/js/urgency.js timeDisplay does).
     """
     if not isinstance(raw, str):
         return "N/A"
     s = raw.strip()
-    if s.upper() in ("", "N/A", "NA", "NONE", "NAN"):
+    if s.upper() in _PLACEHOLDERS:
         return "N/A"
     match = _TIME_RANGE_RE.search(s)
     if not match:
         return s
     h1, m1, ap1, h2, m2, ap2 = match.groups()
+    if not all(1 <= hh <= 12 and mn <= 59
+               for hh, mn, _ in (_clock_parts(h1, m1, ap1), _clock_parts(h2, m2, ap2))):
+        return s
     return f"{_fmt_part(h1, m1, ap1)}–{_fmt_part(h2, m2, ap2)}"
 
 
