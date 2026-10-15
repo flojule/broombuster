@@ -118,7 +118,7 @@ async function commitPlacement(lat, lon) {
   if (editId) {
     const car = cars.find(c => c.id === editId);
     if (car) {
-      car.lat = lat; car.lon = lon;
+      car.lat = lat; car.lon = lon; touchCarLocation(car);
       savePrefs();
       setSheetCollapsed(false);
       updateCarMarkers();
@@ -214,6 +214,7 @@ async function savePendingCar() {
   const name = (_nameInput?.value.trim()) || 'My car';
   const id = newId();
   cars.push({ id, name, lat: pendingLat, lon: pendingLon });
+  touchCarLocation(cars[cars.length - 1]);
   removeTempPin();
   closeNameBox(true);
   if (_gpsLocPin) hideGpsPinPopup();
@@ -267,6 +268,52 @@ function scheduleHTML(sched) {
        + _itemsHTML(lines.length ? lines : ['No sweeping scheduled']);
 }
 
+// ── Phone link: a token that lets a phone automation report where the car parked ──
+let _phoneLink = null;  // { carId, token } while a freshly created token is on screen
+
+function _ago(epochS) {
+  const m = Math.max(0, Math.round((Date.now() / 1000 - epochS) / 60));
+  if (m < 2) return 'just now';
+  if (m < 90) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 36 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
+}
+
+// Status (and the new token, once) under a linked car's buttons.
+function phoneLinkHTML(car) {
+  if (!(car.id in phoneLinks)) return '';
+  const lastUsed = phoneLinks[car.id];
+  const status = lastUsed ? `Phone last reported ${_ago(lastUsed)}.` : 'Phone has not reported yet.';
+  const token = _phoneLink?.carId === car.id ? _phoneLink.token : null;
+  return `<div class="ce-phone">
+    <div class="ce-token-note">${esc(status)}</div>
+    ${token ? `
+    <div class="ce-token-note">Copy this token into your phone automation now; it is shown only once.
+      The automation posts {"lat", "lon"} to <b>${esc(location.origin)}/api/cars/location</b>
+      with the header <b>Authorization: Bearer &lt;token&gt;</b>.</div>
+    <input class="ce-token" readonly value="${esc(token)}" aria-label="Phone token">
+    <button class="ce-btn ce-btn-copy">Copy token</button>` : ''}
+  </div>`;
+}
+
+async function _togglePhoneLink(car) {
+  const linked = car.id in phoneLinks;
+  if (linked && !confirm(`Unlink the phone from ${car.name}? Its automation will stop working.`)) return;
+  if (!linked) await _flushPrefs();  // the server only issues tokens for cars it has saved
+  const res = await fetch(`/api/cars/${encodeURIComponent(car.id)}/token`,
+                          { method: linked ? 'DELETE' : 'POST' });
+  if (!res.ok) { showToast(linked ? 'Could not unlink the phone' : 'Could not link a phone', true); return; }
+  if (linked) {
+    delete phoneLinks[car.id];
+    _phoneLink = null;
+  } else {
+    phoneLinks[car.id] = null;
+    _phoneLink = { carId: car.id, token: (await res.json()).token };
+  }
+  renderCarsPanel();
+  document.querySelector('.ce-token')?.scrollIntoView({ block: 'nearest' });  // it is below the card's buttons
+}
+
 function renderCarsPanel() {
   const ae = document.activeElement;
   if (carsPanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
@@ -304,7 +351,9 @@ function renderCarsPanel() {
       <div class="ce-actions">
         <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">${icon('locate')} GPS</button>
         <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">${icon('pin')} Set location</button>
+        ${account ? `<button class="ce-btn ce-btn-phone">${car.id in phoneLinks ? 'Unlink phone' : 'Link phone'}</button>` : ''}
       </div>
+      ${account ? phoneLinkHTML(car) : ''}
       </div>`;
 
     // ── Name editing ──
@@ -323,7 +372,7 @@ function renderCarsPanel() {
           setTimeout(() => { addrEl.style.color = ''; addrEl.textContent = addrText; }, 2500);
           return;
         }
-        car.lat = hit.lat; car.lon = hit.lon;
+        car.lat = hit.lat; car.lon = hit.lon; touchCarLocation(car);
         savePrefs();
         if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
         updateCarMarkers();
@@ -336,7 +385,7 @@ function renderCarsPanel() {
       const btn = entry.querySelector('.ce-btn-gps');
       btn.disabled = true; btn.classList.add('busy');
       getGPS(async (lat, lon) => {
-        car.lat = lat; car.lon = lon;
+        car.lat = lat; car.lon = lon; touchCarLocation(car);
         savePrefs();
         btn.disabled = false; btn.classList.remove('busy');
         if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
@@ -346,6 +395,13 @@ function renderCarsPanel() {
 
     // ── Set location button ──
     entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacing(car.id));
+
+    // ── Phone link ──
+    entry.querySelector('.ce-btn-phone')?.addEventListener('click', () => _togglePhoneLink(car));
+    entry.querySelector('.ce-btn-copy')?.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(_phoneLink.token); showToast('Token copied'); }
+      catch (_) { entry.querySelector('.ce-token').select(); }
+    });
 
     // ── Remove button ──
     entry.querySelector('.ce-remove').addEventListener('click', async () => {

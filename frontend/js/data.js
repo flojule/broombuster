@@ -65,6 +65,9 @@ function loadPrefs() {
   cars = Array.isArray(p.cars) ? p.cars : [];
   homes = Array.isArray(p.homes) ? p.homes : [];
 }
+// Version a car's position change so a stale device or phone update can't
+// overwrite it (the server keeps the higher version; see auth._merge_cars).
+function touchCarLocation(car) { car.loc_rev = (car.loc_rev || 0) + 1; }
 function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
   syncPrefs();

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, FastAPI, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -157,6 +157,28 @@ def check_home(req: CheckHomeRequest):
     city = city_for_point(req.lat, req.lon, region)
     return {"region": region, "address": address,
             "pickups": trash.pickups(city, address, today)}
+
+
+class CarLocation(BaseModel):
+    lat: float = Field(..., ge=-90.0, le=90.0)
+    lon: float = Field(..., ge=-180.0, le=180.0)
+    accuracy: float | None = Field(None, ge=0.0, le=1e6)  # metres, as the phone reports it
+
+
+@api.post("/cars/location")
+def car_location(req: CarLocation, who=Depends(auth.car_for_token)):
+    """A phone reports where the car was parked (bearer token of that car).
+
+    `summary` is short plain text for the phone to show as a notification.
+    """
+    if req.accuracy is not None and req.accuracy > resolve.CAR_MAX_DISTANCE_M:
+        raise HTTPException(
+            422, f"Position too rough (±{req.accuracy:.0f} m); the car was not moved.")
+    if not auth.set_car_location(who["sub"], who["car_id"], req.lat, req.lon):
+        raise HTTPException(404, "That car was removed from your account.")
+    loc = _locate(req.lat, req.lon, None)
+    address, _ = _address(loc, req.lat, req.lon, network=False)
+    return {"summary": f"Parked at {address}."}
 
 
 app.include_router(api)  # after every route above is registered on it

@@ -199,6 +199,14 @@
       color: var(--text); cursor: pointer; text-align: center;
     }
     .ce-btn:hover { background: var(--bg); }
+    .ce-upd { font-size: .68rem; color: var(--muted); margin-top: 3px; }
+    .ce-phone { display: flex; flex-direction: column; gap: 5px; margin-top: 3px; }
+    .ce-token-note { font-size: .68rem; color: var(--muted); line-height: 1.4; }
+    .ce-token {
+      width: 100%; box-sizing: border-box; padding: 6px; font: .7rem monospace;
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+    }
 
     /* ── GPS pin popup (add car here) ── */
     #gps-pin-popup {

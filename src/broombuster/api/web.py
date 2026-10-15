@@ -66,7 +66,7 @@ def client_ip(request: Request) -> str:
 # (path prefix, requests per minute per client). /address and /locate also call
 # third-party services, so they get less.
 LIMITS = (("/api/address", 20), ("/api/locate", 20), ("/api/check-home", 20),
-          ("/api/check", 60), ("/api/me", 30), ("/auth/logout", 30))
+          ("/api/check", 60), ("/api/me", 30), ("/api/cars", 30), ("/auth/logout", 30))
 _WINDOW_S = 60
 
 
