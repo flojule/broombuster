@@ -28,7 +28,7 @@ async function upgradeAddress(car, sched) {
   } catch (_) {}
 }
 
-// Car names by sweeping verdict; feeds the sheet handle.
+// Car names by sweeping verdict; feeds the Saved summary and the tab's badge.
 function urgentCars() {
   const out = { today: [], tomorrow: [] };
   for (const car of cars) out[sweepUrgency(carSchedules[car.id])]?.push(car.name);
@@ -45,15 +45,15 @@ function moveCar(car, lat, lon) {
 
 // ── Placement (cars and homes) ────────────────────────────────────────────────
 // Center-target flow: pan the map so the crosshair sits on the spot, then
-// "Set here" commits at the map center. The sheet collapses so the target is
-// unobstructed. Right-click or a long press is the alternative for an off-center spot.
-// Places (or, with an id, moves) a car or home; the banner shows its icon.
+// "Set here" commits at the map center. The sheet shrinks so most of the map shows;
+// it returns to its height after. Right-click or a long press is the alternative for
+// an off-center spot. Places (or, with an id, moves) a car or home; the banner shows its icon.
 function startPlacing(editId = null, kind = 'car') {
-  placing = { kind, editId };
+  closeNameBox();
+  placing = { kind, editId, detent: _detent };
   placeBannerText.innerHTML = icon(editId ? 'pin' : kind)
     + `<span class="sr-only">${editId ? 'Move' : 'Place'} ${kind}: pan the map to the spot</span>`;
-  setSheetCollapsed(true);
-  if (!isDesktop()) collapseCal();  // phone: the card would cover the target
+  if (!isDesktop()) setDetent('small');
   document.body.classList.add('placing');
   placeBanner.classList.add('active');
   _crosshair.classList.add('placing');
@@ -61,12 +61,14 @@ function startPlacing(editId = null, kind = 'car') {
 }
 
 function stopPlacing() {
+  if (!placing) return;
+  const { detent } = placing;
   placing = null;
   placeBanner.classList.remove('active');
   document.body.classList.remove('placing');
   _crosshair.classList.remove('placing');
   if (map) map.getCanvas().style.cursor = '';
-  applySheet();
+  setDetent(detent);
 }
 
 // Commit at the current map center (the point the crosshair marks).
@@ -77,17 +79,43 @@ function confirmPlacementAtCenter() {
   stopPlacing();
   if (kind === 'home') { if (editId) moveHome(editId, lat, lng); else addHome(lat, lng); return; }
   const car = editId && cars.find(c => c.id === editId);
-  if (car) { setSheetCollapsed(false); moveCar(car, lat, lng); }
+  if (car) { moveCar(car, lat, lng); openItem(car.id); }
   else openNameBox(lat, lng);
 }
 
 btnConfirmPlace.addEventListener('click', confirmPlacementAtCenter);
-btnCancelPlace.addEventListener('click', () => { stopPlacing(); setSheetCollapsed(false); });
+btnCancelPlace.addEventListener('click', stopPlacing);
 
-document.getElementById('btn-add-car').addEventListener('click', () => {
-  closeNameBox();
-  startPlacing(null);
+// ── "+": what to add (as the "+" on Find My's lists) ──────────────────────────
+// Car / Home: place it with the centre target. Car at my location: the GPS fix, then
+// its name (the moment people add a car is when they have just parked).
+const addMenu = document.getElementById('add-menu');
+function setAddMenuOpen(on, anchor = btnAdd) {
+  if (addMenu.hidden === !on) return;
+  addMenu.hidden = !on;
+  btnAdd.setAttribute('aria-expanded', String(on));
+  sheet.inert = on;  // the menu is modal: what it covers takes no taps or focus
+  if (!on) return;
+  // Under the button, or above it when the sheet sits low; kept inside the screen.
+  const r = anchor.getBoundingClientRect(), h = addMenu.offsetHeight, w = addMenu.offsetWidth;
+  addMenu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  addMenu.style.top = (r.bottom + 6 + h < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - h - 6)) + 'px';
+  addMenu.querySelector('button').focus();
+}
+btnAdd.addEventListener('click', e => { e.stopPropagation(); setAddMenuOpen(addMenu.hidden); });
+addMenu.addEventListener('click', e => {
+  const b = e.target.closest('[data-add]');
+  if (!b) return;
+  setAddMenuOpen(false);
+  if (b.dataset.add === 'home') startPlacing(null, 'home');
+  else if (b.dataset.add === 'car') startPlacing(null, 'car');
+  else locateWith(btnAdd, (lat, lon, acc) => {
+    if (map) map.jumpTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 17) });
+    _setHere(lat, lon, acc);
+    openNameBox(lat, lon);
+  });
 });
+document.addEventListener('click', e => { if (!e.target.closest('#add-menu')) setAddMenuOpen(false); });
 
 // ── Context menu: "Add car / home here" (right-click, or a long press on touch) ──
 function openCtxMenu(lngLat, x, y) {
@@ -160,8 +188,8 @@ function savePendingCar() {
   cars.push(car);
   closeNameBox();
   savePrefs();
-  setSheetCollapsed(false);  // reveal the new card
   updateCarMarkers();
+  openItem(car.id);  // its page: the schedule as it loads
   checkCar(car);
   offerInstall();
 }
@@ -203,8 +231,8 @@ function schedBlockHTML(id, header, lines) {
     : '<span class="ce-loading">Loading…</span>';
 }
 
-// Card shell: header (icon, name, verdict) that toggles the card (click, Enter or
-// Space), address, and the detail shown while the card is open.
+// Card shell: header (icon, name, verdict) that opens the item's page (click, Enter
+// or Space), address, and the detail shown on that page.
 function itemCard({ id, kind, color, name, urgency, addr, detail }) {
   const entry = document.createElement('div');
   entry.className = 'car-entry' + (kind === 'home' ? ' home-entry' : '');
@@ -212,7 +240,7 @@ function itemCard({ id, kind, color, name, urgency, addr, detail }) {
   if (urgency) entry.dataset.urgency = urgency;  // theme-aware tint via CSS
   entry.style.setProperty('--car-color', color);
   entry.innerHTML = `
-    <div class="ce-header" role="button" tabindex="0" aria-expanded="false">
+    <div class="ce-header" role="button" tabindex="0">
       <span class="ce-dot">${icon(kind)}</span>
       <span class="ce-name" contenteditable="false">${esc(name)}</span>
       ${urgency ? _statusHTML(urgency) : ''}
@@ -220,11 +248,11 @@ function itemCard({ id, kind, color, name, urgency, addr, detail }) {
     <div class="ce-addr" contenteditable="false">${esc(addr)}</div>
     <div class="ce-detail">${detail}</div>`;
   entry.addEventListener('click', e => {
-    if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
-    toggleItem(id);
+    if (_selectedId === id || e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
+    focusItem(id);
   });
   entry.querySelector('.ce-header').addEventListener('keydown', e => {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('ce-header')) { e.preventDefault(); toggleItem(id); }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('ce-header')) { e.preventDefault(); focusItem(id); }
   });
   return entry;
 }
@@ -281,7 +309,7 @@ async function _togglePhoneLink(car) {
 }
 
 function renderCarsPanel() {
-  if (isEditingIn(carsPanel)) return;
+  if (isEditingIn(carsPanel) || savedTitle.isContentEditable) return;
   for (const el of [...carsPanel.querySelectorAll(':scope > .car-entry')]) el.remove();
   for (const car of cars) {
     const sched = carSchedules[car.id];
@@ -295,16 +323,14 @@ function renderCarsPanel() {
       detail: `
         <div class="ce-sched">${schedBlockHTML(car.id, 'Sweeping:', lines && (lines.length ? lines : ['No sweeping']))}</div>
         <div class="ce-actions">
-          <button class="ce-btn ce-btn-gps">${icon('locate')} GPS</button>
+          <button class="ce-btn ce-btn-gps">${icon('locate')} Parked here</button>
           <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
+          <button class="ce-btn ce-btn-rename">Rename</button>
           ${account ? `<button class="ce-btn ce-btn-phone">${linked ? 'Unlink phone' : 'Link phone'}</button>` : ''}
           <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
         </div>
         ${account ? phoneLinkHTML(car) : ''}`,
     });
-
-    const nameEl = entry.querySelector('.ce-name');
-    makeEditable(nameEl, () => car.name, v => { car.name = v; savePrefs(); updateCarMarkers(); });
 
     const addrEl = entry.querySelector('.ce-addr');
     makeEditable(addrEl, () => addrText, async q => {
@@ -325,6 +351,7 @@ function renderCarsPanel() {
       });
     });
     entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacing(car.id));
+    entry.querySelector('.ce-btn-rename').addEventListener('click', () => savedTitle.startEdit());
 
     const phoneBtn = entry.querySelector('.ce-btn-phone');
     if (phoneBtn && linked) confirmTap(phoneBtn, () => _togglePhoneLink(car));  // unlinking stops the automation
@@ -337,14 +364,26 @@ function renderCarsPanel() {
     confirmTap(entry.querySelector('.ce-remove'), () => {
       delete carSchedules[car.id];
       cars = cars.filter(c => c.id !== car.id);
-      if (_selectedId === car.id) _selectedId = null;
       savePrefs();
       updateCarMarkers();  // drops its marker and re-renders the cards
     });
 
-    carsPanel.appendChild(entry);
+    carsPanel.insertBefore(entry, homePanel);
   }
   applySelection();
-  renderInfoCard();
-  updateSheetSummary();
+  renderTargetInfo();
+  updateSavedSummary();
+}
+
+// Saved tab's first line: the most urgent car verdict, else all clear; with nothing
+// saved, how to start. A red dot on the tab while a car must move today.
+function updateSavedSummary() {
+  const { today, tomorrow } = urgentCars();
+  savedSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
+    : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
+    : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
+    : homes.length ? '' : 'Add your car to see when to move it, or your home for trash day.'
+      + `<button class="btn" id="btn-add-first">${icon('plus')} Add</button>`;
+  document.getElementById('btn-add-first')?.addEventListener('click', e => { e.stopPropagation(); setAddMenuOpen(true, e.currentTarget); });
+  tabbar.querySelector('.tab-badge').hidden = !today.length;
 }

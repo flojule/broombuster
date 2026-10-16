@@ -10,6 +10,8 @@ function initMap(center) {
   });
   map.dragRotate.disable();
   map.touchZoomRotate.disableRotation();
+  applyMapInsets(false);  // the sheet's padding: the target at the centre of the free area
+  _crosshair.classList.add('visible');
   map.on('load', () => {
     map.resize();
     attachMapListeners();
@@ -39,11 +41,11 @@ function attachMapListeners() {
   });
   map.on('dblclick', () => { if (_tapTimer) { clearTimeout(_tapTimer); _tapTimer = null; } });
 
-  // Info card: live-read the street under the viewport center while the map
+  // Signs and calendar: live-read the street under the target while the map
   // moves (drag/zoom), and once more after tiles finish streaming in (idle).
-  map.on('move', updateInfoCard);
-  map.on('moveend', updateInfoCard);
-  map.on('idle', updateInfoCard);
+  map.on('move', () => renderTargetInfo());
+  map.on('moveend', () => renderTargetInfo());
+  map.on('idle', () => renderTargetInfo());
 
   // Follow the map center to its region (mounts its tiles) and recolour newly
   // loaded tile features once the map settles.
@@ -74,7 +76,7 @@ function whenStyleReady(cb) {
 // ── Vector-tile rendering (PMTiles) ───────────────────────────────────────────
 let _tilesRegion      = null;   // region currently mounted as a tile source
 let _pmtilesProtocol  = false;  // pmtiles:// protocol registered once
-let _featStateCache   = new Map();  // feature id -> [urgency, y-m-d-minute it was computed]
+let _featStateCache   = new Map();  // feature id -> [{urgency, urgency_even?, urgency_odd?}, y-m-d-minute it was computed]
 let _featSchedCache   = new Map();  // feature id -> { parsed sched entries, whether the street has no sweeping }
 let _urgencyTimer     = null;
 
@@ -94,11 +96,30 @@ function _wardLineColor() {
     : 'rgba(20,28,46,0.7)';
 }
 
+// Zoomed in this far, a line whose sides differ (tile property even_left) is drawn as
+// two, one per side, each in its own urgency colour; the single line hides.
+const SIDE_ZOOM = 15;
+const _isSplit = ['==', ['get', 'even_left'], true];  // even side left of the drawing direction
+// Offset (px) of one side's line: left of the drawing direction is negative.
+function _sideOffset(side) {
+  const px = { 15: 2.5, 16: 3.5, 18: 6 }, s = side === 'even' ? 1 : -1;
+  return ['interpolate', ['linear'], ['zoom'],
+    ...Object.entries(px).flatMap(([z, o]) => [Number(z), ['case', _isSplit, -o * s, o * s]])];
+}
+
 function addTilePaintLayers() {
   map.addLayer({
     id: 'zones-fill', type: 'fill', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['get', 'render_type'], 'polygon'],
     paint: { 'fill-color': _urgCase('fill') },
+  });
+  // The street (or zone) at the target: a soft blue glow under its colour (setActiveFeature).
+  map.addLayer({
+    id: 'zones-active', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+    filter: ['==', ['id'], -1],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': 'rgba(59,130,246,0.35)', 'line-blur': 2,
+             'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 14, 18, 20] },
   });
   map.addLayer({
     id: 'zones-outline', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
@@ -122,8 +143,27 @@ function addTilePaintLayers() {
     id: 'zones-line', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['get', 'render_type'], 'line'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': _urgCase('line'), 'line-width': _lineWidth() },
+    paint: { 'line-color': _urgCase('line'), 'line-width': _lineWidth(),
+             'line-opacity': ['step', ['zoom'], 1, SIDE_ZOOM, ['case', ['has', 'even_left'], 0, 1]] },
   });
+  for (const side of ['even', 'odd']) {
+    map.addLayer({
+      id: `zones-side-${side}`, type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+      minzoom: SIDE_ZOOM, filter: ['all', ['==', ['get', 'render_type'], 'line'], ['has', 'even_left']],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: { 'line-color': _urgCase('line', `urgency_${side}`), 'line-width': _lineWidth(`urgency_${side}`, 0.6),
+               'line-offset': _sideOffset(side) },
+    });
+  }
+  _activeId = null;
+}
+
+// Glow the feature at the target (id from the tiles; null: none).
+let _activeId = null;
+function setActiveFeature(id) {
+  if (id === _activeId || !map?.getLayer('zones-active')) return;
+  _activeId = id;
+  map.setFilter('zones-active', ['==', ['id'], id ?? -1]);
 }
 
 // ── Areas ─────────────────────────────────────────────────────────────────────
@@ -201,26 +241,35 @@ function applyUrgencyStates() {
     if (u === null) {
       let sched = _featSchedCache.get(f.id);
       if (sched === undefined) {
-        let entries;
-        try { entries = JSON.parse(f.properties.sched || '[]') || []; } catch (_) { entries = []; }
-        // Same test as the street sign's "No sweeping": nothing real to display.
-        sched = { entries, none: !tileSchedLines(f.properties).length };
+        const entries = tileEntries(f.properties);
+        // Same test as the calendar's "No sweeping": nothing real to display.
+        sched = { entries, none: !tileSchedLines(f.properties).length, split: 'even_left' in f.properties };
         _featSchedCache.set(f.id, sched);
       }
-      u = sched.none ? 'none' : BroomUrgency.checkDaySweeping(sched.entries, now);
+      const verdict = es => sched.none || !es.length ? 'none' : BroomUrgency.checkDaySweeping(es, now);
+      u = { urgency: verdict(sched.entries) };
+      if (sched.split) {
+        u.urgency_even = verdict(sched.entries.filter(e => e.side === 'even'));
+        u.urgency_odd = verdict(sched.entries.filter(e => e.side === 'odd'));
+      }
       _featStateCache.set(f.id, [u, stamp]);
     }
     const target = { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id };
-    if (map.getFeatureState(target).urgency !== u) map.setFeatureState(target, { urgency: u });
+    const cur = map.getFeatureState(target);
+    if (Object.keys(u).some(k => cur[k] !== u[k])) map.setFeatureState(target, u);
   }
+}
+
+// A tile feature's raw schedule entries [{code, time, desc, side}] ([] if unreadable).
+function tileEntries(props) {
+  try { return JSON.parse(props.sched || '[]') || []; } catch (_) { return []; }
 }
 
 // Canonical schedule lines for a tile feature (days merged per time: "Tue, Thu · 3AM–5AM",
 // Mon->Sun order, merged next-cluster dates), as on the car card. Used by the
-// street sign.
+// calendar and the map colours.
 function tileSchedLines(props) {
-  let sched = [];
-  try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}
+  const sched = tileEntries(props);
   const now = regionNow(_tilesRegion);
   const labels = [props.side_even || 'Even', props.side_odd || 'Odd'];
   return BroomUrgency.formatBothSides(

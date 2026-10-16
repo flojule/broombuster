@@ -228,6 +228,18 @@ def _determine_side(geom, car_pt, proj_pt, row) -> str | None:
     return None
 
 
+def even_on_left(row) -> bool | None:
+    """Whether the row's even side lies left of its digitized direction; None if unknown.
+
+    Same parity rule as _determine_side: the left range's parity, else the
+    complement of the right range's.
+    """
+    left = _parity(row.get("L_F_ADD"), row.get("L_T_ADD"))
+    if left is None:
+        left = {"even": "odd", "odd": "even"}.get(_parity(row.get("R_F_ADD"), row.get("R_T_ADD")))
+    return None if left is None else left == "even"
+
+
 def _nearest_vertex_pair(geom, proj_pt):
     """Return (ax, ay, bx, by) of the line segment in `geom` whose midpoint
     is closest to the projected point. Handles LineString and

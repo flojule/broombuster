@@ -10,20 +10,17 @@
       --shadow-1: 0 2px 8px rgba(0,0,0,.16);    /* controls */
       --shadow-2: 0 6px 24px rgba(0,0,0,.22);   /* floating panels, menus */
       --tap: 44px;                              /* minimum touch target */
-      --sheet-peek: var(--tap);  /* collapsed bottom-sheet handle height */
       --edge: 12px;  /* gap between floating panels / map buttons and the screen edge */
-      --panel-w: calc(100vw - 2 * var(--edge));  /* calendar card + sheet: edge to edge on mobile, so their right edge lines up with the map buttons */
+      --panel-w: 340px;  /* desktop: the sheet as a left panel */
+      --sheet-ease: cubic-bezier(.32, .72, 0, 1);  /* the iOS sheet curve */
       --inset-t: env(safe-area-inset-top, 0px);     /* the notch / Dynamic Island (home-screen app only) */
       --inset-b: env(safe-area-inset-bottom, 0px);
-      --edge-b: max(var(--edge), calc(var(--inset-b) - 18px));  /* bottom gap: just above the iPhone home indicator */
-      --center-gap: 28px;  /* clear space kept between the centre target and the cards */
-      --info-h: 0px;  /* calendar card height, set from JS */
-      --sheet-h: 0px; /* sheet height, set from JS */
+      --sheet-h: 0px; /* sheet height (phone), set from JS */
       --street: #15803d;  /* street sweeping days in the calendar */
       --home: #15803d;    /* homes: card icon, pin, add button (= HOME_COLOR in core.js) */
 
-      /* Layers: map pins (MapLibre markers) < crosshair 15 < calendar card, place banner 20
-         < street sign 21 < sheet 25 < map controls 26 < menus 200 < toasts 9999. */
+      /* Layers: map pins (MapLibre markers) < crosshair 15 < place banner 20 < street signs 21
+         < map controls 24 < sheet 25 < menus 200 < toasts 9999. */
     }
     /* 100vh, not 100%: in an iOS home-screen app with a translucent status bar, 100% is the
        layout viewport, which is shorter than the screen and leaves a strip at the bottom. */
@@ -32,11 +29,13 @@
     html, body { overflow: hidden; overscroll-behavior: none; }
 
     /* Floating surfaces are frosted glass where the browser supports it, opaque cards otherwise. */
-    body { --glass: var(--card); --hairline: var(--border); }
+    body { --glass: var(--card); --sheet-bg: var(--card); --hairline: var(--border); }
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+      /* The sheet is a thicker material than the small controls, so text on it stays clear. */
       body { --glass: color-mix(in srgb, var(--card) 74%, transparent);
+             --sheet-bg: color-mix(in srgb, var(--card) 90%, transparent);
              --hairline: color-mix(in srgb, var(--text) 14%, transparent); }
-      #info-card, #sheet, .map-btn, #app-menu, #ctx-menu, .area-label,
+      #sheet, .map-btn, .pop-menu, .area-label, .sign-label, #signs-street,
       .name-popup .maplibregl-popup-content {
         -webkit-backdrop-filter: blur(20px) saturate(1.8); backdrop-filter: blur(20px) saturate(1.8);
       }
@@ -52,7 +51,7 @@
     .busy svg.ic { animation: spin .8s linear infinite; }
     /* Buttons start bare; .btn is the filled primary action. */
     button { font: inherit; color: inherit; background: none; border: none; padding: 0; margin: 0; cursor: pointer; }
-    .btn, .add-car-btn, #btn-np-save, #btn-confirm-place, #btn-cancel-place {
+    .btn, #btn-np-save, #btn-confirm-place, #btn-cancel-place {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       min-height: var(--tap); padding: 0 16px; background: var(--blue); color: #fff;
       border-radius: var(--r-md); font-size: .88rem; font-weight: 600; transition: opacity .15s;
@@ -73,14 +72,11 @@
     @supports (height: 100dvh) { #app-screen { height: var(--app-h, 100dvh); } }
     /* Floating panels take no page gestures (a drag that leaves them must not pan the
        map or the page); their scrollers allow their own direction back. */
-    #info-card, #sheet, #map-ctrl { touch-action: none; }
-    #cars-panel { touch-action: pan-y; overscroll-behavior: contain; }
+    #sheet, #map-ctrl { touch-action: none; }
 
-    /* ── Right column: map info (area, theme, color key, zoom, locate) ──
-       Mobile: above the sheet. Desktop: top-right (see media query). */
+    /* ── Map controls: top right, below the status bar (as in Find My) ── */
     #map-ctrl {
-      position: absolute; right: var(--edge); z-index: 26;
-      bottom: calc(var(--edge-b) + var(--sheet-h) + var(--edge));
+      position: absolute; right: var(--edge); top: calc(var(--inset-t) + var(--edge)); z-index: 24;
       display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
     }
     body.placing #map-ctrl { display: none; }
@@ -102,7 +98,7 @@
 
     /* ── Place banner (tap-to-place mode) ── */
     #place-banner {
-      position: absolute; bottom: calc(var(--edge-b) + var(--sheet-peek) + 8px);
+      position: absolute; bottom: calc(var(--sheet-h) + 10px);
       left: 50%; transform: translateX(-50%);
       z-index: 20; display: none; align-items: center; gap: 8px;
       background: rgba(37,99,235,.92); color: #fff;
@@ -119,67 +115,81 @@
       border: 1px solid rgba(255,255,255,.4); font-weight: 500;
     }
 
-    /* ── Context menu (right-click) and app menu (⋯) ── */
-    #ctx-menu, #app-menu {
+    /* ── Pop-up menus: "Add here" (right-click / long press) and "+" ── */
+    .pop-menu {
       position: fixed; z-index: 200; background: var(--glass); border: 1px solid var(--hairline);
-      border-radius: var(--r-md); box-shadow: var(--shadow-2); overflow: hidden; min-width: 160px;
+      border-radius: var(--r-md); box-shadow: var(--shadow-2); overflow: hidden; min-width: 190px;
     }
     #ctx-menu { display: none; }
-    .ctx-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: var(--tap); padding: 0 14px;
-                text-align: left; font-size: .85rem; }
+    .ctx-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--tap); padding: 0 14px;
+                text-align: left; font-size: .88rem; }
+    .ctx-item + .ctx-item { border-top: 1px solid var(--hairline); }
     .ctx-item:hover { background: var(--bg); }
-    #app-menu { width: 250px; max-height: calc(100dvh - 24px); overflow-y: auto; font-size: .82rem; }
-    .menu-sec { padding: 6px 0; }
-    .menu-sec + .menu-sec { border-top: 1px solid var(--hairline); }
-    .menu-label { padding: 4px 14px; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+
+    /* ── Me tab: account, appearance, map colors, about ── */
+    .menu-sec { padding: 6px 0; font-size: .85rem; background: var(--card); border-radius: var(--r-md); }
+    .menu-label { padding: 6px 14px 4px; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
     .menu-item { display: block; width: 100%; margin: 0; padding: 0 14px; min-height: var(--tap); text-align: left;
-                 background: none; border-radius: 0; color: var(--text); font-size: .85rem; font-weight: 500; }
+                 background: none; border-radius: 0; color: var(--text); font-size: .88rem; font-weight: 500; }
+    .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
     .menu-item:hover { background: var(--bg); }
     .menu-item.armed { display: flex; align-items: center; gap: 6px; }
-    .menu-note { padding: 8px 14px; color: var(--muted); overflow-wrap: anywhere; }
-    .seg { display: flex; margin: 4px 14px 6px; padding: 2px; gap: 2px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: var(--r-sm); }
+    .menu-note { padding: 6px 14px; color: var(--muted); font-size: .78rem; font-weight: 400; overflow-wrap: anywhere; }
+    .seg { display: flex; margin: 4px 14px 8px; padding: 2px; gap: 2px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: var(--r-sm); }
     .seg button { flex: 1; margin: 0; padding: 0; min-height: 36px; background: none; color: var(--text); border-radius: 6px; font-size: .8rem; font-weight: 500; }
     .seg button[aria-checked="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); font-weight: 600; }
-    .menu-legend { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: .78rem; }
+    .menu-legend { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: .8rem; padding-bottom: 4px; }
     .menu-legend > span { padding: 0 14px; }
-    .menu-about { font-size: .68rem; line-height: 1.45; color: var(--muted); padding: 8px 14px; }
+    .menu-about { font-size: .7rem; line-height: 1.45; color: var(--muted); padding: 10px 14px; background: none; }
     .menu-about a { color: inherit; }
 
-    /* ── Bottom sheet (cars & homes) ──
-       Mobile: floating card, bottom-center, clear of the home indicator, same width
-       as the info card. Collapses to a handle so the map and target stay clear. */
+    /* ── Sheet (as in Find My) ──
+       Phone: docked at the bottom, full width, with the tab bar at its foot; its height
+       is one of three detents (js/sheet.js), dragged by the grabber or a tab's header.
+       Desktop: a full-height panel on the left with the tabs as a segmented control. */
     #sheet {
-      position: absolute; left: var(--edge); bottom: var(--edge-b);
-      z-index: 25; width: var(--panel-w);
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 25; height: 220px;
       display: flex; flex-direction: column;
-      background: var(--glass); border: 1px solid var(--hairline);
-      border-radius: var(--r-lg);
-      box-shadow: var(--shadow-2);
-      /* Open, it stays in the lower half: its top clears the centre target (--center-gap),
-         and it stays below the info card, so the three never overlap. */
-      max-height: min(calc(50% - var(--center-gap) - var(--edge-b)), calc(100% - var(--info-h) - var(--edge-b) - 44px));
-      pointer-events: auto;
+      background: var(--sheet-bg); border-top: 1px solid var(--hairline);
+      border-radius: 14px 14px 0 0; box-shadow: 0 -2px 20px rgba(0,0,0,.16);
+      transition: height .4s var(--sheet-ease);
     }
-    #sheet-handle {
-      flex-shrink: 0; display: flex; align-items: center; gap: 8px;
-      padding: 0 var(--edge) 0 14px; min-height: var(--tap); cursor: pointer; user-select: none;
-      position: relative;
+    #sheet.dragging { transition: none; }
+    #sheet-grabber { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; height: 24px; cursor: grab; }
+    #sheet-grabber span { width: 36px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 28%, transparent); }
+    .tab { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .tab-head {
+      flex: none; display: flex; align-items: center; gap: 4px; min-height: var(--tap);
+      padding: 0 10px 6px 16px; user-select: none;
     }
-    #sheet-summary { flex: 1; display: flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; color: var(--text); }
-    #sheet-chevron { width: var(--tap); height: var(--tap); align-items: center; justify-content: center; color: var(--muted); display: flex; transition: transform .15s; }
-    #sheet.collapsed #sheet-chevron { transform: rotate(180deg); }
-    #sheet.collapsed #cars-panel { display: none; }
-    /* Empty: just the two add buttons. */
-    #sheet.empty #sheet-handle { display: none; }
-    #sheet.empty #cars-panel { padding-top: 12px; }
-
-    #cars-panel {
-      display: flex; flex-direction: column; gap: 8px;
-      padding: 0 12px 12px; overflow-y: auto;
-      pointer-events: auto; scrollbar-gutter: stable;
+    .tab-title { flex: 1; min-width: 0; font-size: 1.4rem; font-weight: 700; letter-spacing: -.01em;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
+    .tab-title[contenteditable="true"] { cursor: text; border-bottom: 2px solid var(--blue); user-select: text; }
+    .tab-body {
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+      padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
     }
-    #add-row { display: flex; gap: 8px; flex-shrink: 0; }
-    #add-row .add-car-btn { flex: 1; width: auto; min-width: 0; white-space: nowrap; }
+    .head-btn { flex: none; position: relative; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+    .round-btn { width: 32px; height: 32px; border-radius: 50%; color: var(--text); font-size: 1.05rem;
+                 background: color-mix(in srgb, var(--text) 9%, transparent); }
+    .round-btn::after { content: ''; position: absolute; inset: -6px; }  /* 44 pt touch target */
+    #btn-add { color: var(--blue); }
+    /* Tab bar: icon over label; the selected tab in blue. A red dot on Saved: a car must move today. */
+    #tabbar { flex: none; display: flex; border-top: 1px solid var(--hairline); padding-bottom: var(--inset-b); }
+    #tabbar [role="tab"] {
+      flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 2px; min-height: 50px; font-size: .66rem; font-weight: 600; color: var(--muted);
+    }
+    #tabbar [role="tab"] svg.ic { width: 24px; height: 24px; }
+    #tabbar [aria-selected="true"] { color: var(--blue); }
+    .tab-badge { position: absolute; top: 5px; left: calc(50% + 7px); width: 10px; height: 10px; border-radius: 50%;
+                 background: var(--urg-today); border: 2px solid var(--card); }
+    /* Saved: the verdict line, the cards; an open item hides the rest (its own page, as in Find My). */
+    #saved-summary { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .85rem; font-weight: 600; min-height: 28px; }
+    #saved-summary .btn { margin-top: 6px; }
+    #cars-panel.item-open #saved-summary, #cars-panel.item-open .car-entry:not(.selected) { display: none; }
+    #cars-panel.item-open .car-entry.selected { border-width: 1px; border-color: var(--border); padding: 10px 12px; cursor: default; }
+    #cars-panel.item-open .car-entry.selected :is(.ce-dot, .ce-name, .ce-header:not(:has(.ce-status))) { display: none; }
     #home-panel { display: flex; flex-direction: column; gap: 8px; }
     #home-panel:empty { display: none; }
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
@@ -208,7 +218,7 @@
     /* Verdict beside the title; schedule + location buttons show on the open card only. */
     .ce-header .ce-name { flex: 1 1 auto; overflow-wrap: anywhere; }
     .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px;
-                 font-size: .72rem; font-weight: 600; white-space: nowrap; background: color-mix(in srgb, currentColor 10%, var(--card)); }  /* light pill: AA on the tinted cards */
+                 font-size: .72rem; font-weight: 600; white-space: nowrap; background: color-mix(in srgb, currentColor 6%, var(--card)); }  /* light pill: AA on the tinted cards */
     .ce-detail { display: flex; flex-direction: column; gap: 5px; }
     .car-entry:not(.selected) .ce-detail { display: none; }
     /* Card icon: the car in its colour, the home in green. */
@@ -281,66 +291,42 @@
     #name-panel-input:focus { border-color: var(--blue); }
     #btn-np-save { min-height: 36px; padding: 0 12px; border-radius: var(--r-sm); }
 
-    /* ── + Add car button (cars panel) ── */
-    .add-car-btn { width: 100%; flex-shrink: 0; font-size: .85rem; box-shadow: var(--shadow-1); }
-    .add-car-btn:hover { opacity: .92; }
-    /* "Add home" shares the add-car shape but takes the home green. */
-    .add-home-btn { background: var(--home); }
-
-    /* ── Calendar card (sweep calendar; fixed content, independent of the target) ──
-       Top of the left column (mobile: centered). The header stays put; the body scrolls. */
-    #info-card {
-      position: absolute; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
-      z-index: 20; width: var(--panel-w); pointer-events: auto;
-      display: flex; flex-direction: column;
-      background: var(--glass); color: var(--text);
-      border: 1px solid var(--hairline); border-radius: var(--r-lg);
-      box-shadow: var(--shadow-2); font-size: .8rem;
-      padding: 0 12px; cursor: pointer;
-    }
-    #ic-cal { flex: 1 1 auto; min-height: 0; padding-bottom: 10px; display: flex; flex-direction: column; }
-    #info-card.expanded { cursor: default; }
-    #ic-head {
-      display: flex; align-items: center; gap: 8px; user-select: none;
-      padding: 4px 0; font-weight: 600; font-size: .8rem;
-    }
-    #info-card.expanded #ic-head { cursor: pointer; }
-    #ic-title { flex: 1; min-width: 0; display: flex; align-items: center; }
-    #ic-title b { flex: 1; text-align: center; white-space: nowrap; }
-    /* Chevron points the way the card will go: down to open, up to close (like the sheet's). */
-    #ic-toggle { flex: none; width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center; color: var(--muted); }
-    #ic-toggle svg { transition: transform .15s; }
-    #info-card.expanded #ic-toggle svg { transform: rotate(180deg); }
-    /* Today leads the header (as in Google Calendar / Outlook): ‹ month › stay together. */
+    /* ── Calendar tab: a row of days (small sheet) or the month view ── */
+    #ic-cal { padding-bottom: 10px; gap: 0; }
     .cal-today { min-height: 30px; padding: 0 10px; margin-right: 2px; border: 1px solid var(--hairline);
                  border-radius: 999px; font-size: .72rem; font-weight: 600; color: var(--text); }
     .cal-today:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
     .cal-muted { font-size: .72rem; color: var(--muted); }
 
-    /* ── Street sign: a no-parking sign for the street at the target ──
-       Docked bottom-center (mobile: just above the sheet) so nothing covers it. */
-    #street-sign {
-      position: absolute; left: 50%; transform: translateX(-50%); z-index: 21; pointer-events: none;
-      bottom: calc(var(--edge-b) + var(--sheet-h) + var(--edge));
-      width: max-content; max-width: calc(100% - 120px); text-align: center;
-      /* Stays in the lower half, below the centre target; long schedules are clipped. */
-      display: flex; flex-direction: column;
-      max-height: calc(50% - var(--center-gap) - var(--edge-b) - var(--sheet-h) - var(--edge));
-      background: #fff; color: #b91c1c; border: 2.5px solid #b91c1c; border-radius: 12px;
-      padding: 8px 16px 9px; box-shadow: 0 0 0 3px #fff, 0 4px 16px rgba(0,0,0,.28);
-      text-transform: uppercase; font-weight: 700; line-height: 1.25;
+    /* ── Street signs: one small no-parking sign per side of the street at the target,
+       in the source's words, laid out as the sides lie on screen. Top left, under the
+       status bar; the label names the side, with a swatch of its line's map colour. ── */
+    #signs {
+      position: absolute; z-index: 21; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
+      display: flex; flex-direction: column; align-items: flex-start; gap: 5px; pointer-events: none;
     }
-    #ss-head { font-size: 1.05rem; letter-spacing: .06em; }
-    #ss-lines { font-size: .84rem; margin-top: 2px; min-height: 0; overflow: hidden; }
-    #ss-head, #ss-foot, #ss-name { flex: none; }
-    #ss-foot { font-size: .62rem; letter-spacing: .14em; margin-top: 3px; }
-    #ss-name { font-size: .62rem; letter-spacing: .08em; color: #475569; font-weight: 600; margin-top: 5px;
-               padding-top: 4px; border-top: 1px solid #fecaca; }
-    /* No sweeping: muted, no "no parking" header. */
-    #street-sign.clear { color: #475569; border-color: #cbd5e1; }
-    #street-sign.clear #ss-head, #street-sign.clear #ss-foot { display: none; }
-    #street-sign.clear #ss-lines { font-size: .76rem; font-weight: 600; margin: 0; }
-    body.placing #street-sign { bottom: calc(var(--edge-b) + var(--sheet-peek) + 62px); }
+    #signs-street { max-width: 230px; padding: 2px 8px; border-radius: 999px; background: var(--glass); color: var(--text);
+                    border: 1px solid var(--hairline); font-size: .62rem; font-weight: 700; letter-spacing: .05em;
+                    text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .signs-row { display: flex; gap: 6px; align-items: flex-start; }
+    .signs-row.stacked { flex-direction: column; }
+    .sign { width: 136px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .sign-plate {
+      width: 100%; display: flex; flex-direction: column; gap: 1px; padding: 4px 5px 5px; text-align: center;
+      background: #fff; color: #b91c1c; border: 2px solid #b91c1c; border-radius: 7px;
+      box-shadow: 0 0 0 2px #fff, 0 2px 8px rgba(0,0,0,.3); text-transform: uppercase; font-weight: 700; line-height: 1.2;
+    }
+    .sign-head { font-size: .64rem; letter-spacing: .05em; }
+    .sign-lines { font-size: .6rem; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; overflow-wrap: anywhere; }
+    .sign-foot { font-size: .5rem; letter-spacing: .1em; }
+    /* No sweeping on that side: a muted plate, no "no parking". */
+    .sign.clear .sign-plate { color: #475569; border-color: #cbd5e1; }
+    .sign.clear :is(.sign-head, .sign-foot) { display: none; }
+    .sign-label { display: flex; align-items: center; gap: 5px; max-width: 100%; padding: 2px 8px; border-radius: 9px;
+                  background: var(--glass); color: var(--text); border: 1px solid var(--hairline);
+                  font-size: .62rem; font-weight: 600; line-height: 1.25; }
+    .sign-label b { display: block; }  /* the verdict under the side's name */
+    .side-key { flex: none; width: 12px; height: 4px; border-radius: 2px; }
 
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
@@ -388,9 +374,6 @@
     .cal-detail { flex: none; margin-top: 6px; font-size: .74rem; line-height: 1.4; min-height: 3em; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
     .cal-round { border-radius: 50%; }
-    body.naming #street-sign, body.menu-open #street-sign { display: none; }
-    /* Set from JS when an open sheet leaves no room for the sign below the centre target. */
-    #street-sign.blocked { visibility: hidden; }
     /* ── Map pins (MapLibre HTML markers): the card's icon in white on a disc of the car's
        colour (--pin, set from JS) or the home green, ringed in white (as in Apple Maps).
        Selected: larger, with a halo in its colour. ── */
@@ -417,11 +400,6 @@
     /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Month view (mobile): the card stops above the centre target, which stays in view. */
-    @media (max-width: 767px) {
-      #info-card.expanded { max-height: calc(50% - var(--inset-t) - var(--edge) - var(--center-gap)); }
-    }
-
     /* ── Dark mode ── */
     body.dark {
       --bg: #0f172a; --card: #1e293b; --text: #e2e8f0;
@@ -431,7 +409,7 @@
 
     /* ── Toast notifications ── */
     #toast-container {
-      position: fixed; bottom: calc(var(--edge-b) + var(--sheet-peek) + 16px);
+      position: fixed; bottom: calc(var(--sheet-h) + 12px);
       left: var(--edge); right: var(--edge);
       z-index: 9999; display: flex; flex-direction: column; gap: 8px;
       pointer-events: none; align-items: center;
@@ -447,9 +425,11 @@
     @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
     @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
 
-    /* ── Center target (tiny always-on dot marking the point the banner reads) ── */
+    /* ── Center target (tiny always-on dot marking the point the signs read) ──
+       At the centre of the map area the sheet leaves free (--pad-*: the map's padding, from JS). */
     #center-crosshair {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      position: absolute; transform: translate(-50%, -50%); transition: top .4s var(--sheet-ease);
+      top: calc((100% - var(--pad-b, 0px)) / 2); left: calc(var(--pad-l, 0px) + (100% - var(--pad-l, 0px)) / 2);
       z-index: 15; display: none; width: 5px; height: 5px; border-radius: 50%;
       background: rgba(15,23,42,.75); box-shadow: 0 0 0 1.5px rgba(255,255,255,.85);
       pointer-events: none;
@@ -466,21 +446,26 @@
     }
     body.dark #center-crosshair.placing { box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 0 0 3.5px var(--blue); }
 
-    /* ── Desktop (and a phone on its side, too short for stacked cards): same vertical
-       layout, as a 300px left column (calendar top, cars/homes bottom); the map
-       controls take the top-right corner. Keep the query in step with isDesktop(). ── */
+    /* ── Desktop (and a phone on its side, too short for a bottom sheet): the sheet is a
+       full-height left panel (as Find My on the Mac), tabs on top as a segmented control;
+       the signs sit at the top left of the map beside it. Keep the query in step with
+       isDesktop(). ── */
     @media (min-width: 768px), (orientation: landscape) and (max-height: 500px) {
-      :root { --panel-w: 300px; }
-      #info-card, #info-card.expanded { top: var(--edge); max-height: calc(100% - 3 * var(--edge) - var(--sheet-peek)); }
-      #sheet { bottom: var(--edge); max-height: calc(100% - var(--info-h) - 3 * var(--edge)); }
-      #map-ctrl { top: var(--edge); bottom: auto; }
-      /* Centred in the map area right of the column, so a narrow window never puts it over the cards. */
-      #street-sign { bottom: var(--edge); max-height: calc(50% - var(--center-gap) - var(--edge));
-                     left: calc((100% + var(--panel-w) + var(--edge)) / 2);
-                     max-width: calc(100% - var(--panel-w) - 4 * var(--edge) - 64px); }
-      body.placing #street-sign { bottom: var(--edge); }
+      #sheet { left: var(--edge); top: var(--edge); bottom: var(--edge); right: auto; width: var(--panel-w); height: auto;
+               border: 1px solid var(--hairline); border-radius: var(--r-lg); box-shadow: var(--shadow-2); transition: none; }
+      #sheet-grabber { display: none; }
+      .tab-head { padding-top: 4px; }
+      .tab-title { font-size: 1.2rem; }
+      #tabbar { order: -1; margin: 10px 12px 6px; padding: 2px; gap: 2px; border: none; border-radius: var(--r-sm);
+                background: color-mix(in srgb, var(--text) 8%, transparent); }
+      #tabbar [role="tab"] { flex-direction: row; gap: 6px; min-height: 32px; border-radius: 6px; font-size: .8rem; color: var(--text); }
+      #tabbar [role="tab"] svg.ic { width: 16px; height: 16px; }
+      #tabbar [aria-selected="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+      .tab-badge { top: 4px; left: auto; right: 8px; }
+      #map-ctrl, #signs { top: var(--edge); }
+      #signs { left: calc(var(--panel-w) + 2 * var(--edge)); }
       .zoom-btn { display: flex; }
-      .cal-nav, #ic-toggle { width: 32px; }  /* room for the month name in the 300px column */
-      #place-banner { bottom: auto; top: var(--edge); }
-      #toast-container { bottom: 24px; }
+      /* Centred in the map area right of the panel. */
+      #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--panel-w) + var(--edge)) / 2); }
+      #toast-container { bottom: 24px; left: calc(var(--panel-w) + 2 * var(--edge)); }
     }

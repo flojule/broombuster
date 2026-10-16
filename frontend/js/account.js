@@ -73,7 +73,7 @@ async function refreshFromAccount() {
   } catch (_) {}
 }
 
-// ── Account section of the app menu (ui.js opens the menu) ─────────────────────
+// ── Account section of the Me tab ─────────────────────────────────────────────
 function _menuItem(text, onClick) {
   const el = document.createElement(onClick ? 'button' : 'div');
   el.className = onClick ? 'menu-item' : 'menu-note';
@@ -83,7 +83,6 @@ function _menuItem(text, onClick) {
 }
 
 async function _leaveAccount(request) {
-  setMenuOpen(false);
   await _flushPrefs();
   const res = await request().catch(() => null);
   if (!res?.ok) { showToast('Request failed', true); return; }
@@ -109,7 +108,8 @@ function _deleteAccountItem() {
 function renderAccountSection() {
   menuAccount.hidden = !accountEnabled;
   if (!accountEnabled) return;
-  menuAccount.replaceChildren(...(account
+  const label = Object.assign(document.createElement('div'), { className: 'menu-label', textContent: 'Account' });
+  menuAccount.replaceChildren(label, ...(account
     ? [_menuItem(account.email),
        _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' }))),
        _deleteAccountItem()]

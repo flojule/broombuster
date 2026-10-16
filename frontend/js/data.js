@@ -35,7 +35,7 @@ document.addEventListener('click', e => {
 });
 
 // Holistic Escape: dismiss whichever transient UI is open (one layer per
-// press), then close the month view, then close the open card.
+// press), then close the open item, then shrink the sheet.
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   // Editable fields own Escape locally (cancel rename / close name input);
@@ -43,13 +43,13 @@ document.addEventListener('keydown', e => {
   const ae = document.activeElement;
   if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
   let dismissed = false;
-  if (!_appMenu.hidden)                         { setMenuOpen(false); dismissed = true; }
-  if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
-  if (_namePopup)                               { closeNameBox();     dismissed = true; }
-  if (placing)                                  { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
+  if (!addMenu.hidden)                    { setAddMenuOpen(false); btnAdd.focus(); dismissed = true; }
+  if (ctxMenu.style.display === 'block')  { hideCtxMenu();  dismissed = true; }
+  if (_namePopup)                          { closeNameBox(); dismissed = true; }
+  if (placing)                             { stopPlacing();  dismissed = true; }
   if (dismissed) return;
-  if (_cal.expanded) { collapseCal(); return; }
-  clearSelection();
+  if (_selectedId) { clearSelection(); return; }
+  if (!isDesktop()) setDetent('small');
 });
 
 

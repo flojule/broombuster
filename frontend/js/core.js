@@ -96,9 +96,11 @@ async function loadSchedule(id, store, request, onError) {
   return data;
 }
 
-// Double-click (or el.startEdit()) to edit; Enter commits, Escape or empty/unchanged restores original().
-function makeEditable(el, original, onCommit) {
+// Double-click (or el.startEdit()) to edit, while canEdit(); Enter commits, Escape or
+// empty/unchanged restores original().
+function makeEditable(el, original, onCommit, canEdit = () => true) {
   el.startEdit = () => {
+    if (!canEdit()) return;
     el.contentEditable = 'true'; el.focus();
     const r = document.createRange(); r.selectNodeContents(el);
     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
@@ -155,17 +157,18 @@ let _tempPinMarker = null;
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
-const ZONE_LAYERS  = ['zones-fill', 'zones-outline', 'zones-ward', 'zones-line'];
+const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-outline', 'zones-ward', 'zones-line', 'zones-side-even', 'zones-side-odd'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
 // Vector tile source; per-feature urgency arrives via feature-state.
 const TILES_SOURCE     = 'zones-tiles';
 const TILES_SRC_LAYER  = 'zones';
-function _urgCase(prop) {
-  // MapLibre expression: pick colour from feature-state 'urgency'. A feature whose
-  // urgency is not computed yet stays transparent rather than flashing "Clear" blue.
+function _urgCase(prop, key = 'urgency') {
+  // MapLibre expression: pick colour from feature-state `key` ('urgency', or one side's
+  // 'urgency_even' / 'urgency_odd'). A feature whose urgency is not computed yet stays
+  // transparent rather than flashing "Clear" blue.
   return [
-    'match', ['coalesce', ['feature-state', 'urgency'], ''],
+    'match', ['coalesce', ['feature-state', key], ''],
     'today',    URGENCY.today[prop],
     'tomorrow', URGENCY.tomorrow[prop],
     'safe',     URGENCY.safe[prop],
@@ -175,15 +178,16 @@ function _urgCase(prop) {
 }
 // Street line width scales with zoom so it stays thin on city-wide views; it also
 // grows with urgency (today x2, tomorrow x1.5; no sweeping x0.6) so colour is not the only cue.
+// One side's line (key 'urgency_even' / 'urgency_odd') is `scale` of that.
 const LINE_W = { 11: 0.8, 14: 1.5, 16: 2.5, 18: 4 };
 const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.6 };
-function _lineWidth() {
+function _lineWidth(key = 'urgency', scale = 1) {
   const stops = Object.entries(LINE_W).flatMap(([z, w]) => [Number(z), [
     'case',
-    ['==', ['feature-state', 'urgency'], 'today'],    w * LINE_MULT.today,
-    ['==', ['feature-state', 'urgency'], 'tomorrow'], w * LINE_MULT.tomorrow,
-    ['==', ['feature-state', 'urgency'], 'none'],     w * LINE_MULT.none,
-    w,
+    ['==', ['feature-state', key], 'today'],    w * scale * LINE_MULT.today,
+    ['==', ['feature-state', key], 'tomorrow'], w * scale * LINE_MULT.tomorrow,
+    ['==', ['feature-state', key], 'none'],     w * scale * LINE_MULT.none,
+    w * scale,
   ]]);
   return ['interpolate', ['linear'], ['zoom'], ...stops];
 }
@@ -211,8 +215,7 @@ const ctxAddHome     = document.getElementById('ctx-add-home');
 const carsPanel      = document.getElementById('cars-panel');
 const homePanel      = document.getElementById('home-panel');
 const sheet          = document.getElementById('sheet');
-const sheetHandle    = document.getElementById('sheet-handle');
-const sheetSummary   = document.getElementById('sheet-summary');
+const savedSummary   = document.getElementById('saved-summary');
 const btnConfirmPlace = document.getElementById('btn-confirm-place');
 
 // ── Screen height (iPhone home-screen app) ────────────────────────────────────
@@ -226,51 +229,3 @@ if (navigator.standalone && /iPhone/.test(navigator.userAgent)) {
   setAppH();
   _landscape.addEventListener('change', setAppH);
 }
-
-// ── Bottom sheet (cars & homes) ───────────────────────────────────────────────
-// Collapses to a handle (default) so the map + placement center-target stay clear. The
-// expanded/collapsed state persists.
-let _sheetCollapsed = localStorage.getItem('bb_sheet_v2') !== 'open';
-// Empty (no car or home, not placing): only the two add buttons, no minimize.
-function applySheet() {
-  const empty = !cars.length && !homes.length && !placing;
-  sheet.classList.toggle('empty', empty);
-  sheet.classList.toggle('collapsed', _sheetCollapsed && !empty);
-  sheetHandle.setAttribute('aria-expanded', String(!_sheetCollapsed));
-}
-// `remember` is false when the app closes the sheet itself (not the user's choice to keep).
-function setSheetCollapsed(v, remember = true) {
-  _sheetCollapsed = !!v;
-  if (remember) localStorage.setItem('bb_sheet_v2', _sheetCollapsed ? 'closed' : 'open');
-  // Phone: one big panel at a time (as in Google / Apple Maps), so the centre target
-  // and the map buttons stay clear. Desktop has the room for both.
-  if (!_sheetCollapsed && !isDesktop() && typeof _cal !== 'undefined' && _cal.expanded) collapseCal();
-  applySheet();
-}
-// Handle text: the most urgent car verdict, else counts.
-function updateSheetSummary() {
-  const { today, tomorrow } = urgentCars();
-  sheetSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
-    : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
-    : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
-    : homes.length ? `${icon('home')} ${homes.length}` : 'Cars & homes';
-  applySheet();
-}
-sheetHandle.addEventListener('click', () => setSheetCollapsed(!_sheetCollapsed));
-sheetHandle.addEventListener('keydown', e => {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSheetCollapsed(!_sheetCollapsed); }
-});
-applySheet();
-
-// A drag that starts on a panel stays with it, even once the finger leaves it: the
-// map listens for touch moves on the whole window.
-for (const panel of [sheet, document.getElementById('info-card')]) {
-  panel.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
-}
-
-// Sheet height lifts the map controls above it on mobile.
-// (In a frame, so one observer's update can't re-trigger the other within the same frame.)
-new ResizeObserver(() => requestAnimationFrame(() => {
-  document.documentElement.style.setProperty('--sheet-h', sheet.offsetHeight + 'px');
-  if (typeof layoutSign === 'function') layoutSign();  // calendar.js may not have loaded yet
-})).observe(sheet);

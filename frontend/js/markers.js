@@ -9,18 +9,13 @@ function placeMarker(marker, at, makeEl) {
 }
 
 // A car or home pin: the card's icon, white on a disc of the item's colour (as in
-// Apple Maps); a tap selects the item and shows its card.
+// Apple Maps); a tap opens the item in the sheet.
 function _pinEl(kind, id, label) {
   const el = document.createElement('button');
   el.className = 'pin';
   el.innerHTML = icon(kind);
   el.setAttribute('aria-label', label);
-  el.addEventListener('click', e => {
-    e.stopPropagation();
-    selectItem(id);
-    setSheetCollapsed(false);  // reveal the sheet so the card is visible
-    document.querySelector(`#sheet [data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  });
+  el.addEventListener('click', e => { e.stopPropagation(); openItem(id); });
   return el;
 }
 
@@ -61,14 +56,37 @@ function updateTempPin() {
 }
 
 // ── Selection: one car or home at a time ──────────────────────────────────────
-// Marks the pin and opens the card in place (no re-render, so focus and scroll stay).
+// The selected item has its own page in the Saved tab (as in Find My): its name is
+// the title, the other cards hide, and a close button leads back to the list. Applied
+// in place (no re-render, so focus and scroll stay).
+const savedTitle   = document.getElementById('saved-title');
+const btnAdd       = document.getElementById('btn-add');
+const btnItemClose = document.getElementById('btn-item-close');
+
+function selectedItem() {
+  return cars.find(c => c.id === _selectedId) || homes.find(h => h.id === _selectedId) || null;
+}
+function itemName(item) {
+  return cars.includes(item) ? item.name : homes.length > 1 ? `Home ${homes.indexOf(item) + 1}` : 'Home';
+}
+
 function applySelection() {
+  if (_selectedId && !selectedItem()) _selectedId = null;  // it was removed
   for (const [id, m] of [..._carMarkers, ..._homeMarkers]) m.getElement().classList.toggle('selected', id === _selectedId);
   for (const el of sheet.querySelectorAll('.car-entry')) {
-    el.classList.toggle('selected', el.dataset.id === _selectedId);
-    el.querySelector('.ce-header').setAttribute('aria-expanded', String(el.dataset.id === _selectedId));
+    const sel = el.dataset.id === _selectedId, head = el.querySelector('.ce-header');
+    el.classList.toggle('selected', sel);
+    // A list row opens its item; on the item's own page the header is just its verdict.
+    if (sel) { head.removeAttribute('role'); head.removeAttribute('tabindex'); }
+    else { head.setAttribute('role', 'button'); head.tabIndex = 0; }
   }
+  const item = selectedItem();
+  carsPanel.classList.toggle('item-open', !!item);
+  if (savedTitle.contentEditable !== 'true') savedTitle.textContent = item ? itemName(item) : 'Saved';
+  btnAdd.hidden = !!item;
+  btnItemClose.hidden = !item;
 }
+btnItemClose.addEventListener('click', () => clearSelection());
 
 function selectItem(id) {
   _selectedId = id;
@@ -79,17 +97,32 @@ function clearSelection() {
   if (_selectedId) selectItem(null);
 }
 
-// Select a car or home and centre the target on it, so the sign and calendar read its street.
+// Select a car or home and centre the target on it, so the signs and calendar read its
+// street. The padding rides along: one animation, which a sheet change can't cut short.
 function focusItem(id) {
   selectItem(id);
-  const item = cars.find(c => c.id === id) || homes.find(h => h.id === id);
-  if (item && map) map.easeTo({ center: [item.lon, item.lat], zoom: Math.max(map.getZoom(), 16) });
+  const item = selectedItem();
+  if (item && map) map.easeTo({ center: [item.lon, item.lat], zoom: Math.max(map.getZoom(), 16), padding: mapPadding() });
 }
 
-// Card click: open (and centre on) the item, or close it if it is already open.
-function toggleItem(id) {
-  if (_selectedId === id) clearSelection(); else focusItem(id);
+// Show an item's page from anywhere (its pin, or once it is added or moved): the
+// Saved tab, the sheet at least half open, the map centred on it.
+function openItem(id) {
+  showTab('saved');
+  if (!isDesktop()) raiseDetent('medium');
+  focusItem(id);
+  carsPanel.scrollTop = 0;
 }
+
+// The item's title is its name: a car's can be renamed (double-click, or Rename).
+const _selectedCar = () => cars.find(c => c.id === _selectedId);
+makeEditable(savedTitle, () => itemName(selectedItem()), v => {
+  const car = _selectedCar();
+  if (!car) return;  // removed while being renamed
+  car.name = v;
+  savePrefs();
+  updateCarMarkers();
+}, () => !!_selectedCar());
 
 // ── "You are here": a dot with an accuracy halo ──────────────────────────────
 // The locate button starts it; it then follows the device while the app is in the

@@ -55,12 +55,12 @@ document.getElementById('theme-seg').addEventListener('click', e => {
 });
 
 // ── Center target ─────────────────────────────────────────────────────────────
-// The info card reports the street under the viewport center (the
+// The signs and calendar report the street under the map's centre (the
 // mobile-friendly equivalent of hovering); the crosshair marks that point.
 const _crosshair  = document.getElementById('center-crosshair');
 
-// Query the feature under the viewport center (small pixel box so thin street
-// lines are forgiving on touch). Returns the topmost hit or null.
+// Query the feature under the map's centre (small pixel box so thin street lines
+// are forgiving on touch). Returns the topmost hit or null.
 function _centerFeature() {
   if (!map) return null;
   const layers = HOVER_LAYERS.filter(l => !!map.getLayer(l));
@@ -73,31 +73,6 @@ function _centerFeature() {
   } catch (_) { return null; }
   return feats.length ? feats[0] : null;
 }
-
-function updateInfoCard() {
-  if (!map) { _crosshair.classList.remove('visible'); renderInfoCard(null); return; }
-  _crosshair.classList.add('visible');
-  renderInfoCard(_centerFeature());
-}
-
-// ── App menu (⋯): account, appearance, map colors, about ────────────────────────
-const _btnMenu = document.getElementById('btn-menu');
-const _appMenu = document.getElementById('app-menu');
-function setMenuOpen(on) {
-  _appMenu.hidden = !on;
-  document.body.classList.toggle('menu-open', on);
-  _btnMenu.setAttribute('aria-expanded', String(on));
-  if (!on) return;
-  renderAccountSection();
-  // Opens to the left of the button, kept inside the screen.
-  const r = _btnMenu.getBoundingClientRect();
-  _appMenu.style.right = (window.innerWidth - r.left + 8) + 'px';
-  const h = _appMenu.offsetHeight;
-  _appMenu.style.top = Math.max(12, Math.min(r.top, window.innerHeight - h - 12)) + 'px';
-}
-_btnMenu.addEventListener('click', e => { e.stopPropagation(); setMenuOpen(_appMenu.hidden); });
-_appMenu.addEventListener('click', e => e.stopPropagation());
-document.addEventListener('click', () => setMenuOpen(false));
 
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());

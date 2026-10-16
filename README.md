@@ -4,10 +4,14 @@ Street-sweeping map for Oakland, San Francisco, Berkeley, Alameda and Chicago.
 
 ## Use
 
-1. Tap **Add car** (or right-click or long-press the map > *Add car here*), place it, and see when its street is swept.
-2. Add more cars, and **Add home** (Oakland) for trash pickup days.
-3. Sign in with Google to sync cars across devices.
-4. Optional: [have your phone update the car's position](docs/phone-setup.md) when you park.
+1. In **Saved**, tap **+** > *Car* (or *Car at my location*, or right-click / long-press the map > *Add car here*),
+   place it, and see when its street is swept.
+2. Add more cars, and a home (+ > *Home*, Oakland) for trash pickup days.
+3. **Calendar** shows the sweeping days of your cars and of the street under the centre dot; the signs at the
+   top left show that street's schedule as published, one per side. Zoomed in, each side of a street has its
+   own line, coloured by its own urgency.
+4. In **Me**, sign in with Google to sync cars across devices.
+5. Optional: [have your phone update the car's position](docs/phone-setup.md) when you park.
 
 ## Run locally
 
@@ -30,9 +34,9 @@ uv tool run --from playwright python scripts/visual_scenarios.py [--only iphone-
 
 Headless WebKit cannot draw Safari's toolbars or the Dynamic Island, so before a layout change ships, check on
 an iPhone, in a Safari tab and in the home-screen app: the map reaches the screen edges (the Safari tab stops at
-the status bar), the calendar and cards clear the address bar and home indicator, the month view and the sheet
-take turns and keep the centre dot visible, the locate button shows the blue dot, and a long press on the map
-offers "Add car here". If something looks wrong, Safari's Web Inspector over USB shows the live page.
+the status bar), the tab bar clears the address bar and home indicator, dragging the sheet snaps to its three
+heights with the centre dot staying in view, the signs clear the status bar, the locate button shows the blue
+dot, and a long press on the map offers "Add car here". If something looks wrong, Safari's Web Inspector over USB shows the live page.
 
 ## License
 

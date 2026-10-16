@@ -28,11 +28,11 @@ function homeScheduleHTML(id, sched) {
 function renderHomePanel() {
   if (isEditingIn(homePanel)) return;
   homePanel.innerHTML = '';
-  homes.forEach((h, i) => {
+  homes.forEach(h => {
     const sched = homeSchedules[h.id];
     const addrText = h.address ? abbreviate(h.address) : '';
     const entry = itemCard({
-      id: h.id, kind: 'home', color: HOME_COLOR, name: homes.length > 1 ? `Home ${i + 1}` : 'Home',
+      id: h.id, kind: 'home', color: HOME_COLOR, name: itemName(h),
       urgency: _nextPickups(sched).length ? homeUrgency(sched) : null, addr: addrText,
       detail: `
         <div class="ce-sched">${homeScheduleHTML(h.id, sched)}</div>
@@ -53,19 +53,16 @@ function renderHomePanel() {
     homePanel.appendChild(entry);
   });
   applySelection();
-  updateSheetSummary();
+  updateSavedSummary();
 }
-
-// Center-target place mode; the map equivalent is "Add home here" (right-click / long press).
-document.getElementById('btn-add-home').addEventListener('click', () => startPlacing(null, 'home'));
 
 // Add a home at a coordinate; the backend reverse-geocodes its address unless the
 // user types one into the card.
 function addHome(lat, lon) {
   const h = { id: newId(), lat, lon, address: '' };
   homes.push(h);
-  setSheetCollapsed(false);  // reveal the new home card
   homeChanged(h);
+  openItem(h.id);
   offerInstall();
 }
 
@@ -87,8 +84,8 @@ function moveHome(id, lat, lon) {
   const h = homes.find(x => x.id === id);
   if (!h) return;
   Object.assign(h, { lat, lon, address: '' });
-  setSheetCollapsed(false);
   homeChanged(h);
+  openItem(h.id);
 }
 
 // A home was added or moved: save, show, and look up its pickup days.
@@ -102,7 +99,6 @@ function homeChanged(h) {
 function removeHome(id) {
   homes = homes.filter(h => h.id !== id);
   delete homeSchedules[id];
-  if (_selectedId === id) _selectedId = null;
   savePrefs();
   updateHomeMarkers();
   renderHomePanel();
