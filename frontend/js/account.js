@@ -67,22 +67,17 @@ async function refreshFromAccount() {
     }
     if (moved.length) {
       try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
-      for (const car of moved) checkCarSilently(car);
+      for (const car of moved) checkCar(car);
     }
     updateCarMarkers();  // re-renders the cards (phone link status may have changed)
   } catch (_) {}
 }
 
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') _flushPrefs();
-  else refreshFromAccount();
-});
-
 // ── Account section of the app menu (ui.js opens the menu) ─────────────────────
 function _menuItem(text, onClick) {
   const el = document.createElement(onClick ? 'button' : 'div');
   el.className = onClick ? 'menu-item' : 'menu-note';
-  if (onClick) { el.type = 'button'; el.setAttribute('role', 'menuitem'); el.addEventListener('click', onClick); }
+  if (onClick) { el.type = 'button'; el.addEventListener('click', onClick); }
   el.textContent = text;
   return el;
 }
@@ -97,16 +92,26 @@ async function _leaveAccount(request) {
   location.reload();
 }
 
+// Two taps, like Remove on a card: the first arms it, the second deletes.
+function _deleteAccountItem() {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'menu-item ce-danger';
+  el.textContent = 'Delete account';
+  el.title = 'Deletes the account and its saved cars and homes';
+  confirmTap(el, () => {
+    _syncTimer = null;
+    _leaveAccount(() => fetch('/api/me', { method: 'DELETE' }));
+  });
+  return el;
+}
+
 function renderAccountSection() {
   menuAccount.hidden = !accountEnabled;
   if (!accountEnabled) return;
   menuAccount.replaceChildren(...(account
     ? [_menuItem(account.email),
        _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' }))),
-       _menuItem('Delete account', () => {
-         if (!confirm('Delete your account and its saved cars and homes?')) return;
-         _syncTimer = null;
-         _leaveAccount(() => fetch('/api/me', { method: 'DELETE' }));
-       })]
+       _deleteAccountItem()]
     : [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; })]));
 }

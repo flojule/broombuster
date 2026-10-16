@@ -37,8 +37,8 @@ function pointerSched(f) {
 function calLayers(ptrSched, start, end) {
   return {
     ptr: sweepDayMap(ptrSched, start, end),
-    cars: cars.flatMap((car, i) => carSchedules[car.id]
-      ? [{ car, color: carColor(i),
+    cars: cars.flatMap(car => carSchedules[car.id]
+      ? [{ car, color: carColor(car),
            days: sweepDayMap(carSchedules[car.id], start, end, carSchedules[car.id].car_side) }]
       : []),
   };
@@ -57,6 +57,13 @@ function _dayLines(layers, k) {
     mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
     text: `${l.car.name}: ${l.days.get(k)}`,
   }));
+}
+
+// What a screen reader says for a day: date, the street's sweeping, each car's.
+function _dayAria(layers, k, p, today) {
+  return [_dayLabel(p) + (k === _ymdKey(today) ? ', today' : ''),
+          layers.ptr.has(k) ? `street sweeping ${layers.ptr.get(k)}` : '',
+          ..._dayLines(layers, k).map(l => l.text)].filter(Boolean).join('; ');
 }
 
 // Street day tint: red today, orange tomorrow (as on the map), else light green.
@@ -83,7 +90,7 @@ function sweepStripHTML(layers, range, today) {
     const p = _ymdAdd(range.start, i), k = _ymdKey(p);
     const cls = ['cal-day', 'cal-strip', _streetCls(layers, k, today), k === _ymdKey(today) ? 'sw-today' : '',
                  p.m % 2 ? 'cal-alt' : ''].filter(Boolean).join(' ');
-    cells += `<button class="${cls}" data-cal-day="${k}">`
+    cells += `<button class="${cls}" data-cal-day="${k}" aria-label="${esc(_dayAria(layers, k, p, today))}">`
            + `<i>${_WD1[_dow(p)]}</i>${p.d}${_dotsHTML(layers, k)}</button>`;
   }
   return `<div class="sw-strip" aria-label="Days">${cells}</div>`;
@@ -98,7 +105,8 @@ function calendarHTML(layers, range, sel, today) {
     const p = _ymdAdd(range.start, i), k = _ymdKey(p);
     const cls = ['cal-day', _streetCls(layers, k, today), p.m % 2 ? 'cal-alt' : '',
                  k === todayK ? 'sw-today' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
-    cells += `<button class="${cls}" data-cal-day="${k}">`
+    cells += `<button class="${cls}" data-cal-day="${k}" aria-label="${esc(_dayAria(layers, k, p, today))}"`
+           + `${k === sel ? ' aria-pressed="true"' : ''}>`
            + (p.d === 1 ? `<i class="cal-mo">${_MONTHS[p.m - 1].slice(0, 3)}</i>` : '')
            + `${p.d}${_dotsHTML(layers, k)}</button>`;
   }
@@ -107,7 +115,7 @@ function calendarHTML(layers, range, sel, today) {
         || (layers.ptr.has(sel) ? `<div>Sweeping: ${esc(layers.ptr.get(sel))}</div>`
                                 : '<div class="cal-muted">No sweeping</div>'))
     : '<span class="cal-muted">Tap a day for details</span>';
-  return `<div class="cal-wds">${_WD1.map(w => `<span>${w}</span>`).join('')}</div>`
+  return `<div class="cal-wds" aria-hidden="true">${_WD1.map(w => `<span>${w}</span>`).join('')}</div>`
        + `<div class="cal-scroll"><div class="cal-grid">${cells}</div></div><div class="cal-detail">${detail}</div>`;
 }
 
@@ -118,6 +126,7 @@ function calendarHTML(layers, range, sel, today) {
 // depends on the target; only day marks change.
 const infoCard  = document.getElementById('info-card');
 const icHead    = document.getElementById('ic-head');
+const icToggle  = document.getElementById('ic-toggle');
 const icTitle   = document.getElementById('ic-title');
 const icCal     = document.getElementById('ic-cal');
 const sign      = document.getElementById('street-sign');
@@ -175,6 +184,17 @@ function _scrollTo(el, idx, smooth) {
                             : { left: px, behavior: smooth ? 'smooth' : 'auto' });
 }
 
+// Month view: show whole weeks only (as Apple Calendar does), however much room the
+// card has, so no row is cut in half. Re-run when the screen resizes.
+const CAL_ROW = 43;  // px: a 40 px row + the 3 px gap (styles.css .cal-grid)
+function fitCalWeeks() {
+  const el = _cal.expanded && icCal.querySelector('.cal-scroll');
+  if (!el) return;
+  el.style.height = '';  // the CSS height, shrunk to what the card allows
+  el.style.height = Math.max(2, Math.floor((el.clientHeight + 3) / CAL_ROW)) * CAL_ROW - 3 + 'px';
+}
+window.addEventListener('resize', fitCalWeeks);
+
 // Header title: the month in the middle of what is on screen.
 function updateCalTitle() {
   const el = _scroller(), t = document.getElementById('ic-month');
@@ -209,12 +229,14 @@ function renderInfoCard(f) {
     + `<button class="cal-nav" data-cal-nav="-1" aria-label="${_cal.expanded ? 'Previous month' : 'Previous week'}">‹</button>`
     + `<b id="ic-month"></b>`
     + `<button class="cal-nav" data-cal-nav="1" aria-label="${_cal.expanded ? 'Next month' : 'Next week'}">›</button>`;
-  icHead.setAttribute('aria-expanded', String(_cal.expanded));
-  icHead.title = _cal.expanded ? 'Collapse calendar' : 'Expand calendar';
+  icToggle.setAttribute('aria-expanded', String(_cal.expanded));
+  icToggle.title = _cal.expanded ? 'Show one row of days' : 'Show the month view';
+  icToggle.setAttribute('aria-label', icToggle.title);
   const range = _calRange0 = _calRange(today);
   const layers = calLayers(_ptrSched, range.start, range.end);
   icCal.innerHTML = _cal.expanded ? calendarHTML(layers, range, _cal.sel, today)
                                   : sweepStripHTML(layers, range, today);
+  fitCalWeeks();
   const el = _scroller();
   if (_cal.anchor == null) _cal.anchor = _anchorFor(range, today);
   _scrollTo(el, _cal.anchor, false);
@@ -284,6 +306,11 @@ infoCard.addEventListener('click', e => {
     collapseCal();
   }
 });
+// The header's chevron button is the keyboard way in and out of the month view.
+icToggle.addEventListener('click', e => {
+  e.stopPropagation();
+  if (_cal.expanded) collapseCal(); else expandCal();
+});
 
 // Scroll events do not bubble: catch them on the way down.
 let _scrollRaf = 0;
@@ -298,11 +325,6 @@ infoCard.addEventListener('wheel', e => {
   e.preventDefault();
   strip.scrollLeft += e.deltaY;
 }, { passive: false });
-icHead.addEventListener('keydown', e => {
-  if ((e.key !== 'Enter' && e.key !== ' ') || e.target !== icHead) return;  // not ‹ › / Today
-  e.preventDefault();
-  if (_cal.expanded) collapseCal(); else expandCal();
-});
 
 // Card height feeds the mobile sheet's max-height so the two never overlap.
 new ResizeObserver(() => requestAnimationFrame(() => {
@@ -311,8 +333,3 @@ new ResizeObserver(() => requestAnimationFrame(() => {
 
 renderInfoCard();  // initial empty state
 
-// Dismiss whatever transient map window is open — the click-away analogue of Esc.
-function dismissMapWindows() {
-  if (_gpsLocPin) clearGpsPin();
-  clearCarSelection();
-}

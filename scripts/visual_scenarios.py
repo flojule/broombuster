@@ -7,6 +7,7 @@ Scenarios = platform x theme x view. Each one is screenshotted and checked:
   * the centre target is not covered by the calendar, sheet, street sign or buttons;
   * those four never overlap one another;
   * the street layer is drawn and every street has a colour (no blue flash);
+  * no serious or critical WCAG 2.2 AA violation (axe-core);
   * no uncaught page errors.
 
 Run (needs Playwright with WebKit and Chromium; it starts the server itself):
@@ -14,6 +15,7 @@ Run (needs Playwright with WebKit and Chromium; it starts the server itself):
     uv tool run --from playwright python scripts/visual_scenarios.py
     uv tool run --from playwright python scripts/visual_scenarios.py --only iphone-safari --view month
     uv tool run --from playwright python scripts/visual_scenarios.py --url http://localhost:8000  # existing server
+    uv tool run --from playwright python scripts/visual_scenarios.py --no-axe  # skip the accessibility check
 
 Output goes to build/visual/ (PNGs, index.html contact sheet, report.txt). Exit code 1 on any FAIL.
 Safari's own toolbars and the iOS status bar cannot be rendered by headless WebKit: Safari scenarios use
@@ -46,6 +48,17 @@ PREFS = {"cars": [{"id": "c1", "name": "Civic", "lat": 37.7749, "lon": -122.4194
 APP_INSETS = ":root { --inset-t: 62px; --inset-b: 34px; }"
 STANDALONE = "Object.defineProperty(navigator, 'standalone', { get: () => true });"
 
+# axe-core (accessibility rules), downloaded once into the output directory. Only serious and
+# critical WCAG 2.2 A/AA violations fail a scenario. The markup is the same everywhere, so it runs on
+# one desktop and one phone platform (it takes ~20 s a page).
+AXE_PLATFORMS = ("desktop-webkit", "iphone-safari")
+AXE_URL = "https://cdn.jsdelivr.net/npm/axe-core@4.10.2/axe.min.js"
+AXE_RUN = """() => axe.run(document, {
+  runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] },
+  resultTypes: ['violations'],
+}).then(r => r.violations.filter(v => v.impact === 'serious' || v.impact === 'critical')
+                         .map(v => `${v.id}: ${v.nodes.slice(0, 3).map(n => n.target.join(' ')).join(', ')}`))"""
+
 # name -> (browser, device profile or None, viewport override, standalone, expected app height)
 # expected height: "viewport" = the visible height, or a number of CSS px (the whole screen).
 PLATFORMS = {
@@ -56,6 +69,7 @@ PLATFORMS = {
     "iphone-app":       ("webkit", "iPhone 17 Pro", {"width": 402, "height": 874}, True, 874),
     "iphone-landscape": ("webkit", "iPhone 17 Pro landscape", None, False, "viewport"),
     "ipad":             ("webkit", "iPad Pro 11", None, False, "viewport"),
+    "android-chrome":   ("chromium", "Pixel 7", None, False, "viewport"),
 }
 THEMES = ("light", "dark")
 
@@ -67,6 +81,14 @@ VIEWS = {
     "home":   lambda pg: (_open_sheet(pg), pg.click('.home-entry .ce-header')),
     "both":   lambda pg: (pg.evaluate("expandCal()"), _open_sheet(pg), pg.click('.car-entry[data-id="c1"] .ce-header')),
     "place":  lambda pg: pg.evaluate("startPlacing()"),
+    # You-are-here dot with a 40 m accuracy halo, near the first car.
+    "here":   lambda pg: pg.evaluate("_setHere(37.7752, -122.4189, 40)"),
+    # The "Add here" menu (right-click / long press), up and left of the centre (clear of the car there).
+    "menu":   lambda pg: pg.evaluate("(() => { const r = mapDiv.getBoundingClientRect(), x = r.width / 2 - 190, y = r.height / 2 - 140;"
+                                     " openCtxMenu(map.unproject([x, y]), r.left + x, r.top + y); })()"),
+    # A car whose schedule failed to load: its open card offers Retry.
+    "failed": lambda pg: (_open_sheet(pg), pg.evaluate("delete carSchedules.c1; loadFailed.add('c1'); _selectedId = 'c1';"
+                                                       " renderCarsPanel()")),
 }
 
 
@@ -152,7 +174,14 @@ def start_server():
     sys.exit("server did not start")
 
 
-def run_one(pw, browsers, base, out, platform, theme, view):
+def axe_source(out):
+    path = out / "axe.min.js"
+    if not path.exists():
+        urllib.request.urlretrieve(AXE_URL, path)
+    return path.read_text()
+
+
+def run_one(pw, browsers, base, out, platform, theme, view, axe):
     engine, device, viewport, standalone, expect_h = PLATFORMS[platform]
     kw = dict(pw.devices[device]) if device else {"device_scale_factor": 1}
     if viewport:
@@ -183,8 +212,12 @@ def run_one(pw, browsers, base, out, platform, theme, view):
     name = f"{platform}-{theme}-{view}"
     pg.screenshot(path=str(out / f"{name}.png"))
     m = pg.evaluate(MEASURE)
+    bad = check(m, expect_h)
+    if axe and platform in AXE_PLATFORMS:
+        pg.evaluate(axe)  # devtools evaluation: not subject to the page's CSP
+        bad += [f"a11y {v}" for v in pg.evaluate(AXE_RUN)]
     ctx.close()
-    return name, check(m, expect_h) + [f"page error: {e}" for e in errors]
+    return name, bad + [f"page error: {e}" for e in errors]
 
 
 def main():
@@ -194,11 +227,13 @@ def main():
     ap.add_argument("--view", nargs="*", choices=VIEWS, help="views (default: all)")
     ap.add_argument("--url", help="use this running server instead of starting one")
     ap.add_argument("--out", default=str(REPO / "build" / "visual"), help="output directory")
+    ap.add_argument("--no-axe", action="store_true", help="skip the axe-core accessibility check")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
         old.unlink()
+    axe = None if a.no_axe else axe_source(out)
     proc, base = (None, a.url.rstrip("/")) if a.url else start_server()
     results = []
     try:
@@ -208,7 +243,7 @@ def main():
                 for theme in a.theme or THEMES:
                     for view in a.view or VIEWS:
                         try:
-                            name, bad = run_one(pw, browsers, base, out, platform, theme, view)
+                            name, bad = run_one(pw, browsers, base, out, platform, theme, view, axe)
                         except Exception as e:  # a scenario that cannot run is a failure, not a crash
                             name, bad = f"{platform}-{theme}-{view}", [f"could not run: {str(e).splitlines()[0]}"]
                         results.append((name, bad))

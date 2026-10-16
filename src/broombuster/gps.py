@@ -1,4 +1,8 @@
-"""Reverse geocoding (Nominatim), cached and throttled to its 1 request/s policy."""
+"""Geocoding (Nominatim), cached and throttled to its 1 request/s policy.
+
+Both directions go through here, so the browser never calls Nominatim itself: the
+policy's limit holds for the whole app, and a typed address stays on our server.
+"""
 
 import threading
 from collections import OrderedDict
@@ -8,51 +12,71 @@ from geopy.geocoders import Nominatim
 
 from broombuster import normalize
 
-_reverse_call = RateLimiter(Nominatim(user_agent="broombuster", timeout=5).reverse,
-                            min_delay_seconds=1, max_retries=0, swallow_exceptions=False)
+_geocoder = Nominatim(user_agent="broombuster", timeout=5)
+# One throttle for every call (reverse and search share Nominatim's 1 request/s).
+_call = RateLimiter(lambda fn, *a, **kw: fn(*a, **kw),
+                    min_delay_seconds=1, max_retries=0, swallow_exceptions=False)
 
-# (lat, lon) rounded to 4 decimals (~11 m) -> Nominatim address dict. Only
-# answers are cached, so an outage is retried.
+# Lookup key -> answer, for both directions. Only answers are cached, so an
+# outage is retried.
 _CACHE_MAX = 1024
 # Callers queue behind the 1 req/s throttle while holding a worker thread, so
-# only a few may wait; the rest skip the lookup (no house number) instead.
+# only a few may wait; the rest skip the lookup instead.
 _slots = threading.BoundedSemaphore(3)
 _cache: OrderedDict = OrderedDict()
 _lock = threading.Lock()
 
 
 def _key(lat: float, lon: float) -> tuple[float, float]:
-    return round(lat, 4), round(lon, 4)
+    return round(lat, 4), round(lon, 4)  # ~11 m
 
 
-def _nominatim(lat: float, lon: float) -> dict:
-    """Nominatim's address dict for a point; raises on network failure."""
-    location = _reverse_call((lat, lon), exactly_one=True)
-    return location.raw.get("address", {}) if location else {}
-
-
-def _lookup(lat: float, lon: float, network: bool = True) -> dict | None:
-    """Cached address dict, or None (cache miss with network=False, or failure)."""
-    key = _key(lat, lon)
+def _cached(key, fetch, network: bool = True):
+    """Cached answer for `key`, else fetch() (None: cache miss with network=False,
+    the throttle is backed up, or the geocoder failed)."""
     with _lock:
         if key in _cache:
             _cache.move_to_end(key)
             return _cache[key]
-    if not network:
-        return None
-    if not _slots.acquire(blocking=False):
+    if not network or not _slots.acquire(blocking=False):
         return None
     try:
-        addr = _nominatim(*key)
+        answer = fetch()
     except Exception:
-        return None  # any geocoder failure means "no address"
+        return None  # any geocoder failure means "no answer"
     finally:
         _slots.release()
     with _lock:
-        _cache[key] = addr
+        _cache[key] = answer
         while len(_cache) > _CACHE_MAX:
             _cache.popitem(last=False)
-    return addr
+    return answer
+
+
+def _nominatim(lat: float, lon: float) -> dict:
+    """Nominatim's address dict for a point; raises on network failure."""
+    location = _call(_geocoder.reverse, (lat, lon), exactly_one=True)
+    return location.raw.get("address", {}) if location else {}
+
+
+def _nominatim_search(query: str, bbox: tuple | None) -> dict:
+    """{"lat", "lon"} of the best match inside bbox, {} if none; raises on network failure."""
+    viewbox = [(bbox[0], bbox[1]), (bbox[2], bbox[3])] if bbox else None
+    location = _call(_geocoder.geocode, query, exactly_one=True,
+                     viewbox=viewbox, bounded=bool(bbox))
+    return {"lat": location.latitude, "lon": location.longitude} if location else {}
+
+
+def _lookup(lat: float, lon: float, network: bool = True) -> dict | None:
+    key = _key(lat, lon)
+    return _cached(key, lambda: _nominatim(*key), network)
+
+
+def search(query: str, bbox: tuple | None = None) -> dict | None:
+    """{"lat", "lon"} for a typed address, {} when not found, None when the geocoder
+    could not answer. bbox = (lat_min, lon_min, lat_max, lon_max) bounds the search."""
+    q = " ".join(query.split())
+    return _cached(("search", q.lower(), bbox), lambda: _nominatim_search(q, bbox))
 
 
 def house_number_cached(lat: float, lon: float) -> bool:

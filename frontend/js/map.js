@@ -20,8 +20,6 @@ function initMap(center) {
 let _mapListenersAttached = false;
 let _tapTimer = null;  // deferred single-tap (cancelled by a double-tap zoom)
 
-// A settled single tap dismisses any open window (the street is read on the sign).
-function handleMapTap() { dismissMapWindows(); }
 
 function attachMapListeners() {
   // Event listeners live on the map instance and survive style changes, so only
@@ -29,16 +27,15 @@ function attachMapListeners() {
   if (_mapListenersAttached) return;
   _mapListenersAttached = true;
 
-  // A tap dismisses any open window (GPS pin popup, car selection), like Esc. The action is
-  // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
-  // placement commits immediately, and a tap while the name box is open is ignored.
+  // A tap closes the open card, like Esc. The action is deferred ~280 ms so a
+  // double-tap-to-zoom can cancel it; a tap while placing or naming is ignored.
   map.on('click', (e) => {
     // Placement commits via the center target ("Place here") or right-click, not
     // a stray tap — a tap during place mode is ignored so panning can't misfire.
-    if (placingCar || placingHome) return;
+    if (placing) return;
     if (_namePopup) return;  // name box open: taps don't open windows or close it
     if (_tapTimer) clearTimeout(_tapTimer);
-    _tapTimer = setTimeout(() => { _tapTimer = null; handleMapTap(); }, 280);
+    _tapTimer = setTimeout(() => { _tapTimer = null; clearSelection(); }, 280);
   });
   map.on('dblclick', () => { if (_tapTimer) { clearTimeout(_tapTimer); _tapTimer = null; } });
 
@@ -51,6 +48,7 @@ function attachMapListeners() {
   // Follow the map center to its region (mounts its tiles) and recolour newly
   // loaded tile features once the map settles.
   map.on('moveend', syncRegion);
+  map.on('zoom', () => { if (_here) updateHereMarker(); });  // the accuracy halo is in metres
   map.on('idle', scheduleUrgencyUpdate);
   // Colour tiles as they arrive, not only once the whole map is idle: until then
   // their streets are transparent (see _urgCase).

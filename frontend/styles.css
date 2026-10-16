@@ -20,9 +20,10 @@
       --info-h: 0px;  /* calendar card height, set from JS */
       --sheet-h: 0px; /* sheet height, set from JS */
       --street: #15803d;  /* street sweeping days in the calendar */
+      --home: #15803d;    /* homes: card icon, pin, add button (= HOME_COLOR in core.js) */
 
-      /* Layers: crosshair 15 < info card, place banner 20 < street sign 21 < sheet 25 < map controls 26 (their colour key opens over the sheet) < legend 28 < GPS popup 30
-         < ctx menu 200 < toast 9999. */
+      /* Layers: map pins (MapLibre markers) < crosshair 15 < calendar card, place banner 20
+         < street sign 21 < sheet 25 < map controls 26 < menus 200 < toasts 9999. */
     }
     /* 100vh, not 100%: in an iOS home-screen app with a translucent status bar, 100% is the
        layout viewport, which is shorter than the screen and leaves a strip at the bottom. */
@@ -44,6 +45,8 @@
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
     [hidden] { display: none !important; }
+    /* Read by screen readers only. */
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     svg.ic { width: 1.15em; height: 1.15em; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
              stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; pointer-events: none; }
     .busy svg.ic { animation: spin .8s linear infinite; }
@@ -90,7 +93,7 @@
 
     /* ── Map container ── */
     #map-container { height: 100%; position: relative; }
-    #map { width: 100%; height: 100%; touch-action: none; }
+    #map { width: 100%; height: 100%; touch-action: none; -webkit-touch-callout: none; }  /* a long press opens our menu */
     #map canvas, #map img { -webkit-user-drag: none; user-select: none; }
 
     /* ── MapLibre attribution ── */
@@ -122,7 +125,8 @@
       border-radius: var(--r-md); box-shadow: var(--shadow-2); overflow: hidden; min-width: 160px;
     }
     #ctx-menu { display: none; }
-    .ctx-item { padding: 11px 14px; cursor: pointer; font-size: .85rem; }
+    .ctx-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: var(--tap); padding: 0 14px;
+                text-align: left; font-size: .85rem; }
     .ctx-item:hover { background: var(--bg); }
     #app-menu { width: 250px; max-height: calc(100dvh - 24px); overflow-y: auto; font-size: .82rem; }
     .menu-sec { padding: 6px 0; }
@@ -131,6 +135,7 @@
     .menu-item { display: block; width: 100%; margin: 0; padding: 0 14px; min-height: var(--tap); text-align: left;
                  background: none; border-radius: 0; color: var(--text); font-size: .85rem; font-weight: 500; }
     .menu-item:hover { background: var(--bg); }
+    .menu-item.armed { display: flex; align-items: center; gap: 6px; }
     .menu-note { padding: 8px 14px; color: var(--muted); overflow-wrap: anywhere; }
     .seg { display: flex; margin: 4px 14px 6px; padding: 2px; gap: 2px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: var(--r-sm); }
     .seg button { flex: 1; margin: 0; padding: 0; min-height: 36px; background: none; color: var(--text); border-radius: 6px; font-size: .8rem; font-weight: 500; }
@@ -203,14 +208,13 @@
     /* Verdict beside the title; schedule + location buttons show on the open card only. */
     .ce-header .ce-name { flex: 1 1 auto; overflow-wrap: anywhere; }
     .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px;
-                 font-size: .72rem; font-weight: 600; white-space: nowrap; background: color-mix(in srgb, currentColor 14%, transparent); }
+                 font-size: .72rem; font-weight: 600; white-space: nowrap; background: color-mix(in srgb, currentColor 10%, var(--card)); }  /* light pill: AA on the tinted cards */
     .ce-detail { display: flex; flex-direction: column; gap: 5px; }
     .car-entry:not(.selected) .ce-detail { display: none; }
     /* Card icon: the car in its colour, the home in green. */
     .ce-dot { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
               color: var(--car-color, #3b82f6); font-size: 20px; }
     .ce-dot svg.ic { width: 1em; height: 1em; }
-    .ce-dot-home { color: #15803d; }
     .ce-name {
       flex: 0 1 auto; font-weight: 600; font-size: .84rem; outline: none;
       cursor: default; border-bottom: 1px solid transparent; min-width: 0;
@@ -227,6 +231,9 @@
     .ce-sched { font-size: .73rem; line-height: 1.45; }
     .ce-sched-header  { font-size: .68rem; font-weight: 600; color: var(--muted); margin-top: 4px; white-space: nowrap; }
     .ce-sched-item    { font-size: .73rem; color: var(--muted); line-height: 1.4; }
+    .ce-loading { color: var(--muted); }
+    .ce-error { display: flex; align-items: center; gap: 8px; color: var(--urg-today); font-size: .73rem; }
+    .ce-error .ce-btn { flex: none; padding: 0 14px; }
     .ce-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
     .ce-btn {
       flex: 1 1 40%; width: auto; margin: 0; padding: 0 6px; min-height: var(--tap);
@@ -278,7 +285,7 @@
     .add-car-btn { width: 100%; flex-shrink: 0; font-size: .85rem; box-shadow: var(--shadow-1); }
     .add-car-btn:hover { opacity: .92; }
     /* "Add home" shares the add-car shape but takes the home green. */
-    .add-home-btn { background: #15803d; }
+    .add-home-btn { background: var(--home); }
 
     /* ── Calendar card (sweep calendar; fixed content, independent of the target) ──
        Top of the left column (mobile: centered). The header stays put; the body scrolls. */
@@ -301,8 +308,9 @@
     #ic-title { flex: 1; min-width: 0; display: flex; align-items: center; }
     #ic-title b { flex: 1; text-align: center; white-space: nowrap; }
     /* Chevron points the way the card will go: down to open, up to close (like the sheet's). */
-    #ic-chevron { width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center; color: var(--muted); transition: transform .15s; }
-    #info-card.expanded #ic-chevron { transform: rotate(180deg); }
+    #ic-toggle { flex: none; width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+    #ic-toggle svg { transition: transform .15s; }
+    #info-card.expanded #ic-toggle svg { transform: rotate(180deg); }
     /* Today leads the header (as in Google Calendar / Outlook): ‹ month › stay together. */
     .cal-today { min-height: 30px; padding: 0 10px; margin-right: 2px; border: 1px solid var(--hairline);
                  border-radius: 999px; font-size: .72rem; font-weight: 600; color: var(--text); }
@@ -383,21 +391,28 @@
     body.naming #street-sign, body.menu-open #street-sign { display: none; }
     /* Set from JS when an open sheet leaves no room for the sign below the centre target. */
     #street-sign.blocked { visibility: hidden; }
-    /* 44 pt touch target (Apple HIG) around the 32 px disc. */
-    .car-marker::after, .home-marker::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }
-    .car-marker.selected { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 30%, transparent), 0 2px 8px rgba(0,0,0,.4); }
-
-    /* ── Map pins (MapLibre HTML elements): the card's icon on a white disc ringed in the car's
-       colour (set inline) or the home green. ── */
-    .car-marker, .home-marker {
-      display: flex; align-items: center; justify-content: center; cursor: pointer;
-      background: #fff; border: 2.5px solid currentColor; border-radius: 50%; font-size: 17px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.4); transition: width .12s, height .12s, font-size .12s;
+    /* ── Map pins (MapLibre HTML markers): the card's icon in white on a disc of the car's
+       colour (--pin, set from JS) or the home green, ringed in white (as in Apple Maps).
+       Selected: larger, with a halo in its colour. ── */
+    .pin {
+      display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+      background: var(--pin); color: #fff; --icon-hole: var(--pin); font-size: 17px;
+      border: 2px solid #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,.4);
+      transition: width .12s, height .12s, font-size .12s;
     }
-    .home-marker { --home: #15803d; color: var(--home); width: 32px; height: 32px; }
-    .car-marker svg.ic, .home-marker svg.ic { width: 1em; height: 1em; }
-    .car-marker { --icon-hole: #fff; }
-    .home-marker { --icon-hole: #fff; }
+    .pin svg.ic { width: 1em; height: 1em; }
+    .pin::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }  /* 44 pt touch target (Apple HIG) */
+    .pin.selected { width: 40px; height: 40px; font-size: 22px;
+                    box-shadow: 0 0 0 4px color-mix(in srgb, var(--pin) 35%, transparent), 0 2px 8px rgba(0,0,0,.4); }
+    /* The spot a new car is being named at. */
+    .temp-pin { width: 16px; height: 16px; border-radius: 50%; background: #64748b; border: 3px solid #111;
+                box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+    /* You are here: a blue dot, and the fix's accuracy as a halo (--halo: diameter, from JS). */
+    .here { width: 18px; height: 18px; pointer-events: none; }  /* MapLibre positions it (absolute) */
+    .here-dot, .here-halo { position: absolute; left: 50%; top: 50%; border-radius: 50%; transform: translate(-50%, -50%); }
+    .here-dot { width: 16px; height: 16px; background: var(--blue); border: 3px solid #fff; box-shadow: 0 1px 6px rgba(0,0,0,.4); }
+    .here-halo { width: max(var(--halo, 0px), 18px); height: max(var(--halo, 0px), 18px);
+                 background: color-mix(in srgb, var(--blue) 15%, transparent); border: 1px solid color-mix(in srgb, var(--blue) 40%, transparent); }
 
     /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -413,12 +428,11 @@
       --muted: #94a3b8; --border: #334155;
       --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #60a5fa;
     }
-    body.dark .maplibregl-map { filter: brightness(.92); }
 
     /* ── Toast notifications ── */
     #toast-container {
       position: fixed; bottom: calc(var(--edge-b) + var(--sheet-peek) + 16px);
-      left: 50%; transform: translateX(-50%);
+      left: var(--edge); right: var(--edge);
       z-index: 9999; display: flex; flex-direction: column; gap: 8px;
       pointer-events: none; align-items: center;
     }
@@ -427,7 +441,7 @@
       border-radius: 20px; font-size: .82rem; font-weight: 500;
       box-shadow: 0 4px 14px rgba(0,0,0,.35); pointer-events: none;
       animation: toast-in .2s ease, toast-out .3s ease 2.7s forwards;
-      white-space: nowrap;
+      width: max-content; max-width: min(420px, calc(100vw - 2 * var(--edge))); text-align: center;
     }
     .toast.error { background: #7f1d1d; }
     @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -466,7 +480,7 @@
                      max-width: calc(100% - var(--panel-w) - 4 * var(--edge) - 64px); }
       body.placing #street-sign { bottom: var(--edge); }
       .zoom-btn { display: flex; }
-      .cal-nav, #ic-chevron { width: 32px; }  /* room for the month name in the 300px column */
+      .cal-nav, #ic-toggle { width: 32px; }  /* room for the month name in the 300px column */
       #place-banner { bottom: auto; top: var(--edge); }
       #toast-container { bottom: 24px; }
     }

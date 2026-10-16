@@ -14,7 +14,13 @@ const URGENCY = {
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
-function carColor(idx) { return CAR_COLORS[idx % CAR_COLORS.length]; }
+const HOME_COLOR = '#15803d';
+// A car keeps the colour it was given (saved with it), so removing one never repaints the others.
+function carColor(car) { return car.color || CAR_COLORS[0]; }
+function nextCarColor() {
+  const used = new Set(cars.map(c => c.color));
+  return CAR_COLORS.find(c => !used.has(c)) || CAR_COLORS[cars.length % CAR_COLORS.length];
+}
 
 // ── Shared utilities ──────────────────────────────────────────────────────────
 // Inline SVG icon from the sprite in index.html (stroke follows text colour).
@@ -59,11 +65,35 @@ function newId() {
                            : Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-// Nominatim forward geocode: {lat, lon} or null when not found; throws on network error.
-async function geocode(q) {
-  const res  = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
-  const hits = await res.json();
-  return hits.length ? { lat: parseFloat(hits[0].lat), lon: parseFloat(hits[0].lon) } : null;
+// Typed address -> {lat, lon}, searched in `region` (the server bounds it to that
+// region's cities); null when not found; throws when the lookup is unavailable.
+async function geocode(q, region) {
+  const res = await fetch('/api/geocode?' + new URLSearchParams({ q, ...(region ? { region } : {}) }));
+  if (!res.ok) throw new Error(res.statusText);
+  const hit = await res.json();
+  return hit.lat == null ? null : hit;
+}
+
+// Schedules for cars and homes: the latest request per id wins (a slow answer for an
+// old position never overwrites a newer one), and a failure is remembered so the card
+// offers Retry instead of "Loading…" forever. Returns the data, or null if it failed
+// or was superseded; `onError` gets the message of a current failure.
+const _loadSeq = new Map();
+const loadFailed = new Set();  // car / home ids whose last load failed
+async function loadSchedule(id, store, request, onError) {
+  const n = (_loadSeq.get(id) || 0) + 1;
+  _loadSeq.set(id, n);
+  let data = null, err = null;
+  try {
+    const res = await request();
+    if (res.ok) data = await res.json();
+    else err = (await res.json().catch(() => ({}))).detail || res.statusText;
+  } catch (e) { err = e.message; }
+  if (_loadSeq.get(id) !== n) return null;
+  if (err) { loadFailed.add(id); onError?.(err); return null; }
+  loadFailed.delete(id);
+  store[id] = data;
+  return data;
 }
 
 // Double-click (or el.startEdit()) to edit; Enter commits, Escape or empty/unchanged restores original().
@@ -89,43 +119,31 @@ function makeEditable(el, original, onCommit) {
 // ── State ─────────────────────────────────────────────────────────────────────
 let cars           = [];
 let regions        = {};         // regionKey → {name, center, zoom, tz} from /cities
-let placingCar     = false;
-let placingHome    = false;
-let placingEditId  = null;
+let placing        = null;   // while placing: { kind: 'car' | 'home', editId (null: a new one) }
 let pendingLat     = null, pendingLon = null;
 let carSchedules   = {};
 let _tempPin        = null;   // {lat,lon} while naming a new car
-let _selectedCarId  = null;
-let _gpsLocPin = null;
-let _gpsLocPinTimer = null;
+let _selectedId     = null;   // the one selected car or home (its card is open)
 let _region          = null;   // region key under the map center (null: none nearby)
 const REGION_RADIUS  = 1.5;    // degrees: a region applies this close to its center
 const AREA_ZOOM      = 9;      // below this the map shows area labels instead of streets
 const isDesktop = () => window.matchMedia('(min-width: 768px), (orientation: landscape) and (max-height: 500px)').matches;  // = styles.css desktop layout
 
-// Region whose center is within REGION_RADIUS of (lat, lon), nearest first; else null.
-function regionAt(lat, lon) {
-  let best = null, bestD = REGION_RADIUS ** 2;
+// Region whose center is nearest (lat, lon) within `radius` degrees (default: any distance); else null.
+function nearestRegion(lat, lon, radius = Infinity) {
+  let best = null, bestD = radius ** 2;
   for (const [key, r] of Object.entries(regions)) {
     const d = (r.center.lat - lat) ** 2 + (r.center.lon - lon) ** 2;
     if (d < bestD) { bestD = d; best = key; }
   }
   return best;
 }
+// Region that applies at (lat, lon): its center is within REGION_RADIUS; else null.
+function regionAt(lat, lon) { return nearestRegion(lat, lon, REGION_RADIUS); }
 
 // The one clock for sweeping and trash days: {y, m, d, min} in the region's
 // timezone (the browser's until /cities has loaded).
 function regionNow(regionKey) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz); }
-
-// Region whose center is nearest (lat, lon), however far; null if there are none.
-function nearestRegion(lat, lon) {
-  let best = null, bestD = Infinity;
-  for (const [key, r] of Object.entries(regions)) {
-    const d = (r.center.lat - lat) ** 2 + (r.center.lon - lon) ** 2;
-    if (d < bestD) { bestD = d; best = key; }
-  }
-  return best;
-}
 
 // ── Map (MapLibre) ────────────────────────────────────────────────────────────
 let map = null;
@@ -133,7 +151,6 @@ const _carMarkers  = new Map();  // carId → maplibregl.Marker
 let homes          = [];         // [{ id, lat, lon, address }] — saved residences
 let homeSchedules  = {};         // homeId → /check-home response
 const _homeMarkers = new Map();  // homeId → maplibregl.Marker for the home pin
-let _gpsMarker     = null;
 let _tempPinMarker = null;
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
@@ -216,9 +233,10 @@ if (navigator.standalone && /iPhone/.test(navigator.userAgent)) {
 let _sheetCollapsed = localStorage.getItem('bb_sheet_v2') !== 'open';
 // Empty (no car or home, not placing): only the two add buttons, no minimize.
 function applySheet() {
-  const empty = !cars.length && !homes.length && !placingCar && !placingHome;
+  const empty = !cars.length && !homes.length && !placing;
   sheet.classList.toggle('empty', empty);
   sheet.classList.toggle('collapsed', _sheetCollapsed && !empty);
+  sheetHandle.setAttribute('aria-expanded', String(!_sheetCollapsed));
 }
 // `remember` is false when the app closes the sheet itself (not the user's choice to keep).
 function setSheetCollapsed(v, remember = true) {

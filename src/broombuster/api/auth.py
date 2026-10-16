@@ -236,6 +236,8 @@ class Car(BaseModel):
     # Position version: bumped on every move, from the browser or a phone, so a
     # stale device can't overwrite a newer position (see _merge_cars).
     loc_rev: int = Field(0, ge=0, le=2**31)
+    # Chosen when the car is added, so removing another car never repaints it.
+    color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 class Home(BaseModel):

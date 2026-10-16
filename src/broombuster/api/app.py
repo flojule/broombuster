@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from broombuster import analysis, gps, iplocate, resolve, trash
-from broombuster.cities import CITIES, REGIONS, city_for_point, region_for_point
+from broombuster.cities import CITIES, REGIONS, city_for_point, region_bbox, region_for_point
 from broombuster.config import REPO_ROOT
 from broombuster.version import app_version
 
@@ -143,6 +143,16 @@ def address(lat: float = Query(..., ge=-90.0, le=90.0),
             region: str | None = None):
     """The /check address with the Nominatim house number (may take ~1 s)."""
     return {"address": _address(_locate(lat, lon, region), lat, lon, network=True)[0]}
+
+
+@api.get("/geocode")
+def geocode(q: str = Query(..., min_length=1, max_length=200), region: str | None = None):
+    """Position of a typed address, searched inside the region's cities when one is
+    given; lat/lon are null when nothing matches. 503 when the geocoder is unavailable."""
+    hit = gps.search(q, region_bbox(region) if region in REGIONS else None)
+    if hit is None:
+        raise HTTPException(503, "Address lookup unavailable")
+    return {"lat": hit.get("lat"), "lon": hit.get("lon")}
 
 
 class CheckHomeRequest(CheckRequest):

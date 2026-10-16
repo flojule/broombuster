@@ -14,7 +14,7 @@ from broombuster.api.app import app
 
 BASE = "http://testserver"
 CLIENT_ID = "client-123"
-PREFS = {"cars": [{"id": "c1", "name": "Car", "lat": 37.8, "lon": -122.2}],
+PREFS = {"cars": [{"id": "c1", "name": "Car", "lat": 37.8, "lon": -122.2, "color": "#10b981"}],
          "homes": [{"id": "h1", "lat": 37.8, "lon": -122.2, "address": "1 Main St"}]}
 
 

@@ -11,8 +11,7 @@ async function initApp() {
   checkAllHomes();
 
   if (cars.length) {
-    await checkCarWithRender(cars[0]);
-    for (const car of cars.slice(1)) checkCarSilently(car);
+    for (const [i, car] of cars.entries()) checkCar(car, i === 0);
     return;
   }
   // No cars: device position if already allowed, else the area nearest the IP,
@@ -25,11 +24,11 @@ async function initApp() {
 }
 initApp();
 
-// Minute tick: map colours, the calendar and the cards follow the clock (a
-// window closes, a day starts). Cards re-render only when some urgency or a
-// region-local date changed.
+// Clock tick: map colours, the calendar and the cards follow the clock (a window
+// closes, a day starts). Cards re-render only when some urgency or a region-local
+// date changed.
 let _liveUrgencySig = '';
-setInterval(() => {
+function tick() {
   scheduleUrgencyUpdate();
   renderInfoCard();  // no-op unless today changed
   const day = s => BroomUrgency.isoDay(schedNow(s));
@@ -39,16 +38,24 @@ setInterval(() => {
   _liveUrgencySig = sig;
   renderCarsPanel();
   renderHomePanel();
-}, 60 * 1000);
+}
+setInterval(tick, 60 * 1000);
 
-// ── Locate button (GPS) ───────────────────────────────────────────────────────
-btnLocate.addEventListener('click', () => locateWith(btnLocate, async (lat, lon) => {
-  if (_gpsLocPinTimer) clearTimeout(_gpsLocPinTimer);
-  _gpsLocPin = { lat, lon };
+// Hidden: save pending edits and stop following the position. Back in the foreground
+// (iOS freezes timers meanwhile): catch the clock up at once, take any car a phone
+// moved, and follow the position again.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { _flushPrefs(); pauseHere(); return; }
+  tick();
+  refreshFromAccount();
+  resumeHere();
+});
+
+// ── Locate button: centre on the device and show the "you are here" dot ─────
+btnLocate.addEventListener('click', () => locateWith(btnLocate, (lat, lon, acc) => {
   if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
-  updateCarMarkers();
-  _gpsLocPinTimer = setTimeout(clearGpsPin, 15000);
-  for (const car of cars) checkCarSilently(car);
+  _setHere(lat, lon, acc);
+  followHere();
 }));
 
 // ── Service Worker ────────────────────────────────────────────────────────────

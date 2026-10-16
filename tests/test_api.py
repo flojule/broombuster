@@ -168,3 +168,26 @@ def test_service_worker_precaches_every_script(client):
     sw = client.get("/sw.js").text
     for f in ("/js/app.js", "/js/maplibre-global.js", "/vendor/maplibre-gl.mjs"):
         assert f'"{f}"' in sw
+
+
+def test_geocode_searches_inside_the_region(client, monkeypatch):
+    seen = []
+
+    def _search(q, bbox):
+        seen.append((q, bbox))
+        return {"lat": 37.8, "lon": -122.27} if "market" in q.lower() else {}
+    monkeypatch.setattr(gps, "_nominatim_search", _search)
+    r = client.get("/api/geocode", params={"q": "  1 Market   St ", "region": "bay_area"})
+    assert r.json() == {"lat": 37.8, "lon": -122.27}
+    assert seen[0][0] == "1 Market St" and seen[0][1] is not None  # bounded to the region's cities
+    assert client.get("/api/geocode", params={"q": "nowhere"}).json() == {"lat": None, "lon": None}
+    assert seen[-1][1] is None  # no region: unbounded
+    client.get("/api/geocode", params={"q": "1 market st", "region": "bay_area"})
+    assert len(seen) == 2  # cached
+
+
+def test_geocode_outage_is_503(client, monkeypatch):
+    def _down(q, bbox):
+        raise OSError("down")
+    monkeypatch.setattr(gps, "_nominatim_search", _down)
+    assert client.get("/api/geocode", params={"q": "1 Main St"}).status_code == 503

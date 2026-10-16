@@ -1,31 +1,13 @@
 // ── Per-car schedule checks ───────────────────────────────────────────────────
-async function checkCarWithRender(car) {
-  const warmupTimer = setTimeout(() => showToast('Server warming up'), 5000);
-  try {
-    const res = await postCheck(car.lat, car.lon);
-    clearTimeout(warmupTimer);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      showToast(`Error: ${err.detail}`, true); return;
-    }
-    const data = await res.json();
-    carSchedules[car.id] = data;
-    upgradeAddress(car, data);
-    if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
-    updateCarMarkers();  // re-renders the cards
-  } catch (e) { clearTimeout(warmupTimer); showToast(`Network error: ${e.message}`, true); }
-}
-
-async function checkCarSilently(car) {
-  try {
-    const res = await postCheck(car.lat, car.lon);
-    if (!res.ok) return;
-    const data = await res.json();
-    carSchedules[car.id] = data;
-    upgradeAddress(car, data);
-    updateSheetSummary();
-    updateCarMarkers();
-  } catch (_) {}
+// `loud`: tell the user about a slow server or an error (a check they asked for);
+// otherwise a failure only shows on the card, with Retry.
+async function checkCar(car, loud = false) {
+  const warmupTimer = loud && setTimeout(() => showToast('Server warming up'), 5000);
+  const data = await loadSchedule(car.id, carSchedules, () => postCheck(car.lat, car.lon),
+                                  loud ? msg => showToast(`Error: ${msg}`, true) : null);
+  clearTimeout(warmupTimer);
+  if (data) upgradeAddress(car, data);
+  updateCarMarkers();  // re-renders the cards (data, or the Retry state)
 }
 
 // /check answers without the Nominatim house number (it can take ~1 s); when
@@ -46,22 +28,30 @@ async function upgradeAddress(car, sched) {
   } catch (_) {}
 }
 
-// Car names by sweeping verdict; feeds the sheet handle (textContent: no escaping).
+// Car names by sweeping verdict; feeds the sheet handle.
 function urgentCars() {
   const out = { today: [], tomorrow: [] };
-  for (const [carId, s] of Object.entries(carSchedules)) {
-    const car = cars.find(c => c.id === carId);
-    const u = car && sweepUrgency(s);
-    if (out[u]) out[u].push(car.name);
-  }
+  for (const car of cars) out[sweepUrgency(carSchedules[car.id])]?.push(car.name);
   return out;
 }
 
-// ── Car placement ─────────────────────────────────────────────────────────────
+// The user moved a car (GPS, map or address): save it, show it, and re-check its street.
+function moveCar(car, lat, lon) {
+  car.lat = lat; car.lon = lon; touchCarLocation(car);
+  savePrefs();
+  updateCarMarkers();
+  return checkCar(car, true);
+}
+
+// ── Placement (cars and homes) ────────────────────────────────────────────────
 // Center-target flow: pan the map so the crosshair sits on the spot, then
-// "Place here" commits at the map center. The sheet collapses so the target is
-// unobstructed. Right-click (desktop) is the alternative for an off-center spot.
-function _beginPlacing() {
+// "Set here" commits at the map center. The sheet collapses so the target is
+// unobstructed. Right-click or a long press is the alternative for an off-center spot.
+// Places (or, with an id, moves) a car or home; the banner shows its icon.
+function startPlacing(editId = null, kind = 'car') {
+  placing = { kind, editId };
+  placeBannerText.innerHTML = icon(editId ? 'pin' : kind)
+    + `<span class="sr-only">${editId ? 'Move' : 'Place'} ${kind}: pan the map to the spot</span>`;
   setSheetCollapsed(true);
   if (!isDesktop()) collapseCal();  // phone: the card would cover the target
   document.body.classList.add('placing');
@@ -70,27 +60,8 @@ function _beginPlacing() {
   if (map) map.getCanvas().style.cursor = 'crosshair';
 }
 
-// Place (or, with an id, move) a car or home; the banner shows just the icon.
-function startPlacing(editId = null) {
-  placingCar    = true;
-  placingHome   = false;
-  placingEditId = editId;
-  placeBannerText.innerHTML = icon(editId ? 'pin' : 'car');
-  _beginPlacing();
-}
-
-function startPlacingHome(editId = null) {
-  placingHome   = true;
-  placingCar    = false;
-  placingEditId = editId;
-  placeBannerText.innerHTML = icon('home');
-  _beginPlacing();
-}
-
 function stopPlacing() {
-  placingCar    = false;
-  placingHome   = false;
-  placingEditId = null;
+  placing = null;
   placeBanner.classList.remove('active');
   document.body.classList.remove('placing');
   _crosshair.classList.remove('placing');
@@ -100,76 +71,52 @@ function stopPlacing() {
 
 // Commit at the current map center (the point the crosshair marks).
 function confirmPlacementAtCenter() {
-  if (!map) return;
-  const c = map.getCenter();
-  if (placingHome) {
-    const editId = placingEditId;
-    stopPlacing();
-    if (editId) moveHome(editId, c.lat, c.lng); else addHome(c.lat, c.lng);
-  }
-  else if (placingCar) { commitPlacement(c.lat, c.lng); }
-}
-
-async function commitPlacement(lat, lon) {
-  const editId = placingEditId;
+  if (!map || !placing) return;
+  const { lat, lng } = map.getCenter();
+  const { kind, editId } = placing;
   stopPlacing();
-
-  if (editId) {
-    const car = cars.find(c => c.id === editId);
-    if (car) {
-      car.lat = lat; car.lon = lon; touchCarLocation(car);
-      savePrefs();
-      setSheetCollapsed(false);
-      updateCarMarkers();
-      checkCarSilently(car);
-    }
-  } else {
-    openNameBox(lat, lon);
-  }
+  if (kind === 'home') { if (editId) moveHome(editId, lat, lng); else addHome(lat, lng); return; }
+  const car = editId && cars.find(c => c.id === editId);
+  if (car) { setSheetCollapsed(false); moveCar(car, lat, lng); }
+  else openNameBox(lat, lng);
 }
 
 btnConfirmPlace.addEventListener('click', confirmPlacementAtCenter);
 btnCancelPlace.addEventListener('click', () => { stopPlacing(); setSheetCollapsed(false); });
 
-// "Add car" — enters center-target place mode.
 document.getElementById('btn-add-car').addEventListener('click', () => {
   closeNameBox();
   startPlacing(null);
 });
 
-// ── Context menu ──────────────────────────────────────────────────────────────
-function showCtxMenu(x, y) {
-  const mw = 170, mh = 80;
+// ── Context menu: "Add car / home here" (right-click, or a long press on touch) ──
+function openCtxMenu(lngLat, x, y) {
+  pendingLat = lngLat.lat; pendingLon = lngLat.lng;
+  const mw = 170, mh = 100;
   ctxMenu.style.left = Math.min(x, window.innerWidth  - mw) + 'px';
   ctxMenu.style.top  = Math.min(y, window.innerHeight - mh) + 'px';
   ctxMenu.style.display = 'block';
 }
 function hideCtxMenu() { ctxMenu.style.display = 'none'; }
 
-ctxAddCar.addEventListener('click', () => {
-  hideCtxMenu();
-  openNameBox(pendingLat, pendingLon);
-});
-
-ctxAddHome.addEventListener('click', () => {
-  hideCtxMenu();
-  addHome(pendingLat, pendingLon);
-});
+ctxAddCar.addEventListener('click', () => { hideCtxMenu(); openNameBox(pendingLat, pendingLon); });
+ctxAddHome.addEventListener('click', () => { hideCtxMenu(); addHome(pendingLat, pendingLon); });
 
 // ── Name box (arrow popup at the pending location) ─────────────────────────────
-// Anchored MapLibre popup whose tip points at the spot the car will sit, matching
-// the ward/street detail box style. Drops a temp pin under the tip.
+// Anchored MapLibre popup whose tip points at the spot the car will sit. Drops a
+// temp pin under the tip.
 function openNameBox(lat, lon) {
   if (!map) return;
+  closeNameBox();
   pendingLat = lat; pendingLon = lon;
-  addTempPin(lat, lon);
-  closeNameBox(true);  // clear any prior box without wiping the pending coords
+  _tempPin = { lat, lon }; updateTempPin();
 
   const row = document.createElement('div');
   row.className = 'np-row';
   const input = document.createElement('input');
   input.type = 'text'; input.id = 'name-panel-input';
   input.placeholder = 'Car name'; input.maxLength = 32;
+  input.setAttribute('aria-label', 'Car name');
   input.value = defaultCarName();
   const save = document.createElement('button');
   save.id = 'btn-np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
@@ -197,35 +144,27 @@ function openNameBox(lat, lon) {
   setTimeout(() => { input.focus(); input.select(); }, 30);
 }
 
-// keepPending=true tears down the popup/pin but leaves pendingLat/Lon set (used
-// when re-opening or right before savePendingCar consumes them).
-function closeNameBox(keepPending = false) {
-  if (_namePopup) { _namePopup.remove(); _namePopup = null; }
-  _nameInput = null;
-  if (!keepPending) {
-    removeTempPin();
-    pendingLat = pendingLon = null;
-  }
-}
-
-async function savePendingCar() {
-  if (pendingLat === null) return;
-  const name = (_nameInput?.value.trim()) || 'My car';
-  const id = newId();
-  cars.push({ id, name, lat: pendingLat, lon: pendingLon });
-  touchCarLocation(cars[cars.length - 1]);
-  removeTempPin();
-  closeNameBox(true);
-  if (_gpsLocPin) clearGpsPin();
-  savePrefs();
-  setSheetCollapsed(false);  // reveal the new card
-  updateCarMarkers();
-  checkCarSilently(cars[cars.length - 1]);
+// Close the name box and drop its pending spot and temp pin.
+function closeNameBox() {
+  _namePopup?.remove();
+  _namePopup = null; _nameInput = null;
+  _tempPin = null; updateTempPin();
   pendingLat = pendingLon = null;
 }
 
-function addTempPin(lat, lon) { _tempPin = { lat, lon }; updateCarMarkers(); }
-function removeTempPin()      { _tempPin = null;         updateCarMarkers(); }
+function savePendingCar() {
+  if (pendingLat === null) return;
+  const car = { id: newId(), name: _nameInput?.value.trim() || 'My car',
+                lat: pendingLat, lon: pendingLon, color: nextCarColor() };
+  touchCarLocation(car);
+  cars.push(car);
+  closeNameBox();
+  savePrefs();
+  setSheetCollapsed(false);  // reveal the new card
+  updateCarMarkers();
+  checkCar(car);
+  offerInstall();
+}
 
 function defaultCarName() {
   const used = new Set(cars.map(c => c.name));
@@ -235,7 +174,7 @@ function defaultCarName() {
   return `Car ${i}`;
 }
 
-// ── Cars panel ────────────────────────────────────────────────────────────────
+// ── Cards (cars and homes share the shell) ────────────────────────────────────
 // Region-local clock for a /check response (the car's region, not the selected one).
 function schedNow(sched) { return regionNow(sched?.region || _region); }
 
@@ -248,24 +187,52 @@ function sweepUrgency(sched) {
   return BroomUrgency.checkDaySweeping(entries, schedNow(sched));
 }
 
-// Verdict next to the card title, in the urgency colour.
 // Verdict pill: icon + word (never colour alone).
-function _statusHTML(u, label) {
+function _statusHTML(u) {
   const ic = URGENCY[u].icon;
-  return `<span class="ce-status" data-urgency="${esc(u)}" style="color:${URGENCY[u].color}">${ic ? icon(ic) + ' ' : ''}${esc(label)}</span>`;
-}
-function _itemsHTML(lines) {
-  return lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
+  return `<span class="ce-status" style="color:${URGENCY[u].color}">${ic ? icon(ic) + ' ' : ''}${esc(URGENCY[u].short)}</span>`;
 }
 
-// Both sides (car's first, labelled when they differ — same as the map hover).
-function scheduleHTML(sched) {
-  if (!sched) return '<span style="color:var(--muted)">Loading…</span>';
-  const u = sweepUrgency(sched);
-  const lines = BroomUrgency.formatBothSides(
-    sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
-  return '<div class="ce-sched-header">Sweeping:</div>'
-       + _itemsHTML(lines.length ? lines : ['No sweeping']);
+// A schedule block: header and up to four lines; while loading, "Loading…", and after
+// a failed load, the error with Retry.
+function schedBlockHTML(id, header, lines) {
+  if (lines) return `<div class="ce-sched-header">${esc(header)}</div>`
+                  + lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
+  return loadFailed.has(id)
+    ? '<div class="ce-error">Couldn’t load the schedule <button class="ce-btn ce-btn-retry">Retry</button></div>'
+    : '<span class="ce-loading">Loading…</span>';
+}
+
+// Card shell: header (icon, name, verdict) that toggles the card (click, Enter or
+// Space), address, and the detail shown while the card is open.
+function itemCard({ id, kind, color, name, urgency, addr, detail }) {
+  const entry = document.createElement('div');
+  entry.className = 'car-entry' + (kind === 'home' ? ' home-entry' : '');
+  entry.dataset.id = id;
+  if (urgency) entry.dataset.urgency = urgency;  // theme-aware tint via CSS
+  entry.style.setProperty('--car-color', color);
+  entry.innerHTML = `
+    <div class="ce-header" role="button" tabindex="0" aria-expanded="false">
+      <span class="ce-dot">${icon(kind)}</span>
+      <span class="ce-name" contenteditable="false">${esc(name)}</span>
+      ${urgency ? _statusHTML(urgency) : ''}
+    </div>
+    <div class="ce-addr" contenteditable="false">${esc(addr)}</div>
+    <div class="ce-detail">${detail}</div>`;
+  entry.addEventListener('click', e => {
+    if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
+    toggleItem(id);
+  });
+  entry.querySelector('.ce-header').addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('ce-header')) { e.preventDefault(); toggleItem(id); }
+  });
+  return entry;
+}
+
+// Don't wipe a field the user is typing in (rename, address) on a re-render.
+function isEditingIn(panel) {
+  const ae = document.activeElement;
+  return panel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
 }
 
 // ── Phone link: a token that lets a phone automation report where the car parked ──
@@ -298,11 +265,10 @@ function phoneLinkHTML(car) {
 
 async function _togglePhoneLink(car) {
   const linked = car.id in phoneLinks;
-  if (linked && !confirm(`Unlink the phone from ${car.name}? Its automation will stop working.`)) return;
   if (!linked) await _flushPrefs();  // the server only issues tokens for cars it has saved
   const res = await fetch(`/api/cars/${encodeURIComponent(car.id)}/token`,
-                          { method: linked ? 'DELETE' : 'POST' });
-  if (!res.ok) { showToast(linked ? 'Could not unlink the phone' : 'Could not link a phone', true); return; }
+                          { method: linked ? 'DELETE' : 'POST' }).catch(() => null);
+  if (!res?.ok) { showToast(linked ? 'Could not unlink the phone' : 'Could not link a phone', true); return; }
   if (linked) {
     delete phoneLinks[car.id];
     _phoneLink = null;
@@ -315,102 +281,70 @@ async function _togglePhoneLink(car) {
 }
 
 function renderCarsPanel() {
-  const ae = document.activeElement;
-  if (carsPanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+  if (isEditingIn(carsPanel)) return;
   for (const el of [...carsPanel.querySelectorAll(':scope > .car-entry')]) el.remove();
-  cars.forEach((car, i) => {
-    const color   = carColor(i);
-    const sched   = carSchedules[car.id];
-    const urgency = sweepUrgency(sched);
+  for (const car of cars) {
+    const sched = carSchedules[car.id];
     const addrText = sched?.address || '';
-
-    const entry = document.createElement('div');
-    entry.className = 'car-entry' + (car.id === _selectedCarId ? ' selected' : '');
-    entry.dataset.id = car.id;
-    // Urgency tint is theme-aware via [data-urgency] CSS (dark mode needs
-    // different backgrounds), so set the attribute instead of a hardcoded hex.
-    entry.dataset.urgency = urgency;
-    entry.style.cssText = `--car-color:${color}`;
-    // Click: expand (schedule + location buttons) and centre the target; click
-    // the open card again to collapse it.
-    entry.addEventListener('click', e => {
-      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
-      if (_selectedCarId === car.id) clearCarSelection(); else focusCar(car.id);
+    const linked = car.id in phoneLinks;
+    const lines = sched && BroomUrgency.formatBothSides(
+      sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
+    const entry = itemCard({
+      id: car.id, kind: 'car', color: carColor(car), name: car.name,
+      urgency: sched && sweepUrgency(sched), addr: addrText,
+      detail: `
+        <div class="ce-sched">${schedBlockHTML(car.id, 'Sweeping:', lines && (lines.length ? lines : ['No sweeping']))}</div>
+        <div class="ce-actions">
+          <button class="ce-btn ce-btn-gps">${icon('locate')} GPS</button>
+          <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
+          ${account ? `<button class="ce-btn ce-btn-phone">${linked ? 'Unlink phone' : 'Link phone'}</button>` : ''}
+          <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
+        </div>
+        ${account ? phoneLinkHTML(car) : ''}`,
     });
 
-    entry.innerHTML = `
-      <div class="ce-header">
-        <span class="ce-dot">${icon('car')}</span>
-        <span class="ce-name" contenteditable="false">${esc(car.name)}</span>
-        ${sched ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
-      </div>
-      <div class="ce-addr" contenteditable="false">${esc(addrText)}</div>
-      <div class="ce-detail">
-      <div class="ce-sched">${scheduleHTML(sched)}</div>
-      <div class="ce-actions">
-        <button class="ce-btn ce-btn-gps">${icon('locate')} GPS</button>
-        <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
-        ${account ? `<button class="ce-btn ce-btn-phone">${car.id in phoneLinks ? 'Unlink phone' : 'Link phone'}</button>` : ''}
-        <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
-      </div>
-      ${account ? phoneLinkHTML(car) : ''}
-      </div>`;
-
-    // ── Name editing ──
     const nameEl = entry.querySelector('.ce-name');
-    makeEditable(nameEl, () => car.name, v => { car.name = v; savePrefs(); });
+    makeEditable(nameEl, () => car.name, v => { car.name = v; savePrefs(); updateCarMarkers(); });
 
-    // ── Address editing ──
     const addrEl = entry.querySelector('.ce-addr');
     makeEditable(addrEl, () => addrText, async q => {
       addrEl.textContent = '…';
-      try {
-        const hit = await geocode(q);
-        if (!hit) {
-          addrEl.style.color = 'var(--red)';
-          addrEl.textContent = 'Address not found';
-          setTimeout(() => { addrEl.style.color = ''; addrEl.textContent = addrText; }, 2500);
-          return;
-        }
-        car.lat = hit.lat; car.lon = hit.lon; touchCarLocation(car);
-        savePrefs();
-        if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
-        updateCarMarkers();
-        checkCarSilently(car);
-      } catch (_) { addrEl.textContent = addrText; }
+      let hit;
+      try { hit = await geocode(q, regionAt(car.lat, car.lon) || _region); }
+      catch (_) { showToast('Could not look up the address', true); addrEl.textContent = addrText; return; }
+      if (!hit) { showToast('Address not found', true); addrEl.textContent = addrText; return; }
+      if (map) map.jumpTo({ center: [hit.lon, hit.lat], zoom: 16 });
+      moveCar(car, hit.lat, hit.lon);
     });
 
-    // ── GPS button ──
+    entry.querySelector('.ce-btn-retry')?.addEventListener('click', () => checkCar(car, true));
     entry.querySelector('.ce-btn-gps').addEventListener('click', e => {
-      locateWith(e.currentTarget, async (lat, lon) => {
-        car.lat = lat; car.lon = lon; touchCarLocation(car);
-        savePrefs();
+      locateWith(e.currentTarget, (lat, lon) => {
         if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
-        await checkCarWithRender(car);
+        return moveCar(car, lat, lon);
       });
     });
-
-    // ── Set location button ──
     entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacing(car.id));
 
-    // ── Phone link ──
-    entry.querySelector('.ce-btn-phone')?.addEventListener('click', () => _togglePhoneLink(car));
+    const phoneBtn = entry.querySelector('.ce-btn-phone');
+    if (phoneBtn && linked) confirmTap(phoneBtn, () => _togglePhoneLink(car));  // unlinking stops the automation
+    else phoneBtn?.addEventListener('click', () => _togglePhoneLink(car));
     entry.querySelector('.ce-btn-copy')?.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(_phoneLink.token); showToast('Token copied'); }
       catch (_) { entry.querySelector('.ce-token').select(); }
     });
 
-    // ── Remove button ──
     confirmTap(entry.querySelector('.ce-remove'), () => {
       delete carSchedules[car.id];
       cars = cars.filter(c => c.id !== car.id);
-      if (_selectedCarId === car.id) _selectedCarId = null;
+      if (_selectedId === car.id) _selectedId = null;
       savePrefs();
       updateCarMarkers();  // drops its marker and re-renders the cards
     });
 
     carsPanel.appendChild(entry);
-  });
+  }
+  applySelection();
   renderInfoCard();
   updateSheetSummary();
 }

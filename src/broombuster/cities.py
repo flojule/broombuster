@@ -47,6 +47,13 @@ def in_bbox(city_key: str, lat: float, lon: float) -> bool:
     return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
 
 
+def region_bbox(region_key: str) -> tuple[float, float, float, float]:
+    """(lat_min, lon_min, lat_max, lon_max) around every city of a region."""
+    boxes = [CITIES[ck]["bbox"] for ck in REGIONS[region_key]["cities"]]
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes))
+
+
 def region_for_point(lat: float, lon: float) -> str:
     """Region whose center is nearest (lat, lon)."""
     return min(REGIONS, key=lambda rk: _dist2(REGIONS[rk]["center"], lat, lon))
