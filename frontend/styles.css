@@ -305,7 +305,8 @@
     /* Chevron points the way the card will go: down to open, up to close (like the sheet's). */
     #ic-chevron { width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center; color: var(--muted); transition: transform .15s; }
     #info-card.expanded #ic-chevron { transform: rotate(180deg); }
-    .cal-today { min-height: 30px; padding: 0 10px; margin-left: 4px; border: 1px solid var(--hairline);
+    /* Today leads the header (as in Google Calendar / Outlook): ‹ month › stay together. */
+    .cal-today { min-height: 30px; padding: 0 10px; margin-right: 2px; border: 1px solid var(--hairline);
                  border-radius: 999px; font-size: .72rem; font-weight: 600; color: var(--text); }
     .cal-today:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
     .cal-muted { font-size: .72rem; color: var(--muted); }

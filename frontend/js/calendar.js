@@ -194,10 +194,10 @@ function renderInfoCard(f) {
 
   infoCard.classList.toggle('expanded', _cal.expanded);
   document.body.classList.toggle('cal-open', _cal.expanded);
-  icTitle.innerHTML = `<button class="cal-nav" data-cal-nav="-1" aria-label="${_cal.expanded ? 'Previous month' : 'Previous week'}">‹</button>`
+  icTitle.innerHTML = `<button class="cal-today" data-cal-today>Today</button>`
+    + `<button class="cal-nav" data-cal-nav="-1" aria-label="${_cal.expanded ? 'Previous month' : 'Previous week'}">‹</button>`
     + `<b id="ic-month"></b>`
-    + `<button class="cal-nav" data-cal-nav="1" aria-label="${_cal.expanded ? 'Next month' : 'Next week'}">›</button>`
-    + `<button class="cal-today" data-cal-today>Today</button>`;
+    + `<button class="cal-nav" data-cal-nav="1" aria-label="${_cal.expanded ? 'Next month' : 'Next week'}">›</button>`;
   icHead.setAttribute('aria-expanded', String(_cal.expanded));
   icHead.title = _cal.expanded ? 'Collapse calendar' : 'Expand calendar';
   const range = _calRange0 = _calRange(today);
