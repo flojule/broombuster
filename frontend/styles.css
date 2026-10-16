@@ -58,10 +58,14 @@
     /* ── App ── */
     /* Fixed to the full screen so the map runs under the status bar / Dynamic Island.
        --app-h is the screen height in an iPhone home-screen app (js/core.js), where the
-       viewport units can come up short. The page behind is map-coloured, so nothing
-       white can show at an edge. */
+       viewport units can come up short. In a browser it is the visible height (dvh):
+       Safari clips fixed content at its floating address bar, so a 100vh app would put
+       the cards under it. The page behind is map-coloured, which Safari also uses to
+       tint its bars, so nothing white can show at an edge. */
     html { background: #ecefea; } html:has(body.dark) { background: #121212; }
     #app-screen { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h, 100vh); }
+    /* Inside @supports: an unknown unit in a var() fallback would void the height, not fall back. */
+    @supports (height: 100dvh) { #app-screen { height: var(--app-h, 100dvh); } }
     /* Floating panels take no page gestures (a drag that leaves them must not pan the
        map or the page); their scrollers allow their own direction back. */
     #info-card, #sheet, #map-ctrl { touch-action: none; }
