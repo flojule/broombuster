@@ -197,6 +197,18 @@ const sheetHandle    = document.getElementById('sheet-handle');
 const sheetSummary   = document.getElementById('sheet-summary');
 const btnConfirmPlace = document.getElementById('btn-confirm-place');
 
+// ── Screen height (iPhone home-screen app) ────────────────────────────────────
+// There the app always fills the screen, but with a translucent status bar iOS can
+// size the viewport (100%, and sometimes 100vh) a status bar short, leaving a strip at
+// the bottom. The screen size is exact (iOS reports it in portrait).
+if (navigator.standalone && /iPhone/.test(navigator.userAgent)) {
+  const _landscape = window.matchMedia('(orientation: landscape)');
+  const setAppH = () => document.documentElement.style.setProperty('--app-h',
+    (_landscape.matches ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height)) + 'px');
+  setAppH();
+  _landscape.addEventListener('change', setAppH);
+}
+
 // ── Bottom sheet (cars & homes) ───────────────────────────────────────────────
 // Collapses to a handle (default) so the map + placement center-target stay clear. The
 // expanded/collapsed state persists.
@@ -226,6 +238,12 @@ sheetHandle.addEventListener('keydown', e => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSheetCollapsed(!_sheetCollapsed); }
 });
 applySheet();
+
+// A drag that starts on a panel stays with it, even once the finger leaves it: the
+// map listens for touch moves on the whole window.
+for (const panel of [sheet, document.getElementById('info-card')]) {
+  panel.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
+}
 
 // Sheet height lifts the map controls above it on mobile.
 new ResizeObserver(() => {
