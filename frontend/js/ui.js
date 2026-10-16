@@ -1,11 +1,21 @@
 // ── Toast notifications ────────────────────────────────────────────────────────
 const _toastContainer = document.getElementById('toast-container');
-function showToast(msg, isError = false) {
+// The container is a polite live region, so screen readers announce each toast.
+function showToast(msg, isError = false, ms = 3100) {
   const el = document.createElement('div');
   el.className = 'toast' + (isError ? ' error' : '');
   el.textContent = msg;
+  el.style.animationDelay = `0s, ${(ms - 400) / 1000}s`;  // toast-in, then toast-out
   _toastContainer.appendChild(el);
-  setTimeout(() => el.remove(), 3100);
+  setTimeout(() => el.remove(), ms);
+}
+
+// Safari on iPhone: once, after the first car or home is saved (the user has seen what
+// the app is for), say how to install it full screen. Safari has no install prompt.
+function offerInstall() {
+  if (navigator.standalone !== false || !/iPhone|iPad/.test(navigator.userAgent)) return;
+  try { if (localStorage.getItem('bb_install_hint')) return; localStorage.setItem('bb_install_hint', '1'); } catch (_) { return; }
+  showToast('Tip: Share › Add to Home Screen opens BroomBuster full screen.', false, 8000);
 }
 
 // ── Dark mode ─────────────────────────────────────────────────────────────────

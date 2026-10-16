@@ -64,9 +64,9 @@ def client_ip(request: Request) -> str:
 
 
 # ── Rate limits ───────────────────────────────────────────────────────────────
-# (path prefix, requests per minute per client). /address and /locate also call
-# third-party services, so they get less.
-LIMITS = (("/api/address", 20), ("/api/locate", 20), ("/api/check-home", 20),
+# (path prefix, requests per minute per client). /address, /geocode and /locate also
+# call third-party services, so they get less.
+LIMITS = (("/api/address", 20), ("/api/geocode", 20), ("/api/locate", 20), ("/api/check-home", 20),
           ("/api/check", 60), ("/api/me", 30), ("/api/cars", 30), ("/auth/logout", 30))
 _WINDOW_S = 60
 
@@ -168,13 +168,13 @@ def service_worker_response() -> Response:
 # from reading the code, so check the browser console for violations first.
 # No inline or remote scripts. Inline style attributes are allowed (the UI sets
 # colours that way). OpenFreeMap serves the basemap style, tiles, glyphs and
-# sprites; Nominatim answers address searches from the browser.
+# sprites; address searches go through our own /api/geocode.
 CSP = "; ".join((
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://tiles.openfreemap.org",
-    "connect-src 'self' https://tiles.openfreemap.org https://nominatim.openstreetmap.org",
+    "connect-src 'self' https://tiles.openfreemap.org",
     "worker-src 'self' blob:",
     "frame-ancestors 'none'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
 ))

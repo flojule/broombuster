@@ -55,7 +55,7 @@
 
     <!-- Right column (map controls): menu, zoom (desktop), locate. -->
     <div id="map-ctrl">
-      <button id="btn-menu" class="map-btn" title="Menu" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" aria-controls="app-menu"><svg class="ic"><use href="#i-more"/></svg></button>
+      <button id="btn-menu" class="map-btn" title="Menu" aria-label="Menu" aria-expanded="false" aria-controls="app-menu"><svg class="ic"><use href="#i-more"/></svg></button>
       <button id="btn-zoom-in" class="map-btn zoom-btn" title="Zoom in" aria-label="Zoom in"><svg class="ic"><use href="#i-plus"/></svg></button>
       <button id="btn-zoom-out" class="map-btn zoom-btn" title="Zoom out" aria-label="Zoom out"><svg class="ic"><use href="#i-minus"/></svg></button>
       <button id="btn-locate" class="map-btn" title="Use GPS location" aria-label="Use GPS location"><svg class="ic"><use href="#i-locate"/></svg></button>
@@ -69,10 +69,10 @@
       <button id="btn-cancel-place">Cancel</button>
     </div>
 
-    <!-- Right-click context menu -->
+    <!-- "Add here" menu: right-click, or a long press on touch -->
     <div id="ctx-menu">
-      <div class="ctx-item" id="ctx-add-car"><svg class="ic"><use href="#i-plus"/></svg> Add car here</div>
-      <div class="ctx-item" id="ctx-add-home"><svg class="ic"><use href="#i-home"/></svg> Add home here</div>
+      <button class="ctx-item" id="ctx-add-car"><svg class="ic"><use href="#i-car"/></svg> Add car here</button>
+      <button class="ctx-item" id="ctx-add-home"><svg class="ic"><use href="#i-home"/></svg> Add home here</button>
     </div>
 
     <!-- Bottom sheet: cars & homes. Empty: just the two add buttons. Otherwise it
@@ -80,7 +80,7 @@
          clear. Body order: add-row, home cards, then car cards
          (appended by renderCarsPanel). -->
     <div id="sheet">
-      <div id="sheet-handle" role="button" tabindex="0" aria-label="Minimize or show cars & homes">
+      <div id="sheet-handle" role="button" tabindex="0" aria-expanded="false" aria-controls="cars-panel">
           <span id="sheet-summary"></span>
         <span id="sheet-chevron"><svg class="ic"><use href="#i-chevron"/></svg></span>
       </div>
@@ -107,17 +107,18 @@
     <!-- Calendar: fixed content (strip, or month view on tap); the street under
          the target and the cars appear only as marks on its days. -->
     <div id="info-card">
-      <div id="ic-head" role="button" tabindex="0" aria-expanded="false">
+      <div id="ic-head">
         <span id="ic-title"><svg class="ic"><use href="#i-calendar"/></svg>&nbsp;Calendar</span>
-        <span id="ic-chevron"><svg class="ic"><use href="#i-chevron"/></svg></span>
+        <button id="ic-toggle" aria-expanded="false" aria-controls="ic-cal"><svg class="ic"><use href="#i-chevron"/></svg></button>
       </div>
       <div id="ic-cal"></div>
     </div>
   </div>
 </div>
 
-<!-- App menu: account (when sign-in is on), appearance, map colors, about. Account part filled by js/account.js. -->
-<div id="app-menu" role="menu" hidden>
+<!-- App menu (a disclosure panel): account (when sign-in is on), appearance, map colors, about.
+     Account part filled by js/account.js. -->
+<div id="app-menu" hidden>
   <div class="menu-sec" id="menu-account" hidden></div>
   <div class="menu-sec">
     <div class="menu-label">Appearance</div>
@@ -138,7 +139,7 @@
 </div>
 
 <!-- Toast container -->
-<div id="toast-container"></div>
+<div id="toast-container" role="status" aria-live="polite"></div>
 
 <!-- MapLibre 6 is ESM-only; expose it as a global before the deferred app scripts run. -->
 <script type="module" src="/js/maplibre-global.js"></script>

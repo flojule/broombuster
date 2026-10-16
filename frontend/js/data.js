@@ -1,12 +1,32 @@
-// ── Map contextmenu (right-click to add car) ──────────────────────────────────
+// ── "Add here" menu: right-click, or a long press on touch (as in Google / Apple Maps) ──
 mapDiv.addEventListener('contextmenu', e => {
   e.preventDefault();
   if (!map) return;
   const rect = mapDiv.getBoundingClientRect();
-  const ll   = map.unproject([e.clientX - rect.left, e.clientY - rect.top]);
-  pendingLat = ll.lat; pendingLon = ll.lng;
-  showCtxMenu(e.clientX, e.clientY);
+  openCtxMenu(map.unproject([e.clientX - rect.left, e.clientY - rect.top]), e.clientX, e.clientY);
 });
+// Held still for 500 ms with one finger; a pan, a second finger or lifting cancels it.
+let _press = null;  // AbortController of the pending press
+mapDiv.addEventListener('touchstart', e => {
+  _press?.abort();
+  if (e.touches.length !== 1 || !map || placing || _namePopup || e.target.closest('.pin')) return;
+  const { clientX: x0, clientY: y0 } = e.touches[0];
+  const ac = _press = new AbortController(), opts = { passive: true, signal: ac.signal };
+  const timer = setTimeout(() => {
+    ac.abort();
+    const rect = mapDiv.getBoundingClientRect();
+    openCtxMenu(map.unproject([x0 - rect.left, y0 - rect.top]), x0, y0);
+    // Lifting the finger must not also tap the map (or close the menu it just opened).
+    mapDiv.addEventListener('touchend', ev => ev.preventDefault(), { once: true, passive: false });
+  }, 500);
+  ac.signal.addEventListener('abort', () => clearTimeout(timer));
+  mapDiv.addEventListener('touchmove', ev => {
+    const p = ev.touches[0];
+    if (Math.hypot(p.clientX - x0, p.clientY - y0) > 10) ac.abort();
+  }, opts);
+  mapDiv.addEventListener('touchend', () => ac.abort(), opts);
+  mapDiv.addEventListener('touchcancel', () => ac.abort(), opts);
+}, { passive: true });
 
 // The name box closes only via its ✕, Esc, or saving: a stray/retargeted tap
 // (soft keyboard, touch) must not discard it.
@@ -15,7 +35,7 @@ document.addEventListener('click', e => {
 });
 
 // Holistic Escape: dismiss whichever transient UI is open (one layer per
-// press), then close the month view, then deselect the selected car card.
+// press), then close the month view, then close the open card.
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   // Editable fields own Escape locally (cancel rename / close name input);
@@ -26,11 +46,10 @@ document.addEventListener('keydown', e => {
   if (!_appMenu.hidden)                         { setMenuOpen(false); dismissed = true; }
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
   if (_namePopup)                               { closeNameBox();     dismissed = true; }
-  if (_gpsLocPin)                               { clearGpsPin();  dismissed = true; }
-  if (placingCar || placingHome)                { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
+  if (placing)                                  { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
   if (dismissed) return;
   if (_cal.expanded) { collapseCal(); return; }
-  if (_selectedCarId) clearCarSelection();
+  clearSelection();
 });
 
 
@@ -61,6 +80,8 @@ function loadPrefs() {
   try { p = JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch (_) {}
   cars = Array.isArray(p.cars) ? p.cars : [];
   homes = Array.isArray(p.homes) ? p.homes : [];
+  // Cars saved before colours were stored keep the colour their position gave them.
+  cars.forEach((c, i) => { c.color ||= CAR_COLORS[i % CAR_COLORS.length]; });
 }
 // Version a car's position change so a stale device or phone update can't
 // overwrite it (the server keeps the higher version; see auth._merge_cars). The
@@ -98,14 +119,14 @@ async function getPermittedGPS() {
 function locateWith(btn, onFix) {
   const done = () => { btn.disabled = false; btn.classList.remove('busy'); };
   btn.disabled = true; btn.classList.add('busy');
-  getGPS(async (lat, lon) => { done(); await onFix(lat, lon); },
+  getGPS(async (lat, lon, acc) => { done(); await onFix(lat, lon, acc); },
          msg => { done(); showToast(`GPS: ${msg}`, true); });
 }
 
 function getGPS(onSuccess, onError) {
   if (!navigator.geolocation) { onError?.('Geolocation not supported.'); return; }
   navigator.geolocation.getCurrentPosition(
-    pos => onSuccess(pos.coords.latitude, pos.coords.longitude),
+    pos => onSuccess(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
     err => onError?.(err.message),
     { enableHighAccuracy: true, timeout: 10000 }
   );

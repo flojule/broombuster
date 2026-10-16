@@ -4,7 +4,7 @@ Street-sweeping map for Oakland, San Francisco, Berkeley, Alameda and Chicago.
 
 ## Use
 
-1. Tap **Add car** (or right-click the map > *Add car here*), place it, and see when its street is swept.
+1. Tap **Add car** (or right-click or long-press the map > *Add car here*), place it, and see when its street is swept.
 2. Add more cars, and **Add home** (Oakland) for trash pickup days.
 3. Sign in with Google to sync cars across devices.
 4. Optional: [have your phone update the car's position](docs/phone-setup.md) when you park.
@@ -19,12 +19,20 @@ uv sync --locked --all-extras
 Deploying and operating: [docs/operations.md](docs/operations.md).
 
 Layout check: `scripts/visual_scenarios.py` screenshots every platform (desktop WebKit and Chromium, iPhone
-Safari tab and home-screen app, landscape, iPad) x light/dark x view into `build/visual/`, and fails if the
-centre target is covered, panels overlap, the app is the wrong height or a street has no colour:
+Safari tab and home-screen app, landscape, iPad, Android Chrome) x light/dark x view into `build/visual/`, and
+fails if the centre target is covered, panels overlap, the app is the wrong height, a street has no colour or
+axe-core finds a serious WCAG 2.2 AA problem. It runs on every pull request (Visual workflow, screenshots
+attached to the run):
 
 ```bash
 uv tool run --from playwright python scripts/visual_scenarios.py [--only iphone-safari] [--view month] [--theme dark]
 ```
+
+Headless WebKit cannot draw Safari's toolbars or the Dynamic Island, so before a layout change ships, check on
+an iPhone, in a Safari tab and in the home-screen app: the map reaches the screen edges (the Safari tab stops at
+the status bar), the calendar and cards clear the address bar and home indicator, the month view and the sheet
+take turns and keep the centre dot visible, the locate button shows the blue dot, and a long press on the map
+offers "Add car here". If something looks wrong, Safari's Web Inspector over USB shows the live page.
 
 ## License
 
