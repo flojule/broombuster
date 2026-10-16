@@ -17,19 +17,17 @@ function _applyDark(on) {
   const styleChanged = _mapStyle !== style;
   _mapStyle = style;
   if (map && styleChanged) {
-    map.setStyle(_mapStyle);
-    // Re-mount only after the NEW style settles. whenStyleReady() can't be used:
-    // right after setStyle() isStyleLoaded() still reports the OLD style as
-    // loaded, so the re-add fires early and the new style then wipes it (street/
-    // zone layers vanishing on toggle). 'style.load' is unreliable on setStyle
-    // here; 'idle' fires once the swapped style + basemap have settled.
-    map.once('idle', () => {
-      map.dragRotate.disable();
-      map.touchZoomRotate.disableRotation();
-      // setStyle() drops all sources/layers; force the tile source to remount.
-      _tilesRegion = null; ensureTiles();
-      updateCarMarkers();
-    });
+    // Carry the street source and layers into the new basemap so they never blink
+    // out (the ward outline takes the new theme's colour). Their urgency is
+    // re-applied once it settles, in case the swap dropped feature-state.
+    map.setStyle(_mapStyle, { transformStyle: (prev, next) => {
+      if (!prev?.sources?.[TILES_SOURCE]) return next;
+      const ours = prev.layers.filter(l => ZONE_LAYERS.includes(l.id)).map(l => l.id === 'zones-ward'
+        ? { ...l, paint: { ...l.paint, 'line-color': _wardLineColor() } } : l);
+      return { ...next, sources: { ...next.sources, [TILES_SOURCE]: prev.sources[TILES_SOURCE] },
+               layers: [...next.layers, ...ours] };
+    } });
+    map.once('idle', scheduleUrgencyUpdate);
   }
 }
 // Menu choice (auto / light / dark); auto also reacts to the system changing.
@@ -79,7 +77,7 @@ function setMenuOpen(on) {
   document.body.classList.toggle('menu-open', on);
   _btnMenu.setAttribute('aria-expanded', String(on));
   if (!on) return;
-  if (typeof renderAccountSection === 'function') renderAccountSection();
+  renderAccountSection();
   // Opens to the left of the button, kept inside the screen.
   const r = _btnMenu.getBoundingClientRect();
   _appMenu.style.right = (window.innerWidth - r.left + 8) + 'px';

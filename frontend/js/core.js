@@ -88,7 +88,6 @@ function makeEditable(el, original, onCommit) {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let cars           = [];
-let activeCarId    = null;
 let regions        = {};         // regionKey → {name, center, zoom, tz} from /cities
 let placingCar     = false;
 let placingHome    = false;
@@ -146,13 +145,15 @@ const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 const TILES_SOURCE     = 'zones-tiles';
 const TILES_SRC_LAYER  = 'zones';
 function _urgCase(prop) {
-  // MapLibre expression: pick colour from feature-state 'urgency' (default safe).
+  // MapLibre expression: pick colour from feature-state 'urgency'. A feature whose
+  // urgency is not computed yet stays transparent rather than flashing "Clear" blue.
   return [
-    'case',
-    ['==', ['feature-state', 'urgency'], 'today'],    URGENCY.today[prop],
-    ['==', ['feature-state', 'urgency'], 'tomorrow'], URGENCY.tomorrow[prop],
-    ['==', ['feature-state', 'urgency'], 'none'],     URGENCY.none[prop],
-    URGENCY.safe[prop],
+    'match', ['coalesce', ['feature-state', 'urgency'], ''],
+    'today',    URGENCY.today[prop],
+    'tomorrow', URGENCY.tomorrow[prop],
+    'safe',     URGENCY.safe[prop],
+    'none',     URGENCY.none[prop],
+    'rgba(0,0,0,0)',
   ];
 }
 // Street line width scales with zoom so it stays thin on city-wide views; it also

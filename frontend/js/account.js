@@ -68,9 +68,8 @@ async function refreshFromAccount() {
     if (moved.length) {
       try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
       for (const car of moved) checkCarSilently(car);
-      updateCarMarkers();
     }
-    renderCarsPanel();
+    updateCarMarkers();  // re-renders the cards (phone link status may have changed)
   } catch (_) {}
 }
 
@@ -91,8 +90,8 @@ function _menuItem(text, onClick) {
 async function _leaveAccount(request) {
   setMenuOpen(false);
   await _flushPrefs();
-  const res = await request();
-  if (!res.ok) { showToast('Request failed', true); return; }
+  const res = await request().catch(() => null);
+  if (!res?.ok) { showToast('Request failed', true); return; }
   account = null;
   localStorage.removeItem(PREFS_KEY);  // the account's cars and homes leave this device
   location.reload();

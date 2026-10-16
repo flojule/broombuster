@@ -12,8 +12,7 @@ async function checkCarWithRender(car) {
     carSchedules[car.id] = data;
     upgradeAddress(car, data);
     if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
-    updateCarMarkers();
-    renderCarsPanel();
+    updateCarMarkers();  // re-renders the cards
   } catch (e) { clearTimeout(warmupTimer); showToast(`Network error: ${e.message}`, true); }
 }
 
@@ -219,7 +218,6 @@ async function savePendingCar() {
   closeNameBox(true);
   if (_gpsLocPin) hideGpsPinPopup();
   savePrefs();
-  activeCarId = id;
   setSheetCollapsed(false);  // reveal the new card
   updateCarMarkers();
   checkCarSilently(cars[cars.length - 1]);
@@ -404,15 +402,11 @@ function renderCarsPanel() {
 
     // ── Remove button ──
     confirmTap(entry.querySelector('.ce-remove'), () => {
-      const marker = _carMarkers.get(car.id);
-      if (marker) { marker.remove(); _carMarkers.delete(car.id); }
       delete carSchedules[car.id];
       cars = cars.filter(c => c.id !== car.id);
-      if (activeCarId === car.id) activeCarId = cars[0]?.id ?? null;
       if (_selectedCarId === car.id) _selectedCarId = null;
       savePrefs();
-      updateCarMarkers();
-      renderCarsPanel();
+      updateCarMarkers();  // drops its marker and re-renders the cards
     });
 
     carsPanel.appendChild(entry);

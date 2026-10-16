@@ -63,8 +63,12 @@ function loadPrefs() {
   homes = Array.isArray(p.homes) ? p.homes : [];
 }
 // Version a car's position change so a stale device or phone update can't
-// overwrite it (the server keeps the higher version; see auth._merge_cars).
-function touchCarLocation(car) { car.loc_rev = (car.loc_rev || 0) + 1; }
+// overwrite it (the server keeps the higher version; see auth._merge_cars). The
+// version is the clock in seconds: a phone report (server: version + 1) made while
+// this page was open must not outrank a move the user makes here afterwards.
+function touchCarLocation(car) {
+  car.loc_rev = Math.max((car.loc_rev || 0) + 1, Math.floor(Date.now() / 1000));
+}
 function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
   syncPrefs();

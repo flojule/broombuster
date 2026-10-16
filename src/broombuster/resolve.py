@@ -206,7 +206,7 @@ def _determine_side(geom, car_pt, proj_pt, row) -> str | None:
         left_side = cross > 0
 
     left_parity = _parity(row.get("L_F_ADD"), row.get("L_T_ADD"))
-    right_parity = _parity(r_from=row.get("R_F_ADD"), r_to=row.get("R_T_ADD"))
+    right_parity = _parity(row.get("R_F_ADD"), row.get("R_T_ADD"))
 
     if left_side:
         # Prefer left-side parity; fall back to the complement of right-side.
@@ -271,17 +271,13 @@ def _coords_for(geom, proj_pt) -> list[tuple[float, float]]:
     return []
 
 
-def _parity(l_from=None, l_to=None, *, r_from=None, r_to=None) -> str | None:
+def _parity(addr_from, addr_to) -> str | None:
     """Return 'even' | 'odd' | None for one side's address range.
 
-    Called as either _parity(l_f, l_t) or _parity(r_from=..., r_to=...).
     A side is 'even' only when both endpoints are even, 'odd' only when
     both are odd. Mixed or missing → None.
     """
-    if r_from is not None or r_to is not None:
-        a, b = _safe_int(r_from), _safe_int(r_to)
-    else:
-        a, b = _safe_int(l_from), _safe_int(l_to)
+    a, b = _safe_int(addr_from), _safe_int(addr_to)
     if a is None or b is None:
         return None
     if a % 2 == 0 and b % 2 == 0:
