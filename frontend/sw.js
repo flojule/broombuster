@@ -20,8 +20,8 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-
-  if (API_PATHS.some(p => url.pathname.startsWith(p))) return;
+  // Basemap tiles and geocoding (other origins) and API calls skip the worker.
+  if (url.origin !== location.origin || API_PATHS.some(p => url.pathname.startsWith(p))) return;
   event.respondWith(
     // Network first so a deploy is never masked by a stale cached shell; the cache is the offline fallback.
     fetch(event.request).catch(() => caches.match(event.request, { ignoreSearch: true }))

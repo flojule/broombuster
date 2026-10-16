@@ -56,6 +56,9 @@ function attachMapListeners() {
   // loaded tile features once the map settles.
   map.on('moveend', syncRegion);
   map.on('idle', scheduleUrgencyUpdate);
+  // Colour tiles as they arrive, not only once the whole map is idle: until then
+  // their streets are transparent (see _urgCase).
+  map.on('sourcedata', (e) => { if (e.sourceId === TILES_SOURCE && e.tile) scheduleUrgencyUpdate(); });
   syncRegion();
 }
 
@@ -179,15 +182,17 @@ function ensureTiles() {
   });
 }
 
+// Throttled, not debounced: a stream of tile loads must not keep postponing the
+// pass (applyUrgencyStates skips features it already coloured this minute).
 function scheduleUrgencyUpdate() {
-  if (_urgencyTimer) clearTimeout(_urgencyTimer);
-  _urgencyTimer = setTimeout(applyUrgencyStates, 150);
+  if (_urgencyTimer) return;
+  _urgencyTimer = setTimeout(() => { _urgencyTimer = null; applyUrgencyStates(); }, 50);
 }
 
 // Compute urgency for every in-view tile feature and push it to feature-state,
 // which drives the paint expressions. A verdict is reused only within the
 // region-local minute it was computed (a window may close at any minute), and
-// feature-state is written only when the verdict changed.
+// feature-state is written only when it differs (a style switch can drop it).
 function applyUrgencyStates() {
   if (!map || !_tilesRegion || !map.getSource(TILES_SOURCE)) return;
   const now = regionNow(_tilesRegion);
@@ -197,23 +202,22 @@ function applyUrgencyStates() {
   catch (_) { return; }
   for (const f of feats) {
     if (f.id === undefined || f.id === null) continue;
-    const prev = _featStateCache.get(f.id);
-    if (prev && prev[1] === stamp) continue;
-    let sched = _featSchedCache.get(f.id);
-    if (sched === undefined) {
-      let entries;
-      try { entries = JSON.parse(f.properties.sched || '[]') || []; } catch (_) { entries = []; }
-      // Same test as the street sign's "No sweeping": nothing real to display.
-      sched = { entries, none: !tileSchedLines(f.properties).length };
-      _featSchedCache.set(f.id, sched);
+    let u = _featStateCache.get(f.id);
+    u = u && u[1] === stamp ? u[0] : null;
+    if (u === null) {
+      let sched = _featSchedCache.get(f.id);
+      if (sched === undefined) {
+        let entries;
+        try { entries = JSON.parse(f.properties.sched || '[]') || []; } catch (_) { entries = []; }
+        // Same test as the street sign's "No sweeping": nothing real to display.
+        sched = { entries, none: !tileSchedLines(f.properties).length };
+        _featSchedCache.set(f.id, sched);
+      }
+      u = sched.none ? 'none' : BroomUrgency.checkDaySweeping(sched.entries, now);
+      _featStateCache.set(f.id, [u, stamp]);
     }
-    const u = sched.none ? 'none' : BroomUrgency.checkDaySweeping(sched.entries, now);
-    _featStateCache.set(f.id, [u, stamp]);
-    if (prev && prev[0] === u) continue;
-    map.setFeatureState(
-      { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id },
-      { urgency: u },
-    );
+    const target = { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id };
+    if (map.getFeatureState(target).urgency !== u) map.setFeatureState(target, { urgency: u });
   }
 }
 

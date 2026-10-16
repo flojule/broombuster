@@ -179,7 +179,6 @@ function updateCalTitle() {
 
 // f = center feature (undefined: look it up).
 function renderInfoCard(f) {
-  if (!infoCard) return;
   if (f === undefined) f = _centerFeature();
   const props = f?.properties || null;
   const lines = props ? tileSchedLines(props) : [];

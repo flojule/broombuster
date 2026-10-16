@@ -32,7 +32,6 @@ function homeScheduleHTML(sched) {
 }
 
 function renderHomePanel() {
-  if (!homePanel) return;
   // Don't wipe an address editor (contenteditable) mid-type on a re-render.
   const ae = document.activeElement;
   if (homePanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT')) return;

@@ -11,7 +11,6 @@ async function initApp() {
   checkAllHomes();
 
   if (cars.length) {
-    activeCarId = cars[0].id;
     await checkCarWithRender(cars[0]);
     for (const car of cars.slice(1)) checkCarSilently(car);
     return;
@@ -40,7 +39,6 @@ setInterval(() => {
   _liveUrgencySig = sig;
   renderCarsPanel();
   renderHomePanel();
-  updateSheetSummary();
 }, 60 * 1000);
 
 // ── Locate button (GPS) ───────────────────────────────────────────────────────
