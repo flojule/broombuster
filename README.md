@@ -4,8 +4,8 @@ Street-sweeping map for Oakland, San Francisco, Berkeley, Alameda and Chicago.
 
 ## Use
 
-1. Open the site and tap the map to drop your car. The card shows when its street is swept.
-2. Add more cars, and a home in Oakland for trash pickup days.
+1. Tap **Add car** (or right-click the map > *Add car here*), place it, and see when its street is swept.
+2. Add more cars, and **Add home** (Oakland) for trash pickup days.
 3. Sign in with Google to sync cars across devices.
 4. Optional: [have your phone update the car's position](docs/phone-setup.md) when you park.
 
