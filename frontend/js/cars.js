@@ -216,7 +216,7 @@ async function savePendingCar() {
   touchCarLocation(cars[cars.length - 1]);
   removeTempPin();
   closeNameBox(true);
-  if (_gpsLocPin) hideGpsPinPopup();
+  if (_gpsLocPin) clearGpsPin();
   savePrefs();
   setSheetCollapsed(false);  // reveal the new card
   updateCarMarkers();
@@ -340,7 +340,7 @@ function renderCarsPanel() {
 
     entry.innerHTML = `
       <div class="ce-header">
-        <span class="ce-dot"></span>
+        <span class="ce-dot">${icon('car')}</span>
         <span class="ce-name" contenteditable="false">${esc(car.name)}</span>
         ${sched ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
       </div>

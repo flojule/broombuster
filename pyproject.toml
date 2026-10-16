@@ -46,6 +46,9 @@ ignore = [
     "SIM105", "SIM108",            # explicit try/except and if/else read better here
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"scripts/visual_scenarios.py" = ["E501"]  # embedded JS and one-line scenario tables
+
 [tool.ruff.lint.isort]
 known-first-party = ["broombuster"]
 

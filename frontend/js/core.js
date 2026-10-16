@@ -101,7 +101,7 @@ let _gpsLocPinTimer = null;
 let _region          = null;   // region key under the map center (null: none nearby)
 const REGION_RADIUS  = 1.5;    // degrees: a region applies this close to its center
 const AREA_ZOOM      = 9;      // below this the map shows area labels instead of streets
-const isDesktop = () => window.matchMedia('(min-width: 768px)').matches;
+const isDesktop = () => window.matchMedia('(min-width: 768px), (orientation: landscape) and (max-height: 500px)').matches;  // = styles.css desktop layout
 
 // Region whose center is within REGION_RADIUS of (lat, lon), nearest first; else null.
 function regionAt(lat, lon) {
@@ -220,9 +220,13 @@ function applySheet() {
   sheet.classList.toggle('empty', empty);
   sheet.classList.toggle('collapsed', _sheetCollapsed && !empty);
 }
-function setSheetCollapsed(v) {
+// `remember` is false when the app closes the sheet itself (not the user's choice to keep).
+function setSheetCollapsed(v, remember = true) {
   _sheetCollapsed = !!v;
-  localStorage.setItem('bb_sheet_v2', _sheetCollapsed ? 'closed' : 'open');
+  if (remember) localStorage.setItem('bb_sheet_v2', _sheetCollapsed ? 'closed' : 'open');
+  // Phone: one big panel at a time (as in Google / Apple Maps), so the centre target
+  // and the map buttons stay clear. Desktop has the room for both.
+  if (!_sheetCollapsed && !isDesktop() && typeof _cal !== 'undefined' && _cal.expanded) collapseCal();
   applySheet();
 }
 // Handle text: the most urgent car verdict, else counts.
@@ -247,6 +251,8 @@ for (const panel of [sheet, document.getElementById('info-card')]) {
 }
 
 // Sheet height lifts the map controls above it on mobile.
-new ResizeObserver(() => {
+// (In a frame, so one observer's update can't re-trigger the other within the same frame.)
+new ResizeObserver(() => requestAnimationFrame(() => {
   document.documentElement.style.setProperty('--sheet-h', sheet.offsetHeight + 'px');
-}).observe(sheet);
+  if (typeof layoutSign === 'function') layoutSign();  // calendar.js may not have loaded yet
+})).observe(sheet);

@@ -13,8 +13,10 @@
       --sheet-peek: var(--tap);  /* collapsed bottom-sheet handle height */
       --edge: 12px;  /* gap between floating panels / map buttons and the screen edge */
       --panel-w: calc(100vw - 2 * var(--edge));  /* calendar card + sheet: edge to edge on mobile, so their right edge lines up with the map buttons */
+      --inset-t: env(safe-area-inset-top, 0px);     /* the notch / Dynamic Island (home-screen app only) */
       --inset-b: env(safe-area-inset-bottom, 0px);
       --edge-b: max(var(--edge), calc(var(--inset-b) - 18px));  /* bottom gap: just above the iPhone home indicator */
+      --center-gap: 28px;  /* clear space kept between the centre target and the cards */
       --info-h: 0px;  /* calendar card height, set from JS */
       --sheet-h: 0px; /* sheet height, set from JS */
       --street: #15803d;  /* street sweeping days in the calendar */
@@ -33,7 +35,7 @@
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
       body { --glass: color-mix(in srgb, var(--card) 74%, transparent);
              --hairline: color-mix(in srgb, var(--text) 14%, transparent); }
-      #info-card, #sheet, .map-btn, #app-menu, #ctx-menu, #gps-pin-popup, .area-label,
+      #info-card, #sheet, .map-btn, #app-menu, #ctx-menu, .area-label,
       .name-popup .maplibregl-popup-content {
         -webkit-backdrop-filter: blur(20px) saturate(1.8); backdrop-filter: blur(20px) saturate(1.8);
       }
@@ -47,7 +49,7 @@
     .busy svg.ic { animation: spin .8s linear infinite; }
     /* Buttons start bare; .btn is the filled primary action. */
     button { font: inherit; color: inherit; background: none; border: none; padding: 0; margin: 0; cursor: pointer; }
-    .btn, .add-car-btn, #btn-gps-add, #btn-np-save, #btn-confirm-place, #btn-cancel-place {
+    .btn, .add-car-btn, #btn-np-save, #btn-confirm-place, #btn-cancel-place {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       min-height: var(--tap); padding: 0 16px; background: var(--blue); color: #fff;
       border-radius: var(--r-md); font-size: .88rem; font-weight: 600; transition: opacity .15s;
@@ -148,8 +150,9 @@
       background: var(--glass); border: 1px solid var(--hairline);
       border-radius: var(--r-lg);
       box-shadow: var(--shadow-2);
-      /* Stays below the info card (top of the map) so the two never overlap. */
-      max-height: min(40%, calc(100% - var(--info-h) - var(--edge-b) - 44px));
+      /* Open, it stays in the lower half: its top clears the centre target (--center-gap),
+         and it stays below the info card, so the three never overlap. */
+      max-height: min(calc(50% - var(--center-gap) - var(--edge-b)), calc(100% - var(--info-h) - var(--edge-b) - 44px));
       pointer-events: auto;
     }
     #sheet-handle {
@@ -203,10 +206,11 @@
                  font-size: .72rem; font-weight: 600; white-space: nowrap; background: color-mix(in srgb, currentColor 14%, transparent); }
     .ce-detail { display: flex; flex-direction: column; gap: 5px; }
     .car-entry:not(.selected) .ce-detail { display: none; }
-    .ce-dot {
-      width: 16px; height: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-      background: radial-gradient(circle, var(--car-color, #3b82f6) 0 5px, transparent 5.5px);
-    }
+    /* Card icon: the car in its colour, the home in green. */
+    .ce-dot { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+              color: var(--car-color, #3b82f6); font-size: 20px; }
+    .ce-dot svg.ic { width: 1em; height: 1em; }
+    .ce-dot-home { color: #15803d; }
     .ce-name {
       flex: 0 1 auto; font-weight: 600; font-size: .84rem; outline: none;
       cursor: default; border-bottom: 1px solid transparent; min-width: 0;
@@ -243,16 +247,6 @@
       border: 1px solid var(--border); border-radius: 6px;
     }
 
-    /* ── GPS pin popup (add car here) ── */
-    #gps-pin-popup {
-      position: absolute; z-index: 30; display: none;
-      align-items: center; gap: 6px;
-      background: var(--glass); border: 1px solid var(--hairline); border-radius: var(--r-md);
-      padding: 8px 8px; box-shadow: var(--shadow-1);
-      transform: translate(-50%, calc(-100% - 24px));
-      white-space: nowrap; overflow: visible;
-    }
-    #btn-gps-add { font-size: .8rem; }
     /* Shared top-right corner close button for popups/boxes. */
     .popup-close {
       position: absolute; top: 4px; right: 4px;
@@ -289,7 +283,7 @@
     /* ── Calendar card (sweep calendar; fixed content, independent of the target) ──
        Top of the left column (mobile: centered). The header stays put; the body scrolls. */
     #info-card {
-      position: absolute; top: calc(env(safe-area-inset-top, 0px) + var(--edge)); left: var(--edge);
+      position: absolute; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
       z-index: 20; width: var(--panel-w); pointer-events: auto;
       display: flex; flex-direction: column;
       background: var(--glass); color: var(--text);
@@ -297,7 +291,7 @@
       box-shadow: var(--shadow-2); font-size: .8rem;
       padding: 0 12px; cursor: pointer;
     }
-    #ic-cal { flex: 1 1 auto; min-height: 0; padding-bottom: 10px; }
+    #ic-cal { flex: 1 1 auto; min-height: 0; padding-bottom: 10px; display: flex; flex-direction: column; }
     #info-card.expanded { cursor: default; }
     #ic-head {
       display: flex; align-items: center; gap: 8px; user-select: none;
@@ -321,12 +315,16 @@
       position: absolute; left: 50%; transform: translateX(-50%); z-index: 21; pointer-events: none;
       bottom: calc(var(--edge-b) + var(--sheet-h) + var(--edge));
       width: max-content; max-width: calc(100% - 120px); text-align: center;
+      /* Stays in the lower half, below the centre target; long schedules are clipped. */
+      display: flex; flex-direction: column;
+      max-height: calc(50% - var(--center-gap) - var(--edge-b) - var(--sheet-h) - var(--edge));
       background: #fff; color: #b91c1c; border: 2.5px solid #b91c1c; border-radius: 12px;
       padding: 8px 16px 9px; box-shadow: 0 0 0 3px #fff, 0 4px 16px rgba(0,0,0,.28);
       text-transform: uppercase; font-weight: 700; line-height: 1.25;
     }
     #ss-head { font-size: 1.05rem; letter-spacing: .06em; }
-    #ss-lines { font-size: .84rem; margin-top: 2px; }
+    #ss-lines { font-size: .84rem; margin-top: 2px; min-height: 0; overflow: hidden; }
+    #ss-head, #ss-foot, #ss-name { flex: none; }
     #ss-foot { font-size: .62rem; letter-spacing: .14em; margin-top: 3px; }
     #ss-name { font-size: .62rem; letter-spacing: .08em; color: #475569; font-weight: 600; margin-top: 5px;
                padding-top: 4px; border-top: 1px solid #fecaca; }
@@ -371,40 +369,42 @@
     .cal-nav { font-size: 1.2rem; width: var(--tap); height: var(--tap); color: var(--muted); }
     .cal-nav:hover { color: var(--text); }
     /* Month view: weeks in a column, scrolls vertically; six rows show. */
-    .cal-wds { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center;
+    .cal-wds { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center;
                font-size: .62rem; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
-    .cal-scroll { height: calc(6 * 43px - 3px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+    /* Six weeks, fewer when the card is capped (mobile): the grid scrolls inside it. */
+    .cal-scroll { flex: 0 1 auto; min-height: 0; height: calc(6 * 43px - 3px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
                   scroll-snap-type: y proximity; scrollbar-width: none; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 40px; gap: 3px; text-align: center; }
     .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .56rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
     .sw-now .cal-mo, .sw-next .cal-mo { color: #fff; }
-    .cal-detail { margin-top: 6px; font-size: .74rem; line-height: 1.4; min-height: 3em; }
+    .cal-detail { flex: none; margin-top: 6px; font-size: .74rem; line-height: 1.4; min-height: 3em; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
     .cal-round { border-radius: 50%; }
     body.naming #street-sign, body.menu-open #street-sign { display: none; }
+    /* Set from JS when an open sheet leaves no room for the sign below the centre target. */
+    #street-sign.blocked { visibility: hidden; }
+    /* 44 pt touch target (Apple HIG) around the 32 px disc. */
+    .car-marker::after, .home-marker::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }
+    .car-marker.selected { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 30%, transparent), 0 2px 8px rgba(0,0,0,.4); }
 
-    /* ── Car marker (MapLibre HTML element) ── */
-    .car-marker {
-      border-radius: 50%; border: 3px solid white;
-      box-shadow: 0 2px 8px rgba(0,0,0,.45);
-      cursor: pointer; transition: width .12s, height .12s, border-color .12s;
+    /* ── Map pins (MapLibre HTML elements): the card's icon on a white disc ringed in the car's
+       colour (set inline) or the home green. ── */
+    .car-marker, .home-marker {
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+      background: #fff; border: 2.5px solid currentColor; border-radius: 50%; font-size: 17px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4); transition: width .12s, height .12s, font-size .12s;
     }
-
-    /* Home pin — emoji marker, distinct from the round car dots. */
-    .home-marker {
-      width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer;
-      background: #15803d; color: #fff; border: 2.5px solid #fff; border-radius: 50%; font-size: 15px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.45);
-    }
-    .ce-dot-home { background: none; color: #15803d; }
+    .home-marker { --home: #15803d; color: var(--home); width: 32px; height: 32px; }
+    .car-marker svg.ic, .home-marker svg.ic { width: 1em; height: 1em; }
+    .car-marker { --icon-hole: #fff; }
+    .home-marker { --icon-hole: #fff; }
 
     /* ── Spinner ── */
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Month view (mobile): the sign and map buttons would cover days and the day detail. */
+    /* Month view (mobile): the card stops above the centre target, which stays in view. */
     @media (max-width: 767px) {
-      body.cal-open #street-sign, body.cal-open #map-ctrl { display: none; }
-      #info-card.expanded { max-height: none; }  /* six weeks + day detail */
+      #info-card.expanded { max-height: calc(50% - var(--inset-t) - var(--edge) - var(--center-gap)); }
     }
 
     /* ── Dark mode ── */
@@ -452,14 +452,18 @@
     }
     body.dark #center-crosshair.placing { box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 0 0 3.5px var(--blue); }
 
-    /* ── Desktop: same vertical layout, as a 300px left column (calendar top,
-       cars/homes bottom); the map controls take the top-right corner. ── */
-    @media (min-width: 768px) {
+    /* ── Desktop (and a phone on its side, too short for stacked cards): same vertical
+       layout, as a 300px left column (calendar top, cars/homes bottom); the map
+       controls take the top-right corner. Keep the query in step with isDesktop(). ── */
+    @media (min-width: 768px), (orientation: landscape) and (max-height: 500px) {
       :root { --panel-w: 300px; }
-      #info-card { top: var(--edge); }
+      #info-card, #info-card.expanded { top: var(--edge); max-height: calc(100% - 3 * var(--edge) - var(--sheet-peek)); }
       #sheet { bottom: var(--edge); max-height: calc(100% - var(--info-h) - 3 * var(--edge)); }
       #map-ctrl { top: var(--edge); bottom: auto; }
-      #street-sign { bottom: var(--edge); }
+      /* Centred in the map area right of the column, so a narrow window never puts it over the cards. */
+      #street-sign { bottom: var(--edge); max-height: calc(50% - var(--center-gap) - var(--edge));
+                     left: calc((100% + var(--panel-w) + var(--edge)) / 2);
+                     max-width: calc(100% - var(--panel-w) - 4 * var(--edge) - 64px); }
       body.placing #street-sign { bottom: var(--edge); }
       .zoom-btn { display: flex; }
       .cal-nav, #ic-chevron { width: 32px; }  /* room for the month name in the 300px column */
