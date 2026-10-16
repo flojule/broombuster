@@ -1,6 +1,6 @@
 // ── Account (Google sign-in; cars and homes sync to the signed-in user) ───────
-const btnAccount  = document.getElementById('btn-account');
-const accountMenu = document.getElementById('account-menu');
+const menuAccount = document.getElementById('menu-account');
+let accountEnabled = false;  // server has Google sign-in configured
 let account    = null;   // { email } while signed in
 let _syncTimer = null;
 let phoneLinks = {};     // car id -> epoch seconds of the phone's last report (null: never)
@@ -16,11 +16,9 @@ async function loadAccount() {
     const res = await fetch('/api/me', { cache: 'no-store' });
     if (!res.ok) return;
     const me = await res.json();
-    btnAccount.hidden = !me.enabled;
+    accountEnabled = !!me.enabled;
     account = me.user;
     phoneLinks = me.phone_links || {};
-    btnAccount.classList.toggle('signed-in', !!account);
-    btnAccount.title = account ? account.email : 'Sign in';
     if (!account) return;
     if (me.prefs) localStorage.setItem(PREFS_KEY, JSON.stringify(me.prefs));
     else if (localStorage.getItem(PREFS_KEY)) _putPrefs(localStorage.getItem(PREFS_KEY));
@@ -70,9 +68,8 @@ async function refreshFromAccount() {
     if (moved.length) {
       try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
       for (const car of moved) checkCarSilently(car);
-      updateCarMarkers();
     }
-    renderCarsPanel();
+    updateCarMarkers();  // re-renders the cards (phone link status may have changed)
   } catch (_) {}
 }
 
@@ -81,31 +78,29 @@ document.addEventListener('visibilitychange', () => {
   else refreshFromAccount();
 });
 
-// ── Account menu ──────────────────────────────────────────────────────────────
-function hideAccountMenu() { accountMenu.style.display = 'none'; }
-
+// ── Account section of the app menu (ui.js opens the menu) ─────────────────────
 function _menuItem(text, onClick) {
-  const el = document.createElement('div');
-  el.className = 'ctx-item' + (onClick ? '' : ' ctx-note');
+  const el = document.createElement(onClick ? 'button' : 'div');
+  el.className = onClick ? 'menu-item' : 'menu-note';
+  if (onClick) { el.type = 'button'; el.setAttribute('role', 'menuitem'); el.addEventListener('click', onClick); }
   el.textContent = text;
-  if (onClick) el.addEventListener('click', onClick);
   return el;
 }
 
 async function _leaveAccount(request) {
-  hideAccountMenu();
+  setMenuOpen(false);
   await _flushPrefs();
-  const res = await request();
-  if (!res.ok) { showToast('Request failed', true); return; }
+  const res = await request().catch(() => null);
+  if (!res?.ok) { showToast('Request failed', true); return; }
   account = null;
   localStorage.removeItem(PREFS_KEY);  // the account's cars and homes leave this device
   location.reload();
 }
 
-btnAccount.addEventListener('click', e => {
-  e.stopPropagation();
-  if (accountMenu.style.display === 'block') { hideAccountMenu(); return; }
-  const items = account
+function renderAccountSection() {
+  menuAccount.hidden = !accountEnabled;
+  if (!accountEnabled) return;
+  menuAccount.replaceChildren(...(account
     ? [_menuItem(account.email),
        _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' }))),
        _menuItem('Delete account', () => {
@@ -113,13 +108,5 @@ btnAccount.addEventListener('click', e => {
          _syncTimer = null;
          _leaveAccount(() => fetch('/api/me', { method: 'DELETE' }));
        })]
-    : [_menuItem('Sync cars and homes across devices'),
-       _menuItem('Sign in with Google', () => { location.href = '/auth/login'; })];
-  accountMenu.replaceChildren(...items);
-  // Opens to the left of the button (it sits in the right column).
-  const r = btnAccount.getBoundingClientRect();
-  accountMenu.style.top = r.top + 'px';
-  accountMenu.style.right = (window.innerWidth - r.left + 8) + 'px';
-  accountMenu.style.display = 'block';
-});
-document.addEventListener('click', hideAccountMenu);
+    : [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; })]));
+}

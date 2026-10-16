@@ -23,19 +23,16 @@ document.addEventListener('keydown', e => {
   const ae = document.activeElement;
   if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
   let dismissed = false;
-  if (!_legendPop.hidden)                       { setLegendOpen(false); dismissed = true; }
+  if (!_appMenu.hidden)                         { setMenuOpen(false); dismissed = true; }
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
   if (_namePopup)                               { closeNameBox();     dismissed = true; }
   if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
-  if (_zonePopup)                               { closeZoneDetail();  dismissed = true; }
   if (placingCar || placingHome)                { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
   if (dismissed) return;
   if (_cal.expanded) { collapseCal(); return; }
   if (_selectedCarId) clearCarSelection();
 });
 
-carsPanel.addEventListener('mouseenter', () => { _hoverSuppressed = true;  customHoverEl.style.display = 'none'; });
-carsPanel.addEventListener('mouseleave', () => { _hoverSuppressed = false; });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function abbreviate(s) {
@@ -66,8 +63,12 @@ function loadPrefs() {
   homes = Array.isArray(p.homes) ? p.homes : [];
 }
 // Version a car's position change so a stale device or phone update can't
-// overwrite it (the server keeps the higher version; see auth._merge_cars).
-function touchCarLocation(car) { car.loc_rev = (car.loc_rev || 0) + 1; }
+// overwrite it (the server keeps the higher version; see auth._merge_cars). The
+// version is the clock in seconds: a phone report (server: version + 1) made while
+// this page was open must not outrank a move the user makes here afterwards.
+function touchCarLocation(car) {
+  car.loc_rev = Math.max((car.loc_rev || 0) + 1, Math.floor(Date.now() / 1000));
+}
 function savePrefs() {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
   syncPrefs();
@@ -91,6 +92,14 @@ async function getPermittedGPS() {
     if (p.state !== 'granted') return null;
   } catch (_) { return null; }
   return new Promise(resolve => getGPS((lat, lon) => resolve({ lat, lon }), () => resolve(null)));
+}
+
+// A button that reads the device position: busy while waiting, error as a toast.
+function locateWith(btn, onFix) {
+  const done = () => { btn.disabled = false; btn.classList.remove('busy'); };
+  btn.disabled = true; btn.classList.add('busy');
+  getGPS(async (lat, lon) => { done(); await onFix(lat, lon); },
+         msg => { done(); showToast(`GPS: ${msg}`, true); });
 }
 
 function getGPS(onSuccess, onError) {

@@ -20,15 +20,8 @@ function initMap(center) {
 let _mapListenersAttached = false;
 let _tapTimer = null;  // deferred single-tap (cancelled by a double-tap zoom)
 
-// A settled single tap shows the tapped feature's schedule (the hover text, for
-// touch screens), else dismisses any open window.
-function handleMapTap(point, lngLat) {
-  const features = map.queryRenderedFeatures(point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
-  const props = features[0]?.properties;
-  if (!props) { dismissMapWindows(); return; }
-  showZoneDetail(lngLat, tileHoverHtml(props)
-    || `<b>${esc(props.street || '')}</b><br>No sweeping scheduled`);
-}
+// A settled single tap dismisses any open window (the street is read on the sign).
+function handleMapTap() { dismissMapWindows(); }
 
 function attachMapListeners() {
   // Event listeners live on the map instance and survive style changes, so only
@@ -36,28 +29,7 @@ function attachMapListeners() {
   if (_mapListenersAttached) return;
   _mapListenersAttached = true;
 
-  // Hover tooltip
-  map.on('mousemove', (e) => {
-    if (_hoverSuppressed) return;
-    const features = map.queryRenderedFeatures(e.point, { layers: HOVER_LAYERS.filter(l => !!map.getLayer(l)) });
-    if (!features.length) { customHoverEl.style.display = 'none'; return; }
-    const html = tileHoverHtml(features[0].properties || {});
-    if (!html) { customHoverEl.style.display = 'none'; return; }
-    customHoverEl.innerHTML = html;
-    customHoverEl.style.display = 'block';
-    // Clamp using the box's actual width (it now sizes to its widest line).
-    const w = customHoverEl.offsetWidth;
-    const x = Math.min(e.originalEvent.clientX + 14, window.innerWidth - w - 10);
-    const y = Math.max(e.originalEvent.clientY - 10, 10);
-    customHoverEl.style.left = Math.max(x, 6) + 'px';
-    customHoverEl.style.top  = y + 'px';
-  });
-
-  map.getCanvas().addEventListener('mouseleave', () => { customHoverEl.style.display = 'none'; });
-  map.on('movestart', () => { customHoverEl.style.display = 'none'; });
-
-  // Tap → the feature's schedule popup; a tap elsewhere dismisses any open
-  // window (popup, GPS pin popup, car selection) — like Esc. The action is
+  // A tap dismisses any open window (GPS pin popup, car selection), like Esc. The action is
   // deferred ~280 ms so a double-tap-to-zoom can cancel it (no window flash);
   // placement commits immediately, and a tap while the name box is open is ignored.
   map.on('click', (e) => {
@@ -66,8 +38,7 @@ function attachMapListeners() {
     if (placingCar || placingHome) return;
     if (_namePopup) return;  // name box open: taps don't open windows or close it
     if (_tapTimer) clearTimeout(_tapTimer);
-    const point = e.point, lngLat = e.lngLat;
-    _tapTimer = setTimeout(() => { _tapTimer = null; handleMapTap(point, lngLat); }, 280);
+    _tapTimer = setTimeout(() => { _tapTimer = null; handleMapTap(); }, 280);
   });
   map.on('dblclick', () => { if (_tapTimer) { clearTimeout(_tapTimer); _tapTimer = null; } });
 
@@ -85,6 +56,9 @@ function attachMapListeners() {
   // loaded tile features once the map settles.
   map.on('moveend', syncRegion);
   map.on('idle', scheduleUrgencyUpdate);
+  // Colour tiles as they arrive, not only once the whole map is idle: until then
+  // their streets are transparent (see _urgCase).
+  map.on('sourcedata', (e) => { if (e.sourceId === TILES_SOURCE && e.tile) scheduleUrgencyUpdate(); });
   syncRegion();
 }
 
@@ -107,7 +81,7 @@ function whenStyleReady(cb) {
 let _tilesRegion      = null;   // region currently mounted as a tile source
 let _pmtilesProtocol  = false;  // pmtiles:// protocol registered once
 let _featStateCache   = new Map();  // feature id -> [urgency, y-m-d-minute it was computed]
-let _featSchedCache   = new Map();  // feature id -> parsed sched entries
+let _featSchedCache   = new Map();  // feature id -> { parsed sched entries, whether the street has no sweeping }
 let _urgencyTimer     = null;
 
 function _archiveUrl(region) {
@@ -208,15 +182,17 @@ function ensureTiles() {
   });
 }
 
+// Throttled, not debounced: a stream of tile loads must not keep postponing the
+// pass (applyUrgencyStates skips features it already coloured this minute).
 function scheduleUrgencyUpdate() {
-  if (_urgencyTimer) clearTimeout(_urgencyTimer);
-  _urgencyTimer = setTimeout(applyUrgencyStates, 150);
+  if (_urgencyTimer) return;
+  _urgencyTimer = setTimeout(() => { _urgencyTimer = null; applyUrgencyStates(); }, 50);
 }
 
 // Compute urgency for every in-view tile feature and push it to feature-state,
 // which drives the paint expressions. A verdict is reused only within the
 // region-local minute it was computed (a window may close at any minute), and
-// feature-state is written only when the verdict changed.
+// feature-state is written only when it differs (a style switch can drop it).
 function applyUrgencyStates() {
   if (!map || !_tilesRegion || !map.getSource(TILES_SOURCE)) return;
   const now = regionNow(_tilesRegion);
@@ -226,26 +202,28 @@ function applyUrgencyStates() {
   catch (_) { return; }
   for (const f of feats) {
     if (f.id === undefined || f.id === null) continue;
-    const prev = _featStateCache.get(f.id);
-    if (prev && prev[1] === stamp) continue;
-    let entries = _featSchedCache.get(f.id);
-    if (entries === undefined) {
-      try { entries = JSON.parse(f.properties.sched || '[]') || []; } catch (_) { entries = []; }
-      _featSchedCache.set(f.id, entries);
+    let u = _featStateCache.get(f.id);
+    u = u && u[1] === stamp ? u[0] : null;
+    if (u === null) {
+      let sched = _featSchedCache.get(f.id);
+      if (sched === undefined) {
+        let entries;
+        try { entries = JSON.parse(f.properties.sched || '[]') || []; } catch (_) { entries = []; }
+        // Same test as the street sign's "No sweeping": nothing real to display.
+        sched = { entries, none: !tileSchedLines(f.properties).length };
+        _featSchedCache.set(f.id, sched);
+      }
+      u = sched.none ? 'none' : BroomUrgency.checkDaySweeping(sched.entries, now);
+      _featStateCache.set(f.id, [u, stamp]);
     }
-    const u = BroomUrgency.checkDaySweeping(entries, now);
-    _featStateCache.set(f.id, [u, stamp]);
-    if (prev && prev[0] === u) continue;
-    map.setFeatureState(
-      { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id },
-      { urgency: u },
-    );
+    const target = { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id };
+    if (map.getFeatureState(target).urgency !== u) map.setFeatureState(target, { urgency: u });
   }
 }
 
 // Canonical schedule lines for a tile feature (days merged per time: "Tue, Thu · 3AM–5AM",
-// Mon->Sun order, merged next-cluster dates), as on the car card. Shared by the
-// hover tooltip, the tap popup and the street sign.
+// Mon->Sun order, merged next-cluster dates), as on the car card. Used by the
+// street sign.
 function tileSchedLines(props) {
   let sched = [];
   try { sched = JSON.parse(props.sched || '[]'); } catch (_) {}
@@ -253,10 +231,4 @@ function tileSchedLines(props) {
   const labels = [props.side_even || 'Even', props.side_odd || 'Odd'];
   return BroomUrgency.formatBothSides(
     sched.filter(e => e.side === 'even'), sched.filter(e => e.side === 'odd'), now, null, labels);
-}
-
-function tileHoverHtml(props) {
-  const lines = tileSchedLines(props);
-  // No real schedule (only N/A / no-sweep) → no hover at all.
-  return lines.length ? `<b>${esc(props.street || '')}</b><br>${lines.map(esc).join('<br>')}` : '';
 }

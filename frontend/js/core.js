@@ -1,12 +1,15 @@
 // Every urgency surface reads this one table: card colour (CSS vars in
 // styles.css), labels, and the map paint (MapLibre needs literal colours).
 const URGENCY = {
-  today:    { color: 'var(--urg-today)',    short: '🚨 Today',
+  today:    { color: 'var(--urg-today)',    short: 'Today', icon: 'alert',
               fill: 'rgba(220,60,60,0.55)',  border: 'rgba(220,60,60,0.90)',  line: 'tomato' },
-  tomorrow: { color: 'var(--urg-tomorrow)', short: '⚠️ Tomorrow',
+  tomorrow: { color: 'var(--urg-tomorrow)', short: 'Tomorrow', icon: 'alert',
               fill: 'rgba(230,130,20,0.40)', border: 'rgba(230,130,20,0.80)', line: 'orange' },
-  safe:     { color: 'var(--urg-safe)',     short: '✅ Clear',
+  safe:     { color: 'var(--urg-safe)',     short: 'Clear', icon: 'check',
               fill: 'rgba(80,110,180,0.18)', border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
+  // Map only: a street or zone with no sweeping at all (not a car verdict).
+  none:     { color: 'var(--muted)',       short: 'No sweeping',
+              fill: 'rgba(120,130,150,0.10)', border: 'rgba(120,130,150,0.35)', line: '#94a3b8' },
 };
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
@@ -33,6 +36,22 @@ function postJSON(path, body) {
 // POST /check for a lat/lon (the server picks the region if none is nearby); returns the Response.
 function postCheck(lat, lon) {
   return postJSON('/api/check', { lat, lon, region: regionAt(lat, lon) || undefined });
+}
+
+// Two-step button: the first tap arms it ("Confirm?" for 3 s), the second runs `action`.
+function confirmTap(btn, action) {
+  let timer = null;
+  const label = btn.innerHTML;
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (btn.classList.toggle('armed')) {
+      btn.innerHTML = `${icon('trash')} Confirm?`;
+      timer = setTimeout(() => { btn.classList.remove('armed'); btn.innerHTML = label; }, 3000);
+      return;
+    }
+    clearTimeout(timer);
+    action();
+  });
 }
 
 function newId() {
@@ -69,7 +88,6 @@ function makeEditable(el, original, onCommit) {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let cars           = [];
-let activeCarId    = null;
 let regions        = {};         // regionKey → {name, center, zoom, tz} from /cities
 let placingCar     = false;
 let placingHome    = false;
@@ -80,7 +98,6 @@ let _tempPin        = null;   // {lat,lon} while naming a new car
 let _selectedCarId  = null;
 let _gpsLocPin = null;
 let _gpsLocPinTimer = null;
-let _hoverSuppressed = false;
 let _region          = null;   // region key under the map center (null: none nearby)
 const REGION_RADIUS  = 1.5;    // degrees: a region applies this close to its center
 const AREA_ZOOM      = 9;      // below this the map shows area labels instead of streets
@@ -118,7 +135,6 @@ let homeSchedules  = {};         // homeId → /check-home response
 const _homeMarkers = new Map();  // homeId → maplibregl.Marker for the home pin
 let _gpsMarker     = null;
 let _tempPinMarker = null;
-let _zonePopup     = null;  // MapLibre popup for clicked zone detail
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
@@ -129,23 +145,27 @@ const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 const TILES_SOURCE     = 'zones-tiles';
 const TILES_SRC_LAYER  = 'zones';
 function _urgCase(prop) {
-  // MapLibre expression: pick colour from feature-state 'urgency' (default safe).
+  // MapLibre expression: pick colour from feature-state 'urgency'. A feature whose
+  // urgency is not computed yet stays transparent rather than flashing "Clear" blue.
   return [
-    'case',
-    ['==', ['feature-state', 'urgency'], 'today'],    URGENCY.today[prop],
-    ['==', ['feature-state', 'urgency'], 'tomorrow'], URGENCY.tomorrow[prop],
-    URGENCY.safe[prop],
+    'match', ['coalesce', ['feature-state', 'urgency'], ''],
+    'today',    URGENCY.today[prop],
+    'tomorrow', URGENCY.tomorrow[prop],
+    'safe',     URGENCY.safe[prop],
+    'none',     URGENCY.none[prop],
+    'rgba(0,0,0,0)',
   ];
 }
 // Street line width scales with zoom so it stays thin on city-wide views; it also
-// grows with urgency (today x2, tomorrow x1.5) so colour is not the only cue.
+// grows with urgency (today x2, tomorrow x1.5; no sweeping x0.6) so colour is not the only cue.
 const LINE_W = { 11: 0.8, 14: 1.5, 16: 2.5, 18: 4 };
-const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1 };
+const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.6 };
 function _lineWidth() {
   const stops = Object.entries(LINE_W).flatMap(([z, w]) => [Number(z), [
     'case',
     ['==', ['feature-state', 'urgency'], 'today'],    w * LINE_MULT.today,
     ['==', ['feature-state', 'urgency'], 'tomorrow'], w * LINE_MULT.tomorrow,
+    ['==', ['feature-state', 'urgency'], 'none'],     w * LINE_MULT.none,
     w,
   ]]);
   return ['interpolate', ['linear'], ['zoom'], ...stops];
@@ -153,12 +173,13 @@ function _lineWidth() {
 
 const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const DARK_STYLE  = 'https://tiles.openfreemap.org/styles/dark';
-// Night ~= 7pm–7am local time; picks the default basemap + UI chrome.
-function _isNight() { const h = new Date().getHours(); return h >= 19 || h < 7; }
-function _wantDark() {
-  const stored = localStorage.getItem('bb_dark');
-  return stored !== null ? stored === '1' : _isNight();
+// Appearance: 'auto' follows the system; 'light' / 'dark' pin it (menu).
+const _sysDark = window.matchMedia('(prefers-color-scheme: dark)');
+function _themePref() {
+  const v = localStorage.getItem('bb_theme');
+  return v === 'light' || v === 'dark' ? v : 'auto';
 }
+function _wantDark() { const p = _themePref(); return p === 'auto' ? _sysDark.matches : p === 'dark'; }
 let _mapStyle = _wantDark() ? DARK_STYLE : LIGHT_STYLE;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -172,11 +193,22 @@ const ctxAddCar      = document.getElementById('ctx-add-car');
 const ctxAddHome     = document.getElementById('ctx-add-home');
 const carsPanel      = document.getElementById('cars-panel');
 const homePanel      = document.getElementById('home-panel');
-const customHoverEl  = document.getElementById('custom-hover');
 const sheet          = document.getElementById('sheet');
 const sheetHandle    = document.getElementById('sheet-handle');
 const sheetSummary   = document.getElementById('sheet-summary');
 const btnConfirmPlace = document.getElementById('btn-confirm-place');
+
+// ── Screen height (iPhone home-screen app) ────────────────────────────────────
+// There the app always fills the screen, but with a translucent status bar iOS can
+// size the viewport (100%, and sometimes 100vh) a status bar short, leaving a strip at
+// the bottom. The screen size is exact (iOS reports it in portrait).
+if (navigator.standalone && /iPhone/.test(navigator.userAgent)) {
+  const _landscape = window.matchMedia('(orientation: landscape)');
+  const setAppH = () => document.documentElement.style.setProperty('--app-h',
+    (_landscape.matches ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height)) + 'px');
+  setAppH();
+  _landscape.addEventListener('change', setAppH);
+}
 
 // ── Bottom sheet (cars & homes) ───────────────────────────────────────────────
 // Collapses to a handle (default) so the map + placement center-target stay clear. The
@@ -196,10 +228,10 @@ function setSheetCollapsed(v) {
 // Handle text: the most urgent car verdict, else counts.
 function updateSheetSummary() {
   const { today, tomorrow } = urgentCars();
-  sheetSummary.textContent = today.length ? `🚨 Move ${today.join(', ')} today`
-    : tomorrow.length ? `⚠️ Move ${tomorrow.join(', ')} tomorrow`
-    : cars.length ? '✅ All clear'
-    : homes.length ? `🏠 ${homes.length}` : 'Cars & homes';
+  sheetSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
+    : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
+    : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
+    : homes.length ? `${icon('home')} ${homes.length}` : 'Cars & homes';
   applySheet();
 }
 sheetHandle.addEventListener('click', () => setSheetCollapsed(!_sheetCollapsed));
@@ -207,6 +239,12 @@ sheetHandle.addEventListener('keydown', e => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSheetCollapsed(!_sheetCollapsed); }
 });
 applySheet();
+
+// A drag that starts on a panel stays with it, even once the finger leaves it: the
+// map listens for touch moves on the whole window.
+for (const panel of [sheet, document.getElementById('info-card')]) {
+  panel.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
+}
 
 // Sheet height lifts the map controls above it on mobile.
 new ResizeObserver(() => {

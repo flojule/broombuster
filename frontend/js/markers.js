@@ -27,17 +27,19 @@ function updateCarMarkers() {
     const marker = placeMarker(_carMarkers.get(car.id), car, () => {
       const el = document.createElement('div');
       el.className = 'car-marker';
-      el.style.cssText = `background:${color};--marker-color:${color};`;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         setSelectedCar(car.id);
         setSheetCollapsed(false);  // reveal the sheet so the card is visible
-        const entry = carsPanel.querySelector(`.car-entry[data-id="${car.id}"]`);
+        const entry = carsPanel.querySelector(`.car-entry[data-id="${CSS.escape(car.id)}"]`);
         if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
       return el;
     });
+    // Colour follows the car's position in the list (removing a car shifts it).
     const el = marker.getElement();
+    el.style.background = color;
+    el.style.setProperty('--marker-color', color);
     el.style.width = el.style.height = size;
     el.style.borderColor = isSelected ? color : 'white';
     _carMarkers.set(car.id, marker);
@@ -54,9 +56,9 @@ function updateCarMarkers() {
 }
 
 // ── Car selection ─────────────────────────────────────────────────────────────
+// updateCarMarkers() re-renders the cards, which marks the selected one.
 function clearCarSelection() {
   _selectedCarId = null;
-  for (const e of carsPanel.querySelectorAll('.car-entry:not(.home-entry)')) e.classList.remove('selected');
   updateCarMarkers();
 }
 
@@ -67,9 +69,6 @@ function isCarInView(car) {
 
 function setSelectedCar(carId) {
   _selectedCarId = carId;
-  for (const e of carsPanel.querySelectorAll('.car-entry:not(.home-entry)')) {
-    e.classList.toggle('selected', e.dataset.id === carId);
-  }
   const car = cars.find(c => c.id === carId);
   if (car && !isCarInView(car)) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
   updateCarMarkers();
@@ -108,16 +107,3 @@ document.getElementById('btn-gps-add').addEventListener('click', () => {
 });
 
 document.getElementById('btn-gps-close').addEventListener('click', hideGpsPinPopup);
-
-// ── Zone detail popup (click a section) ─────────────────────────────────────────
-function showZoneDetail(lngLat, html) {
-  if (_zonePopup) _zonePopup.remove();
-  _zonePopup = new maplibregl.Popup({
-    closeButton: true, closeOnClick: false, maxWidth: '300px', className: 'zone-detail-popup',
-  }).setLngLat(lngLat).setHTML(html).addTo(map);
-  _zonePopup.on('close', () => { _zonePopup = null; });
-}
-
-function closeZoneDetail() {
-  if (_zonePopup) { _zonePopup.remove(); _zonePopup = null; }
-}

@@ -9,36 +9,40 @@ function showToast(msg, isError = false) {
 }
 
 // ── Dark mode ─────────────────────────────────────────────────────────────────
-const _btnDark = document.getElementById('btn-dark-mode');
-// Switch UI chrome AND basemap together. persist=true pins an explicit override
-// (the toggle); otherwise the choice follows local time (night -> dark).
-function _applyDark(on, persist) {
+// Switch UI chrome AND basemap together.
+function _applyDark(on) {
   document.body.classList.toggle('dark', on);
-  _btnDark.innerHTML = icon(on ? 'sun' : 'moon');
-  _btnDark.title = on ? 'Switch to light' : 'Switch to dark';
-  if (persist) localStorage.setItem('bb_dark', on ? '1' : '0');
-  document.querySelector('meta[name="theme-color"]').content = on ? '#1e293b' : '#ffffff';
+  // Browser bars (older Safari, Chrome) take the map's own colour, as html's background does.
+  document.querySelector('meta[name="theme-color"]').content = on ? '#121212' : '#ecefea';
   const style = on ? DARK_STYLE : LIGHT_STYLE;
   const styleChanged = _mapStyle !== style;
   _mapStyle = style;
   if (map && styleChanged) {
-    map.setStyle(_mapStyle);
-    // Re-mount only after the NEW style settles. whenStyleReady() can't be used:
-    // right after setStyle() isStyleLoaded() still reports the OLD style as
-    // loaded, so the re-add fires early and the new style then wipes it (street/
-    // zone layers vanishing on toggle). 'style.load' is unreliable on setStyle
-    // here; 'idle' fires once the swapped style + basemap have settled.
-    map.once('idle', () => {
-      map.dragRotate.disable();
-      map.touchZoomRotate.disableRotation();
-      // setStyle() drops all sources/layers; force the tile source to remount.
-      _tilesRegion = null; ensureTiles();
-      updateCarMarkers();
-    });
+    // Carry the street source and layers into the new basemap so they never blink
+    // out (the ward outline takes the new theme's colour). Their urgency is
+    // re-applied once it settles, in case the swap dropped feature-state.
+    map.setStyle(_mapStyle, { transformStyle: (prev, next) => {
+      if (!prev?.sources?.[TILES_SOURCE]) return next;
+      const ours = prev.layers.filter(l => ZONE_LAYERS.includes(l.id)).map(l => l.id === 'zones-ward'
+        ? { ...l, paint: { ...l.paint, 'line-color': _wardLineColor() } } : l);
+      return { ...next, sources: { ...next.sources, [TILES_SOURCE]: prev.sources[TILES_SOURCE] },
+               layers: [...next.layers, ...ours] };
+    } });
+    map.once('idle', scheduleUrgencyUpdate);
   }
 }
-(function _initDark() { _applyDark(_wantDark(), false); })();
-_btnDark.addEventListener('click', () => _applyDark(!document.body.classList.contains('dark'), true));
+// Menu choice (auto / light / dark); auto also reacts to the system changing.
+function setThemePref(pref) {
+  if (pref === 'auto') localStorage.removeItem('bb_theme'); else localStorage.setItem('bb_theme', pref);
+  _applyDark(_wantDark());
+  document.querySelectorAll('#theme-seg button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.theme === pref)));
+}
+setThemePref(_themePref());
+_sysDark.addEventListener('change', () => { if (_themePref() === 'auto') _applyDark(_wantDark()); });
+document.getElementById('theme-seg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-theme]');
+  if (b) setThemePref(b.dataset.theme);
+});
 
 // ── Center target ─────────────────────────────────────────────────────────────
 // The info card reports the street under the viewport center (the
@@ -66,15 +70,24 @@ function updateInfoCard() {
   renderInfoCard(_centerFeature());
 }
 
-// ── Map color key (ⓘ) ──────────────────────────────────────────────────
-const _btnLegend = document.getElementById('btn-legend');
-const _legendPop = document.getElementById('legend-pop');
-function setLegendOpen(on) {
-  _legendPop.hidden = !on;
-  _btnLegend.setAttribute('aria-expanded', String(on));
+// ── App menu (⋯): account, appearance, map colors, about ────────────────────────
+const _btnMenu = document.getElementById('btn-menu');
+const _appMenu = document.getElementById('app-menu');
+function setMenuOpen(on) {
+  _appMenu.hidden = !on;
+  document.body.classList.toggle('menu-open', on);
+  _btnMenu.setAttribute('aria-expanded', String(on));
+  if (!on) return;
+  renderAccountSection();
+  // Opens to the left of the button, kept inside the screen.
+  const r = _btnMenu.getBoundingClientRect();
+  _appMenu.style.right = (window.innerWidth - r.left + 8) + 'px';
+  const h = _appMenu.offsetHeight;
+  _appMenu.style.top = Math.max(12, Math.min(r.top, window.innerHeight - h - 12)) + 'px';
 }
-_btnLegend.addEventListener('click', e => { e.stopPropagation(); setLegendOpen(_legendPop.hidden); });
-document.addEventListener('click', () => setLegendOpen(false));
+_btnMenu.addEventListener('click', e => { e.stopPropagation(); setMenuOpen(_appMenu.hidden); });
+_appMenu.addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => setMenuOpen(false));
 
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());

@@ -1,6 +1,6 @@
 // ── Per-car schedule checks ───────────────────────────────────────────────────
 async function checkCarWithRender(car) {
-  const warmupTimer = setTimeout(() => showToast('Server warming up, please wait…'), 5000);
+  const warmupTimer = setTimeout(() => showToast('Server warming up'), 5000);
   try {
     const res = await postCheck(car.lat, car.lon);
     clearTimeout(warmupTimer);
@@ -12,8 +12,7 @@ async function checkCarWithRender(car) {
     carSchedules[car.id] = data;
     upgradeAddress(car, data);
     if (map) map.jumpTo({ center: [car.lon, car.lat], zoom: 16 });
-    updateCarMarkers();
-    renderCarsPanel();
+    updateCarMarkers();  // re-renders the cards
   } catch (e) { clearTimeout(warmupTimer); showToast(`Network error: ${e.message}`, true); }
 }
 
@@ -76,7 +75,7 @@ function startPlacing(editId = null) {
   placingCar    = true;
   placingHome   = false;
   placingEditId = editId;
-  placeBannerText.textContent = editId ? '📌' : '🚗';
+  placeBannerText.innerHTML = icon(editId ? 'pin' : 'car');
   _beginPlacing();
 }
 
@@ -84,7 +83,7 @@ function startPlacingHome(editId = null) {
   placingHome   = true;
   placingCar    = false;
   placingEditId = editId;
-  placeBannerText.textContent = '🏠';
+  placeBannerText.innerHTML = icon('home');
   _beginPlacing();
 }
 
@@ -132,7 +131,7 @@ async function commitPlacement(lat, lon) {
 btnConfirmPlace.addEventListener('click', confirmPlacementAtCenter);
 btnCancelPlace.addEventListener('click', () => { stopPlacing(); setSheetCollapsed(false); });
 
-// "🚗 Add car" — enters center-target place mode.
+// "Add car" — enters center-target place mode.
 document.getElementById('btn-add-car').addEventListener('click', () => {
   closeNameBox();
   startPlacing(null);
@@ -170,7 +169,7 @@ function openNameBox(lat, lon) {
   row.className = 'np-row';
   const input = document.createElement('input');
   input.type = 'text'; input.id = 'name-panel-input';
-  input.placeholder = 'Car name…'; input.maxLength = 32;
+  input.placeholder = 'Car name'; input.maxLength = 32;
   input.value = defaultCarName();
   const save = document.createElement('button');
   save.id = 'btn-np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
@@ -219,7 +218,6 @@ async function savePendingCar() {
   closeNameBox(true);
   if (_gpsLocPin) hideGpsPinPopup();
   savePrefs();
-  activeCarId = id;
   setSheetCollapsed(false);  // reveal the new card
   updateCarMarkers();
   checkCarSilently(cars[cars.length - 1]);
@@ -251,8 +249,10 @@ function sweepUrgency(sched) {
 }
 
 // Verdict next to the card title, in the urgency colour.
+// Verdict pill: icon + word (never colour alone).
 function _statusHTML(u, label) {
-  return `<span class="ce-status" style="color:${URGENCY[u].color}">${esc(label)}</span>`;
+  const ic = URGENCY[u].icon;
+  return `<span class="ce-status" data-urgency="${esc(u)}" style="color:${URGENCY[u].color}">${ic ? icon(ic) + ' ' : ''}${esc(label)}</span>`;
 }
 function _itemsHTML(lines) {
   return lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
@@ -265,7 +265,7 @@ function scheduleHTML(sched) {
   const lines = BroomUrgency.formatBothSides(
     sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
   return '<div class="ce-sched-header">Sweeping:</div>'
-       + _itemsHTML(lines.length ? lines : ['No sweeping scheduled']);
+       + _itemsHTML(lines.length ? lines : ['No sweeping']);
 }
 
 // ── Phone link: a token that lets a phone automation report where the car parked ──
@@ -341,17 +341,17 @@ function renderCarsPanel() {
     entry.innerHTML = `
       <div class="ce-header">
         <span class="ce-dot"></span>
-        <span class="ce-name" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(car.name)}</span>
+        <span class="ce-name" contenteditable="false">${esc(car.name)}</span>
         ${sched ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
-        <button class="ce-remove" data-id="${esc(car.id)}" title="Remove" aria-label="Remove">${icon('close')}</button>
       </div>
-      <div class="ce-addr" contenteditable="false" data-id="${esc(car.id)}" title="Double-click to edit">${esc(addrText)}</div>
+      <div class="ce-addr" contenteditable="false">${esc(addrText)}</div>
       <div class="ce-detail">
       <div class="ce-sched">${scheduleHTML(sched)}</div>
       <div class="ce-actions">
-        <button class="ce-btn ce-btn-gps" data-id="${esc(car.id)}">${icon('locate')} GPS</button>
-        <button class="ce-btn ce-btn-place" data-id="${esc(car.id)}">${icon('pin')} Set location</button>
+        <button class="ce-btn ce-btn-gps">${icon('locate')} GPS</button>
+        <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
         ${account ? `<button class="ce-btn ce-btn-phone">${car.id in phoneLinks ? 'Unlink phone' : 'Link phone'}</button>` : ''}
+        <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
       </div>
       ${account ? phoneLinkHTML(car) : ''}
       </div>`;
@@ -368,7 +368,7 @@ function renderCarsPanel() {
         const hit = await geocode(q);
         if (!hit) {
           addrEl.style.color = 'var(--red)';
-          addrEl.textContent = '⚠️ Address not found';
+          addrEl.textContent = 'Address not found';
           setTimeout(() => { addrEl.style.color = ''; addrEl.textContent = addrText; }, 2500);
           return;
         }
@@ -381,16 +381,13 @@ function renderCarsPanel() {
     });
 
     // ── GPS button ──
-    entry.querySelector('.ce-btn-gps').addEventListener('click', () => {
-      const btn = entry.querySelector('.ce-btn-gps');
-      btn.disabled = true; btn.classList.add('busy');
-      getGPS(async (lat, lon) => {
+    entry.querySelector('.ce-btn-gps').addEventListener('click', e => {
+      locateWith(e.currentTarget, async (lat, lon) => {
         car.lat = lat; car.lon = lon; touchCarLocation(car);
         savePrefs();
-        btn.disabled = false; btn.classList.remove('busy');
         if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
         await checkCarWithRender(car);
-      }, msg => { btn.disabled = false; btn.classList.remove('busy'); showToast(`GPS: ${msg}`, true); });
+      });
     });
 
     // ── Set location button ──
@@ -404,16 +401,12 @@ function renderCarsPanel() {
     });
 
     // ── Remove button ──
-    entry.querySelector('.ce-remove').addEventListener('click', async () => {
-      const marker = _carMarkers.get(car.id);
-      if (marker) { marker.remove(); _carMarkers.delete(car.id); }
+    confirmTap(entry.querySelector('.ce-remove'), () => {
       delete carSchedules[car.id];
       cars = cars.filter(c => c.id !== car.id);
-      if (activeCarId === car.id) activeCarId = cars[0]?.id ?? null;
       if (_selectedCarId === car.id) _selectedCarId = null;
       savePrefs();
-      updateCarMarkers();
-      renderCarsPanel();
+      updateCarMarkers();  // drops its marker and re-renders the cards
     });
 
     carsPanel.appendChild(entry);

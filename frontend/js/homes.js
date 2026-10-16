@@ -32,7 +32,6 @@ function homeScheduleHTML(sched) {
 }
 
 function renderHomePanel() {
-  if (!homePanel) return;
   // Don't wipe an address editor (contenteditable) mid-type on a re-render.
   const ae = document.activeElement;
   if (homePanel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT')) return;
@@ -58,17 +57,17 @@ function renderHomePanel() {
     });
     entry.innerHTML = `
       <div class="ce-header">
-        <span class="ce-dot ce-dot-home">🏠</span>
+        <span class="ce-dot ce-dot-home">${icon('home')}</span>
         <span class="ce-name">${esc(label)}</span>
         ${_nextPickups(sched).length ? _statusHTML(urgency, URGENCY[urgency].short) : ''}
-        <button class="ce-remove" title="Remove home" aria-label="Remove home">${icon('close')}</button>
       </div>
-      <div class="ce-addr" contenteditable="false" title="Double-click to edit this address">${esc(addrText)}</div>
+      <div class="ce-addr" contenteditable="false">${esc(addrText)}</div>
       <div class="ce-detail">
         <div class="ce-sched">${homeScheduleHTML(sched)}</div>
         <div class="ce-actions">
           <button class="ce-btn ce-btn-addr">Set address</button>
           <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
+          <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
         </div>
       </div>`;
 
@@ -78,7 +77,7 @@ function renderHomePanel() {
 
     entry.querySelector('.ce-btn-addr').addEventListener('click', () => addrEl.startEdit());
     entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacingHome(h.id));
-    entry.querySelector('.ce-remove').addEventListener('click', () => removeHome(h.id));
+    confirmTap(entry.querySelector('.ce-remove'), () => removeHome(h.id));
 
     homePanel.appendChild(entry);
   });
@@ -147,7 +146,7 @@ function updateHomeMarkers() {
     _homeMarkers.set(h.id, placeMarker(_homeMarkers.get(h.id), h, () => {
       const el = document.createElement('div');
       el.className = 'home-marker';
-      el.textContent = '🏠';
+      el.innerHTML = icon('home');
       el.title = 'Home';
       return el;
     }));
