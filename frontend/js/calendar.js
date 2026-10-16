@@ -113,9 +113,9 @@ function calendarHTML(layers, range, sel, today) {
 
 // ── Calendar card ────────────────────────────────────────────────────────────
 // Compact: a row of days. Tap a day (or the header) for the month view, a column
-// of weeks; the chevron or Esc closes it. Both scroll continuously (swipe, wheel,
-// or ‹ › for a week / a month). Its size never depends on the target; only day
-// marks change.
+// of weeks; the header (up chevron) or Esc closes it. Both scroll continuously
+// (swipe, wheel, or ‹ › for a week / a month); Today scrolls back. Its size never
+// depends on the target; only day marks change.
 const infoCard  = document.getElementById('info-card');
 const icHead    = document.getElementById('ic-head');
 const icTitle   = document.getElementById('ic-title');
@@ -194,8 +194,8 @@ function renderInfoCard(f) {
 
   infoCard.classList.toggle('expanded', _cal.expanded);
   document.body.classList.toggle('cal-open', _cal.expanded);
-  document.getElementById('ic-chevron').innerHTML = icon(_cal.expanded ? 'close' : 'chevron');
-  icTitle.innerHTML = `<button class="cal-nav" data-cal-nav="-1" aria-label="${_cal.expanded ? 'Previous month' : 'Previous week'}">‹</button>`
+  icTitle.innerHTML = `<button class="cal-today" data-cal-today>Today</button>`
+    + `<button class="cal-nav" data-cal-nav="-1" aria-label="${_cal.expanded ? 'Previous month' : 'Previous week'}">‹</button>`
     + `<b id="ic-month"></b>`
     + `<button class="cal-nav" data-cal-nav="1" aria-label="${_cal.expanded ? 'Next month' : 'Next week'}">›</button>`;
   icHead.setAttribute('aria-expanded', String(_cal.expanded));
@@ -251,9 +251,17 @@ function calStep(dir) {
   _scrollTo(el, Math.max(0, Math.floor(_dayIdx(_calRange0, first) / 7)), true);
 }
 
+// Today: back to today (the month view also selects it).
+function calToday() {
+  const today = calNow();
+  if (_cal.expanded && _cal.sel !== _ymdKey(today)) { _cal.sel = _ymdKey(today); renderInfoCard(); }
+  _scrollTo(_scroller(), _anchorFor(_calRange0, today), true);
+}
+
 infoCard.addEventListener('click', e => {
   const nav = e.target.closest('[data-cal-nav]');
   if (nav) { e.stopPropagation(); calStep(Number(nav.dataset.calNav)); return; }
+  if (e.target.closest('[data-cal-today]')) { calToday(); return; }
   const day = e.target.closest('[data-cal-day]');
   if (!_cal.expanded) {
     expandCal(day ? Number(day.dataset.calDay) : undefined);
@@ -279,7 +287,7 @@ infoCard.addEventListener('wheel', e => {
   strip.scrollLeft += e.deltaY;
 }, { passive: false });
 icHead.addEventListener('keydown', e => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if ((e.key !== 'Enter' && e.key !== ' ') || e.target !== icHead) return;  // not ‹ › / Today
   e.preventDefault();
   if (_cal.expanded) collapseCal(); else expandCal();
 });

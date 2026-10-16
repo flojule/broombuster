@@ -22,7 +22,9 @@
       /* Layers: crosshair 15 < info card, place banner 20 < street sign 21 < sheet 25 < map controls 26 (their colour key opens over the sheet) < legend 28 < GPS popup 30
          < ctx menu 200 < toast 9999. */
     }
-    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    /* 100vh, not 100%: in an iOS home-screen app with a translucent status bar, 100% is the
+       layout viewport, which is shorter than the screen and leaves a strip at the bottom. */
+    html, body { height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); }
     /* Keep map drags from scrolling/rubber-banding the page behind it. */
     html, body { overflow: hidden; overscroll-behavior: none; }
 
@@ -55,9 +57,15 @@
 
     /* ── App ── */
     /* Fixed to the full screen so the map runs under the status bar / Dynamic Island.
-       The page behind it is map-coloured, so nothing white can show at an edge. */
+       --app-h is the screen height in an iPhone home-screen app (js/core.js), where the
+       viewport units can come up short. The page behind is map-coloured, so nothing
+       white can show at an edge. */
     html { background: #ecefea; } html:has(body.dark) { background: #121212; }
-    #app-screen { position: fixed; top: 0; left: 0; right: 0; bottom: 0; height: 100vh; height: 100lvh; }
+    #app-screen { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h, 100vh); }
+    /* Floating panels take no page gestures (a drag that leaves them must not pan the
+       map or the page); their scrollers allow their own direction back. */
+    #info-card, #sheet, #map-ctrl { touch-action: none; }
+    #cars-panel { touch-action: pan-y; overscroll-behavior: contain; }
 
     /* ── Right column: map info (area, theme, color key, zoom, locate) ──
        Mobile: above the sheet. Desktop: top-right (see media query). */
@@ -293,8 +301,14 @@
     }
     #info-card.expanded #ic-head { cursor: pointer; }
     #ic-title { flex: 1; min-width: 0; display: flex; align-items: center; }
-    #ic-title b { flex: 1; text-align: center; }
-    #ic-chevron { width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+    #ic-title b { flex: 1; text-align: center; white-space: nowrap; }
+    /* Chevron points the way the card will go: down to open, up to close (like the sheet's). */
+    #ic-chevron { width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center; color: var(--muted); transition: transform .15s; }
+    #info-card.expanded #ic-chevron { transform: rotate(180deg); }
+    /* Today leads the header (as in Google Calendar / Outlook): ‹ month › stay together. */
+    .cal-today { min-height: 30px; padding: 0 10px; margin-right: 2px; border: 1px solid var(--hairline);
+                 border-radius: 999px; font-size: .72rem; font-weight: 600; color: var(--text); }
+    .cal-today:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
     .cal-muted { font-size: .72rem; color: var(--muted); }
 
     /* ── Street sign: a no-parking sign for the street at the target ──
@@ -444,6 +458,7 @@
       #street-sign { bottom: var(--edge); }
       body.placing #street-sign { bottom: var(--edge); }
       .zoom-btn { display: flex; }
+      .cal-nav, #ic-chevron { width: 32px; }  /* room for the month name in the 300px column */
       #place-banner { bottom: auto; top: var(--edge); }
       #toast-container { bottom: 24px; }
     }
