@@ -47,8 +47,7 @@ btnLocate.addEventListener('click', () => locateWith(btnLocate, async (lat, lon)
   _gpsLocPin = { lat, lon };
   if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
   updateCarMarkers();
-  updateGpsPinPopup();
-  _gpsLocPinTimer = setTimeout(hideGpsPinPopup, 15000);
+  _gpsLocPinTimer = setTimeout(clearGpsPin, 15000);
   for (const car of cars) checkCarSilently(car);
 }));
 

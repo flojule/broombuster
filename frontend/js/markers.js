@@ -23,10 +23,10 @@ function updateCarMarkers() {
   cars.forEach((car, i) => {
     const color = carColor(i);
     const isSelected = car.id === _selectedCarId;
-    const size = (isSelected ? 22 : 16) + 'px';
     const marker = placeMarker(_carMarkers.get(car.id), car, () => {
       const el = document.createElement('div');
       el.className = 'car-marker';
+      el.innerHTML = icon('car');
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         setSelectedCar(car.id);
@@ -38,10 +38,10 @@ function updateCarMarkers() {
     });
     // Colour follows the car's position in the list (removing a car shifts it).
     const el = marker.getElement();
-    el.style.background = color;
-    el.style.setProperty('--marker-color', color);
-    el.style.width = el.style.height = size;
-    el.style.borderColor = isSelected ? color : 'white';
+    el.classList.toggle('selected', isSelected);
+    el.style.color = color;
+    el.style.width = el.style.height = (isSelected ? 40 : 32) + 'px';
+    el.style.fontSize = (isSelected ? 22 : 17) + 'px';
     _carMarkers.set(car.id, marker);
   });
 
@@ -81,29 +81,10 @@ function focusCar(carId) {
   if (car && map) map.easeTo({ center: [car.lon, car.lat], zoom: Math.max(map.getZoom(), 16) });
 }
 
-// ── GPS pin popup ─────────────────────────────────────────────────────────────
-function updateGpsPinPopup() {
-  const popup = document.getElementById('gps-pin-popup');
-  if (!_gpsLocPin || !map) { popup.style.display = 'none'; return; }
-  const px   = map.project([_gpsLocPin.lon, _gpsLocPin.lat]);
-  const rect = mapDiv.getBoundingClientRect();
-  popup.style.left = Math.round(rect.left + px.x) + 'px';
-  popup.style.top  = Math.round(rect.top  + px.y) + 'px';
-  popup.style.display = 'flex';
-}
-
-function hideGpsPinPopup() {
+// ── GPS "you are here" dot ───────────────────────────────────────────────────
+// Shown for a few seconds after the locate button centres the map; no actions.
+function clearGpsPin() {
   if (_gpsLocPinTimer) { clearTimeout(_gpsLocPinTimer); _gpsLocPinTimer = null; }
   _gpsLocPin = null;
-  document.getElementById('gps-pin-popup').style.display = 'none';
   updateCarMarkers();
 }
-
-document.getElementById('btn-gps-add').addEventListener('click', () => {
-  if (!_gpsLocPin) return;
-  const { lat, lon } = _gpsLocPin;
-  hideGpsPinPopup();
-  openNameBox(lat, lon);
-});
-
-document.getElementById('btn-gps-close').addEventListener('click', hideGpsPinPopup);

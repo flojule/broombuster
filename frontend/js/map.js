@@ -42,10 +42,6 @@ function attachMapListeners() {
   });
   map.on('dblclick', () => { if (_tapTimer) { clearTimeout(_tapTimer); _tapTimer = null; } });
 
-  // GPS popup position update on move
-  map.on('move', updateGpsPinPopup);
-  map.on('moveend', updateGpsPinPopup);
-
   // Info card: live-read the street under the viewport center while the map
   // moves (drag/zoom), and once more after tiles finish streaming in (idle).
   map.on('move', updateInfoCard);

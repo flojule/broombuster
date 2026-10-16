@@ -149,7 +149,18 @@ function renderStreetSign(props, lines) {
   signName.textContent = (props.render_type === 'polygon' ? 'Zone: ' : '') + (props.street || '');
   signLines.innerHTML = lines.length ? lines.map(l => `<div>${esc(l)}</div>`).join('')
                                      : '<div>No sweeping</div>';
+  layoutSign();
 }
+
+// Phone: an open sheet can leave no room for the sign below the centre target; hide
+// the sign then (never the target). Re-run whenever the sheet or the screen resizes.
+function layoutSign() {
+  sign.classList.remove('blocked');
+  if (sign.hidden || isDesktop()) return;
+  const box = document.getElementById('map-container').getBoundingClientRect();
+  if (sign.getBoundingClientRect().top < box.top + box.height / 2 + 16) sign.classList.add('blocked');
+}
+window.addEventListener('resize', layoutSign);
 
 const _scroller = () => icCal.querySelector(_cal.expanded ? '.cal-scroll' : '.sw-strip');
 // Distance between neighbouring days (strip) or weeks (month view), in px.
@@ -172,7 +183,8 @@ function updateCalTitle() {
   if (!pitch) return;
   const pos = Math.round(_scrollPos(el) / pitch);
   _cal.anchor = _scrollPos(el) / pitch;
-  const mid = _ymdAdd(_calRange0.start, _cal.expanded ? (pos + 2) * 7 + 3 : pos + 3);
+  const midRow = Math.floor((el.clientHeight / pitch - 1) / 2);  // the card may show fewer than six weeks
+  const mid = _ymdAdd(_calRange0.start, _cal.expanded ? (pos + midRow) * 7 + 3 : pos + 3);
   t.textContent = `${_MONTHS[mid.m - 1]} ${mid.y}`;
   t.dataset.y = mid.y; t.dataset.m = mid.m;
 }
@@ -226,6 +238,7 @@ function _nextSweepKey() {
 
 function expandCal(sel) {
   if (sel == null) sel = _nextSweepKey();
+  if (!isDesktop()) setSheetCollapsed(true, false);  // one big panel at a time on a phone
   _cal.expanded = true;
   _cal.sel = sel;
   _cal.anchor = null;
@@ -292,14 +305,14 @@ icHead.addEventListener('keydown', e => {
 });
 
 // Card height feeds the mobile sheet's max-height so the two never overlap.
-new ResizeObserver(() => {
+new ResizeObserver(() => requestAnimationFrame(() => {
   document.documentElement.style.setProperty('--info-h', infoCard.offsetHeight + 'px');
-}).observe(infoCard);
+})).observe(infoCard);
 
 renderInfoCard();  // initial empty state
 
 // Dismiss whatever transient map window is open — the click-away analogue of Esc.
 function dismissMapWindows() {
-  if (_gpsLocPin) hideGpsPinPopup();
+  if (_gpsLocPin) clearGpsPin();
   clearCarSelection();
 }

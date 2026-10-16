@@ -26,7 +26,7 @@ document.addEventListener('keydown', e => {
   if (!_appMenu.hidden)                         { setMenuOpen(false); dismissed = true; }
   if (ctxMenu.style.display === 'block')       { hideCtxMenu();      dismissed = true; }
   if (_namePopup)                               { closeNameBox();     dismissed = true; }
-  if (_gpsLocPin)                               { hideGpsPinPopup();  dismissed = true; }
+  if (_gpsLocPin)                               { clearGpsPin();  dismissed = true; }
   if (placingCar || placingHome)                { stopPlacing(); setSheetCollapsed(false); dismissed = true; }
   if (dismissed) return;
   if (_cal.expanded) { collapseCal(); return; }
