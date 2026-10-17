@@ -15,6 +15,24 @@ Commit the `.fgb` and `frontend/tiles/*.pmtiles` files. A new city needs a
 manifest, plus a normaliser in `schemas.SCHEMA_PROFILES` if its source format is
 new.
 
+## Holidays, trash, extra layers
+
+- `holidays/<city>.yaml` (manifest `holidays:`): the city's published holidays and what
+  each suspends: `sweeping` (no sweeping that day; only where the city publishes it:
+  Oakland, SF) or `trash` (the manifest's `trash.holiday_rule` moves pickups:
+  `shift_week` or `next_day`). Add next year's dates before December.
+- Manifest `trash:`: `{kind: recollect, area, service_id}` looks pickups up by address
+  (Oakland); `{kind: weekly}` has the user pick the home's collection day.
+- Manifest `layers:` lists the city's extra map layers, built by
+  `python scripts/build_layers.py [city ...] [--theme parking ...]` from the sources in
+  `broombuster/layer_sources.py` (Berkeley and Oakland ArcGIS, DataSF and Chicago
+  Socrata, the DOE/NLR EV station API, `places/markets.yaml`). It writes
+  `<city dir>/<theme>.fgb` (label, rule, asof only, clipped to the city's bbox) for the
+  server's `/api/rules`, and `frontend/layers/<region>/<theme>.geojson` (label, city) for
+  the map. Chicago's permit zones by address go to `chicago/permit_zones.csv`.
+  Commit the outputs. A source that fails keeps its previous files.
+- `places/markets.yaml`: weekly farmers markets, kept by hand (no open feed exists).
+
 ## Columns
 
 | Column | |

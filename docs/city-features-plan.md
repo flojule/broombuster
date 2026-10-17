@@ -205,7 +205,7 @@ disclaimer. Sweeping zones `2r7q-emq3` are still the 2026 dataset; nothing to ch
 | NWS alerts | `api.weather.gov/alerts/active?point=…` (verified) | NOAA | GeoJSON, no key (User-Agent required) | public domain | US | live | H | S | Red Flag, heat, snow (Chicago) |
 | BAAQMD Spare the Air / wood-burn ban | [baaqmd.gov/alertstatus](https://www.baaqmd.gov/alertstatus) (HTML only; no API found) | Air District | HTML | public | Bay Area | daily | H | M (scrape) | alerts (low priority) |
 | AirNow | airnowapi.org | EPA | JSON, free key | public | US | hourly | H | S | AQI (low priority) |
-| EV charging | NREL AFDC `developer.nrel.gov/api/alt-fuel-stations/v1` | NREL / DOE | JSON, free key, ~1,000 requests/hour | US government data, public | US | daily | H | S | EV layer (all five cities) |
+| EV charging | NREL (now NLR) AFDC `developer.nlr.gov/api/alt-fuel-stations/v1` | NREL / DOE | JSON, free key, ~1,000 requests/hour | US government data, public | US | daily | H | S | EV layer (all five cities) |
 | EV charging (alternative) | Open Charge Map | community | JSON | CC BY-SA 4.0 | global | varies | M | S | fallback |
 | OpenStreetMap (Overpass) | already used for Berkeley street placement | OSM | Overpass | **ODbL** (attribution; share-alike for derived databases) | global | live | M | S | **Not useful for curb parking**: in Berkeley's bounding box 11 ways carry `parking:both` and 0 carry restrictions; Oakland has 109 and 0. Chargers: 18 in Berkeley, 73 in Oakland (AFDC has more). Markets: 7 and 40 `amenity=marketplace` (can seed the hand list). |
 | Genasys Protect (ex-Zonehaven) zones | via city ArcGIS layers (Berkeley, Oakland) | Genasys / cities | ArcGIS | city layers | Berkeley, Oakland | 2024–26 | H | S | hazards |
@@ -441,3 +441,27 @@ Each phase is one or more PRs to `main`, which auto-deploys after CI. Keep each 
 - Alameda Citywide Viewer service directory; Alameda's sweeping-holiday and ACI holiday rules.
 - Berkeley Communico feed URL format; SFPL BiblioCommons gateway key.
 - Oakland open-data licence wording for ArcGIS items.
+
+## 10. Implementation status (2026-10-17)
+
+All six phases are implemented on one branch. What changed from the plan above, and why:
+
+| Plan | Shipped | Why |
+|---|---|---|
+| Theme layers as per-region PMTiles (tippecanoe) | Static GeoJSON per region (`frontend/layers/<region>/<theme>.geojson`, content-hashed URLs, loaded only when a layer is turned on; ≤2 MB each, label and city only) | tippecanoe is not installed on the build machine, and these layers are small enough for GeoJSON. The sweeping tiles are untouched. |
+| Switch Berkeley and Oakland sweeping to their ArcGIS layers | Not switched | Berkeley's layer has 47 route lines (2023) that would still need matching to streets, and Oakland's (2021) is not newer than the committed data. Either way the sweeping tiles would need rebuilding, which needs tippecanoe. Worth revisiting with tippecanoe and a side-by-side diff. |
+| Berkeley and Alameda no-sweep holidays | None assumed | Neither city publishes a list. A wrong "no sweeping" costs a ticket, while a wrong warning only costs a move, so only Oakland's and SFMTA's published lists are used. Trash holidays are used for every city. |
+| SF holidays: the usual 12 | 3 (New Year's, Thanksgiving, Christmas) | SFMTA's 2026 enforcement page enforces street cleaning on the other holidays. |
+| Library events from BiblioCommons | Link-outs only | The gateway API is undocumented and ignores date filters. Chicago's official CPL dataset is used, and SF's Our415 covers Rec & Park and library events. |
+| EV layer for every city | Berkeley, Alameda, Chicago built; Oakland and SF pending | DEMO_KEY hit its hourly limit during the build. Run `BB_NREL_API_KEY=… python scripts/build_layers.py --theme ev` with a free key. NREL's API moved to `developer.nlr.gov`. |
+| Rule lines on the street sign | On the car's page ("Also here") and in map popups | The sign stays the published sweeping schedule. Rules apply to a parked car, so they live on the car's page. |
+| Web Push | Not built | The calendar subscription (with reminders) covers the need without a push sender on the Pi. Revisit if users ask for it. |
+| Berkeley "Fire hazard zones" from CAL FIRE FHSZ | Berkeley's own hill Fire Zones 2 and 3 | The CAL FIRE LRA map inside the city covers only a sliver. Fire Zones 2/3 are what the city's narrow-street and Red Flag measures use. |
+
+Data notes found while building:
+
+- Oakland's meter layer had points at (0, 0), and Berkeley's evacuation zones are `BER-…`
+  (`BRK` is Burbank). Every layer is now clipped to its city's bbox, and a test checks it.
+- Berkeley's 2026 RPP report gives the non-permit limit as 2 hours, Mon–Fri 8 AM–7 PM
+  (older reports said 9 AM). Oakland's per-area limits are not published as data, so the
+  rule says to follow the signs.
