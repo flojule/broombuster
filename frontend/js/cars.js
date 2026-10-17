@@ -450,8 +450,37 @@ function renderCarsPanel() {
   updateSavedSummary();
 }
 
+// Weather and air alerts where cars and homes are (Red Flag, snow, Spare the Air, …):
+// one fetch per region that has a saved item, refreshed every 10 minutes (app.js).
+let placeAlerts = [];
+async function loadAlerts() {
+  const byRegion = new Map();
+  for (const it of [...cars, ...homes]) {
+    const r = regionAt(it.lat, it.lon);
+    if (r && !byRegion.has(r)) byRegion.set(r, it);
+  }
+  const got = await Promise.all([...byRegion].map(async ([region, it]) => {
+    try {
+      const res = await fetch('/api/alerts?' + new URLSearchParams({ lat: it.lat, lon: it.lon, region }));
+      return res.ok ? (await res.json()).alerts : [];
+    } catch (_) { return []; }
+  }));
+  const seen = new Set();
+  placeAlerts = got.flat().filter(a => !seen.has(a.title) && seen.add(a.title));
+  updateSavedSummary();
+}
+function _alertsHTML() {
+  return placeAlerts.map(a => {
+    const until = a.until ? new Date(a.until) : null;
+    const when = until && !isNaN(until) ? ` until ${until.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '';
+    return `<div class="alert-line"><span class="urg-tomorrow">${icon('alert')}</span> <span><b>${esc(a.title)}</b>${esc(when)}`
+         + (a.detail ? `<br><small>${esc(a.detail)}</small>` : '') + '</span></div>';
+  }).join('');
+}
+
 // Saved tab's first line: the most urgent car verdict, else all clear; with nothing
-// saved, how to start. A red dot on the tab while a car must move today.
+// saved, how to start. A red dot on the tab while a car must move today. Alerts in
+// effect where cars and homes are follow it.
 function updateSavedSummary() {
   const { today, tomorrow } = urgentCars();
   savedSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
@@ -459,6 +488,7 @@ function updateSavedSummary() {
     : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
     : homes.length ? '' : 'Add your car to see when to move it, or your home for trash day.'
       + `<button class="btn" id="btn-add-first">${icon('plus')} Add</button>`;
+  savedSummary.insertAdjacentHTML('beforeend', _alertsHTML());
   const first = document.getElementById('btn-add-first');
   if (first) menuButton(first, addMenu);
   tabbar.querySelector('.tab-badge').hidden = !today.length;

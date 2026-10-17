@@ -10,7 +10,19 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import analysis, calfeed, feeds, gps, holidays, iplocate, layers, resolve, trash
+from broombuster import (
+    alerts,
+    analysis,
+    around,
+    calfeed,
+    feeds,
+    gps,
+    holidays,
+    iplocate,
+    layers,
+    resolve,
+    trash,
+)
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_bbox, region_for_point
 from broombuster.config import REPO_ROOT
 from broombuster.version import app_version
@@ -201,6 +213,24 @@ def closures(region: str = Query(..., pattern="^[a-z_]+$")):
     if region not in REGIONS:
         raise HTTPException(404, "Unknown region.")
     return {"type": "FeatureCollection", "features": feeds.closures(region)}
+
+
+@api.get("/around")
+def nearby(lat: float = Query(..., ge=-90.0, le=90.0),
+           lon: float = Query(..., ge=-180.0, le=180.0),
+           region: str | None = None):
+    """Markets, events, street events and meetings near a point this week (Nearby tab)."""
+    region = region if region in REGIONS else region_for_point(lat, lon)
+    return {"region": region, **around.around(region, lat, lon)}
+
+
+@api.get("/alerts")
+def place_alerts(lat: float = Query(..., ge=-90.0, le=90.0),
+                 lon: float = Query(..., ge=-180.0, le=180.0),
+                 region: str | None = None):
+    """Weather and air alerts in effect at a place (Red Flag, snow, Spare the Air, …)."""
+    region = region if region in REGIONS else region_for_point(lat, lon)
+    return {"region": region, "alerts": alerts.at(region, lat, lon)}
 
 
 @api.get("/vehicle")

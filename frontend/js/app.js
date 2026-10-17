@@ -10,6 +10,8 @@ async function initApp() {
   renderHomePanel();
   updateHomeMarkers();
   checkAllHomes();
+  loadAlerts();
+  setInterval(loadAlerts, 10 * 60 * 1000);
 
   if (cars.length) {
     for (const [i, car] of cars.entries()) checkCar(car, i === 0);

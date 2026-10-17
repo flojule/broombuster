@@ -16,7 +16,7 @@ import shapely
 from broombuster import config, gps, normalize
 from broombuster.cities import REGIONS
 
-_TIMEOUT_S = 8
+TIMEOUT_S = 8
 _UA = {"User-Agent": "BroomBuster (https://github.com/flojule/broombuster)"}
 
 
@@ -52,10 +52,10 @@ class TTLCache:
 cache = TTLCache()
 
 
-def _json(url: str, **params):
+def get_json(url: str, **params):
     """GET url -> parsed JSON, or None on any failure."""
     try:
-        r = requests.get(url, params=params, headers=_UA, timeout=_TIMEOUT_S)
+        r = requests.get(url, params=params, headers=_UA, timeout=TIMEOUT_S)
         r.raise_for_status()
         return r.json()
     except (requests.RequestException, ValueError):
@@ -79,7 +79,8 @@ def _sf_closures(now: datetime.datetime):
     soon = now + datetime.timedelta(days=CLOSURE_DAYS)
     where = (f"end_utc >= '{now:%Y-%m-%dT%H:%M:%S}' AND start_utc <= '{soon:%Y-%m-%dT%H:%M:%S}'"
              " AND type != 'Roadway Shared Spaces'")
-    data = _json("https://data.sf.gov/resource/8x25-yybr.geojson", **{"$where": where, "$limit": 5000})
+    data = get_json("https://data.sf.gov/resource/8x25-yybr.geojson",
+                    **{"$where": where, "$limit": 5000})
     if data is None:
         return None
     out = []
@@ -87,7 +88,8 @@ def _sf_closures(now: datetime.datetime):
         p = f.get("properties") or {}
         out.append({"type": "Feature", "geometry": f.get("geometry"), "properties": {
             "title": p.get("case_name") or p.get("type") or "Street closure",
-            "start": (p.get("start_utc") or "")[:19] + "Z", "end": (p.get("end_utc") or "")[:19] + "Z",
+            "start": (p.get("start_utc") or "")[:19] + "Z",
+            "end": (p.get("end_utc") or "")[:19] + "Z",
             "street": p.get("loc_desc") or p.get("street") or "", "kind": p.get("type") or "",
             "status": p.get("status") or "", "source": "DataSF temporary street closures"}})
     return out
@@ -98,7 +100,7 @@ _OAKLAND_CLOSURES = ("https://services.arcgis.com/9tC74aDHuml0x5Yz/arcgis/rest/s
 
 
 def _oakland_closures(now: datetime.datetime):
-    data = _json(_OAKLAND_CLOSURES, where=f"End_date >= DATE '{now:%Y-%m-%d}'",
+    data = get_json(_OAKLAND_CLOSURES, where=f"End_date >= DATE '{now:%Y-%m-%d}'",
                  outFields="ST_NAME,Start_date,End_date,Event_type,Event_time,Status",
                  outSR=4326, f="geojson")
     if data is None:
@@ -123,7 +125,7 @@ def _511_work_zones(now: datetime.datetime):
     key = config.api_511_key()
     if not key:
         return []
-    data = _json("https://api.511.org/traffic/wzdx", api_key=key)
+    data = get_json("https://api.511.org/traffic/wzdx", api_key=key)
     if data is None:
         return None
     soon = now + datetime.timedelta(days=CLOSURE_DAYS)
@@ -207,7 +209,8 @@ def _when(start: str, end: str, region_key: str) -> str:
     if len(start) <= 10:  # dates only
         return day if b is None or b.date() == a.date() else f"{day} to {b:%a %b} {b.day}"
     def hm(d):
-        return f"{d.hour % 12 or 12}{f':{d.minute:02d}' if d.minute else ''} {'AM' if d.hour < 12 else 'PM'}"
+        minutes = f":{d.minute:02d}" if d.minute else ""
+        return f"{d.hour % 12 or 12}{minutes} {'AM' if d.hour < 12 else 'PM'}"
 
     if b is None:
         return f"{day}, from {hm(a)}"
@@ -234,11 +237,12 @@ def chicago_vehicle(plate: str, state: str = "IL") -> dict | None:
 
     def fetch():
         since = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
-        towed = _json("https://data.cityofchicago.org/resource/ygr5-vcbg.json",
+        towed = get_json("https://data.cityofchicago.org/resource/ygr5-vcbg.json",
                       **{"$where": f"plate = '{p}' AND state = '{st}' AND tow_date >= '{since}'",
                          "$order": "tow_date DESC", "$limit": 5})
-        moved = _json("https://data.cityofchicago.org/resource/5k2z-suxx.json",
-                      **{"$where": f"plate = '{p}' AND state = '{st}' AND relocated_date >= '{since}'",
+        moved = get_json("https://data.cityofchicago.org/resource/5k2z-suxx.json",
+                      **{"$where": f"plate = '{p}' AND state = '{st}'"
+                                   f" AND relocated_date >= '{since}'",
                          "$order": "relocated_date DESC", "$limit": 5})
         if towed is None or moved is None:
             return None

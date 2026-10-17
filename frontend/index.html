@@ -49,6 +49,7 @@
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></symbol>
     <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></symbol>
     <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l9 5-9 5-9-5 9-5z"/><path d="M3 14l9 5 9-5"/></symbol>
+    <symbol id="i-nearby" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></symbol>
     <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.2-4 4.3-6 8-6s6.8 2 8 6"/></symbol>
   </defs>
 </svg>
@@ -88,7 +89,7 @@
     <div id="signs" role="group" aria-label="Street sign at the target" hidden></div>
   </div>
 
-  <!-- The sheet (as in Find My): Calendar, Saved (cars and homes) and Me tabs. Phone:
+  <!-- The sheet (as in Find My): Calendar, Saved (cars and homes), Nearby and Me tabs. Phone:
        docked at the bottom with the tab bar, dragged between three heights. Desktop:
        a panel on the left with the tabs on top. -->
   <section id="sheet" aria-label="BroomBuster">
@@ -115,6 +116,14 @@
         <div id="saved-summary"></div>
         <div id="item-list"></div>
       </div>
+    </div>
+
+    <div class="tab" id="tab-nearby" role="tabpanel" aria-labelledby="tb-nearby" hidden>
+      <div class="tab-head">
+        <h2 class="tab-title">Nearby</h2>
+        <button class="cal-today" id="btn-nearby-here" hidden>Here</button>
+      </div>
+      <div class="tab-body" id="nearby-body" aria-live="polite"></div>
     </div>
 
     <div class="tab" id="tab-me" role="tabpanel" aria-labelledby="tb-me" hidden>
@@ -144,6 +153,7 @@
     <div id="tabbar" role="tablist" aria-label="Sections">
       <button role="tab" id="tb-calendar" data-tab="calendar" aria-controls="tab-calendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
       <button role="tab" id="tb-saved" data-tab="saved" aria-controls="tab-saved"><svg class="ic"><use href="#i-pin"/></svg>Saved<i class="tab-badge" hidden></i></button>
+      <button role="tab" id="tb-nearby" data-tab="nearby" aria-controls="tab-nearby"><svg class="ic"><use href="#i-nearby"/></svg>Nearby</button>
       <button role="tab" id="tb-me" data-tab="me" aria-controls="tab-me"><svg class="ic"><use href="#i-person"/></svg>Me</button>
     </div>
   </section>
@@ -188,6 +198,7 @@
 <script defer src="js/account.js"></script>
 <script defer src="js/cars.js"></script>
 <script defer src="js/homes.js"></script>
+<script defer src="js/nearby.js"></script>
 <script defer src="js/app.js"></script>
 </body>
 </html>

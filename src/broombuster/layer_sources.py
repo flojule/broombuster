@@ -12,6 +12,7 @@ source column (owner names, plates, …) can leak into the committed files:
 import datetime
 import json
 import os
+import re
 
 import geopandas
 import pandas as pd
@@ -46,7 +47,8 @@ def _frame(features: list) -> geopandas.GeoDataFrame:
     return geopandas.GeoDataFrame.from_features(features, crs="EPSG:4326")
 
 
-def arcgis(layer_url: str, where: str = "1=1", fields: str = "*") -> tuple[geopandas.GeoDataFrame, str]:
+def arcgis(layer_url: str, where: str = "1=1",
+           fields: str = "*") -> tuple[geopandas.GeoDataFrame, str]:
     """(every feature of an ArcGIS FeatureServer/MapServer layer, its last edit date)."""
     meta = _get(layer_url, f="json").json()
     edited = (meta.get("editingInfo") or {}).get("lastEditDate")
@@ -93,7 +95,8 @@ def _out(gdf: geopandas.GeoDataFrame, label, rule, asof: str) -> geopandas.GeoDa
 def _clean(geom, min_area: float):
     """Drop parts and holes under min_area (m², EPSG:3857 units near enough here)."""
     parts = getattr(geom, "geoms", [geom])
-    keep = [shapely.Polygon(p.exterior, [h for h in p.interiors if shapely.Polygon(h).area >= min_area])
+    keep = [shapely.Polygon(p.exterior,
+                            [h for h in p.interiors if shapely.Polygon(h).area >= min_area])
             for p in parts if p.area >= min_area]
     return shapely.MultiPolygon(keep) if keep else shapely.Polygon()
 
@@ -180,7 +183,8 @@ def berkeley_meters():
 
 
 def oakland_meters():
-    gdf, asof = arcgis(f"{OAKLAND}/Oakland_Parking_Meters/FeatureServer/0", fields="AREA,POLE_STATU")
+    gdf, asof = arcgis(f"{OAKLAND}/Oakland_Parking_Meters/FeatureServer/0",
+                       fields="AREA,POLE_STATU")
     return _out(gdf, "Meter",
                 "Metered: most meters $3/h ($1–$4), Mon–Sat 8 AM–6 PM; "
                 "around Lake Merritt also evenings and Sunday afternoons.", asof)
@@ -188,8 +192,13 @@ def oakland_meters():
 
 def sf_meters():
     gdf, asof = socrata("data.sf.gov", "27b3-yjjx")
-    return _out(gdf, lambda r: f"Metered block, {str(r.get('street_name') or '').title()}".rstrip(", "),
-                "Metered: pay at the meter or app; hours and rate are on the meter.", asof)
+    def label(r):
+        street = re.sub(r"(\d)(St|Nd|Rd|Th)\b", lambda m: m[1] + m[2].lower(),
+                        str(r.get("street_name") or "").title())
+        return f"Metered block, {street}" if street else "Metered block"
+
+    return _out(gdf, label, "Metered: pay at the meter or app; hours and rate are on the meter.",
+                asof)
 
 
 # ── Chicago winter bans ───────────────────────────────────────────────────────
@@ -203,7 +212,7 @@ def chicago_winter():
                           "No parking 3–7 AM from Dec 1 to Apr 1, snow or not (towed).", a1))
     if not snow.empty:
         parts.append(_out(snow, "2-inch snow route",
-                          "No parking once 2 inches of snow have fallen, until the street is plowed.",
+                          "No parking once 2 inches of snow have fallen, until plowed.",
                           a2))
     return pd.concat(parts, ignore_index=True)
 
@@ -229,7 +238,9 @@ def berkeley_fire():
 
 def _zone_label(v) -> str:
     v = str(v or "").strip()
-    return f"Fire zone {v}" if v and v[-1].isdigit() and "zone" not in v.lower() else (v or "Fire zone")
+    if v and v[-1].isdigit() and "zone" not in v.lower():
+        return f"Fire zone {v}"
+    return v or "Fire zone"
 
 
 def oakland_fire():

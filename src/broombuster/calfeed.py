@@ -127,7 +127,8 @@ def build(prefs: dict, locate: Callable[[float, float], CarSpot | None],
     for city, region in cities_seen.items():
         today = now.astimezone(ZoneInfo(REGIONS[region]["tz"])).date()
         for day, h in sorted(holidays.for_city(city).items()):
-            if "sweeping" in h["suspends"] and today <= day <= today + datetime.timedelta(days=DAYS):
+            last = today + datetime.timedelta(days=DAYS)
+            if "sweeping" in h["suspends"] and today <= day <= last:
                 lines += ["BEGIN:VEVENT", f"UID:holiday-{city}-{day:%Y%m%d}@broombuster",
                           f"DTSTAMP:{stamp}", f"DTSTART;VALUE=DATE:{day:%Y%m%d}",
                           f"DTEND;VALUE=DATE:{day + datetime.timedelta(days=1):%Y%m%d}",

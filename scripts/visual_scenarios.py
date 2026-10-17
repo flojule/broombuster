@@ -96,6 +96,10 @@ VIEWS = {
     "home":   lambda pg: pg.evaluate("openItem('h1')"),
     "add":    lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),
     "me":     lambda pg: (pg.click("#tb-me"), pg.evaluate("setDetent('medium')")),
+    # Nearby: markets, events and meetings near the centre target.
+    "nearby": lambda pg: (pg.click("#tb-nearby"), pg.evaluate("setDetent('medium')"),
+                          pg.wait_for_function("!document.querySelector('#nearby-body').textContent.includes('Loading')",
+                                               timeout=30000)),
     "place":  lambda pg: pg.evaluate("startPlacing()"),
     # You-are-here dot with a 40 m accuracy halo, near the first car.
     "here":   lambda pg: pg.evaluate("_setHere(37.7752, -122.4189, 40)"),

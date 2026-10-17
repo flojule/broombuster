@@ -8,7 +8,7 @@ environment can change them. Variables:
   BB_RATE_LIMIT                                        "0" turns rate limits off
   BB_CSP                                               "enforce" enforces the CSP (else report-only)
   BB_NREL_API_KEY                                      EV stations (layer build; DEMO_KEY if unset)
-  BB_511_API_KEY                                       511 SF Bay work zones (closures; off if unset)
+  BB_511_API_KEY                                       511 SF Bay work zones (off if unset)
 """
 
 import os

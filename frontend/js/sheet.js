@@ -1,4 +1,4 @@
-// ── Sheet (as in Find My): Calendar | Saved | Me ──────────────────────────────
+// ── Sheet (as in Find My): Calendar | Saved | Nearby | Me ─────────────────────
 // Phone: at the bottom with the tab bar, at one of two heights (detents): small (a tab's
 // header and a peek of it) and medium. It floats clear of the screen's edges, as iOS 26
 // sheets do, and never covers the whole map. Drag the grabber, a tab's header or its
@@ -7,7 +7,7 @@
 // Desktop: a full-height panel on the left; no detents.
 const tabbar  = document.getElementById('tabbar');
 const grabber = document.getElementById('sheet-grabber');
-const TABS = ['calendar', 'saved', 'me'];
+const TABS = ['calendar', 'saved', 'nearby', 'me'];
 const DETENTS = ['small', 'medium'];
 const SHEET_PEEK = 144;  // px above the tab bar at the small detent: grabber, header, one row
 const _stored = (key, allowed, fallback) => {
@@ -166,6 +166,7 @@ function showTab(name) {
   for (const t of TABS) document.getElementById('tab-' + t).hidden = t !== name;
   if (name === 'me' && typeof renderAccountSection === 'function') renderAccountSection();
   if (name === 'calendar' && typeof calShown === 'function') calShown();
+  if (name === 'nearby' && typeof nearbyShown === 'function') nearbyShown();
 }
 // Tapping the open tab again, with the sheet small, opens it to medium.
 tabbar.addEventListener('click', e => {
