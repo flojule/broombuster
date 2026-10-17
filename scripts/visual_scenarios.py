@@ -4,9 +4,8 @@
 Scenarios = platform x theme x view. Each one is screenshotted and checked:
 
   * the app fills the visible height (or the whole screen in a home-screen app);
-  * the centre target is not covered by the sheet, street signs or map buttons (the
-    large sheet may cover the map: that is what it is for);
-  * those three never overlap one another (the large sheet aside);
+  * the centre target is not covered by the sheet, street signs or map buttons;
+  * those three never overlap one another;
   * the street layer is drawn and every street has a colour (no blue flash);
   * no serious or critical WCAG 2.2 AA violation (axe-core);
   * no uncaught page errors.
@@ -97,7 +96,6 @@ VIEWS = {
     "home":   lambda pg: pg.evaluate("openItem('h1')"),
     "add":    lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),
     "me":     lambda pg: (pg.click("#tb-me"), pg.evaluate("setDetent('medium')")),
-    "large":  lambda pg: pg.evaluate("setDetent('large')"),
     "place":  lambda pg: pg.evaluate("startPlacing()"),
     # You-are-here dot with a 40 m accuracy halo, near the first car.
     "here":   lambda pg: pg.evaluate("_setHere(37.7752, -122.4189, 40)"),
@@ -126,7 +124,6 @@ MEASURE = """() => {
   const c = map.project(map.getCenter()), mc = document.getElementById('map').getBoundingClientRect();
   return { app: rect(document.getElementById('app-screen')), inner: [innerWidth, innerHeight],
            center: ch && [(ch[0] + ch[2]) / 2, (ch[1] + ch[3]) / 2], mapCenter: [mc.left + c.x, mc.top + c.y],
-           large: !isDesktop() && _detent === 'large',
            boxes: { sheet: rect(document.getElementById('sheet')), signs: rect(document.getElementById('signs')),
                     buttons: rect(document.getElementById('map-ctrl')) },
            crosshair: ch, streets: feats.length, unset };
@@ -146,7 +143,7 @@ def check(m, expect_h):
         bad.append("no streets drawn")
     elif m["unset"]:
         bad.append(f"{m['unset']} of {m['streets']} streets have no colour")
-    boxes = {k: v for k, v in m["boxes"].items() if v and not (k == "sheet" and m["large"])}
+    boxes = {k: v for k, v in m["boxes"].items() if v}
     if m["crosshair"] is None:
         return [*bad, "centre target not visible"]
     cx, cy = m["center"]

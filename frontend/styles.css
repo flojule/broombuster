@@ -114,7 +114,6 @@
       background: var(--glass); border-radius: var(--pill); box-shadow: var(--rim), var(--shadow-1);
     }
     body.placing #map-ctrl { display: none; }
-    body.sheet-large #map-ctrl { visibility: hidden; }  /* the large sheet covers them (as in Find My) */
     .map-btn {
       position: relative; width: var(--tap); height: var(--tap); margin: 0; padding: 0; display: flex; align-items: center; justify-content: center;
       color: var(--text); border-radius: var(--pill); font-size: 1.1rem; transition: transform .2s var(--spring);
@@ -179,18 +178,17 @@
     .menu-about a { color: inherit; }
 
     /* ── Sheet (as in Find My) ──
-       Phone: at the bottom with the tab bar at its foot; its height is one of three detents
+       Phone: at the bottom with the tab bar at its foot; its height is one of two detents
        (js/sheet.js), dragged by the grabber, a tab's header or its content. As iOS 26 sheets,
-       it floats clear of the screen's edges (--sheet-gap) with all corners round, and docks
-       edge to edge as it reaches the large detent (--k: 0 floating .. 1 docked, from JS).
+       it floats clear of the screen's edges (--sheet-gap) with all corners round.
        Desktop: a full-height panel on the left with the tabs as a segmented control. */
     #sheet {
-      --sheet-gap: 8px; --k: 0; --gap: calc(var(--sheet-gap) * (1 - var(--k)));
-      position: absolute; left: var(--gap); right: var(--gap); bottom: var(--gap); z-index: 25; height: 220px;
+      --sheet-gap: 8px;
+      position: absolute; left: var(--sheet-gap); right: var(--sheet-gap); bottom: var(--sheet-gap); z-index: 25; height: 220px;
       display: flex; flex-direction: column;
       background: var(--sheet-bg); border-radius: var(--r-sheet);
       box-shadow: var(--rim), 0 -2px 24px rgba(0,0,0,.14);
-      transition: height .4s var(--sheet-ease), left .4s var(--sheet-ease), right .4s var(--sheet-ease), bottom .4s var(--sheet-ease);
+      transition: height .4s var(--sheet-ease);
     }
     #sheet.dragging { transition: none; }
     #sheet-grabber { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; height: 22px; cursor: grab; }

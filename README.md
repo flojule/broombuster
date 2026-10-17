@@ -36,11 +36,11 @@ uv tool run --from playwright python scripts/visual_scenarios.py [--only iphone-
 
 Headless WebKit cannot draw Safari's toolbars, the Dynamic Island or the glass blur (backdrop-filter), so before a layout change ships, check on
 an iPhone, in a Safari tab and in the home-screen app: the map reaches the screen edges (the Safari tab stops at
-the status bar), the tab bar clears the address bar and home indicator, dragging the sheet snaps to its three
+the status bar), the tab bar clears the address bar and home indicator, dragging the sheet snaps to its two
 heights (from the grabber, a header, or a list scrolled to its top) with the calendar unfolding smoothly and
 the centre dot staying in view, the sign clears the status bar, the locate button shows the blue
 dot, a long press on the map offers "Add car here", text on the glass (sheet, menus, labels) stays readable over a
-busy map, and the sheet widens to the edges smoothly as it is dragged to its largest height. If something looks wrong, Safari's Web Inspector over USB shows the live page.
+busy map, and the map stays in view with the sheet at its tallest. If something looks wrong, Safari's Web Inspector over USB shows the live page.
 
 ## License
 
