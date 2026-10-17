@@ -34,6 +34,9 @@ let _liveUrgencySig = '';
 function tick() {
   scheduleUrgencyUpdate();
   renderTargetInfo();  // no-op unless today changed
+  // Rules at cars and homes (a closure starts, a feed recovers): refetched every 30 min.
+  for (const c of cars) if (carSchedules[c.id]) loadRules(c, 'car').then(n => n && renderCarsPanel());
+  for (const h of homes) if (homeSchedules[h.id]) loadRules(h, 'home').then(n => n && renderHomePanel());
   const day = s => BroomUrgency.isoDay(schedNow(s));
   const sig = [...Object.entries(carSchedules).map(([id, s]) => `${id}:${sweepUrgency(s)}:${day(s)}`),
                ...Object.entries(homeSchedules).map(([id, s]) => `${id}:${day(s)}`)].join('|');

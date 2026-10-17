@@ -59,11 +59,13 @@ async function geocode(q, region) {
 }
 
 // What applies at a car (permit area, meter, …) or a home (fire, evacuation zone): id ->
-// [{theme, label, rule, asof, city}] from /api/rules; refetched when the item moves.
+// [{theme, label, rule, asof, city}] from /api/rules; refetched when the item moves, and
+// after RULES_TTL_MS (closures come and go). Returns whether new rules arrived.
 const placeRules = {};
-const _rulesAt = {};  // id -> "lat,lon" the rules are for
+const _rulesAt = {};  // id -> "lat,lon@fetch time slot" the rules are for
+const RULES_TTL_MS = 30 * 60 * 1000;
 async function loadRules(item, kind) {
-  const at = `${item.lat},${item.lon}`;
+  const at = `${item.lat},${item.lon}@${Math.floor(Date.now() / RULES_TTL_MS)}`;
   if (_rulesAt[item.id] === at) return false;
   _rulesAt[item.id] = at;
   const q = new URLSearchParams({ lat: item.lat, lon: item.lon, kind });
