@@ -5,6 +5,7 @@ bbox: [37.73, -122.33, 37.79, -122.21]
 fgb_path: data/alameda/StreetSweeping.fgb
 holidays: data/holidays/alameda.yaml
 trash: {kind: weekly, holiday_rule: shift_week}   # ACI Alameda: no lookup, the user picks the day
+layers: [ev, markets]   # scripts/build_layers.py (layer_sources.py)
 source:
   local_path: data/alameda/StreetSweeping.geojson
   build: scripts/build_alameda_geojson.py

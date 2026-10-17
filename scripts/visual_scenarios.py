@@ -102,6 +102,9 @@ VIEWS = {
     # The "Add here" menu (right-click / long press), up and left of the centre (clear of the car there).
     "menu":   lambda pg: pg.evaluate("(() => { const r = mapDiv.getBoundingClientRect(), x = r.width / 2 - 150, y = r.height / 2 - 110;"
                                      " openCtxMenu(map.unproject([x, y]), r.left + x, r.top + y); })()"),
+    # The Layers menu with permit areas and meters turned on (drawn under the streets).
+    "layers": lambda pg: (pg.click("#btn-layers"), pg.click('[data-layer="parking"]'),
+                          pg.click('[data-layer="meters"]'), pg.wait_for_timeout(1500)),
     # A car whose schedule failed to load: its page offers Retry.
     "failed": lambda pg: pg.evaluate("delete carSchedules.c1; loadFailed.add('c1'); openItem('c1'); renderCarsPanel()"),
 }

@@ -52,7 +52,7 @@ function renderHomePanel() {
     const entry = itemCard({
       id: h.id, kind: 'home', color: HOME_COLOR, name: itemName(h),
       urgency: _nextPickups(sched).length ? homeUrgency(sched) : null, addr: addrText,
-      detail: homeScheduleHTML(h, sched),
+      detail: homeScheduleHTML(h, sched) + rulesBlockHTML('Area', placeRules[h.id]),
     });
     entry.querySelector('.ce-collection-day')?.addEventListener('change', e => {
       const v = e.target.value;
@@ -132,4 +132,5 @@ async function checkHome(id) {
   // reverse-geocoded so the card shows a real street address.
   if (data && !h.address && data.address) { h.address = data.address; savePrefs(); }
   renderHomePanel();
+  if (await loadRules(h, 'home')) renderHomePanel();
 }

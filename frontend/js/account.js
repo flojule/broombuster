@@ -4,6 +4,8 @@ let accountEnabled = false;  // server has Google sign-in configured
 let account    = null;   // { email } while signed in
 let _syncTimer = null;
 let phoneLinks = {};     // car id -> epoch seconds of the phone's last report (null: never)
+let calendarOn = false;  // the account has a calendar subscription link
+let _calendarUrl = null; // a freshly made link, shown once: {url, webcal}
 
 // Sign-in state. A signed-in user's saved prefs replace the local copy; an
 // account without prefs adopts the local one.
@@ -19,6 +21,7 @@ async function loadAccount() {
     accountEnabled = !!me.enabled;
     account = me.user;
     phoneLinks = me.phone_links || {};
+    calendarOn = !!me.calendar;
     if (!account) return;
     if (me.prefs) localStorage.setItem(PREFS_KEY, JSON.stringify(me.prefs));
     else if (localStorage.getItem(PREFS_KEY)) _putPrefs(localStorage.getItem(PREFS_KEY));
@@ -102,6 +105,44 @@ function _deleteAccountItem() {
   return el;
 }
 
+// ── Calendar subscription: a secret link a calendar app polls (sweeping of the cars,
+// pickups of the homes, holidays), with a reminder the evening before each. ──────
+async function _makeCalendarLink() {
+  await _flushPrefs();
+  const res = await fetch('/api/me/calendar', { method: 'POST' }).catch(() => null);
+  if (!res?.ok) { showToast('Could not make a calendar link', true); return; }
+  _calendarUrl = await res.json();
+  calendarOn = true;
+  renderAccountSection();
+}
+async function _stopCalendar() {
+  if (!await askConfirm('Turn off the calendar link?', 'Calendars subscribed to it stop updating.', 'Turn off')) return;
+  const res = await fetch('/api/me/calendar', { method: 'DELETE' }).catch(() => null);
+  if (!res?.ok) { showToast('Could not turn it off', true); return; }
+  calendarOn = false; _calendarUrl = null;
+  renderAccountSection();
+}
+function _calendarItems() {
+  const items = [Object.assign(document.createElement('div'), { className: 'menu-label', textContent: 'Calendar' })];
+  if (_calendarUrl) {
+    const a = Object.assign(document.createElement('a'), {
+      className: 'menu-item', href: _calendarUrl.webcal, textContent: 'Subscribe in Calendar' });
+    items.push(a, _menuItem('Copy link', async () => {
+      try { await navigator.clipboard.writeText(_calendarUrl.url); showToast('Link copied'); }
+      catch (_) { showToast(_calendarUrl.url, false, 10000); }
+    }), _menuItem('Shown once: anyone with the link can see your cars’ sweeping days.'));
+  } else {
+    items.push(_menuItem(calendarOn ? 'New calendar link' : 'Add sweeping and trash days to your calendar',
+                         _makeCalendarLink));
+  }
+  if (calendarOn) {
+    const off = _menuItem('Turn off calendar link', _stopCalendar);
+    off.classList.add('danger');
+    items.push(off);
+  }
+  return items;
+}
+
 function renderAccountSection() {
   menuAccount.hidden = !accountEnabled;
   if (!accountEnabled) return;
@@ -109,6 +150,6 @@ function renderAccountSection() {
   menuAccount.replaceChildren(label, ...(account
     ? [_menuItem(account.email),
        _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' }))),
-       _deleteAccountItem()]
+       _deleteAccountItem(), ..._calendarItems()]
     : [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; })]));
 }

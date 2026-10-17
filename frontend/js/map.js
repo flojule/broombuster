@@ -36,6 +36,7 @@ function attachMapListeners() {
     // a stray tap — a tap during place mode is ignored so panning can't misfire.
     if (placing) return;
     if (_namePopup) return;  // name box open: taps don't open windows or close it
+    overlayClick(e);  // a permit area, meter, … names itself (js/layers.js)
     if (_tapTimer) clearTimeout(_tapTimer);
     _tapTimer = setTimeout(() => { _tapTimer = null; clearSelection(); }, 280);
   });
@@ -212,6 +213,7 @@ function ensureTiles() {
       addTilePaintLayers();
       _tilesRegion = region;
     }
+    syncOverlays();  // the region's map layers that are on (js/layers.js)
     scheduleUrgencyUpdate();
   });
 }

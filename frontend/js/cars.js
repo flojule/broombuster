@@ -8,6 +8,7 @@ async function checkCar(car, loud = false) {
   clearTimeout(warmupTimer);
   if (data) upgradeAddress(car, data);
   updateCarMarkers();  // re-renders the cards (data, or the Retry state)
+  if (await loadRules(car, 'car')) renderCarsPanel();
 }
 
 // /check answers without the Nominatim house number (it can take ~1 s); when
@@ -368,6 +369,7 @@ function renderCarsPanel() {
       detail: `
         <button class="btn btn-tinted ce-btn-gps">${icon('locate')} Parked here</button>
         ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}
+        ${rulesBlockHTML('Also here', placeRules[car.id])}
         ${account ? phoneLinkHTML(car) : ''}`,
     });
 

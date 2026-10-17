@@ -5,12 +5,12 @@ from datetime import datetime
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import analysis, gps, holidays, iplocate, resolve, trash
+from broombuster import analysis, calfeed, gps, holidays, iplocate, layers, resolve, trash
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_bbox, region_for_point
 from broombuster.config import REPO_ROOT
 from broombuster.version import app_version
@@ -81,7 +81,8 @@ def cities():
     return {
         rk: {"name": rv["name"], "center": rv["center"], "tz": rv["tz"],
              "zoom": rv["zoom"], "holidays": holidays.for_region(rk),
-             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]}}
+             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
+             "layers": layers.catalogue(rk)}
         for rk, rv in REGIONS.items()
     }
 
@@ -175,6 +176,39 @@ def check_home(req: CheckHomeRequest):
     return {"region": region, "city": city, "address": address,
             "trash_kind": trash.kind(city),
             "pickups": trash.pickups(city, address, today, req.collection_day)}
+
+
+@api.get("/rules")
+def rules(lat: float = Query(..., ge=-90.0, le=90.0),
+          lon: float = Query(..., ge=-180.0, le=180.0),
+          region: str | None = None,
+          kind: str = Query("car", pattern="^(car|home)$")):
+    """What applies at a car (permit area, meter, winter ban) or a home (fire and
+    evacuation zones), from the cities' extra layers. Each rule: {theme, label, rule,
+    asof, city}."""
+    region = region if region in REGIONS else region_for_point(lat, lon)
+    return {"region": region, "rules": layers.rules_at(region, lat, lon, kind)}
+
+
+def _car_spot(lat: float, lon: float) -> calfeed.CarSpot | None:
+    loc = _locate(lat, lon, None)
+    if loc.resolved is None:
+        return None
+    even, odd = analysis.schedules_for_all_matching_rows(loc.gdf_3857, loc.resolved)
+    address, _ = _address(loc, lat, lon, network=False)
+    return calfeed.CarSpot(loc.region, loc.city_key, address,
+                           {"even": [list(e) for e in even], "odd": [list(o) for o in odd]},
+                           loc.resolved.side)
+
+
+@api.get("/calendar/{token}.ics", include_in_schema=False)
+def calendar_feed(token: str):
+    """An account's calendar subscription (the token from POST /api/me/calendar)."""
+    prefs = auth.prefs_for_calendar_token(token)
+    if prefs is None:
+        raise HTTPException(404, "Unknown or revoked calendar link.")
+    return Response(calfeed.build(prefs, _car_spot), media_type="text/calendar; charset=utf-8",
+                    headers={"Cache-Control": "private, max-age=900"})
 
 
 class CarLocation(BaseModel):

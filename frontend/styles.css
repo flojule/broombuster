@@ -123,6 +123,15 @@
       color: var(--text); border-radius: var(--pill); font-size: 1.1rem;
     }
     .zoom-btn { display: none; }
+    .map-btn + .map-btn::before { content: ''; position: absolute; top: 0; left: 10px; right: 10px; border-top: 1px solid var(--hairline); }
+    /* Layers menu: one switch row per layer, its map colour as the key. */
+    .lyr-item[aria-checked="true"] .lyr-check { opacity: 1; }
+    .lyr-check { margin-left: auto; opacity: 0; color: var(--blue); }
+    .lyr-key { flex: none; width: 14px; height: 14px; border-radius: 4px; background: var(--k); }
+    .lyr-note { padding: 6px 12px 8px; font-size: .7rem; color: var(--muted); max-width: 260px; line-height: 1.35; }
+    .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: .8rem;
+      background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
+    .lyr-popup .maplibregl-popup-tip { display: none; }
 
     /* ── Map container ── */
     #map-container { height: 100%; position: relative; }
@@ -171,6 +180,7 @@
                  color: var(--text); font-size: .88rem; font-weight: 500; }
     .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
     .menu-item:hover { background: var(--fill); }
+    a.menu-item { display: flex; align-items: center; color: var(--tint-fg); text-decoration: none; }
     .menu-note { padding: 6px 14px; color: var(--muted); font-size: .78rem; font-weight: 400; overflow-wrap: anywhere; }
     .seg { display: flex; margin: 4px 14px 8px; padding: 3px; gap: 2px; background: var(--fill); border-radius: var(--pill); }
     .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: .8rem; font-weight: 500;
@@ -516,7 +526,6 @@
       #map-ctrl, #signs { top: var(--edge); }
       #signs { left: calc(var(--panel-w) + 2 * var(--edge)); }
       .zoom-btn { display: flex; }
-      .map-btn + .map-btn::before { content: ''; position: absolute; top: 0; left: 10px; right: 10px; border-top: 1px solid var(--hairline); }
       /* The panel's height is fixed: up to six whole weeks (js/calendar.js fitCalWeeks). */
       #ic-cal { overflow-y: auto; }
       .cal-scroll { flex: 0 1 auto; height: calc(6 * 43px - 3px); }

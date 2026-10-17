@@ -1,0 +1,39 @@
+# Weekly farmers markets, kept by hand (no open feed exists). Sources: the operators'
+# pages and the CDFA certified-market list; check them each spring. Locations are the
+# market's street corner, to within a block.
+last_verified: 2026-10-17
+markets:
+  - {city: berkeley, name: Downtown Berkeley Farmers' Market, day: Sat, weekday: 5, hours: "10 AM–3 PM",
+     lat: 37.8697, lon: -122.2730, url: "https://ecologycenter.org/fm/"}
+  - {city: berkeley, name: South Berkeley Farmers' Market, day: Tue, weekday: 1, hours: "2–6:30 PM",
+     lat: 37.8485, lon: -122.2734, url: "https://ecologycenter.org/fm/"}
+  - {city: berkeley, name: North Berkeley Farmers' Market, day: Thu, weekday: 3, hours: "3–7 PM",
+     lat: 37.8798, lon: -122.2691, url: "https://ecologycenter.org/fm/"}
+  - {city: oakland, name: Grand Lake Farmers Market, day: Sat, weekday: 5, hours: "9 AM–2 PM",
+     lat: 37.8106, lon: -122.2479, url: "https://www.urbanvillageonline.com/"}
+  - {city: oakland, name: Temescal Farmers Market, day: Sun, weekday: 6, hours: "9 AM–1 PM",
+     lat: 37.8399, lon: -122.2594, url: "https://www.urbanvillageonline.com/"}
+  - {city: oakland, name: Old Oakland Farmers Market, day: Fri, weekday: 4, hours: "8 AM–2 PM",
+     lat: 37.8009, lon: -122.2734, url: "https://www.oldoaklandfarmers.com/"}
+  - {city: oakland, name: Montclair Farmers Market, day: Sun, weekday: 6, hours: "9 AM–1 PM",
+     lat: 37.8262, lon: -122.2105, url: "https://www.urbanvillageonline.com/"}
+  - {city: oakland, name: Jack London Square Farmers Market, day: Sun, weekday: 6, hours: "9 AM–2 PM",
+     lat: 37.7939, lon: -122.2751, url: "https://www.jacklondonsquare.com/"}
+  - {city: alameda, name: Alameda Farmers' Market, day: Tue, weekday: 1, hours: "9 AM–1 PM",
+     lat: 37.7742, lon: -122.2768, url: "https://pcfma.org/"}
+  - {city: alameda, name: Alameda Farmers' Market, day: Sat, weekday: 5, hours: "9 AM–1 PM",
+     lat: 37.7742, lon: -122.2768, url: "https://pcfma.org/"}
+  - {city: san_francisco, name: Ferry Plaza Farmers Market, day: Tue, weekday: 1, hours: "10 AM–2 PM",
+     lat: 37.7955, lon: -122.3935, url: "https://cuesa.org/"}
+  - {city: san_francisco, name: Ferry Plaza Farmers Market, day: Thu, weekday: 3, hours: "10 AM–2 PM",
+     lat: 37.7955, lon: -122.3935, url: "https://cuesa.org/"}
+  - {city: san_francisco, name: Ferry Plaza Farmers Market, day: Sat, weekday: 5, hours: "8 AM–2 PM",
+     lat: 37.7955, lon: -122.3935, url: "https://cuesa.org/"}
+  - {city: san_francisco, name: Alemany Farmers Market, day: Sat, weekday: 5, hours: "6 AM–3 PM",
+     lat: 37.7369, lon: -122.4089, url: "https://www.sf.gov/location/alemany-farmers-market"}
+  - {city: chicago_all, name: Green City Market (May–Oct), day: Sat, weekday: 5, hours: "7 AM–1 PM",
+     lat: 41.9139, lon: -87.6339, url: "https://greencitymarket.org/"}
+  - {city: chicago_all, name: Green City Market (May–Oct), day: Wed, weekday: 2, hours: "7 AM–1 PM",
+     lat: 41.9139, lon: -87.6339, url: "https://greencitymarket.org/"}
+  - {city: chicago_all, name: Daley Plaza Farmers Market (Jun–Oct), day: Thu, weekday: 3, hours: "7 AM–3 PM",
+     lat: 41.8839, lon: -87.6302, url: "https://www.chicago.gov/city/en/depts/dca/supp_info/farmersmarkets.html"}

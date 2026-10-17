@@ -88,12 +88,14 @@ function _applyDark(on) {
     // Carry the street source and layers into the new basemap so they never blink
     // out (the ward outline takes the new theme's colour). Their urgency is
     // re-applied once it settles, in case the swap dropped feature-state.
+    // The map layers that are on (js/layers.js, sources "lyr-…") come along too.
     map.setStyle(_mapStyle, { transformStyle: (prev, next) => {
       if (!prev?.sources?.[TILES_SOURCE]) return next;
-      const ours = prev.layers.filter(l => ZONE_LAYERS.includes(l.id)).map(l => l.id === 'zones-ward'
-        ? { ...l, paint: { ...l.paint, 'line-color': _wardLineColor() } } : l);
-      return { ...next, sources: { ...next.sources, [TILES_SOURCE]: prev.sources[TILES_SOURCE] },
-               layers: [...next.layers, ...ours] };
+      const overlay = id => id.startsWith(LAYER_PREFIX);
+      const ours = prev.layers.filter(l => ZONE_LAYERS.includes(l.id) || overlay(l.source || ''))
+        .map(l => l.id === 'zones-ward' ? { ...l, paint: { ...l.paint, 'line-color': _wardLineColor() } } : l);
+      const srcs = Object.fromEntries(Object.entries(prev.sources).filter(([k]) => k === TILES_SOURCE || overlay(k)));
+      return { ...next, sources: { ...next.sources, ...srcs }, layers: [...next.layers, ...ours] };
     } });
     map.once('idle', scheduleUrgencyUpdate);
   }

@@ -88,6 +88,9 @@ def init_db() -> None:
                 created_at INTEGER NOT NULL, last_used INTEGER,
                 sub TEXT NOT NULL REFERENCES users(sub) ON DELETE CASCADE,
                 UNIQUE (sub, car_id));
+            CREATE TABLE IF NOT EXISTS calendar_tokens (
+                token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, last_used INTEGER,
+                sub TEXT NOT NULL UNIQUE REFERENCES users(sub) ON DELETE CASCADE);
         """)
 
 
@@ -289,9 +292,11 @@ def me(request: Request, response: Response):
     with closing(_connect()) as db:
         links = {r["car_id"]: r["last_used"] for r in db.execute(
             "SELECT car_id, last_used FROM car_tokens WHERE sub = ?", (user["sub"],))}
+        cal = db.execute("SELECT created_at FROM calendar_tokens WHERE sub = ?",
+                         (user["sub"],)).fetchone()
     return {"enabled": True, "user": {"email": user["email"]},
             "prefs": json.loads(user["prefs"]) if user["prefs"] else None,
-            "phone_links": links}
+            "phone_links": links, "calendar": cal is not None}
 
 
 @router.put("/api/me/prefs", status_code=204)
@@ -358,6 +363,46 @@ def car_for_token(request: Request) -> sqlite3.Row:
     if row is None:
         raise HTTPException(401, "Unknown or revoked token.")
     return row
+
+
+# ── Calendar subscription ─────────────────────────────────────────────────────
+# A secret URL a calendar app polls (/api/calendar/<token>.ics): the account's cars'
+# sweeping and homes' pickups. The token can only read that feed; one per account.
+_CAL_PREFIX = "bbk_"
+
+
+@router.post("/api/me/calendar")
+def create_calendar_token(request: Request, user: sqlite3.Row = Depends(_signed_in_mutation)):
+    """A new calendar feed URL (shown once); replaces any earlier one."""
+    token = _CAL_PREFIX + secrets.token_urlsafe(32)
+    with closing(_connect()) as db, db:
+        db.execute("DELETE FROM calendar_tokens WHERE sub = ?", (user["sub"],))
+        db.execute("INSERT INTO calendar_tokens (token_hash, created_at, sub) VALUES (?, ?, ?)",
+                   (_hash(token), int(time.time()), user["sub"]))
+    base = _require_config()[2]
+    https = f"{base}/api/calendar/{token}.ics"
+    return {"url": https, "webcal": "webcal://" + https.split("://", 1)[1]}
+
+
+@router.delete("/api/me/calendar", status_code=204)
+def revoke_calendar_token(user: sqlite3.Row = Depends(_signed_in_mutation)):
+    with closing(_connect()) as db, db:
+        db.execute("DELETE FROM calendar_tokens WHERE sub = ?", (user["sub"],))
+
+
+def prefs_for_calendar_token(token: str) -> dict | None:
+    """The saved prefs of the account a calendar token belongs to (marks it used)."""
+    if _config() is None or not token.startswith(_CAL_PREFIX):
+        return None
+    token_hash = _hash(token)
+    with closing(_connect()) as db, db:
+        row = db.execute("SELECT sub FROM calendar_tokens WHERE token_hash = ?",
+                         (token_hash,)).fetchone()
+        if row is None:
+            return None
+        db.execute("UPDATE calendar_tokens SET last_used = ? WHERE token_hash = ?",
+                   (int(time.time()), token_hash))
+        return _stored_prefs(db, row["sub"])
 
 
 def set_car_location(sub: str, car_id: str, lat: float, lon: float) -> bool:

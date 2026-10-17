@@ -58,6 +58,35 @@ async function geocode(q, region) {
   return hit.lat == null ? null : hit;
 }
 
+// What applies at a car (permit area, meter, …) or a home (fire, evacuation zone): id ->
+// [{theme, label, rule, asof, city}] from /api/rules; refetched when the item moves.
+const placeRules = {};
+const _rulesAt = {};  // id -> "lat,lon" the rules are for
+async function loadRules(item, kind) {
+  const at = `${item.lat},${item.lon}`;
+  if (_rulesAt[item.id] === at) return false;
+  _rulesAt[item.id] = at;
+  const q = new URLSearchParams({ lat: item.lat, lon: item.lon, kind });
+  const region = regionAt(item.lat, item.lon);
+  if (region) q.set('region', region);
+  try {
+    const res = await fetch('/api/rules?' + q);
+    if (!res.ok) { delete _rulesAt[item.id]; return false; }
+    if (_rulesAt[item.id] !== at) return false;  // moved meanwhile
+    placeRules[item.id] = (await res.json()).rules || [];
+    return true;
+  } catch (_) { delete _rulesAt[item.id]; return false; }
+}
+
+// An item page's section of rules: label, what it means, and the source's date.
+function rulesBlockHTML(header, rules) {
+  if (!rules?.length) return '';
+  const rows = rules.map(r => `<div class="ce-sched-item ce-rule${r.warn ? ' warn' : ''}"><b>${esc(r.label)}</b>`
+    + (r.rule ? `<span>${esc(r.rule)}</span>` : '')
+    + (r.asof ? `<small>Data as of ${esc(r.asof)}</small>` : '') + '</div>').join('');
+  return `<div class="ce-sec-label">${esc(header)}</div><div class="ce-sec">${rows}</div>`;
+}
+
 // Schedules for cars and homes: the latest request per id wins (a slow answer for an
 // old position never overwrites a newer one), and a failure is remembered so the card
 // offers Retry instead of "Loading…" forever. Returns the data, or null if it failed
