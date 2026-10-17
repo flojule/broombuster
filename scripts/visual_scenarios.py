@@ -79,14 +79,20 @@ THEMES = ("light", "dark")
 
 # View = how the page is driven before the screenshot (UI clicks and the page's own functions).
 VIEWS = {
-    # Calendar tab, small sheet: a row of days.
+    # Calendar tab, small sheet: one week.
     "strip":  lambda pg: None,
+    # Mid-drag between small and medium: the weeks below unfold.
+    "unfold": lambda pg: pg.evaluate("sheet.classList.add('dragging'); sheet.style.height = (detentHeights().small + 120) + 'px'"),
     # Tapping a day: the month view, sheet at medium.
-    "month":  lambda pg: pg.click("#ic-cal [data-cal-day]:nth-child(60)"),
+    "month":  lambda pg: pg.click("#ic-cal .cal-sel"),
     "saved":  lambda pg: (pg.click("#tb-saved"), pg.evaluate("setDetent('medium')")),
     # A car's page, opened from the Saved list.
     "item":   lambda pg: (pg.click("#tb-saved"), pg.evaluate("setDetent('medium')"),
                           pg.click('.car-entry[data-id="c1"] .ce-header')),
+    # Its "…" menu, and removing it (the confirmation).
+    "more":   lambda pg: (pg.evaluate("openItem('c1')"), pg.wait_for_timeout(600), pg.click("#btn-item-more")),
+    "remove": lambda pg: (pg.evaluate("openItem('c1')"), pg.wait_for_timeout(600), pg.click("#btn-item-more"),
+                          pg.click('#item-menu [data-act="remove"]')),
     # A home's page, opened from its pin.
     "home":   lambda pg: pg.evaluate("openItem('h1')"),
     "add":    lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),

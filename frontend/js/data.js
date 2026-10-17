@@ -42,8 +42,9 @@ document.addEventListener('keydown', e => {
   // don't cascade into dismissing layers or deselecting the card.
   const ae = document.activeElement;
   if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+  if (confirmDialog.open) return;  // the dialog cancels itself
   let dismissed = false;
-  if (!addMenu.hidden)                    { setAddMenuOpen(false); btnAdd.focus(); dismissed = true; }
+  if (closeMenu(true))                     dismissed = true;
   if (ctxMenu.style.display === 'block')  { hideCtxMenu();  dismissed = true; }
   if (_namePopup)                          { closeNameBox(); dismissed = true; }
   if (placing)                             { stopPlacing();  dismissed = true; }

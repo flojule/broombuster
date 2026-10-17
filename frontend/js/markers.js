@@ -62,6 +62,7 @@ function updateTempPin() {
 const savedTitle   = document.getElementById('saved-title');
 const btnAdd       = document.getElementById('btn-add');
 const btnItemClose = document.getElementById('btn-item-close');
+const btnItemMore  = document.getElementById('btn-item-more');
 
 function selectedItem() {
   return cars.find(c => c.id === _selectedId) || homes.find(h => h.id === _selectedId) || null;
@@ -84,7 +85,7 @@ function applySelection() {
   carsPanel.classList.toggle('item-open', !!item);
   if (savedTitle.contentEditable !== 'true') savedTitle.textContent = item ? itemName(item) : 'Saved';
   btnAdd.hidden = !!item;
-  btnItemClose.hidden = !item;
+  btnItemMore.hidden = btnItemClose.hidden = !item;
 }
 btnItemClose.addEventListener('click', () => clearSelection());
 
@@ -114,7 +115,7 @@ function openItem(id) {
   carsPanel.scrollTop = 0;
 }
 
-// The item's title is its name: a car's can be renamed (double-click, or Rename).
+// The item's title is its name: a car's can be renamed ("…" › Rename).
 const _selectedCar = () => cars.find(c => c.id === _selectedId);
 makeEditable(savedTitle, () => itemName(selectedItem()), v => {
   const car = _selectedCar();

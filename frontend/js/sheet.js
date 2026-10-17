@@ -1,7 +1,7 @@
 // ── Sheet (as in Find My): Calendar | Saved | Me ──────────────────────────────
 // Phone: docked at the bottom with the tab bar, at one of three heights (detents):
-// small (a tab's header and a peek of it), medium and large. Drag the grabber or a
-// tab's header, or tap the grabber to step through them. The map is padded by the
+// small (a tab's header and a peek of it), medium and large. Drag the grabber, a tab's
+// header or its content, or tap the grabber to step through them. The map is padded by the
 // sheet so the centre target sits in the middle of the map area left free.
 // Desktop: a full-height panel on the left; no detents.
 const tabbar  = document.getElementById('tabbar');
@@ -16,12 +16,19 @@ const _store = (key, v) => { try { localStorage.setItem(key, v); } catch (_) {} 
 let _tab = _stored('bb_tab', TABS, 'calendar');
 let _detent = _stored('bb_detent', DETENTS, 'small');
 
-// Sheet height (px) of each detent on this screen.
+// Sheet height (px) of each detent on this screen: small shows one week of the calendar,
+// medium (half the screen, at least four weeks) and large whole weeks (calFit; before
+// the calendar has been laid out, estimates).
 function detentHeights() {
   const H = document.getElementById('app-screen').clientHeight;
-  const small = tabbar.offsetHeight + SHEET_PEEK;
   const top = document.getElementById('map-ctrl').offsetTop;  // just below the status bar / notch
-  return { small, medium: Math.max(small, Math.round(H * 0.5)), large: Math.max(small, H - top) };
+  const fit = typeof calFit === 'function' ? calFit() : null;
+  const small = fit ? fit.small : tabbar.offsetHeight + SHEET_PEEK;
+  const round = h => fit ? fit.round(h) : Math.round(h);
+  const large = Math.max(small, round(H - top));
+  // Medium: half the screen, and at least four weeks of the month.
+  const medium = Math.max(small, Math.min(large, Math.max(round(H * 0.5), fit ? fit.weeks(4) : 0)));
+  return { small, medium, large };
 }
 
 function setDetent(d) {
@@ -36,14 +43,10 @@ function raiseDetent(d) {
 function applySheet() {
   const desk = isDesktop();
   sheet.style.height = desk ? '' : detentHeights()[_detent] + 'px';
+  document.body.classList.toggle('sheet-large', !desk && _detent === 'large');
   grabber.setAttribute('aria-label', _detent === 'large' ? 'Shrink the sheet' : 'Enlarge the sheet');
   // The calendar shows the month view whenever it has the room: any detent above small.
-  const expanded = desk || _detent !== 'small';
-  if (typeof _cal !== 'undefined' && _cal.expanded !== expanded) {
-    _cal.expanded = expanded;
-    _cal.anchor = null;
-    renderTargetInfo();
-  }
+  if (typeof calSetExpanded === 'function') calSetExpanded(desk || _detent !== 'small');
   applyMapInsets();
 }
 
@@ -66,27 +69,23 @@ function applyMapInsets(animate = true) {
 
 // ── Dragging (phone) ──────────────────────────────────────────────────────────
 // The sheet follows the finger; on release it settles on the detent nearest where
-// the flick would carry it.
+// the flick would carry it. Dragged by the grabber or a tab's header (pointer events),
+// and from a tab's content as iOS sheets are (touch): up while it can grow, down once
+// the content is scrolled to its top; the calendar's grid scrolls itself unless the
+// sheet is small.
 let _drag = null, _dragged = false;
-function _dragStart(e) {
-  if (isDesktop() || e.button > 0) return;
-  if (e.target.closest('button:not(#sheet-grabber), [contenteditable="true"]')) return;
-  _drag = { y0: e.clientY, h0: sheet.offsetHeight, y: e.clientY, t: e.timeStamp, v: 0, moved: false };
-}
-// The finger is captured only once it moves, so a tap (or a double-tap on the title) stays a click.
-function _dragMove(e) {
-  if (!_drag) return;
-  if (!_drag.moved && Math.abs(e.clientY - _drag.y0) < 5) return;
-  if (!_drag.moved) {
-    _drag.moved = true;
-    sheet.classList.add('dragging');
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }
+function _dragBegin(y, t) { _drag = { y0: y, h0: sheet.offsetHeight, y, t, v: 0, moved: false }; }
+// Follows the finger once it has moved 5 px; returns whether this is a drag.
+function _dragTo(y, t) {
+  if (!_drag) return false;
+  if (!_drag.moved && Math.abs(y - _drag.y0) < 5) return false;
+  if (!_drag.moved) { _drag.moved = true; sheet.classList.add('dragging'); }
   const h = detentHeights();
-  sheet.style.height = Math.max(h.small * 0.85, Math.min(h.large, _drag.h0 + _drag.y0 - e.clientY)) + 'px';
-  const dt = e.timeStamp - _drag.t;
-  if (dt > 0) _drag.v = (_drag.y - e.clientY) / dt;  // px per ms, up is positive
-  _drag.y = e.clientY; _drag.t = e.timeStamp;
+  sheet.style.height = Math.max(h.small * 0.85, Math.min(h.large, _drag.h0 + _drag.y0 - y)) + 'px';
+  const dt = t - _drag.t;
+  if (dt > 0) _drag.v = (_drag.y - y) / dt;  // px per ms, up is positive
+  _drag.y = y; _drag.t = t;
+  return true;
 }
 function _dragEnd() {
   if (!_drag) return;
@@ -98,9 +97,18 @@ function _dragEnd() {
   }
   _drag = null;
 }
+
+// Grabber and headers. The finger is captured only once it moves, so a tap stays a click.
 for (const el of [grabber, ...document.querySelectorAll('.tab-head')]) {
-  el.addEventListener('pointerdown', _dragStart);
-  el.addEventListener('pointermove', _dragMove);
+  el.addEventListener('pointerdown', e => {
+    if (isDesktop() || e.button > 0) return;
+    if (e.target.closest('button:not(#sheet-grabber), [contenteditable="true"]')) return;
+    _dragBegin(e.clientY, e.timeStamp);
+  });
+  el.addEventListener('pointermove', e => {
+    const was = _drag?.moved;
+    if (_dragTo(e.clientY, e.timeStamp) && !was) el.setPointerCapture(e.pointerId);
+  });
   el.addEventListener('pointerup', _dragEnd);
   el.addEventListener('pointercancel', _dragEnd);
 }
@@ -109,6 +117,36 @@ grabber.addEventListener('click', () => {
   if (_dragged) { _dragged = false; return; }
   setDetent(DETENTS[(DETENTS.indexOf(_detent) + 1) % DETENTS.length]);
 });
+
+// Content: decided on the first move; a sheet drag then keeps the content from scrolling.
+function _contentMovesSheet(body, dy) {
+  if (body.id === 'ic-cal' && _detent !== 'small') return false;
+  return dy < 0 ? _detent !== 'large' : body.scrollTop <= 0;
+}
+let _content = null;  // { body, x0, y0, sheet: null (undecided) | bool }
+for (const body of document.querySelectorAll('.tab-body')) {
+  body.addEventListener('touchstart', e => {
+    _content = null;
+    if (isDesktop() || e.touches.length !== 1 || _drag || e.target.closest('[contenteditable="true"], input')) return;
+    _content = { body, x0: e.touches[0].clientX, y0: e.touches[0].clientY, sheet: null };
+  }, { passive: true });
+  body.addEventListener('touchmove', e => {
+    const c = _content;
+    if (!c || c.body !== body || c.sheet === false) return;
+    const p = e.touches[0], dx = p.clientX - c.x0, dy = p.clientY - c.y0;
+    if (c.sheet === null) {
+      if (Math.hypot(dx, dy) < 6) return;
+      c.sheet = Math.abs(dy) > Math.abs(dx) && _contentMovesSheet(body, dy);
+      if (!c.sheet) return;
+      _dragBegin(c.y0, e.timeStamp);
+    }
+    e.preventDefault();
+    _dragTo(p.clientY, e.timeStamp);
+  }, { passive: false });
+  const end = () => { if (_content?.sheet) _dragEnd(); _content = null; };
+  body.addEventListener('touchend', end);
+  body.addEventListener('touchcancel', end);
+}
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 // Leaving Saved closes an open item (as Find My does).
@@ -123,6 +161,7 @@ function showTab(name) {
   }
   for (const t of TABS) document.getElementById('tab-' + t).hidden = t !== name;
   if (name === 'me' && typeof renderAccountSection === 'function') renderAccountSection();
+  if (name === 'calendar' && typeof calShown === 'function') calShown();
 }
 // Tapping the open tab again, with the sheet small, opens it to medium.
 tabbar.addEventListener('click', e => {

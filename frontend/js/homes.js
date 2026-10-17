@@ -18,39 +18,27 @@ function homeUrgency(sched) {
 }
 
 function homeScheduleHTML(id, sched) {
-  if (sched && !_nextPickups(sched).length) {
-    return '<div class="ce-sched-item ce-loading">No collection info for this address.</div>';
-  }
+  if (sched && !_nextPickups(sched).length) return schedBlockHTML(id, 'Trash day', ['No collection info for this address.']);
   const fmt = iso => { const [y, m, d] = iso.split('-').map(Number); return BroomUrgency.dayLabel({ y, m, d }); };
-  return schedBlockHTML(id, 'Trash day:', sched && _nextPickups(sched).map(([stream, iso]) => `${stream}: ${fmt(iso)}`));
+  return schedBlockHTML(id, 'Trash day', sched && _nextPickups(sched).map(([stream, iso]) => `${stream}: ${fmt(iso)}`));
 }
 
+// The home rows (after the cars); a home's settings are under its page's "…".
 function renderHomePanel() {
-  if (isEditingIn(homePanel)) return;
-  homePanel.innerHTML = '';
+  if (isEditingIn(itemList)) return;
+  for (const el of [...itemList.querySelectorAll(':scope > .home-entry')]) el.remove();
   homes.forEach(h => {
     const sched = homeSchedules[h.id];
     const addrText = h.address ? abbreviate(h.address) : '';
     const entry = itemCard({
       id: h.id, kind: 'home', color: HOME_COLOR, name: itemName(h),
       urgency: _nextPickups(sched).length ? homeUrgency(sched) : null, addr: addrText,
-      detail: `
-        <div class="ce-sched">${homeScheduleHTML(h.id, sched)}</div>
-        <div class="ce-actions">
-          <button class="ce-btn ce-btn-addr">Set address</button>
-          <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
-          <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
-        </div>`,
+      detail: homeScheduleHTML(h.id, sched),
     });
 
-    const addrEl = entry.querySelector('.ce-addr');
-    makeEditable(addrEl, () => addrText, q => setHomeAddress(h.id, q));
+    makeEditable(entry.querySelector('.ce-addr'), () => addrText, q => setHomeAddress(h.id, q));
     entry.querySelector('.ce-btn-retry')?.addEventListener('click', () => checkHome(h.id));
-    entry.querySelector('.ce-btn-addr').addEventListener('click', () => addrEl.startEdit());
-    entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacing(h.id, 'home'));
-    confirmTap(entry.querySelector('.ce-remove'), () => removeHome(h.id));
-
-    homePanel.appendChild(entry);
+    itemList.appendChild(entry);
   });
   applySelection();
   updateSavedSummary();

@@ -1,41 +1,55 @@
-// ── Street signs: one small no-parking sign per side of the street at the target ──
-// Top left, in the source's own words: the data as published, a check on the
-// schedule the calendar and cards derive from it. One sign per side, laid out as the
-// sides lie on screen (a street running across the screen has one side above the
-// other); one sign when both sides read the same, and for a zone. Each label names
-// its side, with a swatch of the colour that side's line has on the map.
+// ── Street sign: the sweeping rules of the street at the target, as one small sign ──
+// Top left, in the source's own words (shortened): the data as published, a check on
+// the schedule the calendar and cards derive from it. "No parking" and "Street sweeping"
+// once; inside, one section per side of the street, laid out as the sides lie on screen
+// (a street running across the screen has one side above the other) and outlined in the
+// colour that side's line has on the map. One section when both sides read the same,
+// and for a zone.
 const signsEl = document.getElementById('signs');
 let _signsKey = '';
 
-// One side's tile entries as published: the source's words for the days, those
-// sharing a time window on one line ("Every Mon, Wed · 8AM–10AM"). A dated code
-// (Chicago) is a list of dates at the source: shown as the next run of them.
+// "8:00 AM - 11 :00 AM" / "8AM–10AM" -> "8–11AM" (one AM/PM when both share it, no ":00");
+// other wordings are kept.
+const _TIME_RE = /^\s*(\d{1,2})\s*(?::\s*(\d\d))?\s*([AP])\.?\s*M\.?\s*[-–·]\s*(\d{1,2})\s*(?::\s*(\d\d))?\s*([AP])\.?\s*M\.?\s*$/i;
+function shortTime(t) {
+  const m = _TIME_RE.exec(t);
+  if (!m) return t;
+  const hm = (h, min) => h + (min && min !== '00' ? ':' + min : '');
+  const [a, b] = [m[3].toUpperCase() + 'M', m[6].toUpperCase() + 'M'];
+  return a === b ? `${hm(m[1], m[2])}–${hm(m[4], m[5])}${b}` : `${hm(m[1], m[2])}${a}–${hm(m[4], m[5])}${b}`;
+}
+
+// One side's tile entries as published, shortened: [{days, time}], one per time window,
+// with the days sharing it ("Mon–Wed, Fri"; weekly is the norm, so no "Every"). A dated
+// code (Chicago) is a list of dates at the source: shown as the next run of them.
 function sourceLines(entries, now) {
   const byTime = new Map();  // time -> [day wording]
   for (const e of entries) {
-    const time = e.time && e.time !== 'N/A' ? e.time : '';
+    const raw = e.time && !/^n\/?a$/i.test(e.time) ? e.time : '';
     let days = String(e.code).startsWith('DATES:') ? BroomUrgency.formatScheduleSide([e], now)[0]
              : e.desc || BroomUrgency.formatScheduleSide([e], now)[0];
     // SF's descriptions carry the time and an "(every)" of their own.
     days = (days || '').replace(/\s*\(every\)/i, '');
-    if (time) days = days.replace(`, ${time}`, '');
+    if (raw) days = days.replace(`, ${raw}`, '');
     days = days.trim();
     if (!days) continue;
+    const time = shortTime(raw);
     if (!byTime.has(time)) byTime.set(time, []);
     if (!byTime.get(time).includes(days)) byTime.get(time).push(days);
   }
   return [...byTime].map(([time, days]) => {
     const text = _joinDays(days);
-    return time && !text.includes(time) ? `${text} · ${time}` : text;
+    return { days: text, time: time && !text.includes(time) ? time : '' };
   });
 }
 
-// "Every Mon", "Every Tue", "Every Wed", "Every Fri" -> "Every Mon–Wed, Fri" (weekday
-// order; 3+ days in a row as a range); other wordings are joined as they are.
+// "Every Mon", "Every Tue", "Every Wed", "Every Fri" -> "Mon–Wed, Fri" (weekday order;
+// 3+ days in a row as a range); other wordings are joined as they are, minus "Every".
 const _WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 function _joinDays(days) {
-  const ranks = days.map(d => _WD.indexOf(d.replace(/^Every /, '')));
-  if (days.length < 2 || !days.every(d => d.startsWith('Every ')) || ranks.includes(-1)) return days.join(', ');
+  const bare = days.map(d => d.replace(/^Every /, ''));
+  const ranks = bare.map(d => _WD.indexOf(d));
+  if (days.length < 2 || ranks.includes(-1)) return bare.join(', ');
   ranks.sort((a, b) => a - b);
   const runs = [];
   for (let i = 0; i < ranks.length;) {
@@ -44,7 +58,14 @@ function _joinDays(days) {
     runs.push(j - i >= 2 ? `${_WD[ranks[i]]}–${_WD[ranks[j]]}` : ranks.slice(i, j + 1).map(r => _WD[r]).join(', '));
     i = j + 1;
   }
-  return 'Every ' + runs.join(', ');
+  return runs.join(', ');
+}
+
+// A side's short tag: "N", "SW" for a compass name, else its name ("Even").
+function _sideTag(label) {
+  const l = String(label).toLowerCase();
+  const tag = (l.match(/north|south/)?.[0]?.[0] || '') + (l.match(/east|west/)?.[0]?.[0] || '');
+  return tag ? tag.toUpperCase() : label;
 }
 
 // Screen direction [dx, dy] in which the street at the target is drawn, at its point
@@ -88,43 +109,54 @@ function _evenSideDirection(f) {
   return p.side_even ? _compassDirection(p.side_even) : null;
 }
 
-function _signHTML({ lines, entries, label }, now) {
+// One section: the side's tag (none for both sides or a zone), its lines, and the outline
+// in its map colour (thicker today and tomorrow). Screen readers get the verdict in words.
+function _sectionHTML({ lines, entries, side, tag }, now) {
   const u = entries.length ? BroomUrgency.checkDaySweeping(entries, now) : 'none';
-  const when = u === 'today' || u === 'tomorrow' ? `<b>${URGENCY[u].short}</b>` : '';
-  const plate = lines.length
-    ? `<span class="sign-head">No parking</span><span class="sign-lines">${lines.map(esc).join('<br>')}</span>`
-      + '<span class="sign-foot">Street sweeping</span>'
-    : '<span class="sign-lines">No sweeping</span>';
-  return `<div class="sign${lines.length ? '' : ' clear'}"><div class="sign-plate">${plate}</div>`
-       + `<div class="sign-label"><i class="side-key" style="background:${URGENCY[u].line}"></i><span>${esc(label)}${when}</span></div></div>`;
+  const body = lines.length
+    ? lines.map(l => `<span class="sign-days">${esc(l.days)}</span>${l.time ? `<span class="sign-time">${esc(l.time)}</span>` : ''}`).join('')
+    : '<span class="sign-days">No sweeping</span>';
+  const said = `${side}: ${lines.length ? lines.map(l => `${l.days} ${l.time}`.trim()).join('; ') : 'no sweeping'}`
+             + (u === 'today' || u === 'tomorrow' ? `; sweeping ${URGENCY[u].short.toLowerCase()}` : '');
+  return `<div class="sign-sec${u === 'today' || u === 'tomorrow' ? ' soon' : ''}${lines.length ? '' : ' clear'}" style="--u:${URGENCY[u].line}">`
+       + `<span class="sr-only">${esc(said)}</span><span aria-hidden="true">`
+       + (tag ? `<span class="sign-tag">${esc(tag)}</span>` : '') + `${body}</span></div>`;
 }
 
-// f = the feature at the target (null: none, the signs hide).
+// f = the feature at the target (null: none, the sign hides).
 function renderSigns(f) {
   const p = f?.properties;
   const now = p && _tilesRegion ? regionNow(_tilesRegion) : null;
-  let signs = [], stacked = false;
+  let secs = [], stacked = false;
   if (now) {
     const raw = tileEntries(p);
     const sides = ['even', 'odd'].map(s => {
       const entries = raw.filter(e => e.side === s);
       return { entries, lines: sourceLines(entries, now) };
     });
-    if (p.render_type === 'polygon' || sides[0].lines.join('\n') === sides[1].lines.join('\n')) {
-      signs = [{ ...sides[0], label: p.render_type === 'polygon' ? 'Zone' : 'Both sides' }];
+    const same = JSON.stringify(sides[0].lines) === JSON.stringify(sides[1].lines);
+    if (p.render_type === 'polygon' || same) {
+      secs = [{ ...sides[0], side: p.render_type === 'polygon' ? 'Zone' : 'Both sides', tag: '' }];
     } else {
-      signs = sides.map((s, i) => ({ ...s, label: `${[p.side_even || 'Even', p.side_odd || 'Odd'][i]} side` }));
+      secs = sides.map((s, i) => {
+        const label = [p.side_even || 'Even', p.side_odd || 'Odd'][i];
+        return { ...s, side: `${label} side`, tag: _sideTag(label) };
+      });
       const ev = _evenSideDirection(f);
       if (ev) {
         stacked = Math.abs(ev[1]) >= Math.abs(ev[0]);  // the sides lie above and below
-        if (stacked ? ev[1] > 0 : ev[0] > 0) signs.reverse();
+        if (stacked ? ev[1] > 0 : ev[0] > 0) secs.reverse();
       }
     }
   }
   const street = p && p.street !== 'N/A' ? p.street : '';
-  const html = signs.length
+  const any = secs.some(s => s.lines.length);
+  const html = secs.length
     ? (street ? `<div id="signs-street">${esc(street)}</div>` : '')
-      + `<div class="signs-row${stacked ? ' stacked' : ''}">${signs.map(s => _signHTML(s, now)).join('')}</div>`
+      + `<div class="sign${stacked ? ' stacked' : ''}${any ? '' : ' clear'}">`
+      + (any ? '<span class="sign-head">No parking</span>' : '')
+      + `<div class="sign-secs">${secs.map(s => _sectionHTML(s, now)).join('')}</div>`
+      + (any ? '<span class="sign-foot">Street sweeping</span>' : '') + '</div>'
     : '';
   if (html === _signsKey) return;
   _signsKey = html;

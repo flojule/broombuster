@@ -44,22 +44,6 @@ function postCheck(lat, lon) {
   return postJSON('/api/check', { lat, lon, region: regionAt(lat, lon) || undefined });
 }
 
-// Two-step button: the first tap arms it ("Confirm?" for 3 s), the second runs `action`.
-function confirmTap(btn, action) {
-  let timer = null;
-  const label = btn.innerHTML;
-  btn.addEventListener('click', e => {
-    e.stopPropagation();
-    if (btn.classList.toggle('armed')) {
-      btn.innerHTML = `${icon('trash')} Confirm?`;
-      timer = setTimeout(() => { btn.classList.remove('armed'); btn.innerHTML = label; }, 3000);
-      return;
-    }
-    clearTimeout(timer);
-    action();
-  });
-}
-
 function newId() {
   return crypto.randomUUID ? crypto.randomUUID()
                            : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -96,8 +80,8 @@ async function loadSchedule(id, store, request, onError) {
   return data;
 }
 
-// Double-click (or el.startEdit()) to edit, while canEdit(); Enter commits, Escape or
-// empty/unchanged restores original().
+// el.startEdit() edits it in place (from a menu), while canEdit(); Enter commits, Escape
+// or empty/unchanged restores original().
 function makeEditable(el, original, onCommit, canEdit = () => true) {
   el.startEdit = () => {
     if (!canEdit()) return;
@@ -105,10 +89,9 @@ function makeEditable(el, original, onCommit, canEdit = () => true) {
     const r = document.createRange(); r.selectNodeContents(el);
     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
   };
-  el.addEventListener('dblclick', el.startEdit);
   el.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
-    if (e.key === 'Escape') { el.textContent = original(); el.blur(); }
+    if (e.key === 'Escape') { e.stopPropagation(); el.textContent = original(); el.blur(); }  // cancels the edit only
   });
   el.addEventListener('blur', () => {
     el.contentEditable = 'false';
@@ -213,7 +196,7 @@ const ctxMenu        = document.getElementById('ctx-menu');
 const ctxAddCar      = document.getElementById('ctx-add-car');
 const ctxAddHome     = document.getElementById('ctx-add-home');
 const carsPanel      = document.getElementById('cars-panel');
-const homePanel      = document.getElementById('home-panel');
+const itemList       = document.getElementById('item-list');  // cars, then homes
 const sheet          = document.getElementById('sheet');
 const savedSummary   = document.getElementById('saved-summary');
 const btnConfirmPlace = document.getElementById('btn-confirm-place');

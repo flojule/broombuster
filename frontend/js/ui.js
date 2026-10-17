@@ -18,6 +18,59 @@ function offerInstall() {
   showToast('Tip: Share › Add to Home Screen opens BroomBuster full screen.', false, 8000);
 }
 
+// ── Menus anchored to a button ("+", an item's "…") ──────────────────────────
+// As iOS pull-down menus: one open at a time, modal (what they cover takes no taps or
+// focus), closed by a pick, a tap elsewhere or Esc (which returns focus to the button).
+let _openMenu = null;  // { menu, anchor }
+function openMenu(menu, anchor) {
+  closeMenu();
+  _openMenu = { menu, anchor };
+  menu.hidden = false;
+  anchor.setAttribute('aria-expanded', 'true');
+  sheet.inert = true;
+  // Under the button, or above it when the sheet sits low; kept inside the screen.
+  const r = anchor.getBoundingClientRect(), h = menu.offsetHeight, w = menu.offsetWidth;
+  menu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  menu.style.top = (r.bottom + 6 + h < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - h - 6)) + 'px';
+  menu.querySelector('button').focus();
+}
+// Returns whether a menu was open.
+function closeMenu(refocus = false) {
+  if (!_openMenu) return false;
+  const { menu, anchor } = _openMenu;
+  _openMenu = null;
+  menu.hidden = true;
+  anchor.setAttribute('aria-expanded', 'false');
+  sheet.inert = false;
+  if (refocus) anchor.focus();
+  return true;
+}
+// A button that toggles `menu` (the click must not reach the closing listener below).
+function menuButton(btn, menu, beforeOpen) {
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (_openMenu?.menu === menu) { closeMenu(); return; }
+    beforeOpen?.();
+    openMenu(menu, btn);
+  });
+}
+document.addEventListener('click', e => { if (_openMenu && !_openMenu.menu.contains(e.target)) closeMenu(); });
+
+// ── Confirmation (as an iOS alert): a modal <dialog>; resolves true on the action ──
+const confirmDialog = document.getElementById('confirm-dialog');
+function askConfirm(title, message, action) {
+  confirmDialog.querySelector('#confirm-title').textContent = title;
+  confirmDialog.querySelector('#confirm-msg').textContent = message;
+  confirmDialog.querySelector('[value="ok"]').textContent = action;
+  confirmDialog.returnValue = '';
+  return new Promise(resolve => {
+    // Resolved after the dialog has put focus back, so the caller can move it.
+    confirmDialog.addEventListener('close', () => setTimeout(() => resolve(confirmDialog.returnValue === 'ok')), { once: true });
+    confirmDialog.showModal();
+    confirmDialog.querySelector('[value="cancel"]').focus();  // the safe choice is the default
+  });
+}
+
 // ── Dark mode ─────────────────────────────────────────────────────────────────
 // Switch UI chrome AND basemap together.
 function _applyDark(on) {
