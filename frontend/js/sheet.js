@@ -1,6 +1,7 @@
 // ── Sheet (as in Find My): Calendar | Saved | Me ──────────────────────────────
-// Phone: docked at the bottom with the tab bar, at one of three heights (detents):
-// small (a tab's header and a peek of it), medium and large. Drag the grabber, a tab's
+// Phone: at the bottom with the tab bar, at one of three heights (detents): small (a
+// tab's header and a peek of it), medium and large. Below large it floats clear of the
+// screen's edges, as iOS 26 sheets do; it docks edge to edge on the way up to large. Drag the grabber, a tab's
 // header or its content, or tap the grabber to step through them. The map is padded by the
 // sheet so the centre target sits in the middle of the map area left free.
 // Desktop: a full-height panel on the left; no detents.
@@ -23,7 +24,8 @@ function detentHeights() {
   const H = document.getElementById('app-screen').clientHeight;
   const top = document.getElementById('map-ctrl').offsetTop;  // just below the status bar / notch
   const fit = typeof calFit === 'function' ? calFit() : null;
-  const small = fit ? fit.small : tabbar.offsetHeight + SHEET_PEEK;
+  const tb = getComputedStyle(tabbar);
+  const small = fit ? fit.small : tabbar.offsetHeight + parseFloat(tb.marginTop) + parseFloat(tb.marginBottom) + SHEET_PEEK;
   const round = h => fit ? fit.round(h) : Math.round(h);
   const large = Math.max(small, round(H - top));
   // Medium: half the screen, and at least four weeks of the month.
@@ -40,9 +42,19 @@ function raiseDetent(d) {
   if (DETENTS.indexOf(_detent) < DETENTS.indexOf(d)) setDetent(d);
 }
 
+// How docked the sheet is: 0 floating (small, medium) .. 1 edge to edge (large); its
+// gap to the screen's edges is --sheet-gap times 1 - k (styles.css).
+function _setDock(k) { sheet.style.setProperty('--k', k); }
+const sheetGap = () => parseFloat(getComputedStyle(sheet).getPropertyValue('--sheet-gap')) || 0;
+// Room the sheet takes from the bottom of the screen at the detent (0 on desktop).
+function sheetFootprint(d = _detent) {
+  return isDesktop() ? 0 : detentHeights()[d] + (d === 'large' ? 0 : sheetGap());
+}
+
 function applySheet() {
   const desk = isDesktop();
   sheet.style.height = desk ? '' : detentHeights()[_detent] + 'px';
+  _setDock(!desk && _detent === 'large' ? 1 : 0);
   document.body.classList.toggle('sheet-large', !desk && _detent === 'large');
   grabber.setAttribute('aria-label', _detent === 'large' ? 'Shrink the sheet' : 'Enlarge the sheet');
   // The calendar shows the month view whenever it has the room: any detent above small.
@@ -53,9 +65,9 @@ function applySheet() {
 // The map's padding for the sheet (up to the medium height: the large sheet covers the
 // map anyway), so its centre, which the target marks, is the middle of what shows.
 function mapPadding() {
-  const desk = isDesktop(), h = detentHeights();
+  const desk = isDesktop();
   return { top: 0, right: 0, left: desk ? sheet.offsetLeft + sheet.offsetWidth : 0,
-           bottom: desk ? 0 : Math.min(h[_detent], h.medium) };
+           bottom: desk ? 0 : sheetFootprint(_detent === 'large' ? 'medium' : _detent) };
 }
 function applyMapInsets(animate = true) {
   const pad = mapPadding();
@@ -80,8 +92,10 @@ function _dragTo(y, t) {
   if (!_drag) return false;
   if (!_drag.moved && Math.abs(y - _drag.y0) < 5) return false;
   if (!_drag.moved) { _drag.moved = true; sheet.classList.add('dragging'); }
-  const h = detentHeights();
-  sheet.style.height = Math.max(h.small * 0.85, Math.min(h.large, _drag.h0 + _drag.y0 - y)) + 'px';
+  const h = detentHeights(), height = Math.max(h.small * 0.85, Math.min(h.large, _drag.h0 + _drag.y0 - y));
+  sheet.style.height = height + 'px';
+  // Docks gradually between medium and large, so it widens under the finger.
+  _setDock(Math.max(0, Math.min(1, (height - h.medium) / (h.large - h.medium || 1))));
   const dt = t - _drag.t;
   if (dt > 0) _drag.v = (_drag.y - y) / dt;  // px per ms, up is positive
   _drag.y = y; _drag.t = t;
@@ -159,6 +173,7 @@ function showTab(name) {
     b.setAttribute('aria-selected', String(on));
     b.tabIndex = on ? 0 : -1;
   }
+  tabbar.style.setProperty('--i', TABS.indexOf(name));  // the selected pill slides to it
   for (const t of TABS) document.getElementById('tab-' + t).hidden = t !== name;
   if (name === 'me' && typeof renderAccountSection === 'function') renderAccountSection();
   if (name === 'calendar' && typeof calShown === 'function') calShown();
@@ -184,10 +199,11 @@ tabbar.addEventListener('keydown', e => {
 // map listens for touch moves on the whole window.
 sheet.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
 
-// The sheet's height lifts the place banner and toasts above it (in a frame, so one
+// The sheet's top lifts the place banner and toasts above it (in a frame, so one
 // observer's update can't re-trigger another within the same frame).
 new ResizeObserver(() => requestAnimationFrame(() => {
-  document.documentElement.style.setProperty('--sheet-h', (isDesktop() ? 0 : sheet.offsetHeight) + 'px');
+  const gap = _detent === 'large' ? 0 : sheetGap();
+  document.documentElement.style.setProperty('--sheet-h', (isDesktop() ? 0 : sheet.offsetHeight + gap) + 'px');
 })).observe(sheet);
 // The detents follow the screen and the tab bar (which grows by the home-indicator inset).
 window.addEventListener('resize', () => applySheet());

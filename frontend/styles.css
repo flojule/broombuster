@@ -176,46 +176,62 @@
     .menu-about a { color: inherit; }
 
     /* ── Sheet (as in Find My) ──
-       Phone: docked at the bottom, full width, with the tab bar at its foot; its height
-       is one of three detents (js/sheet.js), dragged by the grabber or a tab's header.
+       Phone: at the bottom with the tab bar at its foot; its height is one of three detents
+       (js/sheet.js), dragged by the grabber, a tab's header or its content. As iOS 26 sheets,
+       it floats clear of the screen's edges (--sheet-gap) with all corners round, and docks
+       edge to edge as it reaches the large detent (--k: 0 floating .. 1 docked, from JS).
        Desktop: a full-height panel on the left with the tabs as a segmented control. */
     #sheet {
-      position: absolute; left: 0; right: 0; bottom: 0; z-index: 25; height: 220px;
+      --sheet-gap: 8px; --k: 0; --gap: calc(var(--sheet-gap) * (1 - var(--k)));
+      position: absolute; left: var(--gap); right: var(--gap); bottom: var(--gap); z-index: 25; height: 220px;
       display: flex; flex-direction: column;
-      background: var(--sheet-bg); border-top: 1px solid var(--hairline);
-      border-radius: 14px 14px 0 0; box-shadow: 0 -2px 20px rgba(0,0,0,.16);
-      transition: height .4s var(--sheet-ease);
+      background: var(--sheet-bg); border-radius: var(--r-sheet);
+      box-shadow: var(--rim), 0 -2px 24px rgba(0,0,0,.14);
+      transition: height .4s var(--sheet-ease), left .4s var(--sheet-ease), right .4s var(--sheet-ease), bottom .4s var(--sheet-ease);
     }
     #sheet.dragging { transition: none; }
-    #sheet-grabber { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; height: 24px; cursor: grab; }
+    #sheet-grabber { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; height: 22px; cursor: grab; }
     #sheet-grabber span { width: 36px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 28%, transparent); }
     .tab { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     .tab-head {
       flex: none; display: flex; align-items: center; gap: 4px; min-height: var(--tap);
-      padding: 0 10px 6px 16px; user-select: none;
+      padding: 0 12px 6px 20px; user-select: none;
     }
     .tab-title { flex: 1; min-width: 0; font-size: 1.4rem; font-weight: 700; letter-spacing: -.01em;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
     .tab-title[contenteditable="true"] { cursor: text; border-bottom: 2px solid var(--blue); user-select: text; }
     .tab-body {
       flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
-      padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
+      padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
     }
     .head-btn { flex: none; position: relative; display: flex; align-items: center; justify-content: center; color: var(--muted); }
-    .round-btn { width: 32px; height: 32px; border-radius: 50%; color: var(--text); font-size: 1.05rem;
-                 background: color-mix(in srgb, var(--text) 9%, transparent); }
-    .round-btn::after { content: ''; position: absolute; inset: -6px; }  /* 44 pt touch target */
+    .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem;
+                 background: color-mix(in srgb, var(--text) 9%, transparent); transition: transform .2s var(--spring); }
+    .round-btn::after { content: ''; position: absolute; inset: -4px; }  /* 44 pt touch target */
     #btn-add, #btn-item-more { color: var(--blue); }
-    /* Tab bar: icon over label; the selected tab in blue. A red dot on Saved: a car must move today. */
-    #tabbar { flex: none; display: flex; border-top: 1px solid var(--hairline); padding-bottom: var(--inset-b); }
+    /* Tab bar (iOS 26): a capsule at the sheet's foot, icon over label, the selected tab in
+       blue on a pill that slides to it (--i: the selected tab's index, from JS). It clears
+       the home indicator (--inset-b) less what the sheet's gap already gives. A red dot on
+       Saved: a car must move today. */
+    #tabbar {
+      --pad: 4px; flex: none; position: relative; display: flex; padding: var(--pad); border-radius: var(--pill);
+      margin: 2px 10px max(10px, calc(var(--inset-b) - var(--gap) - 12px));
+      background: color-mix(in srgb, var(--text) 7%, transparent);
+    }
+    #tabbar::before {
+      content: ''; position: absolute; top: var(--pad); bottom: var(--pad); left: var(--pad);
+      width: calc((100% - 2 * var(--pad)) / 3); border-radius: var(--pill);
+      background: color-mix(in srgb, var(--text) 10%, transparent);
+      transform: translateX(calc(var(--i, 0) * 100%)); transition: transform .45s var(--spring);
+    }
     #tabbar [role="tab"] {
       flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 2px; min-height: 50px; font-size: .66rem; font-weight: 600; color: var(--muted);
+      gap: 1px; min-height: 48px; border-radius: var(--pill); font-size: .66rem; font-weight: 600; color: var(--text);
     }
     #tabbar [role="tab"] svg.ic { width: 24px; height: 24px; }
-    #tabbar [aria-selected="true"] { color: var(--blue); }
-    .tab-badge { position: absolute; top: 5px; left: calc(50% + 7px); width: 10px; height: 10px; border-radius: 50%;
-                 background: var(--urg-today); border: 2px solid var(--card); }
+    #tabbar [aria-selected="true"] { color: var(--tint-fg); }
+    .tab-badge { position: absolute; top: 4px; left: calc(50% + 7px); width: 10px; height: 10px; border-radius: 50%;
+                 background: var(--urg-today); box-shadow: 0 0 0 2px var(--card); }
     /* Saved: the verdict line, then one grouped list of cars and homes (as Find My's
        Items list); an open item hides the rest and shows its own page. */
     #saved-summary { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .85rem; font-weight: 600; min-height: 28px; }
@@ -473,15 +489,15 @@
        isDesktop(). ── */
     @media (min-width: 768px), (orientation: landscape) and (max-height: 500px) {
       #sheet { left: var(--edge); top: var(--edge); bottom: var(--edge); right: auto; width: var(--panel-w); height: auto;
-               border: 1px solid var(--hairline); border-radius: var(--r-lg); box-shadow: var(--shadow-2); transition: none; }
+               border-radius: var(--r-sheet); box-shadow: var(--rim), var(--shadow-2); transition: none; }
       #sheet-grabber { display: none; }
       .tab-head { padding-top: 4px; }
       .tab-title { font-size: 1.2rem; }
-      #tabbar { order: -1; margin: 10px 12px 6px; padding: 2px; gap: 2px; border: none; border-radius: var(--r-sm);
-                background: color-mix(in srgb, var(--text) 8%, transparent); }
-      #tabbar [role="tab"] { flex-direction: row; gap: 6px; min-height: 32px; border-radius: 6px; font-size: .8rem; color: var(--text); }
+      /* The same capsule and pill as a segmented control at the top. */
+      #tabbar { --pad: 3px; order: -1; margin: 14px 14px 6px; }
+      #tabbar::before { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+      #tabbar [role="tab"] { flex-direction: row; gap: 6px; min-height: 34px; font-size: .8rem; }
       #tabbar [role="tab"] svg.ic { width: 16px; height: 16px; }
-      #tabbar [aria-selected="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
       .tab-badge { top: 4px; left: auto; right: 8px; }
       #map-ctrl, #signs { top: var(--edge); }
       #signs { left: calc(var(--panel-w) + 2 * var(--edge)); }
