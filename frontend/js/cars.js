@@ -193,7 +193,7 @@ function openNameBox(lat, lon) {
   save.id = 'btn-np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
   save.textContent = '✓';
   const close = document.createElement('button');
-  close.className = 'popup-close inline-close';
+  close.className = 'popup-close';
   close.title = 'Close (Esc)'; close.setAttribute('aria-label', 'Close');
   close.innerHTML = icon('close');
   row.append(input, save, close);

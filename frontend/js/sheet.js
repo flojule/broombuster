@@ -15,7 +15,8 @@ const _stored = (key, allowed, fallback) => {
 };
 const _store = (key, v) => { try { localStorage.setItem(key, v); } catch (_) {} };
 let _tab = _stored('bb_tab', TABS, 'calendar');
-let _detent = _stored('bb_detent', [...DETENTS, 'large'], 'small').replace('large', 'medium');  // large: gone
+// A stored 'large' (a detent there used to be) opens at medium.
+let _detent = _stored('bb_detent', [...DETENTS, 'large'], 'small').replace('large', 'medium');
 
 // Sheet height (px) of each detent on this screen: small shows one week of the calendar,
 // medium half the screen (at least four weeks, at most 60% so the map stays in view), both
@@ -42,10 +43,6 @@ function raiseDetent(d) {
 
 // Its gap to the screen's edges (styles.css).
 const sheetGap = () => parseFloat(getComputedStyle(sheet).getPropertyValue('--sheet-gap')) || 0;
-// Room the sheet takes from the bottom of the screen at the detent (0 on desktop).
-function sheetFootprint(d = _detent) {
-  return isDesktop() ? 0 : detentHeights()[d] + sheetGap();
-}
 
 function applySheet() {
   const desk = isDesktop();
@@ -56,12 +53,12 @@ function applySheet() {
   applyMapInsets();
 }
 
-// The map's padding for the sheet, so its centre, which the target marks, is the middle
-// of what shows.
+// The map's padding for the sheet and its gap, so its centre, which the target marks, is
+// the middle of what shows.
 function mapPadding() {
   const desk = isDesktop();
   return { top: 0, right: 0, left: desk ? sheet.offsetLeft + sheet.offsetWidth : 0,
-           bottom: desk ? 0 : sheetFootprint() };
+           bottom: desk ? 0 : detentHeights()[_detent] + sheetGap() };
 }
 function applyMapInsets(animate = true) {
   const pad = mapPadding();
@@ -86,8 +83,8 @@ function _dragTo(y, t) {
   if (!_drag) return false;
   if (!_drag.moved && Math.abs(y - _drag.y0) < 5) return false;
   if (!_drag.moved) { _drag.moved = true; sheet.classList.add('dragging'); }
-  const h = detentHeights(), height = Math.max(h.small * 0.85, Math.min(h.medium * 1.04, _drag.h0 + _drag.y0 - y));
-  sheet.style.height = height + 'px';
+  const h = detentHeights();
+  sheet.style.height = Math.max(h.small * 0.85, Math.min(h.medium * 1.04, _drag.h0 + _drag.y0 - y)) + 'px';
   const dt = t - _drag.t;
   if (dt > 0) _drag.v = (_drag.y - y) / dt;  // px per ms, up is positive
   _drag.y = y; _drag.t = t;

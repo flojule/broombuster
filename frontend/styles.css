@@ -8,7 +8,7 @@
       --muted: #526071; --border: #e2e8f0;
       /* Corner radii (iOS 26): concentric, so a box inside another keeps an even margin
          (inner radius = outer radius - the gap between them). */
-      --r-sm: 10px; --r-md: 14px; --r-lg: 20px;  /* small controls, inner boxes, floating panels */
+      --r-sm: 10px; --r-md: 14px;  /* calendar days and text fields; inputs */
       --r-group: 22px;  /* grouped lists and sections on the sheet */
       --r-menu: 24px;   /* pull-down menus, the name box */
       --r-sheet: 36px;  /* the sheet (about the screen's corner, less its gap) */
@@ -45,26 +45,29 @@
        lensing. Where blur is missing, or Reduce Transparency / Increase Contrast is on,
        they are opaque. Content (lists, the calendar, the street sign) is never glass. */
     body { --glass: var(--card); --sheet-bg: var(--card); --hairline: var(--border);
-           --rim: inset 0 0 0 1px var(--border); }
+           --rim: inset 0 0 0 1px var(--border); --blur: none; }
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
       body { --glass: color-mix(in srgb, var(--card) 66%, transparent);
              --sheet-bg: color-mix(in srgb, var(--card) 92%, transparent);
              --hairline: color-mix(in srgb, var(--text) 13%, transparent);
              /* The rim: a bright top edge and a faint outline, as light catching glass. */
-             --rim: inset 0 1px 0 rgba(255,255,255,.65), inset 0 0 0 1px rgba(255,255,255,.28); }
+             --rim: inset 0 1px 0 rgba(255,255,255,.65), inset 0 0 0 1px rgba(255,255,255,.28);
+             --blur: blur(24px) saturate(1.9); }
       body.dark { --glass: color-mix(in srgb, var(--card) 62%, transparent);
                   --rim: inset 0 1px 0 rgba(255,255,255,.16), inset 0 0 0 1px rgba(255,255,255,.08); }
-      :is(#sheet, #map-ctrl, .pop-menu, #confirm-dialog, #place-banner, .area-label, #signs-street,
-          .name-popup .maplibregl-popup-content) {
-        -webkit-backdrop-filter: blur(24px) saturate(1.9); backdrop-filter: blur(24px) saturate(1.9);
-      }
     }
+    /* An override, not a condition on the block above: Safari does not know
+       prefers-reduced-transparency, and an unknown query is false. */
     @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
       body, body.dark { --glass: var(--card); --sheet-bg: var(--card); --hairline: var(--border);
-                        --rim: inset 0 0 0 1px var(--border); }
-      :is(#sheet, #map-ctrl, .pop-menu, #confirm-dialog, #place-banner, .area-label, #signs-street,
-          .name-popup .maplibregl-popup-content) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+                        --rim: inset 0 0 0 1px var(--border); --blur: none; }
     }
+    :is(#sheet, #map-ctrl, .pop-menu, #confirm-dialog, #place-banner, .area-label, #signs-street,
+        .name-popup .maplibregl-popup-content) {
+      -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    }
+    /* Fills on a surface (iOS's grey control fill, the blue tint); on body, so they follow the theme. */
+    body { --fill: color-mix(in srgb, var(--text) 9%, transparent); --tint-bg: color-mix(in srgb, var(--blue) 12%, transparent); }
     /* Springs where the browser takes a sampled curve (a damped spring, about 4% overshoot). */
     @supports (transition-timing-function: linear(0, 1)) {
       :root { --spring: linear(0, 0.058, 0.193, 0.358, 0.523, 0.67, 0.791, 0.884, 0.951, 0.995, 1.021, 1.034,
@@ -84,11 +87,12 @@
     .btn, #btn-np-save, #btn-confirm-place, #btn-cancel-place {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       min-height: var(--tap); padding: 0 18px; background: var(--blue); color: #fff;
-      border-radius: var(--pill); font-size: .88rem; font-weight: 600; transition: opacity .15s, transform .2s var(--spring);
+      border-radius: var(--pill); font-size: .88rem; font-weight: 600;
     }
     button:disabled { opacity: .5; cursor: default; }
     button:not(:disabled):hover { opacity: .9; }
-    /* Pressed: glass controls and buttons swell a little, as iOS 26's do under the finger. */
+    /* Pressed: buttons and glass controls swell a little, as iOS 26's do under the finger. */
+    :is(.btn, .map-btn, .round-btn, .cal-today, .ce-btn) { transition: opacity .15s, transform .2s var(--spring); }
     :is(.btn, .map-btn, .round-btn, .cal-today, .ce-btn):not(:disabled):active { transform: scale(1.06); }
 
     /* ── App ── */
@@ -115,8 +119,8 @@
     }
     body.placing #map-ctrl { display: none; }
     .map-btn {
-      position: relative; width: var(--tap); height: var(--tap); margin: 0; padding: 0; display: flex; align-items: center; justify-content: center;
-      color: var(--text); border-radius: var(--pill); font-size: 1.1rem; transition: transform .2s var(--spring);
+      position: relative; width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center;
+      color: var(--text); border-radius: var(--pill); font-size: 1.1rem;
     }
     .zoom-btn { display: none; }
 
@@ -142,7 +146,7 @@
     }
     #place-banner.active { display: flex; }
     #btn-confirm-place, #btn-cancel-place { min-height: 36px; padding: 0 14px; font-size: .78rem; }
-    #btn-cancel-place { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
+    #btn-cancel-place { background: var(--fill); color: var(--text); }
 
     /* ── Pop-up menus: "Add here" (right-click / long press) and "+" ── */
     /* As iOS 26 menus: regular glass with round rows and no lines between them; a line
@@ -156,20 +160,20 @@
     #ctx-menu { display: none; }
     .ctx-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--tap); padding: 0 12px;
                 border-radius: calc(var(--r-menu) - 6px); text-align: left; font-size: .9rem; }
-    .ctx-item:hover, .ctx-item:focus-visible { background: color-mix(in srgb, var(--text) 9%, transparent); }
+    .ctx-item:hover, .ctx-item:focus-visible { background: var(--fill); }
     .pop-menu hr { height: 0; margin: 5px 12px; border: none; border-top: 1px solid var(--hairline); }  /* a group break */
     .danger { color: var(--urg-today); }
 
     /* ── Me tab: account, appearance, map colors, about ── */
     .menu-sec { padding: 6px 0; font-size: .85rem; background: var(--group, var(--card)); border-radius: var(--r-group); }
     .menu-label { padding: 6px 14px 4px; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-    .menu-item { display: block; width: 100%; margin: 0; padding: 0 14px; min-height: var(--tap); text-align: left;
-                 background: none; border-radius: 0; color: var(--text); font-size: .88rem; font-weight: 500; }
+    .menu-item { display: block; width: 100%; padding: 0 14px; min-height: var(--tap); text-align: left;
+                 color: var(--text); font-size: .88rem; font-weight: 500; }
     .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
-    .menu-item:hover { background: var(--bg); }
+    .menu-item:hover { background: var(--fill); }
     .menu-note { padding: 6px 14px; color: var(--muted); font-size: .78rem; font-weight: 400; overflow-wrap: anywhere; }
-    .seg { display: flex; margin: 4px 14px 8px; padding: 3px; gap: 2px; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: var(--pill); }
-    .seg button { flex: 1; margin: 0; padding: 0; min-height: 36px; background: none; color: var(--text); border-radius: var(--pill); font-size: .8rem; font-weight: 500;
+    .seg { display: flex; margin: 4px 14px 8px; padding: 3px; gap: 2px; background: var(--fill); border-radius: var(--pill); }
+    .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: .8rem; font-weight: 500;
                   transition: background-color .2s, box-shadow .2s; }
     .seg button[aria-checked="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); font-weight: 600; }
     .menu-legend { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: .8rem; padding-bottom: 4px; }
@@ -187,7 +191,7 @@
       position: absolute; left: var(--sheet-gap); right: var(--sheet-gap); bottom: var(--sheet-gap); z-index: 25; height: 220px;
       display: flex; flex-direction: column;
       background: var(--sheet-bg); border-radius: var(--r-sheet);
-      box-shadow: var(--rim), 0 -2px 24px rgba(0,0,0,.14);
+      box-shadow: var(--rim), var(--shadow-2);
       transition: height .4s var(--sheet-ease);
     }
     #sheet.dragging { transition: none; }
@@ -206,15 +210,12 @@
       padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
     }
     .head-btn { flex: none; position: relative; display: flex; align-items: center; justify-content: center; color: var(--muted); }
-    .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem;
-                 background: color-mix(in srgb, var(--text) 9%, transparent); transition: transform .2s var(--spring); }
+    .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem; background: var(--fill); }
     .round-btn::after { content: ''; position: absolute; inset: -4px; }  /* 44 pt touch target */
     #btn-add, #btn-item-more { color: var(--blue); }
     /* Tab bar (iOS 26): a capsule at the sheet's foot, icon over label, the selected tab in
-       blue on a pill that slides to it (--i: the selected tab's index, from JS). It clears
-       the home indicator (--inset-b) by the same margin at every detent (were it to follow
-       the docking gap, the calendar's fitted weeks would differ between detents). A red dot
-       on Saved: a car must move today. */
+       blue on a pill that slides to it (--i: the selected tab's index, from JS), clear of the
+       home indicator (--inset-b). A red dot on Saved: a car must move today. */
     #tabbar {
       --pad: 4px; flex: none; position: relative; display: flex; padding: var(--pad); border-radius: var(--pill);
       margin: 2px 10px max(10px, calc(var(--inset-b) - 20px));
@@ -223,7 +224,7 @@
     #tabbar::before {
       content: ''; position: absolute; top: var(--pad); bottom: var(--pad); left: var(--pad);
       width: calc((100% - 2 * var(--pad)) / 3); border-radius: var(--pill);
-      background: color-mix(in srgb, var(--text) 10%, transparent);
+      background: var(--fill);
       transform: translateX(calc(var(--i, 0) * 100%)); transition: transform .45s var(--spring);
     }
     #tabbar [role="tab"] {
@@ -277,15 +278,15 @@
     .car-entry.selected .ce-status { font-size: .88rem; }
     .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
-    .btn-tinted { width: 100%; background: color-mix(in srgb, var(--blue) 13%, transparent); color: var(--tint-fg); }
+    .btn-tinted { width: 100%; background: var(--tint-bg); color: var(--tint-fg); }
     .ce-sec-label { margin: 8px 14px 0; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
     .ce-sec { display: flex; flex-direction: column; gap: 3px; padding: 12px 16px; background: var(--group); border-radius: var(--r-group);
               font-size: .82rem; line-height: 1.4; }
     .ce-loading { color: var(--muted); }
     .ce-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--urg-today); }
     .ce-btn { flex: none; min-height: var(--tap); padding: 0 14px; display: flex; align-items: center; gap: 5px;
-              font-size: .8rem; font-weight: 600; border-radius: var(--pill); color: var(--tint-fg); transition: transform .2s var(--spring);
-              background: color-mix(in srgb, var(--blue) 12%, transparent); }
+              font-size: .8rem; font-weight: 600; border-radius: var(--pill); color: var(--tint-fg);
+              background: var(--tint-bg); }
     .ce-token-note { font-size: .74rem; color: var(--muted); line-height: 1.4; }
     .ce-token {
       width: 100%; box-sizing: border-box; margin: 4px 0; padding: 6px; font: 16px monospace;
@@ -306,21 +307,16 @@
     #confirm-msg { padding: 0 4px 18px; font-size: .84rem; line-height: 1.4; }
     .dlg-btns { display: flex; gap: 10px; }
     .dlg-btns button { flex: 1; min-height: 48px; border-radius: var(--pill); font-size: .95rem; font-weight: 600;
-                       background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--text); }
+                       background: var(--fill); color: var(--text); }
     .dlg-btns .dlg-danger { color: var(--urg-today); }
 
-    /* Shared top-right corner close button for popups/boxes. */
+    /* The name box's ✕, at the end of its row. */
     .popup-close {
-      position: absolute; top: 4px; right: 4px;
-      width: var(--tap); height: var(--tap); margin: 0; padding: 0;
+      flex: none; width: var(--tap); height: var(--tap); margin-left: 2px;
       display: flex; align-items: center; justify-content: center;
-      background: transparent; border: none; color: var(--muted);
-      font-size: .85rem; line-height: 1; cursor: pointer; border-radius: var(--pill);
+      color: var(--muted); font-size: .85rem; line-height: 1; border-radius: var(--pill);
     }
-    .popup-close:hover { background: var(--bg); color: var(--text); }
-    /* Inline variant: ✕ rides the far right of a flex row instead of reserving
-       a top strip of its own. */
-    .popup-close.inline-close { position: static; flex: 0 0 auto; margin-left: 2px; }
+    .popup-close:hover { background: var(--fill); color: var(--text); }
 
     /* ── Name box (arrow popup anchored at the new car's spot) ── */
     .name-popup .maplibregl-popup-content {
@@ -337,9 +333,8 @@
 
     /* ── Calendar tab: one week (small sheet) unfolding into the month view ── */
     #ic-cal { padding-bottom: 10px; gap: 0; }
-    .cal-today { min-height: 32px; padding: 0 12px; margin-right: 2px; background: color-mix(in srgb, var(--text) 9%, transparent);
-                 border-radius: var(--pill); transition: transform .2s var(--spring); font-size: .72rem; font-weight: 600; color: var(--text); }
-    .cal-today:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+    .cal-today { min-height: 32px; padding: 0 12px; margin-right: 2px; background: var(--fill);
+                 border-radius: var(--pill); font-size: .72rem; font-weight: 600; color: var(--text); }
     .cal-muted { font-size: .72rem; color: var(--muted); }
 
     /* ── Street sign: one small no-parking sign for the street at the target, in the
@@ -494,8 +489,7 @@
        the signs sit at the top left of the map beside it. Keep the query in step with
        isDesktop(). ── */
     @media (min-width: 768px), (orientation: landscape) and (max-height: 500px) {
-      #sheet { left: var(--edge); top: var(--edge); bottom: var(--edge); right: auto; width: var(--panel-w); height: auto;
-               border-radius: var(--r-sheet); box-shadow: var(--rim), var(--shadow-2); transition: none; }
+      #sheet { left: var(--edge); top: var(--edge); bottom: var(--edge); right: auto; width: var(--panel-w); height: auto; transition: none; }
       #sheet-grabber { display: none; }
       .tab-head { padding-top: 4px; }
       .tab-title { font-size: 1.2rem; }
