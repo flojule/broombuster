@@ -111,8 +111,8 @@ function _evenSideDirection(f) {
 
 // One section: the side's tag (none for both sides or a zone), its lines, and the outline
 // in its map colour (thicker today and tomorrow). Screen readers get the verdict in words.
-function _sectionHTML({ lines, entries, side, tag }, now) {
-  const u = entries.length ? BroomUrgency.checkDaySweeping(entries, now) : 'none';
+function _sectionHTML({ lines, entries, side, tag }, now, skip) {
+  const u = entries.length ? BroomUrgency.checkDaySweeping(entries, now, skip) : 'none';
   const body = lines.length
     ? lines.map(l => `<span class="sign-days">${esc(l.days)}</span>${l.time ? `<span class="sign-time">${esc(l.time)}</span>` : ''}`).join('')
     : '<span class="sign-days">No sweeping</span>';
@@ -127,6 +127,7 @@ function _sectionHTML({ lines, entries, side, tag }, now) {
 function renderSigns(f) {
   const p = f?.properties;
   const now = p && _tilesRegion ? regionNow(_tilesRegion) : null;
+  const skip = p && _tilesRegion ? sweepSkip(_tilesRegion, p.city) : null;
   let secs = [], stacked = false;
   if (now) {
     const raw = tileEntries(p);
@@ -155,7 +156,7 @@ function renderSigns(f) {
     ? (street ? `<div id="signs-street">${esc(street)}</div>` : '')
       + `<div class="sign${stacked ? ' stacked' : ''}${any ? '' : ' clear'}">`
       + (any ? '<span class="sign-head">No parking</span>' : '')
-      + `<div class="sign-secs">${secs.map(s => _sectionHTML(s, now)).join('')}</div>`
+      + `<div class="sign-secs">${secs.map(s => _sectionHTML(s, now, skip)).join('')}</div>`
       + (any ? '<span class="sign-foot">Street sweeping</span>' : '') + '</div>'
     : '';
   if (html === _signsKey) return;

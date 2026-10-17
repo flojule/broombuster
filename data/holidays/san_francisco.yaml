@@ -1,0 +1,11 @@
+# SFMTA holiday enforcement: street cleaning is not enforced on these days (night
+# cleaning, 12am-6am, still is on Veterans Day, which is therefore not listed).
+source: https://www.sfmta.com/getting-around/drive-park/holiday-enforcement-schedule
+last_verified: 2026-10-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [sweeping]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [sweeping]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [sweeping]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [sweeping]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [sweeping]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [sweeping]}

@@ -255,7 +255,7 @@ function sweepUrgency(sched) {
   if (!sched) return 'safe';
   const entries = [...sched.schedule_even, ...sched.schedule_odd]
     .map(e => ({ code: e[0], time: e[2] || '' }));
-  return BroomUrgency.checkDaySweeping(entries, schedNow(sched));
+  return BroomUrgency.checkDaySweeping(entries, schedNow(sched), schedSkip(sched));
 }
 
 // Verdict pill: icon + word (never colour alone).

@@ -294,6 +294,15 @@
       border: 1px solid var(--border); border-radius: var(--r-sm);
     }
     .ce-phone .ce-btn { align-self: flex-start; }
+    /* A setting inside a section (the home's collection day): label left, control right. */
+    .ce-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--tap); }
+    .ce-select { min-height: 36px; padding: 0 10px; font: inherit; font-size: 16px; color: var(--text);
+                 background: var(--fill); border: none; border-radius: var(--r-sm); }
+    .ce-note { margin: 4px 14px 0; font-size: .74rem; color: var(--muted); line-height: 1.4; }
+    /* Rules at a car (permit area, meter, closure): one line each, the source in grey. */
+    .ce-rule { display: flex; flex-direction: column; }
+    .ce-rule small { color: var(--muted); font-size: .7rem; }
+    .ce-rule.warn { color: var(--urg-tomorrow); }
 
     /* ── Confirmation (as an iOS 26 alert): text to the left, capsule buttons side by side;
        it springs in from slightly larger. ── */
@@ -390,6 +399,10 @@
     /* One dot per car with sweeping that day, in the car's colour. */
     .cal-dots { display: flex; justify-content: center; gap: 2px; height: 5px; margin-top: 1px; }
     .cal-dot { width: 5px; height: 5px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
+    .cal-dot-home { border-radius: 1px; }  /* a home's pickup: a square, as its key below */
+    /* A no-sweep holiday: struck through, so a weekly street day reads as cancelled. */
+    .cal-hol { text-decoration: line-through; text-decoration-color: var(--muted); }
+    .cal-hol-line { color: var(--muted); }
 
     .cal-nav { font-size: 1.2rem; width: var(--tap); height: var(--tap); color: var(--muted); }
     .cal-nav:hover { color: var(--text); }
@@ -411,6 +424,7 @@
     .cal-detail { flex: none; height: 66px; margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
     .cal-round { border-radius: 50%; }
+    .cal-square { border-radius: 1px; }
     /* ── Map pins (MapLibre HTML markers): the card's icon in white on a disc of the car's
        colour (--pin, set from JS) or the home green, ringed in white (as in Apple Maps).
        Selected: larger, with a halo in its colour. ── */

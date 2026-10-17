@@ -1,0 +1,18 @@
+# Trash: a pickup that falls on a city holiday is made the next day (2025 recycling
+# schedules). Sweeping: the city's schedule already lists exact dates (DATES: codes),
+# which skip its holidays.
+source: https://www.chicago.gov/content/dam/city/sites/chicago-recycles/pdfs/RecyclingMaps2025/2025_Recycling_Map_Schedule_All.pdf
+last_verified: 2026-10-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-05-25, name: Memorial Day, suspends: [trash]}
+  - {date: 2026-07-04, name: Independence Day, suspends: [trash]}
+  - {date: 2026-09-07, name: Labor Day, suspends: [trash]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-05-31, name: Memorial Day, suspends: [trash]}
+  - {date: 2027-07-04, name: Independence Day, suspends: [trash]}
+  - {date: 2027-09-06, name: Labor Day, suspends: [trash]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

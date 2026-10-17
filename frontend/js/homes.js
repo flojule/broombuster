@@ -1,4 +1,7 @@
-// ── Homes — trash pickup days (cities with ReCollect data) ──────────────────────
+// ── Homes — trash pickup days ────────────────────────────────────────────────
+// Oakland looks them up by address (ReCollect); elsewhere no lookup exists, so the
+// home's page asks for its collection day and the server applies the city's holiday
+// rule (/check-home trash_kind "weekly").
 // [stream, next ISO date] per pickup stream, soonest first. Dates before the
 // region's today are dropped: a response can outlive its day.
 function _nextPickups(sched) {
@@ -17,10 +20,26 @@ function homeUrgency(sched) {
   return next === BroomUrgency.isoDay(BroomUrgency.addDays(today, 1)) ? 'tomorrow' : 'safe';
 }
 
-function homeScheduleHTML(id, sched) {
-  if (sched && !_nextPickups(sched).length) return schedBlockHTML(id, 'Trash day', ['No collection info for this address.']);
+// Collection day picker (weekly cities): Mon–Sun, or not set.
+function _collectionDayHTML(h) {
+  const opts = ['<option value="">Not set</option>', ...BroomUrgency.WEEKDAYS.map((w, i) =>
+    `<option value="${i}"${h.collection_day === i ? ' selected' : ''}>${esc(w)}</option>`)];
+  return `<label class="ce-field">Collection day <select class="ce-select ce-collection-day">${opts.join('')}</select></label>`;
+}
+
+function homeScheduleHTML(h, sched) {
+  const id = h.id;
   const fmt = iso => { const [y, m, d] = iso.split('-').map(Number); return BroomUrgency.dayLabel({ y, m, d }); };
-  return schedBlockHTML(id, 'Trash day', sched && _nextPickups(sched).map(([stream, iso]) => `${stream}: ${fmt(iso)}`));
+  const lines = sched && _nextPickups(sched).map(([stream, iso]) => `${stream}: ${fmt(iso)}`);
+  if (sched?.trash_kind === 'weekly') {
+    const note = h.collection_day == null ? 'Pick the day your carts are collected (the city has no lookup).'
+      : sched.city === 'berkeley' ? 'If it is also street sweeping day, put the carts on the parking strip.' : '';
+    return schedBlockHTML(id, 'Trash day', lines?.length ? lines : [])
+      .replace('<div class="ce-sec">', `<div class="ce-sec">${_collectionDayHTML(h)}`)
+      + (note ? `<p class="ce-note">${esc(note)}</p>` : '');
+  }
+  if (sched && !lines.length) return schedBlockHTML(id, 'Trash day', ['No collection info for this address.']);
+  return schedBlockHTML(id, 'Trash day', lines);
 }
 
 // The home rows (after the cars); a home's settings are under its page's "…".
@@ -33,7 +52,13 @@ function renderHomePanel() {
     const entry = itemCard({
       id: h.id, kind: 'home', color: HOME_COLOR, name: itemName(h),
       urgency: _nextPickups(sched).length ? homeUrgency(sched) : null, addr: addrText,
-      detail: homeScheduleHTML(h.id, sched),
+      detail: homeScheduleHTML(h, sched),
+    });
+    entry.querySelector('.ce-collection-day')?.addEventListener('change', e => {
+      const v = e.target.value;
+      if (v === '') delete h.collection_day; else h.collection_day = Number(v);
+      savePrefs();
+      checkHome(h.id);
     });
 
     makeEditable(entry.querySelector('.ce-addr'), () => addrText, q => setHomeAddress(h.id, q));
@@ -42,6 +67,7 @@ function renderHomePanel() {
   });
   applySelection();
   updateSavedSummary();
+  renderTargetInfo();  // the calendar shows the homes' pickups
 }
 
 // Add a home at a coordinate; the backend reverse-geocodes its address unless the
@@ -100,7 +126,8 @@ async function checkHome(id) {
   // Region is derived server-side from the home coordinate — a home can sit
   // in a different region than the map's.
   const data = await loadSchedule(id, homeSchedules,
-    () => postJSON('/api/check-home', { lat: h.lat, lon: h.lon, address: h.address }));
+    () => postJSON('/api/check-home', { lat: h.lat, lon: h.lon, address: h.address,
+                                        collection_day: h.collection_day ?? undefined }));
   // A home dropped on the map has no address; adopt the one the backend
   // reverse-geocoded so the card shows a real street address.
   if (data && !h.address && data.address) { h.address = data.address; savePrefs(); }

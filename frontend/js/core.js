@@ -130,6 +130,18 @@ function regionAt(lat, lon) { return nearestRegion(lat, lon, REGION_RADIUS); }
 // timezone (the browser's until /cities has loaded).
 function regionNow(regionKey) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz); }
 
+// A city's no-sweep holidays ({dayKey: name}; null: none known), from /cities.
+function sweepSkip(regionKey, city) {
+  return BroomUrgency.holidaySkip(regions[regionKey]?.holidays?.[city], 'sweeping');
+}
+// "Oakland" for a city key ('' when unknown).
+function cityName(city) {
+  for (const r of Object.values(regions)) if (r.cities?.[city]) return r.cities[city];
+  return '';
+}
+// The same for a /check response (the car's own region and city).
+function schedSkip(sched) { return sched ? sweepSkip(sched.region || _region, sched.city) : null; }
+
 // ── Map (MapLibre) ────────────────────────────────────────────────────────────
 let map = null;
 const _carMarkers  = new Map();  // carId → maplibregl.Marker

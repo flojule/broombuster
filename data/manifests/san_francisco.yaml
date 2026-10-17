@@ -3,6 +3,8 @@ center: {lat: 37.7749, lon: -122.4194}
 schema: sf
 bbox: [37.70, -122.53, 37.84, -122.35]
 fgb_path: data/san_francisco/StreetSweeping.fgb
+holidays: data/holidays/san_francisco.yaml
+trash: {kind: weekly}   # Recology publishes no lookup: the user picks the day
 source:
   local_path: data/san_francisco/StreetSweeping.geojson
-  url: "https://data.sfgov.org/resource/yhqp-riqs.geojson?$limit=200000"
+  url: "https://data.sf.gov/resource/yhqp-riqs.geojson?$limit=200000"

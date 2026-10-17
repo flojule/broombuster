@@ -246,7 +246,8 @@ function applyUrgencyStates() {
         sched = { entries, none: !tileSchedLines(f.properties).length, split: 'even_left' in f.properties };
         _featSchedCache.set(f.id, sched);
       }
-      const verdict = es => sched.none || !es.length ? 'none' : BroomUrgency.checkDaySweeping(es, now);
+      const skip = sweepSkip(_tilesRegion, f.properties.city);
+      const verdict = es => sched.none || !es.length ? 'none' : BroomUrgency.checkDaySweeping(es, now, skip);
       u = { urgency: verdict(sched.entries) };
       if (sched.split) {
         u.urgency_even = verdict(sched.entries.filter(e => e.side === 'even'));

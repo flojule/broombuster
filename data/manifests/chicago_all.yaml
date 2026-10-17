@@ -3,6 +3,8 @@ center: {lat: 41.8781, lon: -87.6298}
 schema: chicago
 bbox: [41.644, -87.848, 42.024, -87.524]
 fgb_path: data/chicago/StreetSweepingZones.fgb
+holidays: data/holidays/chicago_all.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Streets & Sanitation: no lookup, the user picks the day
 source:
   local_path: data/chicago/StreetSweepingZones.geojson
   url: "https://data.cityofchicago.org/resource/2r7q-emq3.geojson?$limit=50000"

@@ -3,7 +3,8 @@ center: {lat: 37.8044, lon: -122.2712}
 schema: oakland
 bbox: [37.69, -122.38, 37.90, -122.11]
 fgb_path: data/oakland/StreetSweeping.fgb
-trash: {area: OaklandCA, service_id: 608}   # ReCollect (oaklandrecycles.com)
+trash: {kind: recollect, area: OaklandCA, service_id: 608}   # oaklandrecycles.com
+holidays: data/holidays/oakland.yaml
 source:
   local_path: data/oakland/StreetSweeping.shp
   notes: |

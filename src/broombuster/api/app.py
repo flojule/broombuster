@@ -10,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import analysis, gps, iplocate, resolve, trash
+from broombuster import analysis, gps, holidays, iplocate, resolve, trash
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_bbox, region_for_point
 from broombuster.config import REPO_ROOT
 from broombuster.version import app_version
@@ -80,7 +80,8 @@ def health():
 def cities():
     return {
         rk: {"name": rv["name"], "center": rv["center"], "tz": rv["tz"],
-             "zoom": rv["zoom"]}
+             "zoom": rv["zoom"], "holidays": holidays.for_region(rk),
+             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]}}
         for rk, rv in REGIONS.items()
     }
 
@@ -127,6 +128,7 @@ def check(req: CheckRequest):
                  if loc.resolved else ([], []))
     return {
         "region": loc.region,
+        "city": loc.city_key,
         "address": address,
         "address_pending": pending,
         "car_side": loc.resolved.side if loc.resolved else None,
@@ -157,17 +159,22 @@ def geocode(q: str = Query(..., min_length=1, max_length=200), region: str | Non
 
 class CheckHomeRequest(CheckRequest):
     address: str | None = Field(None, max_length=500)
+    collection_day: int | None = Field(None, ge=0, le=6)  # Mon=0, for trash kind "weekly"
 
 
 @api.post("/check-home")
 def check_home(req: CheckHomeRequest):
-    """Trash pickup dates at a home; tap-placed homes are reverse-geocoded."""
+    """Trash pickup dates at a home; tap-placed homes are reverse-geocoded.
+
+    trash_kind tells the client whether the city looks pickups up ("recollect") or
+    needs the home's collection day ("weekly"); null where nothing is known."""
     region = req.region if req.region in REGIONS else region_for_point(req.lat, req.lon)
     address = req.address or gps.reverse_address(req.lat, req.lon) or ""
     today = datetime.now(ZoneInfo(REGIONS[region]["tz"])).date()
     city = city_for_point(req.lat, req.lon, region)
-    return {"region": region, "address": address,
-            "pickups": trash.pickups(city, address, today)}
+    return {"region": region, "city": city, "address": address,
+            "trash_kind": trash.kind(city),
+            "pickups": trash.pickups(city, address, today, req.collection_day)}
 
 
 class CarLocation(BaseModel):

@@ -1,7 +1,8 @@
 // ── Calendar tab: one sweep calendar ──────────────────────────────────────────
-// Layers: the street under the target (day tint) and every car with a schedule
-// (dot in the car's colour). Days are {y, m, d}; arithmetic and weekday come from
-// urgency.js.
+// Layers: the street under the target (day tint), every car with a schedule (dot in
+// the car's colour), every home's trash days (dot in the home colour) and the no-sweep
+// holidays of those streets' cities. Days are {y, m, d}; arithmetic and weekday come
+// from urgency.js.
 const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, dayLabel: _dayLabel, WEEKDAYS } = BroomUrgency;
 const _WD1 = WEEKDAYS.map(w => w[0]);
 const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -10,11 +11,12 @@ const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
 // Region-local "today" for the map's tile region (browser tz before one loads).
 function calNow() { return regionNow(_tilesRegion || _region); }
 
-// key -> text for sweep days in [start, end]. `side` limits to one street side.
+// key -> text for sweep days in [start, end] (holidays of the street's city excluded).
+// `side` limits to one street side.
 function sweepDayMap(sched, start, end, side = null) {
   const out = new Map();
   if (!sched) return out;
-  for (const day of BroomUrgency.sweepDays(sched.schedule_even, sched.schedule_odd, start, end)) {
+  for (const day of BroomUrgency.sweepDays(sched.schedule_even, sched.schedule_odd, start, end, schedSkip(sched))) {
     const items = side ? day.items.filter(it => it.side === side) : day.items;
     if (items.length) out.set(_ymdKey(day), BroomUrgency.dayText(items, sched.side_labels));
   }
@@ -28,40 +30,78 @@ function pointerSched(f) {
   if (!props || !_tilesRegion) return null;
   const raw = tileEntries(props);
   const side = s => raw.filter(e => e.side === s).map(e => [e.code, e.desc || '', e.time || '']);
-  return { schedule_even: side('even'), schedule_odd: side('odd'),
+  return { schedule_even: side('even'), schedule_odd: side('odd'), region: _tilesRegion, city: props.city,
            side_labels: [props.side_even || 'Even', props.side_odd || 'Odd'] };
 }
 
-// Layers for [start, end]: {ptr: Map, cars: [{car, color, days: Map}]}.
+// key -> "Trash, Compost" for a home's pickup days in [start, end].
+function pickupDayMap(sched, start, end) {
+  const out = new Map(), lo = _ymdKey(start), hi = _ymdKey(end);
+  for (const [stream, dates] of Object.entries(sched?.pickups || {})) {
+    for (const iso of dates) {
+      const [y, m, d] = iso.split('-').map(Number), k = _ymdKey({ y, m, d });
+      if (k >= lo && k <= hi) out.set(k, out.has(k) ? `${out.get(k)}, ${stream}` : stream);
+    }
+  }
+  return out;
+}
+
+// key -> "Veterans Day (Oakland)": no-sweep holidays of the street's and the cars' cities.
+function holidayDayMap(scheds) {
+  const out = new Map();
+  for (const s of scheds) {
+    const skip = schedSkip(s);
+    const name = s.city ? cityName(s.city) : '';
+    for (const [k, h] of Object.entries(skip || {})) {
+      const text = name ? `${h} (${name})` : h;
+      if (!out.has(Number(k))) out.set(Number(k), text);
+      else if (!out.get(Number(k)).includes(text)) out.set(Number(k), `${out.get(Number(k))}; ${text}`);
+    }
+  }
+  return out;
+}
+
+// Layers for [start, end]: {ptr: Map, cars: [{car, color, days: Map}], homes: [{home,
+// days: Map}], hol: Map}.
 function calLayers(ptrSched, start, end) {
+  const carScheds = cars.map(c => carSchedules[c.id]).filter(Boolean);
   return {
     ptr: sweepDayMap(ptrSched, start, end),
     cars: cars.flatMap(car => carSchedules[car.id]
       ? [{ car, color: carColor(car),
            days: sweepDayMap(carSchedules[car.id], start, end, carSchedules[car.id].car_side) }]
       : []),
+    homes: homes.flatMap(home => homeSchedules[home.id]
+      ? [{ home, days: pickupDayMap(homeSchedules[home.id], start, end) }] : []),
+    hol: holidayDayMap([ptrSched, ...carScheds].filter(Boolean)),
   };
 }
 
 function _dotsHTML(layers, k) {
   const dots = layers.cars.filter(l => l.days.has(k))
-    .map(l => `<span class="cal-dot" style="background:${l.color}"></span>`).join('');
+    .map(l => `<span class="cal-dot" style="background:${l.color}"></span>`)
+    .concat(layers.homes.filter(l => l.days.has(k))
+      .map(() => `<span class="cal-dot cal-dot-home" style="background:${HOME_COLOR}"></span>`)).join('');
   return `<span class="cal-dots">${dots}</span>`;
 }
 
-// Each car with sweeping that day: [{mark (HTML), text}]. The street is shown by
-// the day tint and the signs, not repeated here.
+// Each car with sweeping that day and each home with a pickup: [{mark (HTML), text}].
+// The street is shown by the day tint and the signs, not repeated here.
 function _dayLines(layers, k) {
   return layers.cars.filter(l => l.days.has(k)).map(l => ({
     mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
     text: `${l.car.name}: ${l.days.get(k)}`,
-  }));
+  })).concat(layers.homes.filter(l => l.days.has(k)).map(l => ({
+    mark: `<i class="cal-key cal-square" style="background:${HOME_COLOR}"></i>`,
+    text: `${itemName(l.home)}: ${l.days.get(k)}`,
+  })));
 }
 
 // What a screen reader says for a day: date, the street's sweeping, each car's.
 function _dayAria(layers, k, p, today) {
   return [_dayLabel(p) + (k === _ymdKey(today) ? ', today' : ''),
           layers.ptr.has(k) ? `street sweeping ${layers.ptr.get(k)}` : '',
+          layers.hol.has(k) ? `no sweeping: ${layers.hol.get(k)}` : '',
           ..._dayLines(layers, k).map(l => l.text)].filter(Boolean).join('; ');
 }
 
@@ -82,10 +122,12 @@ function _dayIdx(range, p) {
   return Math.round((Date.UTC(p.y, p.m - 1, p.d) - Date.UTC(range.start.y, range.start.m - 1, range.start.d)) / 864e5);
 }
 
-// The day details under the grid: each car with sweeping that day, else the street's.
+// The day details under the grid: a no-sweep holiday, each car with sweeping and each
+// home with a pickup that day, else the street's sweeping.
 function _detailHTML(layers, sel) {
-  return `<b>${_dayLabel(_keyDay(sel))}</b>` + (_dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('')
-    || (layers.ptr.has(sel) ? `<div>Sweeping: ${esc(layers.ptr.get(sel))}</div>` : '<div class="cal-muted">No sweeping</div>'));
+  const hol = layers.hol.has(sel) ? `<div class="cal-hol-line">No sweeping: ${esc(layers.hol.get(sel))}</div>` : '';
+  return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + (_dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('')
+    || (layers.ptr.has(sel) ? `<div>Sweeping: ${esc(layers.ptr.get(sel))}</div>` : hol ? '' : '<div class="cal-muted">No sweeping</div>'));
 }
 
 // Weeks in a column (scrolls vertically); `sel` is the selected day key. The first of
@@ -95,7 +137,7 @@ function calendarHTML(layers, range, sel, today) {
   let cells = '';
   for (let i = 0; i < CAL_WEEKS * 7; i++) {
     const p = _ymdAdd(range.start, i), k = _ymdKey(p);
-    const cls = ['cal-day', _streetCls(layers, k, today), p.m % 2 ? 'cal-alt' : '',
+    const cls = ['cal-day', _streetCls(layers, k, today), layers.hol.has(k) ? 'cal-hol' : '', p.m % 2 ? 'cal-alt' : '',
                  k === todayK ? 'sw-today' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
     cells += `<button class="${cls}" data-cal-day="${k}" aria-label="${esc(_dayAria(layers, k, p, today))}"`
            + ` aria-pressed="${k === sel}">`
@@ -213,7 +255,8 @@ function renderTargetInfo(f) {
   if (_cal.sel == null) _cal.sel = todayK;
   _ptrSched = props && lines.length ? pointerSched(f) : null;
   const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
-  const key = [_ptrSched ? props.sched : '', carSig, todayK].join('|');
+  const homeSig = homes.map(h => `${h.id}:${itemName(h)}:${homeSchedules[h.id] ? _schedId(homeSchedules[h.id]) : 0}`).join(',');
+  const key = [_ptrSched ? `${props.city}:${props.sched}` : '', carSig, homeSig, todayK].join('|');
   if (key === _calKey) return;
   _calKey = key;
 
