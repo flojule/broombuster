@@ -3,6 +3,7 @@ async function initApp() {
   // Cities and saved cars first, so the map opens at the right place.
   await loadCities();
   await loadAccount();  // a signed-in user's saved cars and homes replace the local copy
+  renderAccountSection();
   loadPrefs();
   initMap(cars.length ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 } : DEFAULT_CENTER);
 
@@ -30,7 +31,7 @@ initApp();
 let _liveUrgencySig = '';
 function tick() {
   scheduleUrgencyUpdate();
-  renderInfoCard();  // no-op unless today changed
+  renderTargetInfo();  // no-op unless today changed
   const day = s => BroomUrgency.isoDay(schedNow(s));
   const sig = [...Object.entries(carSchedules).map(([id, s]) => `${id}:${sweepUrgency(s)}:${day(s)}`),
                ...Object.entries(homeSchedules).map(([id, s]) => `${id}:${day(s)}`)].join('|');

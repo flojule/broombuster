@@ -18,6 +18,59 @@ function offerInstall() {
   showToast('Tip: Share › Add to Home Screen opens BroomBuster full screen.', false, 8000);
 }
 
+// ── Menus anchored to a button ("+", an item's "…") ──────────────────────────
+// As iOS pull-down menus: one open at a time, modal (what they cover takes no taps or
+// focus), closed by a pick, a tap elsewhere or Esc (which returns focus to the button).
+let _openMenu = null;  // { menu, anchor }
+function openMenu(menu, anchor) {
+  closeMenu();
+  _openMenu = { menu, anchor };
+  menu.hidden = false;
+  anchor.setAttribute('aria-expanded', 'true');
+  sheet.inert = true;
+  // Under the button, or above it when the sheet sits low; kept inside the screen.
+  const r = anchor.getBoundingClientRect(), h = menu.offsetHeight, w = menu.offsetWidth;
+  menu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  menu.style.top = (r.bottom + 6 + h < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - h - 6)) + 'px';
+  menu.querySelector('button').focus();
+}
+// Returns whether a menu was open.
+function closeMenu(refocus = false) {
+  if (!_openMenu) return false;
+  const { menu, anchor } = _openMenu;
+  _openMenu = null;
+  menu.hidden = true;
+  anchor.setAttribute('aria-expanded', 'false');
+  sheet.inert = false;
+  if (refocus) anchor.focus();
+  return true;
+}
+// A button that toggles `menu` (the click must not reach the closing listener below).
+function menuButton(btn, menu, beforeOpen) {
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (_openMenu?.menu === menu) { closeMenu(); return; }
+    beforeOpen?.();
+    openMenu(menu, btn);
+  });
+}
+document.addEventListener('click', e => { if (_openMenu && !_openMenu.menu.contains(e.target)) closeMenu(); });
+
+// ── Confirmation (as an iOS alert): a modal <dialog>; resolves true on the action ──
+const confirmDialog = document.getElementById('confirm-dialog');
+function askConfirm(title, message, action) {
+  confirmDialog.querySelector('#confirm-title').textContent = title;
+  confirmDialog.querySelector('#confirm-msg').textContent = message;
+  confirmDialog.querySelector('[value="ok"]').textContent = action;
+  confirmDialog.returnValue = '';
+  return new Promise(resolve => {
+    // Resolved after the dialog has put focus back, so the caller can move it.
+    confirmDialog.addEventListener('close', () => setTimeout(() => resolve(confirmDialog.returnValue === 'ok')), { once: true });
+    confirmDialog.showModal();
+    confirmDialog.querySelector('[value="cancel"]').focus();  // the safe choice is the default
+  });
+}
+
 // ── Dark mode ─────────────────────────────────────────────────────────────────
 // Switch UI chrome AND basemap together.
 function _applyDark(on) {
@@ -55,12 +108,12 @@ document.getElementById('theme-seg').addEventListener('click', e => {
 });
 
 // ── Center target ─────────────────────────────────────────────────────────────
-// The info card reports the street under the viewport center (the
+// The signs and calendar report the street under the map's centre (the
 // mobile-friendly equivalent of hovering); the crosshair marks that point.
 const _crosshair  = document.getElementById('center-crosshair');
 
-// Query the feature under the viewport center (small pixel box so thin street
-// lines are forgiving on touch). Returns the topmost hit or null.
+// Query the feature under the map's centre (small pixel box so thin street lines
+// are forgiving on touch). Returns the topmost hit or null.
 function _centerFeature() {
   if (!map) return null;
   const layers = HOVER_LAYERS.filter(l => !!map.getLayer(l));
@@ -73,31 +126,6 @@ function _centerFeature() {
   } catch (_) { return null; }
   return feats.length ? feats[0] : null;
 }
-
-function updateInfoCard() {
-  if (!map) { _crosshair.classList.remove('visible'); renderInfoCard(null); return; }
-  _crosshair.classList.add('visible');
-  renderInfoCard(_centerFeature());
-}
-
-// ── App menu (⋯): account, appearance, map colors, about ────────────────────────
-const _btnMenu = document.getElementById('btn-menu');
-const _appMenu = document.getElementById('app-menu');
-function setMenuOpen(on) {
-  _appMenu.hidden = !on;
-  document.body.classList.toggle('menu-open', on);
-  _btnMenu.setAttribute('aria-expanded', String(on));
-  if (!on) return;
-  renderAccountSection();
-  // Opens to the left of the button, kept inside the screen.
-  const r = _btnMenu.getBoundingClientRect();
-  _appMenu.style.right = (window.innerWidth - r.left + 8) + 'px';
-  const h = _appMenu.offsetHeight;
-  _appMenu.style.top = Math.max(12, Math.min(r.top, window.innerHeight - h - 12)) + 'px';
-}
-_btnMenu.addEventListener('click', e => { e.stopPropagation(); setMenuOpen(_appMenu.hidden); });
-_appMenu.addEventListener('click', e => e.stopPropagation());
-document.addEventListener('click', () => setMenuOpen(false));
 
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());

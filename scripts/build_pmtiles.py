@@ -61,6 +61,10 @@ def _write_ndjson(region_key: str, path: Path) -> int:
             labels = rec.get("labels")
             if labels and tuple(labels) != analysis.DEFAULT_SIDE_LABELS:
                 props["side_even"], props["side_odd"] = labels
+            # Lines whose sides differ: the even side is left (true) or right of the
+            # drawing direction, so the map can draw each side as its own line.
+            if rec.get("even_left") is not None:
+                props["even_left"] = rec["even_left"]
             feature = {
                 "type": "Feature",
                 "geometry": shapely.geometry.mapping(geom),

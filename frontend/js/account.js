@@ -73,7 +73,7 @@ async function refreshFromAccount() {
   } catch (_) {}
 }
 
-// ── Account section of the app menu (ui.js opens the menu) ─────────────────────
+// ── Account section of the Me tab ─────────────────────────────────────────────
 function _menuItem(text, onClick) {
   const el = document.createElement(onClick ? 'button' : 'div');
   el.className = onClick ? 'menu-item' : 'menu-note';
@@ -83,7 +83,6 @@ function _menuItem(text, onClick) {
 }
 
 async function _leaveAccount(request) {
-  setMenuOpen(false);
   await _flushPrefs();
   const res = await request().catch(() => null);
   if (!res?.ok) { showToast('Request failed', true); return; }
@@ -92,24 +91,22 @@ async function _leaveAccount(request) {
   location.reload();
 }
 
-// Two taps, like Remove on a card: the first arms it, the second deletes.
+// Asks first, as removing a car does.
 function _deleteAccountItem() {
-  const el = document.createElement('button');
-  el.type = 'button';
-  el.className = 'menu-item ce-danger';
-  el.textContent = 'Delete account';
-  el.title = 'Deletes the account and its saved cars and homes';
-  confirmTap(el, () => {
+  const el = _menuItem('Delete account', async () => {
+    if (!await askConfirm('Delete your account?', 'Its saved cars and homes are deleted too. This can’t be undone.', 'Delete')) return;
     _syncTimer = null;
     _leaveAccount(() => fetch('/api/me', { method: 'DELETE' }));
   });
+  el.classList.add('danger');
   return el;
 }
 
 function renderAccountSection() {
   menuAccount.hidden = !accountEnabled;
   if (!accountEnabled) return;
-  menuAccount.replaceChildren(...(account
+  const label = Object.assign(document.createElement('div'), { className: 'menu-label', textContent: 'Account' });
+  menuAccount.replaceChildren(label, ...(account
     ? [_menuItem(account.email),
        _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' }))),
        _deleteAccountItem()]

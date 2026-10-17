@@ -28,7 +28,7 @@ async function upgradeAddress(car, sched) {
   } catch (_) {}
 }
 
-// Car names by sweeping verdict; feeds the sheet handle.
+// Car names by sweeping verdict; feeds the Saved summary and the tab's badge.
 function urgentCars() {
   const out = { today: [], tomorrow: [] };
   for (const car of cars) out[sweepUrgency(carSchedules[car.id])]?.push(car.name);
@@ -45,28 +45,41 @@ function moveCar(car, lat, lon) {
 
 // ── Placement (cars and homes) ────────────────────────────────────────────────
 // Center-target flow: pan the map so the crosshair sits on the spot, then
-// "Set here" commits at the map center. The sheet collapses so the target is
-// unobstructed. Right-click or a long press is the alternative for an off-center spot.
-// Places (or, with an id, moves) a car or home; the banner shows its icon.
+// "Set here" commits at the map center. The sheet shrinks so most of the map shows;
+// it returns to its height after. Right-click or a long press is the alternative for
+// an off-center spot. Places (or, with an id, moves) a car or home; the banner shows its icon.
+// A new one starts where you are, when the app knows (people add a car once they've parked).
 function startPlacing(editId = null, kind = 'car') {
-  placing = { kind, editId };
+  closeNameBox();
+  const p = placing = { kind, editId, detent: _detent };
   placeBannerText.innerHTML = icon(editId ? 'pin' : kind)
     + `<span class="sr-only">${editId ? 'Move' : 'Place'} ${kind}: pan the map to the spot</span>`;
-  setSheetCollapsed(true);
-  if (!isDesktop()) collapseCal();  // phone: the card would cover the target
+  if (!isDesktop()) setDetent('small');
   document.body.classList.add('placing');
   placeBanner.classList.add('active');
   _crosshair.classList.add('placing');
-  if (map) map.getCanvas().style.cursor = 'crosshair';
+  if (!map) return;
+  map.getCanvas().style.cursor = 'crosshair';
+  if (editId) return;
+  const goHere = (lat, lon) => map.jumpTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 17), padding: mapPadding() });
+  if (_here) { goHere(_here.lat, _here.lon); return; }
+  // No dot yet: a fix only if location is already allowed (no prompt), and only while
+  // this placement is on and the map hasn't been panned meanwhile.
+  const c0 = map.getCenter();
+  getPermittedGPS().then(fix => {
+    if (fix && placing === p && map.getCenter().distanceTo(c0) < 1) goHere(fix.lat, fix.lon);
+  });
 }
 
 function stopPlacing() {
+  if (!placing) return;
+  const { detent } = placing;
   placing = null;
   placeBanner.classList.remove('active');
   document.body.classList.remove('placing');
   _crosshair.classList.remove('placing');
   if (map) map.getCanvas().style.cursor = '';
-  applySheet();
+  setDetent(detent);
 }
 
 // Commit at the current map center (the point the crosshair marks).
@@ -77,17 +90,72 @@ function confirmPlacementAtCenter() {
   stopPlacing();
   if (kind === 'home') { if (editId) moveHome(editId, lat, lng); else addHome(lat, lng); return; }
   const car = editId && cars.find(c => c.id === editId);
-  if (car) { setSheetCollapsed(false); moveCar(car, lat, lng); }
+  if (car) { moveCar(car, lat, lng); openItem(car.id); }
   else openNameBox(lat, lng);
 }
 
 btnConfirmPlace.addEventListener('click', confirmPlacementAtCenter);
-btnCancelPlace.addEventListener('click', () => { stopPlacing(); setSheetCollapsed(false); });
+btnCancelPlace.addEventListener('click', stopPlacing);
 
-document.getElementById('btn-add-car').addEventListener('click', () => {
-  closeNameBox();
-  startPlacing(null);
+// ── "+": what to add (as the "+" on Find My's lists): a car or a home, placed with
+// the centre target. Anchored menus (this and an item's "…") share the code below.
+const addMenu = document.getElementById('add-menu');
+menuButton(btnAdd, addMenu);
+addMenu.addEventListener('click', e => {
+  const b = e.target.closest('[data-add]');
+  if (!b) return;
+  closeMenu();
+  startPlacing(null, b.dataset.add);
 });
+
+// ── "…": the open item's settings (as the "…" on Apple Maps' place cards) ─────
+// Rebuilt each time it opens, for the item open then.
+const itemMenu = document.getElementById('item-menu');
+const _menuRow = (act, label, ic, danger) =>
+  `<button class="ctx-item${danger ? ' danger' : ''}" data-act="${act}">${icon(ic)} ${esc(label)}</button>`;
+menuButton(btnItemMore, itemMenu, () => {
+  const item = selectedItem(), car = cars.includes(item);
+  itemMenu.innerHTML = [
+    _menuRow('place', car ? 'Set location' : 'Move', 'pin'),
+    _menuRow('address', 'Enter address', 'search'),
+    car && _menuRow('rename', 'Rename', 'pencil'),
+    car && account && _menuRow('phone', item.id in phoneLinks ? 'Unlink phone' : 'Link phone', 'phone'),
+    '<hr>',
+    _menuRow('remove', 'Remove', 'trash', true),
+  ].filter(Boolean).join('');
+});
+itemMenu.addEventListener('click', async e => {
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  const item = selectedItem();
+  if (!act || !item) return;
+  closeMenu();
+  const car = cars.includes(item) ? item : null, name = itemName(item);
+  const entry = carsPanel.querySelector(`.car-entry[data-id="${CSS.escape(item.id)}"]`);
+  if (act === 'place') startPlacing(item.id, car ? 'car' : 'home');
+  else if (act === 'address') entry?.querySelector('.ce-addr').startEdit();
+  else if (act === 'rename') savedTitle.startEdit();
+  else if (act === 'phone') {
+    if (!(item.id in phoneLinks)
+        || await askConfirm(`Unlink the phone from ${name}?`, 'Its automation will stop updating where the car is.', 'Unlink')) {
+      _togglePhoneLink(car);
+    }
+  } else if (act === 'remove') {
+    // Focus goes back to "…" on Cancel, to "+" on the list once it is gone.
+    if (!await askConfirm(`Remove ${name}?`, car ? 'Its location is forgotten.' : 'Its trash days are no longer shown.', 'Remove')) {
+      btnItemMore.focus();
+      return;
+    }
+    if (car) removeCar(car.id); else removeHome(item.id);
+    btnAdd.focus();
+  }
+});
+
+function removeCar(id) {
+  delete carSchedules[id];
+  cars = cars.filter(c => c.id !== id);
+  savePrefs();
+  updateCarMarkers();  // drops its marker and re-renders the cards
+}
 
 // ── Context menu: "Add car / home here" (right-click, or a long press on touch) ──
 function openCtxMenu(lngLat, x, y) {
@@ -160,8 +228,8 @@ function savePendingCar() {
   cars.push(car);
   closeNameBox();
   savePrefs();
-  setSheetCollapsed(false);  // reveal the new card
   updateCarMarkers();
+  openItem(car.id);  // its page: the schedule as it loads
   checkCar(car);
   offerInstall();
 }
@@ -193,38 +261,38 @@ function _statusHTML(u) {
   return `<span class="ce-status" style="color:${URGENCY[u].color}">${ic ? icon(ic) + ' ' : ''}${esc(URGENCY[u].short)}</span>`;
 }
 
-// A schedule block: header and up to four lines; while loading, "Loading…", and after
-// a failed load, the error with Retry.
+// An item page's section (as iOS grouped lists): a label over a rounded box holding up
+// to four lines; while loading, "Loading…", and after a failed load, the error with Retry.
 function schedBlockHTML(id, header, lines) {
-  if (lines) return `<div class="ce-sched-header">${esc(header)}</div>`
-                  + lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('');
-  return loadFailed.has(id)
-    ? '<div class="ce-error">Couldn’t load the schedule <button class="ce-btn ce-btn-retry">Retry</button></div>'
-    : '<span class="ce-loading">Loading…</span>';
+  const body = lines ? lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('')
+    : loadFailed.has(id) ? '<div class="ce-error">Couldn’t load the schedule <button class="ce-btn ce-btn-retry">Retry</button></div>'
+    : '<div class="ce-loading">Loading…</div>';
+  return `<div class="ce-sec-label">${esc(header)}</div><div class="ce-sec">${body}</div>`;
 }
 
-// Card shell: header (icon, name, verdict) that toggles the card (click, Enter or
-// Space), address, and the detail shown while the card is open.
+// A row of the Saved list (icon, name over address, verdict) that opens the item's page
+// (click, Enter or Space); `detail` shows on that page only.
 function itemCard({ id, kind, color, name, urgency, addr, detail }) {
   const entry = document.createElement('div');
   entry.className = 'car-entry' + (kind === 'home' ? ' home-entry' : '');
   entry.dataset.id = id;
-  if (urgency) entry.dataset.urgency = urgency;  // theme-aware tint via CSS
   entry.style.setProperty('--car-color', color);
   entry.innerHTML = `
-    <div class="ce-header" role="button" tabindex="0" aria-expanded="false">
+    <div class="ce-header" role="button" tabindex="0">
       <span class="ce-dot">${icon(kind)}</span>
-      <span class="ce-name" contenteditable="false">${esc(name)}</span>
+      <span class="ce-text">
+        <span class="ce-name">${esc(name)}</span>
+        <span class="ce-addr" contenteditable="false">${esc(addr)}</span>
+      </span>
       ${urgency ? _statusHTML(urgency) : ''}
     </div>
-    <div class="ce-addr" contenteditable="false">${esc(addr)}</div>
     <div class="ce-detail">${detail}</div>`;
   entry.addEventListener('click', e => {
-    if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
-    toggleItem(id);
+    if (_selectedId === id || e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
+    focusItem(id);
   });
   entry.querySelector('.ce-header').addEventListener('keydown', e => {
-    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('ce-header')) { e.preventDefault(); toggleItem(id); }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('ce-header')) { e.preventDefault(); focusItem(id); }
   });
   return entry;
 }
@@ -246,13 +314,13 @@ function _ago(epochS) {
   return h < 36 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
 }
 
-// Status (and the new token, once) under a linked car's buttons.
+// A linked car's page: the phone's status (and the new token, once), as a section.
 function phoneLinkHTML(car) {
   if (!(car.id in phoneLinks)) return '';
   const lastUsed = phoneLinks[car.id];
-  const status = lastUsed ? `Phone last reported ${_ago(lastUsed)}.` : 'Phone has not reported yet.';
+  const status = lastUsed ? `Last reported ${_ago(lastUsed)}.` : 'Has not reported yet.';
   const token = _phoneLink?.carId === car.id ? _phoneLink.token : null;
-  return `<div class="ce-phone">
+  return `<div class="ce-sec-label">Phone</div><div class="ce-sec ce-phone">
     <div class="ce-token-note">${esc(status)}</div>
     ${token ? `
     <div class="ce-token-note">Copy this token into your phone automation now; it is shown only once.
@@ -277,34 +345,28 @@ async function _togglePhoneLink(car) {
     _phoneLink = { carId: car.id, token: (await res.json()).token };
   }
   renderCarsPanel();
-  document.querySelector('.ce-token')?.scrollIntoView({ block: 'nearest' });  // it is below the card's buttons
+  document.querySelector('.ce-token')?.scrollIntoView({ block: 'nearest' });  // it is below the schedule
 }
 
+// The car rows (before the homes) and, on a car's page, its one visible action: Parked
+// here, the one used every time (as Find My keeps Play Sound out); the rest is under "…".
 function renderCarsPanel() {
-  if (isEditingIn(carsPanel)) return;
-  for (const el of [...carsPanel.querySelectorAll(':scope > .car-entry')]) el.remove();
+  if (isEditingIn(carsPanel) || savedTitle.isContentEditable) return;
+  for (const el of [...itemList.querySelectorAll(':scope > .car-entry:not(.home-entry)')]) el.remove();
+  const firstHome = itemList.querySelector('.home-entry');
   for (const car of cars) {
     const sched = carSchedules[car.id];
     const addrText = sched?.address || '';
-    const linked = car.id in phoneLinks;
     const lines = sched && BroomUrgency.formatBothSides(
       sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
     const entry = itemCard({
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
       urgency: sched && sweepUrgency(sched), addr: addrText,
       detail: `
-        <div class="ce-sched">${schedBlockHTML(car.id, 'Sweeping:', lines && (lines.length ? lines : ['No sweeping']))}</div>
-        <div class="ce-actions">
-          <button class="ce-btn ce-btn-gps">${icon('locate')} GPS</button>
-          <button class="ce-btn ce-btn-place">${icon('pin')} Set location</button>
-          ${account ? `<button class="ce-btn ce-btn-phone">${linked ? 'Unlink phone' : 'Link phone'}</button>` : ''}
-          <button class="ce-btn ce-remove ce-danger">${icon('trash')} Remove</button>
-        </div>
+        <button class="btn btn-tinted ce-btn-gps">${icon('locate')} Parked here</button>
+        ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}
         ${account ? phoneLinkHTML(car) : ''}`,
     });
-
-    const nameEl = entry.querySelector('.ce-name');
-    makeEditable(nameEl, () => car.name, v => { car.name = v; savePrefs(); updateCarMarkers(); });
 
     const addrEl = entry.querySelector('.ce-addr');
     makeEditable(addrEl, () => addrText, async q => {
@@ -324,27 +386,28 @@ function renderCarsPanel() {
         return moveCar(car, lat, lon);
       });
     });
-    entry.querySelector('.ce-btn-place').addEventListener('click', () => startPlacing(car.id));
-
-    const phoneBtn = entry.querySelector('.ce-btn-phone');
-    if (phoneBtn && linked) confirmTap(phoneBtn, () => _togglePhoneLink(car));  // unlinking stops the automation
-    else phoneBtn?.addEventListener('click', () => _togglePhoneLink(car));
     entry.querySelector('.ce-btn-copy')?.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(_phoneLink.token); showToast('Token copied'); }
       catch (_) { entry.querySelector('.ce-token').select(); }
     });
 
-    confirmTap(entry.querySelector('.ce-remove'), () => {
-      delete carSchedules[car.id];
-      cars = cars.filter(c => c.id !== car.id);
-      if (_selectedId === car.id) _selectedId = null;
-      savePrefs();
-      updateCarMarkers();  // drops its marker and re-renders the cards
-    });
-
-    carsPanel.appendChild(entry);
+    itemList.insertBefore(entry, firstHome);
   }
   applySelection();
-  renderInfoCard();
-  updateSheetSummary();
+  renderTargetInfo();
+  updateSavedSummary();
+}
+
+// Saved tab's first line: the most urgent car verdict, else all clear; with nothing
+// saved, how to start. A red dot on the tab while a car must move today.
+function updateSavedSummary() {
+  const { today, tomorrow } = urgentCars();
+  savedSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
+    : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
+    : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
+    : homes.length ? '' : 'Add your car to see when to move it, or your home for trash day.'
+      + `<button class="btn" id="btn-add-first">${icon('plus')} Add</button>`;
+  const first = document.getElementById('btn-add-first');
+  if (first) menuButton(first, addMenu);
+  tabbar.querySelector('.tab-badge').hidden = !today.length;
 }

@@ -37,15 +37,18 @@
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2"/></symbol>
     <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8 3v4M16 3v4"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
-    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
     <symbol id="i-car" viewBox="0 0 24 24"><path fill="currentColor" fill-opacity=".2" d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2" fill="var(--icon-hole, none)"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2" fill="var(--icon-hole, none)"/></symbol>
     <symbol id="i-home" viewBox="0 0 24 24"><path fill="currentColor" fill-opacity=".2" stroke="none" d="M6 10 12 5l6 5v10H6z"/><path d="M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-5h4v5"/></symbol>
     <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4zM12 10v4M12 17h.01"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13M10 11v6M14 11v6"/></symbol>
     <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></symbol>
+    <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.2-4 4.3-6 8-6s6.8 2 8 6"/></symbol>
   </defs>
 </svg>
 
@@ -53,12 +56,11 @@
   <div id="map-container">
     <div id="map"></div>
 
-    <!-- Right column (map controls): menu, zoom (desktop), locate. -->
+    <!-- Top right (map controls): zoom (desktop), locate. -->
     <div id="map-ctrl">
-      <button id="btn-menu" class="map-btn" title="Menu" aria-label="Menu" aria-expanded="false" aria-controls="app-menu"><svg class="ic"><use href="#i-more"/></svg></button>
       <button id="btn-zoom-in" class="map-btn zoom-btn" title="Zoom in" aria-label="Zoom in"><svg class="ic"><use href="#i-plus"/></svg></button>
       <button id="btn-zoom-out" class="map-btn zoom-btn" title="Zoom out" aria-label="Zoom out"><svg class="ic"><use href="#i-minus"/></svg></button>
-      <button id="btn-locate" class="map-btn" title="Use GPS location" aria-label="Use GPS location"><svg class="ic"><use href="#i-locate"/></svg></button>
+      <button id="btn-locate" class="map-btn" title="Show my location" aria-label="Show my location"><svg class="ic"><use href="#i-locate"/></svg></button>
     </div>
 
     <!-- Floating pill shown during place mode: pan so the center target sits on
@@ -70,73 +72,98 @@
     </div>
 
     <!-- "Add here" menu: right-click, or a long press on touch -->
-    <div id="ctx-menu">
+    <div id="ctx-menu" class="pop-menu">
       <button class="ctx-item" id="ctx-add-car"><svg class="ic"><use href="#i-car"/></svg> Add car here</button>
       <button class="ctx-item" id="ctx-add-home"><svg class="ic"><use href="#i-home"/></svg> Add home here</button>
     </div>
 
-    <!-- Bottom sheet: cars & homes. Empty: just the two add buttons. Otherwise it
-         minimizes to a handle so the map (and placement's center target) stays
-         clear. Body order: add-row, home cards, then car cards
-         (appended by renderCarsPanel). -->
-    <div id="sheet">
-      <div id="sheet-handle" role="button" tabindex="0" aria-expanded="false" aria-controls="cars-panel">
-          <span id="sheet-summary"></span>
-        <span id="sheet-chevron"><svg class="ic"><use href="#i-chevron"/></svg></span>
-      </div>
-      <div id="cars-panel">
-        <div id="add-row">
-          <button id="btn-add-home" class="add-car-btn add-home-btn" title="Add a home to see trash & recycling day"><svg class="ic"><use href="#i-home"/></svg> Add home</button>
-          <button id="btn-add-car" class="add-car-btn"><svg class="ic"><use href="#i-car"/></svg> Add car</button>
-        </div>
-        <div id="home-panel"></div>
-      </div>
-    </div>
-
-    <!-- Center target: marks the point the street sign reads -->
+    <!-- Center target: marks the point the street signs read (the centre of the map
+         area the sheet leaves free). -->
     <div id="center-crosshair"></div>
 
-    <!-- Street sign for the street at the target: schedule as published. -->
-    <div id="street-sign" hidden>
-      <div id="ss-head">No parking</div>
-      <div id="ss-lines"></div>
-      <div id="ss-foot">Street sweeping</div>
-      <div id="ss-name"></div>
-    </div>
+    <!-- Street sign for the street at the target, in the source's own words: one section
+         per side, laid out as the sides lie on screen; filled by js/signs.js. -->
+    <div id="signs" role="group" aria-label="Street sign at the target" hidden></div>
+  </div>
 
-    <!-- Calendar: fixed content (strip, or month view on tap); the street under
-         the target and the cars appear only as marks on its days. -->
-    <div id="info-card">
-      <div id="ic-head">
-        <span id="ic-title"><svg class="ic"><use href="#i-calendar"/></svg>&nbsp;Calendar</span>
-        <button id="ic-toggle" aria-expanded="false" aria-controls="ic-cal"><svg class="ic"><use href="#i-chevron"/></svg></button>
+  <!-- The sheet (as in Find My): Calendar, Saved (cars and homes) and Me tabs. Phone:
+       docked at the bottom with the tab bar, dragged between three heights. Desktop:
+       a panel on the left with the tabs on top. -->
+  <section id="sheet" aria-label="BroomBuster">
+    <button id="sheet-grabber" aria-label="Resize the sheet" aria-controls="sheet"><span></span></button>
+
+    <div class="tab" id="tab-calendar" role="tabpanel" aria-labelledby="tb-calendar">
+      <div class="tab-head">
+        <h2 class="tab-title" id="ic-month">Calendar</h2>
+        <button class="cal-today" data-cal-today>Today</button>
+        <button class="cal-nav head-btn" data-cal-nav="-1" aria-label="Previous week">‹</button>
+        <button class="cal-nav head-btn" data-cal-nav="1" aria-label="Next week">›</button>
       </div>
-      <div id="ic-cal"></div>
+      <div class="tab-body" id="ic-cal"></div>
     </div>
-  </div>
+
+    <div class="tab" id="tab-saved" role="tabpanel" aria-labelledby="tb-saved" hidden>
+      <div class="tab-head">
+        <h2 class="tab-title" id="saved-title">Saved</h2>
+        <button id="btn-add" class="head-btn round-btn" aria-label="Add a car or home" aria-expanded="false" aria-controls="add-menu"><svg class="ic"><use href="#i-plus"/></svg></button>
+        <button id="btn-item-more" class="head-btn round-btn" aria-label="More" aria-expanded="false" aria-controls="item-menu" hidden><svg class="ic"><use href="#i-more"/></svg></button>
+        <button id="btn-item-close" class="head-btn round-btn" aria-label="Close" hidden><svg class="ic"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="tab-body" id="cars-panel">
+        <div id="saved-summary"></div>
+        <div id="item-list"></div>
+      </div>
+    </div>
+
+    <div class="tab" id="tab-me" role="tabpanel" aria-labelledby="tb-me" hidden>
+      <div class="tab-head"><h2 class="tab-title">Me</h2></div>
+      <div class="tab-body">
+        <div class="menu-sec" id="menu-account" hidden></div>
+        <div class="menu-sec">
+          <div class="menu-label">Appearance</div>
+          <div class="seg" id="theme-seg" role="radiogroup" aria-label="Appearance">
+            <button type="button" role="radio" data-theme="auto">Auto</button>
+            <button type="button" role="radio" data-theme="light">Light</button>
+            <button type="button" role="radio" data-theme="dark">Dark</button>
+          </div>
+        </div>
+        <div class="menu-sec menu-legend">
+          <div class="menu-label">Map colors</div>
+          <span class="urg-today"><i class="lg lg-3"></i>Today</span>
+          <span class="urg-tomorrow"><i class="lg lg-2"></i>Tomorrow</span>
+          <span class="urg-safe"><i class="lg lg-1"></i>Clear</span>
+          <span class="urg-none"><i class="lg lg-0"></i>No sweeping</span>
+          <p class="menu-note">Zoomed in, a street whose sides differ shows one line per side; the street sign outlines each side in its line’s colour.</p>
+        </div>
+        <div class="menu-sec menu-about"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a> · <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · __APP_VERSION__</div>
+      </div>
+    </div>
+
+    <div id="tabbar" role="tablist" aria-label="Sections">
+      <button role="tab" id="tb-calendar" data-tab="calendar" aria-controls="tab-calendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
+      <button role="tab" id="tb-saved" data-tab="saved" aria-controls="tab-saved"><svg class="ic"><use href="#i-pin"/></svg>Saved<i class="tab-badge" hidden></i></button>
+      <button role="tab" id="tb-me" data-tab="me" aria-controls="tab-me"><svg class="ic"><use href="#i-person"/></svg>Me</button>
+    </div>
+  </section>
 </div>
 
-<!-- App menu (a disclosure panel): account (when sign-in is on), appearance, map colors, about.
-     Account part filled by js/account.js. -->
-<div id="app-menu" hidden>
-  <div class="menu-sec" id="menu-account" hidden></div>
-  <div class="menu-sec">
-    <div class="menu-label">Appearance</div>
-    <div class="seg" id="theme-seg" role="radiogroup" aria-label="Appearance">
-      <button type="button" role="radio" data-theme="auto">Auto</button>
-      <button type="button" role="radio" data-theme="light">Light</button>
-      <button type="button" role="radio" data-theme="dark">Dark</button>
-    </div>
-  </div>
-  <div class="menu-sec menu-legend">
-    <div class="menu-label">Map colors</div>
-    <span class="urg-today"><i class="lg lg-3"></i>Today</span>
-    <span class="urg-tomorrow"><i class="lg lg-2"></i>Tomorrow</span>
-    <span class="urg-safe"><i class="lg lg-1"></i>Clear</span>
-    <span class="urg-none"><i class="lg lg-0"></i>No sweeping</span>
-  </div>
-  <div class="menu-sec menu-about"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a> · <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · __APP_VERSION__</div>
+<!-- "+" menu: what to add (a car or a home) -->
+<div id="add-menu" class="pop-menu" hidden>
+  <button class="ctx-item" data-add="car"><svg class="ic"><use href="#i-car"/></svg> Car</button>
+  <button class="ctx-item" data-add="home"><svg class="ic"><use href="#i-home"/></svg> Home</button>
 </div>
+
+<!-- "…" menu on an item's page: its settings; filled by js/cars.js -->
+<div id="item-menu" class="pop-menu" hidden></div>
+
+<!-- Confirmation before removing something (as an iOS alert) -->
+<dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-msg">
+  <form method="dialog">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-msg"></p>
+    <div class="dlg-btns"><button value="cancel">Cancel</button><button value="ok" class="dlg-danger"></button></div>
+  </form>
+</dialog>
 
 <!-- Toast container -->
 <div id="toast-container" role="status" aria-live="polite"></div>
@@ -146,8 +173,10 @@
 <script defer src="js/urgency.js"></script>
 <script defer src="js/core.js"></script>
 <script defer src="js/ui.js"></script>
+<script defer src="js/sheet.js"></script>
 <script defer src="js/map.js"></script>
 <script defer src="js/markers.js"></script>
+<script defer src="js/signs.js"></script>
 <script defer src="js/calendar.js"></script>
 <script defer src="js/data.js"></script>
 <script defer src="js/account.js"></script>

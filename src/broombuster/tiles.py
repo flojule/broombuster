@@ -10,7 +10,7 @@ import shapely
 import shapely.geometry
 
 from broombuster import analysis as _analysis
-from broombuster import normalize
+from broombuster import normalize, resolve
 
 
 def _safe(val) -> str:
@@ -39,7 +39,8 @@ def _merge_lines(gdf_4326):
 
     SF emits one row per (segment x weekday x side), so a physical line is the
     union of every row sharing its endpoints. Returns {key: segment dict} with
-    coords, name, city, labels and the even/odd raw entries.
+    coords, name, city, labels, the even/odd raw entries and even_left: every
+    answer its rows gave to "is the even side left of `coords`' direction?".
     """
     seg_data: dict = {}
     for _, row in gdf_4326.iterrows():
@@ -48,14 +49,18 @@ def _merge_lines(gdf_4326):
             continue
         be, bo = _analysis.get_schedule(row, 0), _analysis.get_schedule(row, 1)
         labels = _analysis.side_labels(row)
+        left = resolve.even_on_left(row)
         for coords in _line_parts(geom):
             if len(coords) < 2:
                 continue
             sd = seg_data.setdefault(_analysis.line_key(coords), {
                 "coords": coords, "city": _safe(row.get("_city")),
                 "name": _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
-                "labels": labels, "even": [], "odd": [],
+                "labels": labels, "even": [], "odd": [], "even_left": set(),
             })
+            if left is not None:
+                # A row drawn the other way round has its sides swapped.
+                sd["even_left"].add(left == _same_start(coords, sd["coords"]))
             if labels != _analysis.DEFAULT_SIDE_LABELS:
                 sd["labels"] = labels
             if be and be not in sd["even"]:
@@ -63,6 +68,11 @@ def _merge_lines(gdf_4326):
             if bo and bo not in sd["odd"]:
                 sd["odd"].append(bo)
     return seg_data
+
+
+def _same_start(a, b) -> bool:
+    """Whether two coordinate lists of one line start at the same end (same direction)."""
+    return _analysis.line_key([a[0], a[0]]) == _analysis.line_key([b[0], b[0]])
 
 
 def _tile_sched(even, odd):
@@ -106,8 +116,18 @@ def merge_segment_rows(gdf):
             "city":        sd["city"],
             "schedule":    _tile_sched(sd["even"], sd["odd"]),
             "labels":      sd["labels"],
+            "even_left":   _even_left(sd),
         })
     return records
+
+
+def _even_left(sd):
+    """Whether the even side is left of the line's direction, for a line the map draws
+    as two (one per side); None when its rows disagree or don't say, or when both sides
+    share a schedule (one line tells it all)."""
+    if len(sd["even_left"]) != 1 or set(sd["even"]) == set(sd["odd"]):
+        return None
+    return next(iter(sd["even_left"]))
 
 
 def ward_boundary_features(records):
