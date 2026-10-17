@@ -214,11 +214,12 @@
     #btn-add, #btn-item-more { color: var(--blue); }
     /* Tab bar (iOS 26): a capsule at the sheet's foot, icon over label, the selected tab in
        blue on a pill that slides to it (--i: the selected tab's index, from JS). It clears
-       the home indicator (--inset-b) less what the sheet's gap already gives. A red dot on
-       Saved: a car must move today. */
+       the home indicator (--inset-b) by the same margin at every detent (were it to follow
+       the docking gap, the calendar's fitted weeks would differ between detents). A red dot
+       on Saved: a car must move today. */
     #tabbar {
       --pad: 4px; flex: none; position: relative; display: flex; padding: var(--pad); border-radius: var(--pill);
-      margin: 2px 10px max(10px, calc(var(--inset-b) - var(--gap) - 12px));
+      margin: 2px 10px max(10px, calc(var(--inset-b) - 20px));
       background: color-mix(in srgb, var(--text) 7%, transparent);
     }
     #tabbar::before {
