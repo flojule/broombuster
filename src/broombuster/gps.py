@@ -79,6 +79,11 @@ def search(query: str, bbox: tuple | None = None) -> dict | None:
     return _cached(("search", q.lower(), bbox), lambda: _nominatim_search(q, bbox))
 
 
+def address_parts(lat: float, lon: float) -> dict | None:
+    """Nominatim's address dict for a point (house_number, road, city, …), or None."""
+    return _lookup(lat, lon) or None
+
+
 def house_number_cached(lat: float, lon: float) -> bool:
     with _lock:
         return _key(lat, lon) in _cache

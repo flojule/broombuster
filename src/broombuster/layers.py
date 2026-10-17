@@ -27,11 +27,17 @@ THEMES = {
 }
 
 _FRONTEND = Path(REPO_ROOT) / "frontend" / "layers"
+LIVE_CLOSURES = ("bay_area",)  # regions with a live closures feed (feeds.py)
 _loaded: dict[str, dict[str, geopandas.GeoDataFrame]] = {}  # region -> theme -> EPSG:3857
 
 
+def city_dir(city_key: str) -> Path:
+    """The directory holding a city's data (next to its sweeping FGB)."""
+    return Path(REPO_ROOT) / os.path.dirname(CITIES[city_key]["fgb_path"])
+
+
 def fgb_path(city_key: str, theme: str) -> Path:
-    return Path(REPO_ROOT) / "data" / city_key / f"{theme}.fgb"
+    return city_dir(city_key) / f"{theme}.fgb"
 
 
 def load_all() -> None:
@@ -63,6 +69,9 @@ def catalogue(region_key: str) -> list[dict]:
             v = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
             out.append({"id": theme, "name": meta["name"],
                         "url": f"/layers/{region_key}/{theme}.geojson?v={v}"})
+    if region_key in LIVE_CLOSURES:  # fetched live, not built (feeds.closures)
+        out.append({"id": "closures", "name": "Street closures (2 weeks)",
+                    "url": f"/api/closures?region={region_key}"})
     return out
 
 

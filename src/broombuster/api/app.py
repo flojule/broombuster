@@ -10,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import analysis, calfeed, gps, holidays, iplocate, layers, resolve, trash
+from broombuster import analysis, calfeed, feeds, gps, holidays, iplocate, layers, resolve, trash
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_bbox, region_for_point
 from broombuster.config import REPO_ROOT
 from broombuster.version import app_version
@@ -187,7 +187,31 @@ def rules(lat: float = Query(..., ge=-90.0, le=90.0),
     evacuation zones), from the cities' extra layers. Each rule: {theme, label, rule,
     asof, city}."""
     region = region if region in REGIONS else region_for_point(lat, lon)
-    return {"region": region, "rules": layers.rules_at(region, lat, lon, kind)}
+    out = layers.rules_at(region, lat, lon, kind)
+    if kind == "car":
+        out += feeds.closures_near(region, lat, lon)
+        if city_for_point(lat, lon, region) == "chicago_all":
+            out += feeds.chicago_permit_zone(lat, lon)
+    return {"region": region, "rules": out}
+
+
+@api.get("/closures")
+def closures(region: str = Query(..., pattern="^[a-z_]+$")):
+    """Street closures on now or starting within two weeks (GeoJSON), for the map."""
+    if region not in REGIONS:
+        raise HTTPException(404, "Unknown region.")
+    return {"type": "FeatureCollection", "features": feeds.closures(region)}
+
+
+@api.get("/vehicle")
+def vehicle(plate: str = Query(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9 -]+$"),
+            state: str = Query("IL", pattern="^[A-Za-z]{2}$")):
+    """Chicago: was this plate towed or relocated (last 90 days)? 503 when the city's
+    portal does not answer."""
+    got = feeds.chicago_vehicle(plate, state)
+    if got is None:
+        raise HTTPException(503, "The City of Chicago's data portal did not answer.")
+    return got
 
 
 def _car_spot(lat: float, lon: float) -> calfeed.CarSpot | None:

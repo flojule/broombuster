@@ -308,6 +308,8 @@
     .ce-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--tap); }
     .ce-select { min-height: 36px; padding: 0 10px; font: inherit; font-size: 16px; color: var(--text);
                  background: var(--fill); border: none; border-radius: var(--r-sm); }
+    input.ce-select { width: 8.5em; text-transform: uppercase; }
+    .ce-btn-towed { align-self: flex-start; }
     .ce-note { margin: 4px 14px 0; font-size: .74rem; color: var(--muted); line-height: 1.4; }
     /* Rules at a car (permit area, meter, closure): one line each, the source in grey. */
     .ce-rule { display: flex; flex-direction: column; }

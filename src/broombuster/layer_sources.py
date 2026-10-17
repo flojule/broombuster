@@ -307,6 +307,33 @@ def markets(city_key: str) -> geopandas.GeoDataFrame:
                                   crs="EPSG:4326")
 
 
+# ── Tables (no geometry) ──────────────────────────────────────────────────────
+
+def chicago_permit_zones() -> pd.DataFrame:
+    """Chicago's residential permit zones by address range (active rows only):
+    street (normalize.street_name key), low, high, side (O / E / B), zone."""
+    from broombuster import normalize
+
+    rows = _get("https://data.cityofchicago.org/resource/u9xt-hiju.json",
+                **{"$limit": 50000, "$where": "status = 'ACTIVE'"}).json()
+    out = []
+    for r in rows:
+        street = " ".join(str(r.get(k) or "").strip()
+                          for k in ("street_direction", "street_name", "street_type")).strip()
+        try:
+            low, high = int(float(r["address_range_low"])), int(float(r["address_range_high"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        out.append({"street": normalize.street_name(street), "low": low, "high": high,
+                    "side": str(r.get("odd_even") or "B").strip().upper()[:1] or "B",
+                    "zone": str(r.get("zone") or "").strip()})
+    return pd.DataFrame(out, columns=["street", "low", "high", "side", "zone"])
+
+
+# city -> {table name -> source}; written as data/<city dir>/<name>.csv.
+TABLES = {"chicago_all": {"permit_zones": chicago_permit_zones}}
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 # theme -> {city -> source}; a source is a callable of the city's manifest.
 SOURCES = {

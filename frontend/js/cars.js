@@ -307,6 +307,41 @@ function isEditingIn(panel) {
   return panel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
 }
 
+// ── Chicago: was the car towed or moved (relocated for sweeping, construction, …)? ──
+// The plate is saved with the car (synced when signed in) and sent only when asked.
+const vehicleChecks = {};  // car id -> {busy} | {result} | {error}
+function vehicleHTML(car) {
+  if (regionAt(car.lat, car.lon) !== 'chicago') return '';
+  const c = vehicleChecks[car.id] || {};
+  let out = '';
+  if (c.busy) out = '<div class="ce-loading">Checking…</div>';
+  else if (c.error) out = `<div class="ce-error">${esc(c.error)}</div>`;
+  else if (c.result) {
+    const rows = [...c.result.towed.map(t => `Towed ${t.date} to ${t.to}${t.phone ? ` (${t.phone})` : ''}`),
+                  ...c.result.relocated.map(r => `Moved ${r.date.replace('T', ' ')} to ${r.to}${r.reason ? ` (${r.reason})` : ''}`)];
+    out = rows.length ? rows.map(r => `<div class="ce-rule warn">${esc(r)}</div>`).join('')
+      : '<div>No tow or relocation in the last 90 days.</div>';
+  }
+  return `<div class="ce-sec-label">Towed or moved?</div><div class="ce-sec">
+    <label class="ce-field">Licence plate <input class="ce-select ce-plate" maxlength="10" autocapitalize="characters"
+      autocomplete="off" spellcheck="false" value="${esc(car.plate || '')}" aria-label="Licence plate"></label>
+    <label class="ce-field">State <input class="ce-select ce-plate-state" maxlength="2" autocapitalize="characters"
+      value="${esc(car.plate_state || 'IL')}" aria-label="Plate state"></label>
+    <button class="ce-btn ce-btn-towed">Check the city’s records</button>${out}</div>`;
+}
+async function checkVehicle(car) {
+  if (!car.plate) { showToast('Enter the licence plate first', true); return; }
+  vehicleChecks[car.id] = { busy: true };
+  renderCarsPanel();
+  const q = new URLSearchParams({ plate: car.plate, state: car.plate_state || 'IL' });
+  try {
+    const res = await fetch('/api/vehicle?' + q);
+    vehicleChecks[car.id] = res.ok ? { result: await res.json() }
+      : { error: (await res.json().catch(() => ({}))).detail || 'The lookup failed.' };
+  } catch (_) { vehicleChecks[car.id] = { error: 'The lookup failed.' }; }
+  renderCarsPanel();
+}
+
 // ── Phone link: a token that lets a phone automation report where the car parked ──
 let _phoneLink = null;  // { carId, token } while a freshly created token is on screen
 
@@ -370,6 +405,7 @@ function renderCarsPanel() {
         <button class="btn btn-tinted ce-btn-gps">${icon('locate')} Parked here</button>
         ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}
         ${rulesBlockHTML('Also here', placeRules[car.id])}
+        ${vehicleHTML(car)}
         ${account ? phoneLinkHTML(car) : ''}`,
     });
 
@@ -391,6 +427,17 @@ function renderCarsPanel() {
         return moveCar(car, lat, lon);
       });
     });
+    const plateIn = entry.querySelector('.ce-plate'), stateIn = entry.querySelector('.ce-plate-state');
+    plateIn?.addEventListener('change', () => {
+      car.plate = plateIn.value.toUpperCase().replace(/[^A-Z0-9 -]/g, '').trim() || undefined;
+      savePrefs();
+    });
+    stateIn?.addEventListener('change', () => {
+      const v = stateIn.value.toUpperCase().replace(/[^A-Z]/g, '');
+      car.plate_state = v.length === 2 ? v : undefined;
+      savePrefs();
+    });
+    entry.querySelector('.ce-btn-towed')?.addEventListener('click', () => checkVehicle(car));
     entry.querySelector('.ce-btn-copy')?.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(_phoneLink.token); showToast('Token copied'); }
       catch (_) { entry.querySelector('.ce-token').select(); }

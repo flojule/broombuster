@@ -65,6 +65,26 @@ def build_city(city_key: str, themes: list[str] | None) -> list[str]:
     return failed
 
 
+def build_tables(city_key: str) -> list[str]:
+    """data/<city dir>/<name>.csv for the city's tables (layer_sources.TABLES)."""
+    failed = []
+    for name, src in layer_sources.TABLES.get(city_key, {}).items():
+        try:
+            df = src()
+        except Exception as e:
+            print(f"    {name}: FAILED ({e}); keeping the previous file")
+            failed.append(name)
+            continue
+        if df.empty:
+            failed.append(name)
+            continue
+        path = layers.city_dir(city_key) / f"{name}.csv"
+        df.to_csv(path.with_suffix(".tmp.csv"), index=False)
+        os.replace(path.with_suffix(".tmp.csv"), path)
+        print(f"    {name}: {len(df):,} rows")
+    return failed
+
+
 def build_region_geojson(region_key: str) -> None:
     """frontend/layers/<region>/<theme>.geojson from the cities' FGBs."""
     out_dir = _ROOT / "frontend" / "layers" / region_key
@@ -97,6 +117,8 @@ def main() -> int:
     for ck in a.cities or CITIES:
         print(CITIES[ck]["name"])
         failed += [f"{ck}/{t}" for t in build_city(ck, a.theme)]
+        if not a.theme:
+            failed += [f"{ck}/{t}" for t in build_tables(ck)]
     for rk in REGIONS:
         build_region_geojson(rk)
     if failed:

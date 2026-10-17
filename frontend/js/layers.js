@@ -10,6 +10,7 @@ const LAYER_STYLE = {
   ev:      { color: '#16a34a' },
   fire:    { color: '#dc2626' },
   markets: { color: '#c2410c' },
+  closures: { color: '#b91c1c' },
 };
 const LAYER_PREFIX = 'lyr-';
 const layersMenu = document.getElementById('layers-menu');
