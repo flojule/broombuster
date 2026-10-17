@@ -28,10 +28,14 @@ function openMenu(menu, anchor) {
   menu.hidden = false;
   anchor.setAttribute('aria-expanded', 'true');
   sheet.inert = true;
-  // Under the button, or above it when the sheet sits low; kept inside the screen.
+  // Under the button, or above it when the sheet sits low; kept inside the screen. It grows
+  // out of the button (styles.css .pop-menu), as iOS 26 menus do.
   const r = anchor.getBoundingClientRect(), h = menu.offsetHeight, w = menu.offsetWidth;
-  menu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
-  menu.style.top = (r.bottom + 6 + h < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - h - 6)) + 'px';
+  const left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+  const top = r.bottom + 6 + h < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - h - 6);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  menu.style.transformOrigin = `${r.left + r.width / 2 - left}px ${r.top + r.height / 2 - top}px`;
   menu.querySelector('button').focus();
 }
 // Returns whether a menu was open.

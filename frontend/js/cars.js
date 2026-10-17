@@ -160,10 +160,13 @@ function removeCar(id) {
 // ── Context menu: "Add car / home here" (right-click, or a long press on touch) ──
 function openCtxMenu(lngLat, x, y) {
   pendingLat = lngLat.lat; pendingLon = lngLat.lng;
-  const mw = 170, mh = 100;
-  ctxMenu.style.left = Math.min(x, window.innerWidth  - mw) + 'px';
-  ctxMenu.style.top  = Math.min(y, window.innerHeight - mh) + 'px';
   ctxMenu.style.display = 'block';
+  // At the finger, kept inside the screen; it grows out of that point.
+  const left = Math.max(8, Math.min(x, window.innerWidth - ctxMenu.offsetWidth - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - ctxMenu.offsetHeight - 8));
+  ctxMenu.style.left = left + 'px';
+  ctxMenu.style.top = top + 'px';
+  ctxMenu.style.transformOrigin = `${x - left}px ${y - top}px`;
 }
 function hideCtxMenu() { ctxMenu.style.display = 'none'; }
 
@@ -190,7 +193,7 @@ function openNameBox(lat, lon) {
   save.id = 'btn-np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
   save.textContent = '✓';
   const close = document.createElement('button');
-  close.className = 'popup-close inline-close';
+  close.className = 'popup-close';
   close.title = 'Close (Esc)'; close.setAttribute('aria-label', 'Close');
   close.innerHTML = icon('close');
   row.append(input, save, close);
