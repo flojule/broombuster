@@ -258,7 +258,7 @@ def _evac(gdf, asof, prefix):
 
 def berkeley_evac():
     gdf, asof = arcgis(f"{BERKELEY}/cob_evacuation_zones/FeatureServer/109",
-                       where="city_abbr = 'BRK'", fields="zone_id,city_abbr")
+                       where="city_abbr = 'BER'", fields="zone_id,city_abbr")
     return _evac(gdf, asof, "")
 
 
