@@ -205,8 +205,14 @@ new ResizeObserver(() => requestAnimationFrame(() => {
   const gap = _detent === 'large' ? 0 : sheetGap();
   document.documentElement.style.setProperty('--sheet-h', (isDesktop() ? 0 : sheet.offsetHeight + gap) + 'px');
 })).observe(sheet);
-// The detents follow the screen and the tab bar (which grows by the home-indicator inset).
+// The detents follow the screen and the tab bar's height (its width changes as the
+// sheet docks, under the finger: that must not reset a drag).
 window.addEventListener('resize', () => applySheet());
-new ResizeObserver(() => requestAnimationFrame(() => applySheet())).observe(tabbar);
+let _tabbarH = 0;
+new ResizeObserver(() => requestAnimationFrame(() => {
+  if (tabbar.offsetHeight === _tabbarH) return;
+  _tabbarH = tabbar.offsetHeight;
+  if (!_drag?.moved) applySheet();
+})).observe(tabbar);
 showTab(_tab);
 applySheet();

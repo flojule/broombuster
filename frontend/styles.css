@@ -48,7 +48,7 @@
            --rim: inset 0 0 0 1px var(--border); }
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
       body { --glass: color-mix(in srgb, var(--card) 66%, transparent);
-             --sheet-bg: color-mix(in srgb, var(--card) 86%, transparent);
+             --sheet-bg: color-mix(in srgb, var(--card) 92%, transparent);
              --hairline: color-mix(in srgb, var(--text) 13%, transparent);
              /* The rim: a bright top edge and a faint outline, as light catching glass. */
              --rim: inset 0 1px 0 rgba(255,255,255,.65), inset 0 0 0 1px rgba(255,255,255,.28); }
@@ -150,7 +150,7 @@
        between groups. Each time one shows it grows out of its button or the finger
        (transform-origin, from JS) with a small spring. */
     .pop-menu {
-      position: fixed; z-index: 200; padding: 6px; background: var(--glass); border-radius: var(--r-menu);
+      position: fixed; z-index: 200; padding: 6px; background: var(--sheet-bg); border-radius: var(--r-menu);
       box-shadow: var(--rim), var(--shadow-2); min-width: 210px; animation: menu-in .4s var(--spring);
     }
     @keyframes menu-in { from { opacity: 0; transform: scale(.3); } 40% { opacity: 1; } }
@@ -325,7 +325,7 @@
 
     /* ── Name box (arrow popup anchored at the new car's spot) ── */
     .name-popup .maplibregl-popup-content {
-      background: var(--glass); border-radius: var(--r-menu); padding: 8px;
+      background: var(--sheet-bg); border-radius: var(--r-menu); padding: 8px;
       box-shadow: var(--rim), var(--shadow-2); min-width: 220px;
     }
     .name-popup .maplibregl-popup-tip {
