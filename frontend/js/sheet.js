@@ -1,9 +1,10 @@
 // ── Sheet (as in Find My): Calendar | Saved | Me ──────────────────────────────
 // Phone: at the bottom with the tab bar, at one of three heights (detents): small (a
 // tab's header and a peek of it), medium and large. Below large it floats clear of the
-// screen's edges, as iOS 26 sheets do; it docks edge to edge on the way up to large. Drag the grabber, a tab's
-// header or its content, or tap the grabber to step through them. The map is padded by the
-// sheet so the centre target sits in the middle of the map area left free.
+// screen's edges, as iOS 26 sheets do; it docks edge to edge on the way up to large.
+// Drag the grabber, a tab's header or its content, or tap the grabber to step through
+// them. The map is padded by the sheet so the centre target sits in the middle of the
+// map area left free.
 // Desktop: a full-height panel on the left; no detents.
 const tabbar  = document.getElementById('tabbar');
 const grabber = document.getElementById('sheet-grabber');
