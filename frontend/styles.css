@@ -146,16 +146,19 @@
     #btn-cancel-place { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
 
     /* ── Pop-up menus: "Add here" (right-click / long press) and "+" ── */
+    /* As iOS 26 menus: regular glass with round rows and no lines between them; a line
+       between groups. Each time one shows it grows out of its button or the finger
+       (transform-origin, from JS) with a small spring. */
     .pop-menu {
-      position: fixed; z-index: 200; background: var(--glass); border: 1px solid var(--hairline);
-      border-radius: var(--r-md); box-shadow: var(--shadow-2); overflow: hidden; min-width: 190px;
+      position: fixed; z-index: 200; padding: 6px; background: var(--glass); border-radius: var(--r-menu);
+      box-shadow: var(--rim), var(--shadow-2); min-width: 210px; animation: menu-in .4s var(--spring);
     }
+    @keyframes menu-in { from { opacity: 0; transform: scale(.3); } 40% { opacity: 1; } }
     #ctx-menu { display: none; }
-    .ctx-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--tap); padding: 0 14px;
-                text-align: left; font-size: .88rem; }
-    .ctx-item + .ctx-item { border-top: 1px solid var(--hairline); }
-    .ctx-item:hover { background: var(--bg); }
-    .pop-menu hr { height: 7px; border: none; background: color-mix(in srgb, var(--text) 7%, transparent); }  /* a group break */
+    .ctx-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--tap); padding: 0 12px;
+                border-radius: calc(var(--r-menu) - 6px); text-align: left; font-size: .9rem; }
+    .ctx-item:hover, .ctx-item:focus-visible { background: color-mix(in srgb, var(--text) 9%, transparent); }
+    .pop-menu hr { height: 0; margin: 5px 12px; border: none; border-top: 1px solid var(--hairline); }  /* a group break */
     .danger { color: var(--urg-today); }
 
     /* ── Me tab: account, appearance, map colors, about ── */
@@ -292,16 +295,20 @@
     }
     .ce-phone .ce-btn { align-self: flex-start; }
 
-    /* ── Confirmation (as an iOS alert) ── */
-    #confirm-dialog { margin: auto; width: min(280px, calc(100vw - 32px)); padding: 0; border: none; border-radius: 14px;
-                      background: var(--sheet-bg); color: var(--text); box-shadow: var(--shadow-2); text-align: center; }
-    #confirm-dialog::backdrop { background: rgba(0,0,0,.32); }
-    #confirm-title { padding: 18px 16px 4px; font-size: 1rem; font-weight: 600; }
-    #confirm-msg { padding: 0 16px 16px; font-size: .8rem; line-height: 1.4; }
-    .dlg-btns { display: flex; border-top: 1px solid var(--hairline); }
-    .dlg-btns button { flex: 1; min-height: var(--tap); font-size: 1rem; color: var(--blue); }
-    .dlg-btns button + button { border-left: 1px solid var(--hairline); }
-    .dlg-btns .dlg-danger { color: var(--urg-today); font-weight: 600; }
+    /* ── Confirmation (as an iOS 26 alert): text to the left, capsule buttons side by side;
+       it springs in from slightly larger. ── */
+    #confirm-dialog { margin: auto; width: min(300px, calc(100vw - 40px)); padding: 22px 18px 18px; border: none;
+                      border-radius: var(--r-alert); background: var(--sheet-bg); color: var(--text);
+                      box-shadow: var(--rim), var(--shadow-2); }
+    #confirm-dialog[open] { animation: alert-in .35s var(--spring); }
+    @keyframes alert-in { from { opacity: 0; transform: scale(1.12); } 50% { opacity: 1; } }
+    #confirm-dialog::backdrop { background: rgba(0,0,0,.28); }
+    #confirm-title { padding: 0 4px 6px; font-size: 1.05rem; font-weight: 700; }
+    #confirm-msg { padding: 0 4px 18px; font-size: .84rem; line-height: 1.4; }
+    .dlg-btns { display: flex; gap: 10px; }
+    .dlg-btns button { flex: 1; min-height: 48px; border-radius: var(--pill); font-size: .95rem; font-weight: 600;
+                       background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--text); }
+    .dlg-btns .dlg-danger { color: var(--urg-today); }
 
     /* Shared top-right corner close button for popups/boxes. */
     .popup-close {
