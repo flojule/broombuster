@@ -18,25 +18,35 @@ function offerInstall() {
   showToast('Tip: Share › Add to Home Screen opens BroomBuster full screen.', false, 8000);
 }
 
-// ── Menus anchored to a button ("+", an item's "…") ──────────────────────────
+// ── Menus ("+", an item's "…", Layers, and "Add here" at a point on the map) ──
 // As iOS pull-down menus: one open at a time, modal (what they cover takes no taps or
 // focus), closed by a pick, a tap elsewhere or Esc (which returns focus to the button).
-let _openMenu = null;  // { menu, anchor }
-function openMenu(menu, anchor) {
+// The arrow keys, Home and End move between the items.
+let _openMenu = null;  // { menu, anchor (null: opened at a point) }
+const _clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+// Under `anchor` (or above it when the sheet sits low), or at the point `at` {x, y};
+// kept inside the screen. It grows out of the button or the point (styles.css .pop-menu).
+function openMenu(menu, anchor, at = null) {
   closeMenu();
   _openMenu = { menu, anchor };
   menu.hidden = false;
-  anchor.setAttribute('aria-expanded', 'true');
+  anchor?.setAttribute('aria-expanded', 'true');
   sheet.inert = true;
-  // Under the button, or above it when the sheet sits low; kept inside the screen. It grows
-  // out of the button (styles.css .pop-menu), as iOS 26 menus do.
-  const r = anchor.getBoundingClientRect(), h = menu.offsetHeight, w = menu.offsetWidth;
-  const left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
-  const top = r.bottom + 6 + h < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - h - 6);
+  const h = menu.offsetHeight, w = menu.offsetWidth, W = window.innerWidth, H = window.innerHeight;
+  let left, top, ox, oy;
+  if (at) {
+    left = _clamp(at.x, 8, W - w - 8); top = _clamp(at.y, 8, H - h - 8);
+    ox = at.x; oy = at.y;
+  } else {
+    const r = anchor.getBoundingClientRect();
+    left = _clamp(r.right - w, 8, W - w - 8);
+    top = r.bottom + 6 + h < H ? r.bottom + 6 : Math.max(8, r.top - h - 6);
+    ox = r.left + r.width / 2; oy = r.top + r.height / 2;
+  }
   menu.style.left = left + 'px';
   menu.style.top = top + 'px';
-  menu.style.transformOrigin = `${r.left + r.width / 2 - left}px ${r.top + r.height / 2 - top}px`;
-  menu.querySelector('button').focus();
+  menu.style.transformOrigin = `${ox - left}px ${oy - top}px`;
+  menu.querySelector('button')?.focus();
 }
 // Returns whether a menu was open.
 function closeMenu(refocus = false) {
@@ -44,11 +54,20 @@ function closeMenu(refocus = false) {
   const { menu, anchor } = _openMenu;
   _openMenu = null;
   menu.hidden = true;
-  anchor.setAttribute('aria-expanded', 'false');
+  anchor?.setAttribute('aria-expanded', 'false');
   sheet.inert = false;
-  if (refocus) anchor.focus();
+  if (refocus) anchor?.focus();
   return true;
 }
+document.addEventListener('keydown', e => {
+  if (!_openMenu || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  const items = [..._openMenu.menu.querySelectorAll('button')];
+  if (!items.length) return;
+  e.preventDefault();
+  const i = items.indexOf(document.activeElement), n = items.length;
+  const next = { ArrowDown: (i + 1) % n, ArrowUp: (i - 1 + n) % n, Home: 0, End: n - 1 }[e.key];
+  items[next].focus();
+});
 // A button that toggles `menu` (the click must not reach the closing listener below).
 function menuButton(btn, menu, beforeOpen) {
   btn.addEventListener('click', e => {

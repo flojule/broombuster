@@ -46,11 +46,13 @@ function updateHomeMarkers() {
   applySelection();
 }
 
-// The grey pin under the name box while a new car is being named.
+// Under the name box while a new car is being named: its pin to be, faded.
 function updateTempPin() {
   _tempPinMarker = placeMarker(_tempPinMarker, _tempPin, () => {
     const el = document.createElement('div');
-    el.className = 'temp-pin';
+    el.className = 'pin temp';
+    el.innerHTML = icon('car');
+    el.style.setProperty('--pin', nextCarColor());
     return el;
   });
 }
@@ -87,7 +89,8 @@ function applySelection() {
   btnAdd.hidden = !!item;
   btnItemMore.hidden = btnItemClose.hidden = !item;
 }
-btnItemClose.addEventListener('click', () => clearSelection());
+// Back to the list; focus moves to "+" (the ✕ it was on is gone).
+btnItemClose.addEventListener('click', () => { clearSelection(); btnAdd.focus(); });
 
 function selectItem(id) {
   _selectedId = id;

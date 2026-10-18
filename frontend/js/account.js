@@ -76,13 +76,21 @@ async function refreshFromAccount() {
   } catch (_) {}
 }
 
-// ── Account section of the Me tab ─────────────────────────────────────────────
+// ── Account sections of the Me tab ────────────────────────────────────────────
+// A row: a button with onClick, else plain text.
 function _menuItem(text, onClick) {
   const el = document.createElement(onClick ? 'button' : 'div');
-  el.className = onClick ? 'menu-item' : 'menu-note';
+  el.className = 'menu-item';
   if (onClick) { el.type = 'button'; el.addEventListener('click', onClick); }
   el.textContent = text;
   return el;
+}
+const _note = text => Object.assign(document.createElement('p'), { className: 'note', textContent: text });
+// A section: its label (none: '') over a box of rows.
+function _section(label, rows) {
+  const box = Object.assign(document.createElement('div'), { className: 'sec rows' });
+  box.append(...rows);
+  return label ? [Object.assign(document.createElement('div'), { className: 'sec-label', textContent: label }), box] : [box];
 }
 
 async function _leaveAccount(request) {
@@ -123,14 +131,14 @@ async function _stopCalendar() {
   renderAccountSection();
 }
 function _calendarItems() {
-  const items = [Object.assign(document.createElement('div'), { className: 'menu-label', textContent: 'Calendar' })];
+  const items = [];
   if (_calendarUrl) {
     const a = Object.assign(document.createElement('a'), {
       className: 'menu-item', href: _calendarUrl.webcal, textContent: 'Subscribe in Calendar' });
     items.push(a, _menuItem('Copy link', async () => {
       try { await navigator.clipboard.writeText(_calendarUrl.url); showToast('Link copied'); }
       catch (_) { showToast(_calendarUrl.url, false, 10000); }
-    }), _menuItem('Shown once: anyone with the link can see your cars’ sweeping days.'));
+    }), _note('Shown once: anyone with the link can see your cars’ sweeping days.'));
   } else {
     items.push(_menuItem(calendarOn ? 'New calendar link' : 'Add sweeping and trash days to your calendar',
                          _makeCalendarLink));
@@ -146,10 +154,12 @@ function _calendarItems() {
 function renderAccountSection() {
   menuAccount.hidden = !accountEnabled;
   if (!accountEnabled) return;
-  const label = Object.assign(document.createElement('div'), { className: 'menu-label', textContent: 'Account' });
-  menuAccount.replaceChildren(label, ...(account
-    ? [_menuItem(account.email),
-       _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' }))),
-       _deleteAccountItem(), ..._calendarItems()]
-    : [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; })]));
+  // Signed in: who, then the calendar link, then deleting the account on its own (as iOS
+  // keeps a destructive action apart, last).
+  menuAccount.replaceChildren(...(account
+    ? [..._section('Account', [_menuItem(account.email),
+         _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' })))]),
+       ..._section('Calendar', _calendarItems()),
+       ..._section('', [_deleteAccountItem()])]
+    : _section('Account', [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; })])));
 }

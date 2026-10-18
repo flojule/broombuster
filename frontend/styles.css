@@ -1,6 +1,6 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --blue: #2563eb; --red: #ef4444;
+      --blue: #2563eb;
       /* Urgency colours (cards, banner, legend); the map paint lives in core.js URGENCY. */
       --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #2563eb;  /* text and swatches: AA on card tints */
       --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
@@ -26,16 +26,16 @@
       --sheet-h: 0px; /* sheet height (phone), set from JS */
       --street: #15803d;  /* street sweeping days in the calendar */
       --tint-fg: #1d4ed8; /* blue text on a blue-tinted button (AA) */
-      --home: #15803d;    /* homes: card icon, pin, add button (= HOME_COLOR in core.js) */
+      --home: #15803d;    /* homes' marks in the calendar (= HOME_COLOR in core.js, lighter in dark) */
 
       /* Layers: map pins (MapLibre markers) < crosshair 15 < place banner 20 < street signs 21
          < map controls 24 < sheet 25 < menus 200 < toasts 9999. */
     }
     /* 100vh, not 100%: in an iOS home-screen app with a translucent status bar, 100% is the
        layout viewport, which is shorter than the screen and leaves a strip at the bottom. */
-    html, body { height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); }
-    /* Keep map drags from scrolling/rubber-banding the page behind it. */
-    html, body { overflow: hidden; overscroll-behavior: none; }
+    /* Overflow: keep map drags from scrolling/rubber-banding the page behind it. */
+    html, body { height: 100vh; overflow: hidden; overscroll-behavior: none;
+                 font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); }
 
     /* ── Glass (iOS 26 Liquid Glass, as far as Safari goes) ──
        Floating surfaces are a blurred, saturated tint of what lies behind, with a light rim
@@ -84,16 +84,26 @@
     .busy svg.ic { animation: spin .8s linear infinite; }
     /* Buttons start bare; .btn is the filled primary action. */
     button { font: inherit; color: inherit; background: none; border: none; padding: 0; margin: 0; cursor: pointer; }
-    .btn, #btn-np-save, #btn-confirm-place, #btn-cancel-place {
+    .btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       min-height: var(--tap); padding: 0 18px; background: var(--blue); color: #fff;
       border-radius: var(--pill); font-size: .88rem; font-weight: 600;
     }
+    .btn-sm { min-height: 36px; padding: 0 14px; font-size: .8rem; }
+    .btn-plain { background: var(--fill); color: var(--text); }        /* secondary: grey fill */
+    .btn-tinted { background: var(--tint-bg); color: var(--tint-fg); } /* in a section: blue tint */
+    .btn-wide { width: 100%; }
+    /* A capsule in a tab's header (Today, Here). */
+    .pill-btn { min-height: 32px; padding: 0 12px; margin-right: 2px; background: var(--fill);
+                border-radius: var(--pill); font-size: .72rem; font-weight: 600; color: var(--text); }
+    /* Text fields and pickers: iOS's grey fill, no border (the focus ring marks the one in use). */
+    .field { min-height: 36px; padding: 0 12px; font: inherit; font-size: 16px; color: var(--text);
+             background: var(--fill); border: none; border-radius: var(--r-md); }
     button:disabled { opacity: .5; cursor: default; }
     button:not(:disabled):hover { opacity: .9; }
     /* Pressed: buttons and glass controls swell a little, as iOS 26's do under the finger. */
-    :is(.btn, .map-btn, .round-btn, .cal-today, .ce-btn) { transition: opacity .15s, transform .2s var(--spring); }
-    :is(.btn, .map-btn, .round-btn, .cal-today, .ce-btn):not(:disabled):active { transform: scale(1.06); }
+    :is(.btn, .map-btn, .round-btn, .pill-btn) { transition: opacity .15s, transform .2s var(--spring); }
+    :is(.btn, .map-btn, .round-btn, .pill-btn):not(:disabled):active { transform: scale(1.06); }
 
     /* ── App ── */
     /* Fixed to the full screen so the map runs under the status bar / Dynamic Island.
@@ -154,8 +164,7 @@
       white-space: nowrap; pointer-events: auto;
     }
     #place-banner.active { display: flex; }
-    #btn-confirm-place, #btn-cancel-place { min-height: 36px; padding: 0 14px; font-size: .78rem; }
-    #btn-cancel-place { background: var(--fill); color: var(--text); }
+    #place-banner-text { display: flex; align-items: center; gap: 6px; }
 
     /* ── Pop-up menus: "Add here" (right-click / long press) and "+" ── */
     /* As iOS 26 menus: regular glass with round rows and no lines between them; a line
@@ -166,30 +175,39 @@
       box-shadow: var(--rim), var(--shadow-2); min-width: 210px; animation: menu-in .4s var(--spring);
     }
     @keyframes menu-in { from { opacity: 0; transform: scale(.3); } 40% { opacity: 1; } }
-    #ctx-menu { display: none; }
     .ctx-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--tap); padding: 0 12px;
                 border-radius: calc(var(--r-menu) - 6px); text-align: left; font-size: .9rem; }
     .ctx-item:hover, .ctx-item:focus-visible { background: var(--fill); }
     .pop-menu hr { height: 0; margin: 5px 12px; border: none; border-top: 1px solid var(--hairline); }  /* a group break */
-    .danger { color: var(--urg-today); }
 
-    /* ── Me tab: account, appearance, map colors, about ── */
-    .menu-sec { padding: 6px 0; font-size: .85rem; background: var(--group, var(--card)); border-radius: var(--r-group); }
-    .menu-label { padding: 6px 14px 4px; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-    .menu-item { display: block; width: 100%; padding: 0 14px; min-height: var(--tap); text-align: left;
-                 color: var(--text); font-size: .88rem; font-weight: 500; }
+    /* ── Sections (as iOS grouped lists), on every tab: a small caps label over a rounded
+       box holding text (.sec) or tappable rows (.sec.rows); a muted note under or in one. ── */
+    .sec-label { margin: 8px 14px 0; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+    .sec { display: flex; flex-direction: column; gap: 3px; padding: 12px 16px; background: var(--group); border-radius: var(--r-group);
+           font-size: .82rem; line-height: 1.4; }
+    .sec .btn { align-self: flex-start; }
+    .sec.rows { gap: 0; padding: 4px 0; }
+    .menu-item { display: flex; align-items: center; width: 100%; min-height: var(--tap); padding: 0 16px; text-align: left;
+                 color: var(--text); font-size: .88rem; font-weight: 500; text-decoration: none; overflow-wrap: anywhere; }
     .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
-    .menu-item:hover { background: var(--fill); }
-    a.menu-item { display: flex; align-items: center; color: var(--tint-fg); text-decoration: none; }
-    .menu-note { padding: 6px 14px; color: var(--muted); font-size: .78rem; font-weight: 400; overflow-wrap: anywhere; }
-    .seg { display: flex; margin: 4px 14px 8px; padding: 3px; gap: 2px; background: var(--fill); border-radius: var(--pill); }
+    :is(button, a).menu-item:hover { background: var(--fill); }
+    a.menu-item { color: var(--tint-fg); }
+    .note { margin: 0 14px; font-size: .74rem; color: var(--muted); line-height: 1.4; font-weight: 400; }
+    .sec .note { margin: 0; }
+    .rows .note { padding: 6px 16px 8px; }
+    .about { font-size: .7rem; line-height: 1.45; }
+    .about a { color: inherit; }
+    /* Destructive actions; after the row styles so it wins over their colour. */
+    .danger, a.danger { color: var(--urg-today); }
+
+    /* ── Me tab ── */
+    /* The account rows (js/account.js) join the tab's column. */
+    #menu-account { display: contents; }
+    .seg { flex: none; display: flex; padding: 3px; gap: 2px; background: var(--fill); border-radius: var(--pill); }
     .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: .8rem; font-weight: 500;
                   transition: background-color .2s, box-shadow .2s; }
     .seg button[aria-checked="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); font-weight: 600; }
-    .menu-legend { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: .8rem; padding-bottom: 4px; }
-    .menu-legend > span { padding: 0 14px; }
-    .menu-about { font-size: .7rem; line-height: 1.45; color: var(--muted); padding: 10px 14px; background: none; }
-    .menu-about a { color: inherit; }
+    .legend { gap: 6px; font-weight: 600; font-size: .8rem; }
 
     /* ── Sheet (as in Find My) ──
        Phone: at the bottom with the tab bar at its foot; its height is one of two detents
@@ -203,6 +221,8 @@
       background: var(--sheet-bg); border-radius: var(--r-sheet);
       box-shadow: var(--rim), var(--shadow-2);
       transition: height .4s var(--sheet-ease);
+      /* Grouped boxes: a fill over the sheet's glass (as iOS lists on a sheet), in both themes. */
+      --group: color-mix(in srgb, var(--text) 6%, transparent);
     }
     #sheet.dragging { transition: none; }
     #sheet-grabber { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; height: 22px; cursor: grab; }
@@ -220,7 +240,8 @@
       padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
     }
     .head-btn { flex: none; position: relative; display: flex; align-items: center; justify-content: center; color: var(--muted); }
-    .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem; background: var(--fill); }
+    .round-btn { flex: none; position: relative; display: flex; align-items: center; justify-content: center;
+                 width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem; background: var(--fill); }
     .round-btn::after { content: ''; position: absolute; inset: -4px; }  /* 44 pt touch target */
     #btn-add, #btn-item-more { color: var(--blue); }
     /* Tab bar (iOS 26): a capsule at the sheet's foot, icon over label, the selected tab in
@@ -247,15 +268,13 @@
                  background: var(--urg-today); box-shadow: 0 0 0 2px var(--card); }
     /* Saved: the verdict line, then one grouped list of cars and homes (as Find My's
        Items list); an open item hides the rest and shows its own page. */
+    #saved-summary .note { margin: 0; font-size: .8rem; }
     #saved-summary { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .85rem; font-weight: 600; min-height: 28px; }
-    #saved-summary .btn { margin-top: 6px; }
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
     .urg-safe { color: var(--urg-safe); } .urg-none { color: var(--muted); }
     /* Legend swatch: line thickness mirrors the map (today thickest). */
     .lg { display: inline-block; width: 16px; border-radius: 2px; background: currentColor; vertical-align: middle; margin-right: 5px; }
     .lg-3 { height: 4px; } .lg-2 { height: 3px; } .lg-1 { height: 2px; } .lg-0 { height: 1px; }
-    /* Grouped boxes: a fill over the sheet's glass (as iOS lists on a sheet), in both themes. */
-    #sheet { --group: color-mix(in srgb, var(--text) 6%, transparent); }
     #item-list { flex: none; display: flex; flex-direction: column; background: var(--group); border-radius: var(--r-group); overflow: hidden; }
     #item-list:empty { display: none; }
     .car-entry { position: relative; display: flex; flex-direction: column; gap: 8px; }
@@ -288,27 +307,13 @@
     .car-entry.selected .ce-status { font-size: .88rem; }
     .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
-    .btn-tinted { width: 100%; background: var(--tint-bg); color: var(--tint-fg); }
-    .ce-sec-label { margin: 8px 14px 0; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-    .ce-sec { display: flex; flex-direction: column; gap: 3px; padding: 12px 16px; background: var(--group); border-radius: var(--r-group);
-              font-size: .82rem; line-height: 1.4; }
     .ce-loading { color: var(--muted); }
     .ce-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--urg-today); }
-    .ce-btn { flex: none; min-height: var(--tap); padding: 0 14px; display: flex; align-items: center; gap: 5px;
-              font-size: .8rem; font-weight: 600; border-radius: var(--pill); color: var(--tint-fg);
-              background: var(--tint-bg); }
-    .ce-token-note { font-size: .74rem; color: var(--muted); line-height: 1.4; }
-    .ce-token {
-      width: 100%; box-sizing: border-box; margin: 4px 0; padding: 6px; font: 16px monospace;
-      background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); border-radius: var(--r-sm);
-    }
-    .ce-phone .ce-btn { align-self: flex-start; }
+    .ce-error .btn { flex: none; }
+    .ce-token { width: 100%; margin: 4px 0; font-family: ui-monospace, monospace; }
     /* A setting inside a section (the home's collection day): label left, control right. */
     .ce-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--tap); }
-    .ce-select { min-height: 36px; padding: 0 10px; font: inherit; font-size: 16px; color: var(--text);
-                 background: var(--fill); border: none; border-radius: var(--r-sm); }
-    input.ce-select { width: 8.5em; text-transform: uppercase; }
+    .ce-field input.field { width: 8.5em; text-transform: uppercase; }
     .alert-line { flex-basis: 100%; font-weight: 400; display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; font-size: .8rem; line-height: 1.35; }
     .alert-line small { color: var(--muted); }
     /* Nearby tab: one row per item, its kind as a small capsule. */
@@ -320,8 +325,6 @@
     .nb-meta { color: var(--muted); font-size: .74rem; }
     .nb-link { display: flex; align-items: center; min-height: var(--tap); text-decoration: none; }
     .nb-link + .nb-link { border-top: 1px solid var(--hairline); }
-    .ce-btn-towed { align-self: flex-start; }
-    .ce-note { margin: 4px 14px 0; font-size: .74rem; color: var(--muted); line-height: 1.4; }
     /* Rules at a car (permit area, meter, closure): one line each, the source in grey. */
     .ce-rule { display: flex; flex-direction: column; }
     .ce-rule small { color: var(--muted); font-size: .7rem; }
@@ -342,14 +345,6 @@
                        background: var(--fill); color: var(--text); }
     .dlg-btns .dlg-danger { color: var(--urg-today); }
 
-    /* The name box's ✕, at the end of its row. */
-    .popup-close {
-      flex: none; width: var(--tap); height: var(--tap); margin-left: 2px;
-      display: flex; align-items: center; justify-content: center;
-      color: var(--muted); font-size: .85rem; line-height: 1; border-radius: var(--pill);
-    }
-    .popup-close:hover { background: var(--fill); color: var(--text); }
-
     /* ── Name box (arrow popup anchored at the new car's spot) ── */
     .name-popup .maplibregl-popup-content {
       background: var(--sheet-bg); border-radius: var(--r-menu); padding: 8px;
@@ -359,14 +354,10 @@
       border-top-color: var(--card); border-bottom-color: var(--card);
     }
     .np-row { display: flex; gap: 6px; align-items: center; }
-    #name-panel-input { flex: 1; padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--r-md); font-size: 16px; outline: none; min-width: 0; width: 0; background: var(--bg); color: var(--text); }
-    #name-panel-input:focus { border-color: var(--blue); }
-    #btn-np-save { min-height: 36px; padding: 0 14px; }
+    .np-row .field { flex: 1; min-width: 0; width: 0; }
 
     /* ── Calendar tab: one week (small sheet) unfolding into the month view ── */
-    #ic-cal { padding-bottom: 10px; gap: 0; }
-    .cal-today { min-height: 32px; padding: 0 12px; margin-right: 2px; background: var(--fill);
-                 border-radius: var(--pill); font-size: .72rem; font-weight: 600; color: var(--text); }
+    #ic-cal { padding-bottom: 10px; gap: 0; overflow: hidden; }
     .cal-muted { font-size: .72rem; color: var(--muted); }
 
     /* ── Street sign: one small no-parking sign for the street at the target, in the
@@ -421,20 +412,20 @@
     .cal-sel { box-shadow: inset 0 0 0 2px var(--blue); }
     /* One dot per car with sweeping that day, in the car's colour. */
     .cal-dots { display: flex; justify-content: center; gap: 2px; height: 5px; margin-top: 1px; }
-    .cal-dot { width: 5px; height: 5px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
+    .cal-dot { width: 5px; height: 5px; border-radius: 50%; }
     .cal-dot-home { border-radius: 1px; }  /* a home's pickup: a square, as its key below */
+    :is(.sw-now, .sw-next) .cal-dot { box-shadow: 0 0 0 1px rgba(255,255,255,.9); }  /* apart from the red / orange */
     /* A no-sweep holiday: struck through, so a weekly street day reads as cancelled. */
     .cal-hol { text-decoration: line-through; text-decoration-color: var(--muted); }
     .cal-hol-line { color: var(--muted); }
 
-    .cal-nav { font-size: 1.2rem; width: var(--tap); height: var(--tap); color: var(--muted); }
+    .cal-nav { width: var(--tap); height: var(--tap); font-size: 1.15rem; }
     .cal-nav:hover { color: var(--text); }
     /* One grid of weeks for both views: it fills what the sheet leaves (the sheet's heights
        fit whole weeks), down to the one week the small sheet shows; then it neither scrolls
        nor shows the day details (a swipe steps a week, js/calendar.js). */
     .cal-wds { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center;
                font-size: .62rem; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
-    #ic-cal { overflow: hidden; }
     .cal-scroll { flex: 1 1 0; min-height: 40px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
                   scroll-snap-type: y mandatory; scrollbar-width: none; }
     #ic-cal.cal-small .cal-scroll { overflow-y: hidden; touch-action: none; scroll-snap-type: none; }  /* hidden weeks are no snap points */
@@ -461,9 +452,8 @@
     .pin::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }  /* 44 pt touch target (Apple HIG) */
     .pin.selected { width: 40px; height: 40px; font-size: 22px;
                     box-shadow: 0 0 0 4px color-mix(in srgb, var(--pin) 35%, transparent), 0 2px 8px rgba(0,0,0,.4); }
-    /* The spot a new car is being named at. */
-    .temp-pin { width: 16px; height: 16px; border-radius: 50%; background: #64748b; border: 3px solid #111;
-                box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+    /* The spot a new car is being named at: its pin to be, faded. */
+    .pin.temp { opacity: .75; pointer-events: none; }
     /* You are here: a blue dot, and the fix's accuracy as a halo (--halo: diameter, from JS). */
     .here { width: 18px; height: 18px; pointer-events: none; }  /* MapLibre positions it (absolute) */
     .here-dot, .here-halo { position: absolute; left: 50%; top: 50%; border-radius: 50%; transform: translate(-50%, -50%); }
@@ -479,7 +469,7 @@
       --bg: #0f172a; --card: #1e293b; --text: #e2e8f0;
       --muted: #94a3b8; --border: #334155;
       --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #60a5fa;
-      --tint-fg: #93b4f8;
+      --tint-fg: #93b4f8; --home: #4ade80;
     }
 
     /* ── Toast notifications ── */
