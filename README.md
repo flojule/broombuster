@@ -9,9 +9,9 @@ Street-sweeping map for Oakland, San Francisco, Berkeley, Alameda and Chicago.
    here** moves it to where you are; **…** has the rest (set location, address, rename, remove).
 2. Add more cars, and a home (+ > *Home*) for trash pickup days: looked up by address in Oakland,
    elsewhere pick the collection day on the home's page; city holidays move it as the city does.
-3. **Calendar** shows the sweeping days of your cars and of the street under the centre dot: one week when the
-   sheet is small, unfolding into the month as you pull it up. The sign at the top left shows that street's
-   schedule as published, one section per side. Zoomed in, each side of a street has its own line, coloured by
+3. **Calendar** shows the sweeping days of your cars and of the street under the centre dot: one week and
+   the selected day when the sheet is small, unfolding into the month as you pull it up. The sign at the top
+   left shows that street's schedule as published, one section per side. Zoomed in, each side of a street has its own line, coloured by
    its own urgency, and the sign outlines each side in that colour. City holidays without sweeping (Oakland,
    SF) are struck through, and the map does not ask you to move on them. Homes' pickup days are the square dots.
 4. The layers button (top right) adds permit areas and time limits, meters, EV charging, fire zones, farmers
@@ -19,7 +19,7 @@ Street-sweeping map for Oakland, San Francisco, Berkeley, Alameda and Chicago.
    is ("Also here"), with a warning for a closure on its block; in Chicago it can check whether the car was towed
    or relocated. Weather and air alerts (Red Flag, snow, Spare the Air) show under the Saved summary.
 5. **Nearby** lists this week's farmers markets, events, street fairs and council meetings around the centre target.
-6. In **Me**, sign in with Google to sync cars across devices, and add your cars' sweeping and your homes'
+6. In **Settings**, sign in with Google to sync cars across devices, and add your cars' sweeping and your homes'
    pickups to your calendar app (a subscription link, with a reminder the evening before).
 7. Optional: [have your phone update the car's position](docs/phone-setup.md) when you park.
 

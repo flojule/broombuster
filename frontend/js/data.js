@@ -43,7 +43,7 @@ document.addEventListener('keydown', e => {
   if (placing)                             { stopPlacing();  dismissed = true; }
   if (dismissed) return;
   if (_selectedId) { clearSelection(); return; }
-  if (!isDesktop()) setDetent('small');
+  if (!isDesktop()) lowerSheet();
 });
 
 

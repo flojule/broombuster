@@ -52,7 +52,7 @@
     <symbol id="i-nearby" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></symbol>
     <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
     <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
-    <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.2-4 4.3-6 8-6s6.8 2 8 6"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
   </defs>
 </svg>
 
@@ -91,8 +91,8 @@
     <div id="signs" role="group" aria-label="Street sign at the target" hidden></div>
   </div>
 
-  <!-- The sheet (as in Find My): Calendar, Saved (cars and homes), Nearby and Me tabs. Phone:
-       docked at the bottom with the tab bar, dragged between three heights. Desktop:
+  <!-- The sheet (as in Find My): Calendar, Saved (cars and homes), Nearby and Settings tabs.
+       Phone: docked at the bottom with the tab bar, dragged between two heights per tab. Desktop:
        a panel on the left with the tabs on top. -->
   <section id="sheet" aria-label="BroomBuster">
     <button id="sheet-grabber" aria-label="Resize the sheet" aria-controls="sheet"><span></span></button>
@@ -109,10 +109,10 @@
 
     <div class="tab" id="tab-saved" role="tabpanel" aria-labelledby="tb-saved" hidden>
       <div class="tab-head">
+        <button id="btn-item-back" class="head-btn round-btn" aria-label="Back to Saved" hidden><svg class="ic"><use href="#i-chevron-left"/></svg></button>
         <h2 class="tab-title" id="saved-title">Saved</h2>
         <button id="btn-add" class="head-btn round-btn" aria-label="Add a car or home" aria-haspopup="menu" aria-expanded="false" aria-controls="add-menu"><svg class="ic"><use href="#i-plus"/></svg></button>
         <button id="btn-item-more" class="head-btn round-btn" aria-label="More" aria-haspopup="menu" aria-expanded="false" aria-controls="item-menu" hidden><svg class="ic"><use href="#i-more"/></svg></button>
-        <button id="btn-item-close" class="head-btn round-btn" aria-label="Close" hidden><svg class="ic"><use href="#i-close"/></svg></button>
       </div>
       <div class="tab-body" id="cars-panel">
         <div id="saved-summary"></div>
@@ -128,16 +128,18 @@
       <div class="tab-body" id="nearby-body" aria-live="polite"></div>
     </div>
 
-    <div class="tab" id="tab-me" role="tabpanel" aria-labelledby="tb-me" hidden>
-      <div class="tab-head"><h2 class="tab-title">Me</h2></div>
+    <div class="tab" id="tab-settings" role="tabpanel" aria-labelledby="tb-settings" hidden>
+      <div class="tab-head"><h2 class="tab-title">Settings</h2></div>
+      <!-- The account's sections (js/account.js) fill the slots: first, around the calendar link, last. -->
       <div class="tab-body">
-        <div id="menu-account" hidden></div>
+        <div id="set-account" class="set-slot"></div>
         <div class="sec-label">Appearance</div>
         <div class="seg" id="theme-seg" role="radiogroup" aria-label="Appearance">
           <button type="button" role="radio" data-theme="auto">Auto</button>
           <button type="button" role="radio" data-theme="light">Light</button>
           <button type="button" role="radio" data-theme="dark">Dark</button>
         </div>
+        <div id="set-calendar" class="set-slot"></div>
         <div class="sec-label">Map colors</div>
         <div class="sec legend">
           <span class="urg-today"><i class="lg lg-3"></i>Today</span>
@@ -146,7 +148,9 @@
           <span class="urg-none"><i class="lg lg-0"></i>No sweeping</span>
           <p class="note">Zoomed in, a street whose sides differ shows one line per side; the street sign outlines each side in its line’s colour.</p>
         </div>
+        <div class="sec-label">About</div>
         <p class="note about">Data: the cities’ open-data portals (Berkeley, Oakland, Alameda, DataSF, Chicago), ReCollect (Oakland trash days), U.S. DOE Alternative Fuels Data Center (EV charging), Genasys Protect zones, NWS alerts. Signs on the street always win.<br><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a> · <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · __APP_VERSION__</p>
+        <div id="set-danger" class="set-slot"></div>
       </div>
     </div>
 
@@ -154,7 +158,7 @@
       <button role="tab" id="tb-calendar" data-tab="calendar" aria-controls="tab-calendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
       <button role="tab" id="tb-saved" data-tab="saved" aria-controls="tab-saved"><svg class="ic"><use href="#i-pin"/></svg>Saved<i class="tab-badge" hidden></i></button>
       <button role="tab" id="tb-nearby" data-tab="nearby" aria-controls="tab-nearby"><svg class="ic"><use href="#i-nearby"/></svg>Nearby</button>
-      <button role="tab" id="tb-me" data-tab="me" aria-controls="tab-me"><svg class="ic"><use href="#i-person"/></svg>Me</button>
+      <button role="tab" id="tb-settings" data-tab="settings" aria-controls="tab-settings"><svg class="ic"><use href="#i-gear"/></svg>Settings</button>
     </div>
   </section>
 </div>

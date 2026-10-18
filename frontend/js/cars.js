@@ -52,10 +52,10 @@ function moveCar(car, lat, lon) {
 // A new one starts where you are, when the app knows (people add a car once they've parked).
 function startPlacing(editId = null, kind = 'car') {
   closeNameBox();
-  const p = placing = { kind, editId, detent: _detent };
+  const p = placing = { kind, editId };
   placeBannerText.innerHTML = icon(editId ? 'pin' : kind)
     + `<span><span class="sr-only">${editId ? 'Move' : 'Place'} ${kind}: </span>Pan to the spot</span>`;
-  if (!isDesktop()) setDetent('small');
+  if (!isDesktop()) setCompact(true);
   document.body.classList.add('placing');
   placeBanner.classList.add('active');
   _crosshair.classList.add('placing');
@@ -74,13 +74,12 @@ function startPlacing(editId = null, kind = 'car') {
 
 function stopPlacing() {
   if (!placing) return;
-  const { detent } = placing;
   placing = null;
   placeBanner.classList.remove('active');
   document.body.classList.remove('placing');
   _crosshair.classList.remove('placing');
   if (map) map.getCanvas().style.cursor = '';
-  setDetent(detent);
+  setCompact(false);
 }
 
 // Commit at the current map center (the point the crosshair marks).
