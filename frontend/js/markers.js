@@ -59,11 +59,11 @@ function updateTempPin() {
 
 // ── Selection: one car or home at a time ──────────────────────────────────────
 // The selected item has its own page in the Saved tab (as in Find My): its name is
-// the title, the other cards hide, and a close button leads back to the list. Applied
+// the title, the other cards hide, and a back button (‹) leads back to the list. Applied
 // in place (no re-render, so focus and scroll stay).
 const savedTitle   = document.getElementById('saved-title');
 const btnAdd       = document.getElementById('btn-add');
-const btnItemClose = document.getElementById('btn-item-close');
+const btnItemBack  = document.getElementById('btn-item-back');
 const btnItemMore  = document.getElementById('btn-item-more');
 
 function selectedItem() {
@@ -87,10 +87,10 @@ function applySelection() {
   carsPanel.classList.toggle('item-open', !!item);
   if (savedTitle.contentEditable !== 'true') savedTitle.textContent = item ? itemName(item) : 'Saved';
   btnAdd.hidden = !!item;
-  btnItemMore.hidden = btnItemClose.hidden = !item;
+  btnItemMore.hidden = btnItemBack.hidden = !item;
 }
-// Back to the list; focus moves to "+" (the ✕ it was on is gone).
-btnItemClose.addEventListener('click', () => { clearSelection(); btnAdd.focus(); });
+// Back to the list; focus moves to "+" (the ‹ it was on is gone).
+btnItemBack.addEventListener('click', () => { clearSelection(); btnAdd.focus(); });
 
 function selectItem(id) {
   _selectedId = id;
@@ -113,7 +113,6 @@ function focusItem(id) {
 // Saved tab, the sheet at least half open, the map centred on it.
 function openItem(id) {
   showTab('saved');
-  if (!isDesktop()) raiseDetent('medium');
   focusItem(id);
   carsPanel.scrollTop = 0;
 }

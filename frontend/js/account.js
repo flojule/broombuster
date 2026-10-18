@@ -1,5 +1,4 @@
 // ── Account (Google sign-in; cars and homes sync to the signed-in user) ───────
-const menuAccount = document.getElementById('menu-account');
 let accountEnabled = false;  // server has Google sign-in configured
 let account    = null;   // { email } while signed in
 let _syncTimer = null;
@@ -76,7 +75,7 @@ async function refreshFromAccount() {
   } catch (_) {}
 }
 
-// ── Account sections of the Me tab ────────────────────────────────────────────
+// ── Account sections of the Settings tab ──────────────────────────────────────
 // A row: a button with onClick, else plain text.
 function _menuItem(text, onClick) {
   const el = document.createElement(onClick ? 'button' : 'div');
@@ -151,15 +150,16 @@ function _calendarItems() {
   return items;
 }
 
+// Settings (as iOS orders it): who you are first, the calendar link after Appearance,
+// deleting the account last and apart (a destructive action kept away from the rest).
+// Without Google sign-in on the server, none of them.
 function renderAccountSection() {
-  menuAccount.hidden = !accountEnabled;
-  if (!accountEnabled) return;
-  // Signed in: who, then the calendar link, then deleting the account on its own (as iOS
-  // keeps a destructive action apart, last).
-  menuAccount.replaceChildren(...(account
-    ? [..._section('Account', [_menuItem(account.email),
-         _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' })))]),
-       ..._section('Calendar', _calendarItems()),
-       ..._section('', [_deleteAccountItem()])]
-    : _section('Account', [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; })])));
+  const fill = (id, nodes) => document.getElementById(id).replaceChildren(...(accountEnabled ? nodes : []));
+  fill('set-account', account
+    ? _section('Account', [_menuItem(account.email),
+        _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' })))])
+    : _section('Account', [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; }),
+        _note('Keeps your cars and homes on all your devices, and puts their days in your calendar.')]));
+  fill('set-calendar', account ? _section('Calendar', _calendarItems()) : []);
+  fill('set-danger', account ? _section('', [_deleteAccountItem()]) : []);
 }

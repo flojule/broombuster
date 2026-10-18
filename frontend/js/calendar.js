@@ -151,11 +151,12 @@ function calendarHTML(layers, range, sel, today) {
 
 // ── Calendar tab ─────────────────────────────────────────────────────────────
 // One grid of weeks, never rebuilt by the sheet: the small sheet shows one week of it
-// (the selected day's), and as the sheet grows, during the drag too, the weeks below
-// unfold into the month view (as Apple Calendar's week and month views). The sheet's
-// heights fit whole weeks (calFit). Small: ‹ ›, a sideways swipe or the wheel step a
-// week, and a tap on a day opens the month on it. Month: the grid scrolls; ‹ › step a
-// month. Today goes back. The header's title is the month on screen.
+// (the selected day's) and that day's details, and as the sheet grows, during the drag
+// too, the weeks below unfold into the month view (as Apple Calendar's week and month
+// views). The sheet's heights fit whole weeks (calFit). A tap on a day selects it.
+// Small: ‹ ›, a sideways swipe or the wheel step a week (the selection with it). Month:
+// the grid scrolls; ‹ › step a month. Today goes back. The header's title is the month
+// on screen.
 const tabCal = document.getElementById('tab-calendar');
 const icCal  = document.getElementById('ic-cal');
 // anchor: the week row at the top of the grid (fractional while scrolled between rows).
@@ -187,20 +188,25 @@ const _weekOf = (range, k) => Math.floor(_dayIdx(range, _keyDay(k)) / 7);
 // (as Apple Calendar does). On a phone the sheet's heights fit whole weeks instead.
 const CAL_ROW = 43;  // px: a 40 px row + the 3 px gap (styles.css .cal-grid)
 function fitCalWeeks() {
-  const el = isDesktop() && _scroller();
+  const el = _scroller();
   if (!el) return;
-  el.style.height = '';  // the CSS height, shrunk to what the panel allows
-  el.style.height = Math.max(2, Math.floor((el.clientHeight + 3) / CAL_ROW)) * CAL_ROW - 3 + 'px';
+  el.style.height = el.style.flex = '';  // the room the panel leaves (styles.css)
+  if (!isDesktop()) return;
+  // The details share the room: the grid takes all but their three lines (styles.css).
+  const det = icCal.querySelector('.cal-detail');
+  const room = el.clientHeight + (det ? det.offsetHeight - 4.2 * parseFloat(getComputedStyle(det).fontSize) : 0);
+  el.style.height = Math.max(2, Math.floor((room + 3) / CAL_ROW)) * CAL_ROW - 3 + 'px';
+  el.style.flex = 'none';
 }
 
-// Phone: sheet heights that show whole weeks: {small: one week, round(h): the nearest
+// Phone: sheet heights that show whole weeks and the day details: {small: one week, round(h): the nearest
 // height at or under h showing whole weeks and the day details}; null until the
 // calendar has been laid out on screen (measured, so it follows fonts and insets).
 let _calChrome = null;  // {base: the sheet besides the grid and details, detail}
 function calFit() {
   if (!_calChrome) return null;
   const { base, detail } = _calChrome, weeks = n => base + detail + n * CAL_ROW - 3;
-  return { small: base + CAL_ROW - 3, weeks,
+  return { small: weeks(1), weeks,
            round: h => weeks(Math.max(1, Math.floor((h - base - detail + 3) / CAL_ROW))) };
 }
 // Measured once the sheet has settled (mid-animation sizes round differently).
@@ -239,8 +245,13 @@ function updateCalTitle() {
   _markWeek(el, pitch);
   const midRow = Math.max(0, Math.floor((el.clientHeight / pitch - 1) / 2));
   const mid = _ymdAdd(_calRange0.start, (pos + midRow) * 7 + 3);
-  t.textContent = `${_MONTHS[mid.m - 1]} ${mid.y}`;
-  t.dataset.y = mid.y; t.dataset.m = mid.m;
+  const key = `${mid.y}-${mid.m}-${t.clientWidth}`;
+  if (t.dataset.key === key) return;
+  t.dataset.key = key; t.dataset.y = mid.y; t.dataset.m = mid.m;
+  // The longest form that fits ("September 2026", "Sep 2026", then without this year's).
+  const M = _MONTHS[mid.m - 1], forms = [`${M} ${mid.y}`, `${M.slice(0, 3)} ${mid.y}`];
+  if (mid.y === calNow().y) forms.push(M, M.slice(0, 3));
+  for (const f of forms) { t.textContent = f; if (t.scrollWidth <= t.clientWidth) break; }
 }
 
 // Everything that reads the street at the target: the calendar's street days, the
@@ -315,13 +326,19 @@ function selectCalDay(k) {
   if (det && _calLayers0) det.innerHTML = _detailHTML(_calLayers0, k);
 }
 
-// ‹ ›: a week on the small sheet, a month in the month view (smooth; the scroll event
-// keeps the title current).
+// ‹ ›: a week on the small sheet (the selected day moves with it, so its details stay
+// in view), a month in the month view (smooth; the scroll event keeps the title current).
 function calStep(dir) {
   const el = _scroller(), t = document.getElementById('ic-month');
-  if (!el || !t) return;
-  const pitch = _pitch(el);
-  if (!_cal.expanded) { _scrollTo(el, Math.round(el.scrollTop / pitch) + dir, true); return; }
+  if (!el || !t || !_calRange0) return;
+  if (!_cal.expanded) {
+    const last = CAL_WEEKS * 7 - 1, i = _dayIdx(_calRange0, _keyDay(_cal.sel)) + 7 * dir;
+    if (i < 0 || i > last) return;
+    const k = _ymdKey(_ymdAdd(_calRange0.start, i));
+    selectCalDay(k);
+    _scrollTo(el, _weekOf(_calRange0, k), true);
+    return;
+  }
   const d = new Date(Date.UTC(Number(t.dataset.y), Number(t.dataset.m) - 1 + dir, 1));
   const first = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: 1 };
   _scrollTo(el, Math.max(0, Math.floor(_dayIdx(_calRange0, first) / 7)), true);
@@ -341,7 +358,6 @@ tabCal.addEventListener('click', e => {
   const day = e.target.closest('[data-cal-day]');
   if (!day) return;
   selectCalDay(Number(day.dataset.calDay));
-  if (!_cal.expanded) raiseDetent('medium');  // the month unfolds under this week
 });
 
 // Scroll events do not bubble: catch them on the way down.
@@ -374,6 +390,8 @@ icCal.addEventListener('wheel', e => {
 
 // The sheet resizing (a drag, a detent, the screen) changes how many weeks show.
 new ResizeObserver(() => requestAnimationFrame(() => { fitCalWeeks(); updateCalTitle(); measureCalChrome(); })).observe(icCal);
+// Measured mid-animation is skipped; once the sheet settles, measure.
+sheet.addEventListener('transitionend', e => { if (e.target === sheet && e.propertyName === 'height') measureCalChrome(); });
 // The tab shows again (sheet.js showTab): a re-render while it was hidden left the grid at its top.
 function calShown() {
   if (_cal.pending) _restoreScroll();
@@ -381,5 +399,5 @@ function calShown() {
   measureCalChrome();
 }
 
-calSetExpanded(isDesktop() || _detent !== 'small');
+calSetExpanded(isDesktop() || _detentOf.calendar !== 'small');
 renderTargetInfo();  // initial empty state

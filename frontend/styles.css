@@ -200,9 +200,9 @@
     /* Destructive actions; after the row styles so it wins over their colour. */
     .danger, a.danger { color: var(--urg-today); }
 
-    /* ── Me tab ── */
-    /* The account rows (js/account.js) join the tab's column. */
-    #menu-account { display: contents; }
+    /* ── Settings tab ── */
+    /* The account's sections (js/account.js) join the tab's column. */
+    .set-slot { display: contents; }
     .seg { flex: none; display: flex; padding: 3px; gap: 2px; background: var(--fill); border-radius: var(--pill); }
     .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: .8rem; font-weight: 500;
                   transition: background-color .2s, box-shadow .2s; }
@@ -232,6 +232,8 @@
       flex: none; display: flex; align-items: center; gap: 4px; min-height: var(--tap);
       padding: 0 12px 6px 20px; user-select: none;
     }
+    /* An item's page: ‹ back to the list before its title (as an iOS navigation bar). */
+    .tab-head:has(#btn-item-back:not([hidden])) { padding-left: 12px; gap: 8px; }
     .tab-title { flex: 1; min-width: 0; font-size: 1.4rem; font-weight: 700; letter-spacing: -.01em;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
     .tab-title[contenteditable="true"] { cursor: text; border-bottom: 2px solid var(--blue); user-select: text; }
@@ -357,7 +359,7 @@
     .np-row .field { flex: 1; min-width: 0; width: 0; }
 
     /* ── Calendar tab: one week (small sheet) unfolding into the month view ── */
-    #ic-cal { padding-bottom: 10px; gap: 0; overflow: hidden; }
+    #ic-cal { padding-bottom: 4px; gap: 0; overflow: hidden; }
     .cal-muted { font-size: .72rem; color: var(--muted); }
 
     /* ── Street sign: one small no-parking sign for the street at the target, in the
@@ -435,7 +437,8 @@
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 40px; gap: 3px; text-align: center; }
     .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .56rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
     .sw-now .cal-mo, .sw-next .cal-mo { color: #fff; }
-    .cal-detail { flex: none; height: 66px; margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
+    /* The selected day: its date and two lines (more scroll), so the sheet's heights stay put. */
+    .cal-detail { flex: none; height: calc(3 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
     .cal-round { border-radius: 50%; }
     .cal-square { border-radius: 1px; }
@@ -523,15 +526,16 @@
       /* The same capsule and pill as a segmented control at the top. */
       #tabbar { --pad: 3px; order: -1; margin: 14px 14px 6px; }
       #tabbar::before { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
-      #tabbar [role="tab"] { flex-direction: row; gap: 6px; min-height: 34px; font-size: .8rem; }
-      #tabbar [role="tab"] svg.ic { width: 16px; height: 16px; }
-      .tab-badge { top: 4px; left: auto; right: 8px; }
+      /* Words only (as a Mac segmented control): four of them fit the panel's width. */
+      #tabbar [role="tab"] { min-width: 0; min-height: 34px; font-size: .78rem; }
+      #tabbar [role="tab"] svg.ic { display: none; }
+      .tab-badge { top: 3px; left: auto; right: 3px; width: 8px; height: 8px; }
       #map-ctrl, #signs { top: var(--edge); }
       #signs { left: calc(var(--panel-w) + 2 * var(--edge)); }
       .zoom-btn { display: flex; }
-      /* The panel's height is fixed: up to six whole weeks (js/calendar.js fitCalWeeks). */
-      #ic-cal { overflow-y: auto; }
-      .cal-scroll { flex: 0 1 auto; height: calc(6 * 43px - 3px); }
+      /* The panel's height is fixed: the grid fills it with whole weeks (js/calendar.js
+         fitCalWeeks), the day details take what is left under it. */
+      .cal-detail { flex: 1 1 auto; }
       /* Centred in the map area right of the panel. */
       #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--panel-w) + var(--edge)) / 2); }
       #toast-container { bottom: 24px; left: calc(var(--panel-w) + 2 * var(--edge)); }
