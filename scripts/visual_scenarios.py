@@ -108,7 +108,8 @@ VIEWS = {
                                      " openCtxMenu(map.unproject([x, y]), r.left + x, r.top + y); })()"),
     # The Layers menu with permit areas and meters turned on (drawn under the streets).
     "layers": lambda pg: (pg.click("#btn-layers"), pg.click('[data-layer="parking"]'),
-                          pg.click('[data-layer="meters"]'), pg.wait_for_timeout(1500)),
+                          pg.click('[data-layer="meters"]'), pg.keyboard.press("Escape"),
+                          pg.wait_for_timeout(1500)),
     # A car whose schedule failed to load: its page offers Retry.
     "failed": lambda pg: pg.evaluate("delete carSchedules.c1; loadFailed.add('c1'); openItem('c1'); renderCarsPanel()"),
 }
