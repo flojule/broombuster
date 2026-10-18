@@ -435,7 +435,7 @@
     #ic-cal.cal-small .cal-scroll { overflow-y: hidden; touch-action: none; scroll-snap-type: none; }  /* hidden weeks are no snap points */
     #ic-cal.cal-folded .cal-day:not(.cal-on) { visibility: hidden; }
     /* Dragged up, the weeks below unfold under the finger (those above stay hidden). */
-    #sheet.dragging #ic-cal .cal-day:not(:has(~ .cal-on)) { visibility: visible; }
+    #sheet.dragging #ic-cal .cal-near { visibility: visible; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 40px; gap: 3px; text-align: center; }
     .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .56rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
     .sw-now .cal-mo, .sw-next .cal-mo { color: #fff; }

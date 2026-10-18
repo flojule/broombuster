@@ -223,15 +223,21 @@ function measureCalChrome() {
 
 // The small sheet's week (two while scrolling between them) is marked .cal-on: once the
 // sheet has settled small (.cal-folded), the other weeks are hidden, so they take no
-// taps or keyboard focus behind the header and tab bar.
-let _weekOn = [];
+// taps or keyboard focus behind the header and tab bar. The weeks a drag up can bring
+// into view (up to the medium sheet's) are .cal-near: they unfold under the finger.
+let _weekOn = [], _weekNear = [];
 function _markWeek(el, pitch) {
   const kids = el.firstElementChild.children, a = Math.floor(el.scrollTop / pitch + .02), b = Math.ceil(el.scrollTop / pitch - .02);
-  const on = [];
-  for (let r = a; r <= b; r++) for (let i = r * 7; i < r * 7 + 7 && i < kids.length; i++) on.push(kids[i]);
-  for (const k of _weekOn) if (!on.includes(k)) k.classList.remove('cal-on');
-  for (const k of on) k.classList.add('cal-on');
-  _weekOn = on;
+  const fit = calFit();  // before it is measured, a month's worth
+  const below = _cal.expanded ? 0 : fit ? Math.ceil((detentHeights().medium - fit.small) / CAL_ROW) + 1 : 5;
+  const row = (r0, r1) => { const out = []; for (let i = r0 * 7; i < (r1 + 1) * 7 && i < kids.length; i++) out.push(kids[i]); return out; };
+  const mark = (cls, was, now) => {
+    for (const k of was) if (!now.includes(k)) k.classList.remove(cls);
+    for (const k of now) k.classList.add(cls);
+    return now;
+  };
+  _weekOn = mark('cal-on', _weekOn, row(a, b));
+  _weekNear = mark('cal-near', _weekNear, below ? row(b + 1, b + below) : []);
 }
 
 // Header title: the month in the middle of what is on screen.
