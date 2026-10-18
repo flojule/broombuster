@@ -453,7 +453,7 @@ All six phases are implemented on one branch. What changed from the plan above, 
 | Berkeley and Alameda no-sweep holidays | None assumed | Neither city publishes a list. A wrong "no sweeping" costs a ticket, while a wrong warning only costs a move, so only Oakland's and SFMTA's published lists are used. Trash holidays are used for every city. |
 | SF holidays: the usual 12 | 3 (New Year's, Thanksgiving, Christmas) | SFMTA's 2026 enforcement page enforces street cleaning on the other holidays. |
 | Library events from BiblioCommons | Link-outs only | The gateway API is undocumented and ignores date filters. Chicago's official CPL dataset is used, and SF's Our415 covers Rec & Park and library events. |
-| EV layer for every city | Berkeley, Alameda, Chicago built; Oakland and SF pending | DEMO_KEY hit its hourly limit during the build. Run `BB_NREL_API_KEY=… python scripts/build_layers.py --theme ev` with a free key. NREL's API moved to `developer.nlr.gov`. |
+| EV layer for every city | Built | DEMO_KEY hit its hourly limit; Oakland and SF were built later with a key. NREL's API moved to `developer.nlr.gov`. |
 | Rule lines on the street sign | On the car's page ("Also here") and in map popups | The sign stays the published sweeping schedule. Rules apply to a parked car, so they live on the car's page. |
 | Web Push | Not built | The calendar subscription (with reminders) covers the need without a push sender on the Pi. Revisit if users ask for it. |
 | Berkeley "Fire hazard zones" from CAL FIRE FHSZ | Berkeley's own hill Fire Zones 2 and 3 | The CAL FIRE LRA map inside the city covers only a sliver. Fire Zones 2/3 are what the city's narrow-street and Red Flag measures use. |

@@ -79,6 +79,10 @@ and nothing stale can be served. The page itself is `no-cache`; API paths are `n
 
 - The tunnel is the only way in (see above); GitHub branch protection on `main` should
   require a PR and passing CI, because every commit on `main` is deployed.
+- The service sees an empty home directory apart from the repo (read-only) and `data/`
+  (`deploy/broombuster.service`), so a bug in the app cannot read the host user's `gh`
+  token, SSH keys or other credentials. After changing the unit, run `./deploy/install.sh`
+  and check `sudo systemd-analyze security broombuster`.
 - Cloudflare: SSL/TLS > Edge Certificates > enable HSTS.
 - Content-Security-Policy is sent as `Content-Security-Policy-Report-Only` until you set
   `BB_CSP=enforce` in `.env` and restart. Load the site with DevTools open first; any

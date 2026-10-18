@@ -15,8 +15,12 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=__REPO__/data
-ProtectHome=read-only
+# The home directory is empty except the repo (read-only) and its data: the app never
+# sees the user's GitHub token, SSH keys or other credentials, nor Claude worktrees.
+ProtectHome=tmpfs
+BindReadOnlyPaths=__REPO__
+BindPaths=__REPO__/data
+InaccessiblePaths=-__REPO__/.claude
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
