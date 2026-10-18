@@ -8,6 +8,7 @@ async function checkCar(car, loud = false) {
   clearTimeout(warmupTimer);
   if (data) upgradeAddress(car, data);
   updateCarMarkers();  // re-renders the cards (data, or the Retry state)
+  if (await loadRules(car, 'car')) renderCarsPanel();
 }
 
 // /check answers without the Nominatim house number (it can take ~1 s); when
@@ -255,7 +256,7 @@ function sweepUrgency(sched) {
   if (!sched) return 'safe';
   const entries = [...sched.schedule_even, ...sched.schedule_odd]
     .map(e => ({ code: e[0], time: e[2] || '' }));
-  return BroomUrgency.checkDaySweeping(entries, schedNow(sched));
+  return BroomUrgency.checkDaySweeping(entries, schedNow(sched), schedSkip(sched));
 }
 
 // Verdict pill: icon + word (never colour alone).
@@ -304,6 +305,41 @@ function itemCard({ id, kind, color, name, urgency, addr, detail }) {
 function isEditingIn(panel) {
   const ae = document.activeElement;
   return panel.contains(ae) && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
+}
+
+// ── Chicago: was the car towed or moved (relocated for sweeping, construction, …)? ──
+// The plate is saved with the car (synced when signed in) and sent only when asked.
+const vehicleChecks = {};  // car id -> {busy} | {result} | {error}
+function vehicleHTML(car) {
+  if (regionAt(car.lat, car.lon) !== 'chicago') return '';
+  const c = vehicleChecks[car.id] || {};
+  let out = '';
+  if (c.busy) out = '<div class="ce-loading">Checking…</div>';
+  else if (c.error) out = `<div class="ce-error">${esc(c.error)}</div>`;
+  else if (c.result) {
+    const rows = [...c.result.towed.map(t => `Towed ${t.date} to ${t.to}${t.phone ? ` (${t.phone})` : ''}`),
+                  ...c.result.relocated.map(r => `Moved ${r.date.replace('T', ' ')} to ${r.to}${r.reason ? ` (${r.reason})` : ''}`)];
+    out = rows.length ? rows.map(r => `<div class="ce-rule warn">${esc(r)}</div>`).join('')
+      : '<div>No tow or relocation in the last 90 days.</div>';
+  }
+  return `<div class="ce-sec-label">Towed or moved?</div><div class="ce-sec">
+    <label class="ce-field">Licence plate <input class="ce-select ce-plate" maxlength="10" autocapitalize="characters"
+      autocomplete="off" spellcheck="false" value="${esc(car.plate || '')}" aria-label="Licence plate"></label>
+    <label class="ce-field">State <input class="ce-select ce-plate-state" maxlength="2" autocapitalize="characters"
+      value="${esc(car.plate_state || 'IL')}" aria-label="Plate state"></label>
+    <button class="ce-btn ce-btn-towed">Check the city’s records</button>${out}</div>`;
+}
+async function checkVehicle(car) {
+  if (!car.plate) { showToast('Enter the licence plate first', true); return; }
+  vehicleChecks[car.id] = { busy: true };
+  renderCarsPanel();
+  const q = new URLSearchParams({ plate: car.plate, state: car.plate_state || 'IL' });
+  try {
+    const res = await fetch('/api/vehicle?' + q);
+    vehicleChecks[car.id] = res.ok ? { result: await res.json() }
+      : { error: (await res.json().catch(() => ({}))).detail || 'The lookup failed.' };
+  } catch (_) { vehicleChecks[car.id] = { error: 'The lookup failed.' }; }
+  renderCarsPanel();
 }
 
 // ── Phone link: a token that lets a phone automation report where the car parked ──
@@ -368,6 +404,8 @@ function renderCarsPanel() {
       detail: `
         <button class="btn btn-tinted ce-btn-gps">${icon('locate')} Parked here</button>
         ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}
+        ${rulesBlockHTML('Also here', placeRules[car.id])}
+        ${vehicleHTML(car)}
         ${account ? phoneLinkHTML(car) : ''}`,
     });
 
@@ -389,6 +427,17 @@ function renderCarsPanel() {
         return moveCar(car, lat, lon);
       });
     });
+    const plateIn = entry.querySelector('.ce-plate'), stateIn = entry.querySelector('.ce-plate-state');
+    plateIn?.addEventListener('change', () => {
+      car.plate = plateIn.value.toUpperCase().replace(/[^A-Z0-9 -]/g, '').trim() || undefined;
+      savePrefs();
+    });
+    stateIn?.addEventListener('change', () => {
+      const v = stateIn.value.toUpperCase().replace(/[^A-Z]/g, '');
+      car.plate_state = v.length === 2 ? v : undefined;
+      savePrefs();
+    });
+    entry.querySelector('.ce-btn-towed')?.addEventListener('click', () => checkVehicle(car));
     entry.querySelector('.ce-btn-copy')?.addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(_phoneLink.token); showToast('Token copied'); }
       catch (_) { entry.querySelector('.ce-token').select(); }
@@ -401,8 +450,37 @@ function renderCarsPanel() {
   updateSavedSummary();
 }
 
+// Weather and air alerts where cars and homes are (Red Flag, snow, Spare the Air, …):
+// one fetch per region that has a saved item, refreshed every 10 minutes (app.js).
+let placeAlerts = [];
+async function loadAlerts() {
+  const byRegion = new Map();
+  for (const it of [...cars, ...homes]) {
+    const r = regionAt(it.lat, it.lon);
+    if (r && !byRegion.has(r)) byRegion.set(r, it);
+  }
+  const got = await Promise.all([...byRegion].map(async ([region, it]) => {
+    try {
+      const res = await fetch('/api/alerts?' + new URLSearchParams({ lat: it.lat, lon: it.lon, region }));
+      return res.ok ? (await res.json()).alerts : [];
+    } catch (_) { return []; }
+  }));
+  const seen = new Set();
+  placeAlerts = got.flat().filter(a => !seen.has(a.title) && seen.add(a.title));
+  updateSavedSummary();
+}
+function _alertsHTML() {
+  return placeAlerts.map(a => {
+    const until = a.until ? new Date(a.until) : null;
+    const when = until && !isNaN(until) ? ` until ${until.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '';
+    return `<div class="alert-line"><span class="urg-tomorrow">${icon('alert')}</span> <span><b>${esc(a.title)}</b>${esc(when)}`
+         + (a.detail ? `<br><small>${esc(a.detail)}</small>` : '') + '</span></div>';
+  }).join('');
+}
+
 // Saved tab's first line: the most urgent car verdict, else all clear; with nothing
-// saved, how to start. A red dot on the tab while a car must move today.
+// saved, how to start. A red dot on the tab while a car must move today. Alerts in
+// effect where cars and homes are follow it.
 function updateSavedSummary() {
   const { today, tomorrow } = urgentCars();
   savedSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
@@ -410,6 +488,7 @@ function updateSavedSummary() {
     : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
     : homes.length ? '' : 'Add your car to see when to move it, or your home for trash day.'
       + `<button class="btn" id="btn-add-first">${icon('plus')} Add</button>`;
+  savedSummary.insertAdjacentHTML('beforeend', _alertsHTML());
   const first = document.getElementById('btn-add-first');
   if (first) menuButton(first, addMenu);
   tabbar.querySelector('.tab-badge').hidden = !today.length;

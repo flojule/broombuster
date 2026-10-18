@@ -1,8 +1,10 @@
-"""Trash pickup days from ReCollect (recollect.net), for cities with a `trash:`
-block in their manifest (area + service_id of the city's ReCollect widget).
+"""Trash pickup days for a home, by the city manifest's `trash:` block:
 
-Unofficial API, best effort: any failure yields no pickups. Answers are cached
-(failures briefly) so a home re-check never hammers the service.
+kind: recollect  area + service_id of the city's ReCollect (recollect.net) widget.
+                 Unofficial API, best effort: any failure yields no pickups. Answers
+                 are cached (failures briefly) so a home re-check never hammers it.
+kind: weekly     no lookup exists: the user picks the home's collection weekday and
+                 the city's holiday rule moves it (schedule.weekly_pickups).
 """
 
 import datetime
@@ -11,12 +13,15 @@ import time
 
 import requests
 
+from broombuster import schedule
 from broombuster.cities import CITIES
 
 _API = "https://api.recollect.net/api"
 _TIMEOUT_S = 3
 _PLACE_TTL_S = 30 * 24 * 3600
 _PICKUPS_TTL_S = 12 * 3600
+DAYS_AHEAD = 56  # the calendar shows about two months of pickups
+WEEKLY_LABEL = "Trash, compost and recycling"
 _FAILURE_TTL_S = 5 * 60
 _CACHE_MAX = 2048
 
@@ -67,10 +72,25 @@ def parse_pickups(events, today: datetime.date) -> dict[str, list[str]]:
     return {k: sorted(v) for k, v in out.items()}
 
 
-def pickups(city_key: str, address: str, today: datetime.date) -> dict[str, list[str]]:
-    """{stream: [ISO dates]} for the next three weeks at an address, or {}."""
+def kind(city_key: str) -> str | None:
+    """The city's trash lookup kind ("recollect", "weekly"), None without one."""
     cfg = CITIES[city_key].get("trash")
-    if not cfg or not address.strip():
+    return cfg.get("kind", "recollect") if cfg else None
+
+
+def pickups(city_key: str, address: str, today: datetime.date,
+            collection_day: int | None = None) -> dict[str, list[str]]:
+    """{stream: [ISO dates]} for the next DAYS_AHEAD days at a home, or {}.
+
+    collection_day (Mon=0..Sun=6) is the weekday the user picked, for kind weekly."""
+    k = kind(city_key)
+    if k == "weekly":
+        if collection_day is None:
+            return {}
+        days = schedule.weekly_pickups(city_key, collection_day, today, DAYS_AHEAD)
+        return {WEEKLY_LABEL: [d.isoformat() for d in days]} if days else {}
+    cfg = CITIES[city_key].get("trash")
+    if k != "recollect" or not address.strip():
         return {}
     area, service = cfg["area"], cfg["service_id"]
 
@@ -85,7 +105,7 @@ def pickups(city_key: str, address: str, today: datetime.date) -> dict[str, list
     def events():
         data = _get(f"places/{place_id}/services/{service}/events",
                     nomerge=1, hide="reminder_only", after=today.isoformat(),
-                    before=(today + datetime.timedelta(days=21)).isoformat())
+                    before=(today + datetime.timedelta(days=DAYS_AHEAD)).isoformat())
         if data is None:
             return None
         return parse_pickups(data.get("events", []) if isinstance(data, dict) else data, today)

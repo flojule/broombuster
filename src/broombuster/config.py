@@ -7,6 +7,8 @@ environment can change them. Variables:
   BB_DB                                                SQLite user database path
   BB_RATE_LIMIT                                        "0" turns rate limits off
   BB_CSP                                               "enforce" enforces the CSP (else report-only)
+  BB_NREL_API_KEY                                      EV stations (layer build; DEMO_KEY if unset)
+  BB_511_API_KEY                                       511 SF Bay work zones (off if unset)
 """
 
 import os
@@ -38,3 +40,13 @@ def rate_limit_enabled() -> bool:
 
 def csp_enforced() -> bool:
     return os.environ.get("BB_CSP", "report-only") == "enforce"
+
+
+def nrel_api_key() -> str:
+    """developer.nlr.gov key for the EV layer build; DEMO_KEY works for a few calls an hour."""
+    return os.environ.get("BB_NREL_API_KEY", "").strip() or "DEMO_KEY"
+
+
+def api_511_key() -> str:
+    """511.org open-data token ("" when unset: the work-zone feed is off)."""
+    return os.environ.get("BB_511_API_KEY", "").strip()

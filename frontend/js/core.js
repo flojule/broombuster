@@ -58,6 +58,37 @@ async function geocode(q, region) {
   return hit.lat == null ? null : hit;
 }
 
+// What applies at a car (permit area, meter, …) or a home (fire, evacuation zone): id ->
+// [{theme, label, rule, asof, city}] from /api/rules; refetched when the item moves, and
+// after RULES_TTL_MS (closures come and go). Returns whether new rules arrived.
+const placeRules = {};
+const _rulesAt = {};  // id -> "lat,lon@fetch time slot" the rules are for
+const RULES_TTL_MS = 30 * 60 * 1000;
+async function loadRules(item, kind) {
+  const at = `${item.lat},${item.lon}@${Math.floor(Date.now() / RULES_TTL_MS)}`;
+  if (_rulesAt[item.id] === at) return false;
+  _rulesAt[item.id] = at;
+  const q = new URLSearchParams({ lat: item.lat, lon: item.lon, kind });
+  const region = regionAt(item.lat, item.lon);
+  if (region) q.set('region', region);
+  try {
+    const res = await fetch('/api/rules?' + q);
+    if (!res.ok) { delete _rulesAt[item.id]; return false; }
+    if (_rulesAt[item.id] !== at) return false;  // moved meanwhile
+    placeRules[item.id] = (await res.json()).rules || [];
+    return true;
+  } catch (_) { delete _rulesAt[item.id]; return false; }
+}
+
+// An item page's section of rules: label, what it means, and the source's date.
+function rulesBlockHTML(header, rules) {
+  if (!rules?.length) return '';
+  const rows = rules.map(r => `<div class="ce-sched-item ce-rule${r.warn ? ' warn' : ''}"><b>${esc(r.label)}</b>`
+    + (r.rule ? `<span>${esc(r.rule)}</span>` : '')
+    + (r.asof ? `<small>Data as of ${esc(r.asof)}</small>` : '') + '</div>').join('');
+  return `<div class="ce-sec-label">${esc(header)}</div><div class="ce-sec">${rows}</div>`;
+}
+
 // Schedules for cars and homes: the latest request per id wins (a slow answer for an
 // old position never overwrites a newer one), and a failure is remembered so the card
 // offers Retry instead of "Loading…" forever. Returns the data, or null if it failed
@@ -129,6 +160,18 @@ function regionAt(lat, lon) { return nearestRegion(lat, lon, REGION_RADIUS); }
 // The one clock for sweeping and trash days: {y, m, d, min} in the region's
 // timezone (the browser's until /cities has loaded).
 function regionNow(regionKey) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz); }
+
+// A city's no-sweep holidays ({dayKey: name}; null: none known), from /cities.
+function sweepSkip(regionKey, city) {
+  return BroomUrgency.holidaySkip(regions[regionKey]?.holidays?.[city], 'sweeping');
+}
+// "Oakland" for a city key ('' when unknown).
+function cityName(city) {
+  for (const r of Object.values(regions)) if (r.cities?.[city]) return r.cities[city];
+  return '';
+}
+// The same for a /check response (the car's own region and city).
+function schedSkip(sched) { return sched ? sweepSkip(sched.region || _region, sched.city) : null; }
 
 // ── Map (MapLibre) ────────────────────────────────────────────────────────────
 let map = null;

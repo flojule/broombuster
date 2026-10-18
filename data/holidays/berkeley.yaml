@@ -1,0 +1,13 @@
+# Trash: no collection on Thanksgiving, Christmas and New Year's Day; on a weekday
+# holiday the rest of that week (weekend included) is collected one day later.
+# Sweeping: the city publishes no holiday list, so none is assumed (a wrong "no
+# sweeping" costs a ticket; a wrong warning only an unneeded move).
+source: https://berkeleyca.gov/city-services/trash-recycling/residential-waste-services
+last_verified: 2026-10-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

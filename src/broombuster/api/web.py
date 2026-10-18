@@ -67,6 +67,8 @@ def client_ip(request: Request) -> str:
 # (path prefix, requests per minute per client). /address, /geocode and /locate also
 # call third-party services, so they get less.
 LIMITS = (("/api/address", 20), ("/api/geocode", 20), ("/api/locate", 20), ("/api/check-home", 20),
+          ("/api/rules", 60), ("/api/calendar", 30), ("/api/closures", 30), ("/api/vehicle", 10),
+          ("/api/around", 30), ("/api/alerts", 30),
           ("/api/check", 60), ("/api/me", 30), ("/api/cars", 30), ("/auth/logout", 30))
 _WINDOW_S = 60
 
@@ -189,6 +191,7 @@ CSP_ENFORCE = config.csp_enforced()
 async def http_middleware(request: Request, call_next):
     rid, ip, t0 = uuid.uuid4().hex[:12], client_ip(request), time.perf_counter()
     path = request.url.path
+    shown = "/api/calendar/…" if path.startswith("/api/calendar/") else path  # a feed's secret
     rule = _limit_for(path) if request.method != "OPTIONS" else None
     if rule and RATE_LIMIT and not _limiter.allow(ip, rule[0], rule[1]):
         response = JSONResponse({"detail": "Too many requests."}, status_code=429,
@@ -198,7 +201,7 @@ async def http_middleware(request: Request, call_next):
             response = await call_next(request)
         except Exception:
             log.exception("unhandled error", extra={"rid": rid, "method": request.method,
-                                                    "path": path, "ip": ip})
+                                                    "path": shown, "ip": ip})
             response = JSONResponse({"detail": "Internal error."}, status_code=500)
     response.headers.update(SECURITY_HEADERS)
     response.headers["Content-Security-Policy" if CSP_ENFORCE
@@ -207,6 +210,6 @@ async def http_middleware(request: Request, call_next):
     if "cache-control" not in response.headers:
         response.headers["Cache-Control"] = cache_control(path, "v" in request.query_params)
     log.info("request", extra={
-        "rid": rid, "method": request.method, "path": path, "status": response.status_code,
+        "rid": rid, "method": request.method, "path": shown, "status": response.status_code,
         "ms": round((time.perf_counter() - t0) * 1000), "ip": ip})
     return response

@@ -36,6 +36,7 @@ function attachMapListeners() {
     // a stray tap — a tap during place mode is ignored so panning can't misfire.
     if (placing) return;
     if (_namePopup) return;  // name box open: taps don't open windows or close it
+    overlayClick(e);  // a permit area, meter, … names itself (js/layers.js)
     if (_tapTimer) clearTimeout(_tapTimer);
     _tapTimer = setTimeout(() => { _tapTimer = null; clearSelection(); }, 280);
   });
@@ -212,6 +213,7 @@ function ensureTiles() {
       addTilePaintLayers();
       _tilesRegion = region;
     }
+    syncOverlays();  // the region's map layers that are on (js/layers.js)
     scheduleUrgencyUpdate();
   });
 }
@@ -246,7 +248,8 @@ function applyUrgencyStates() {
         sched = { entries, none: !tileSchedLines(f.properties).length, split: 'even_left' in f.properties };
         _featSchedCache.set(f.id, sched);
       }
-      const verdict = es => sched.none || !es.length ? 'none' : BroomUrgency.checkDaySweeping(es, now);
+      const skip = sweepSkip(_tilesRegion, f.properties.city);
+      const verdict = es => sched.none || !es.length ? 'none' : BroomUrgency.checkDaySweeping(es, now, skip);
       u = { urgency: verdict(sched.entries) };
       if (sched.split) {
         u.urgency_even = verdict(sched.entries.filter(e => e.side === 'even'));

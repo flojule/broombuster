@@ -1,6 +1,6 @@
 // Sweep-code evaluation and schedule display (grammar: data/README.md). Tiles
 // and /check carry raw codes; checkDaySweeping gives today/tomorrow/safe
-// against a region-local "now". Tested by tests/test_urgency.py and
+// against a region-local "now", minus the city's holidays (`skip`, holidaySkip). Tested by tests/test_urgency.py and
 // tests/test_datetime.py.
 (function (global) {
   'use strict';
@@ -116,7 +116,28 @@
     return rule;
   }
 
-  function sweepsOn(code, y, m, d) {
+  // ── Holidays ─────────────────────────────────────────────────────────────────
+  // A city's holidays as /api/cities serves them ({iso: {name, suspends}}) -> the days
+  // `service` ('sweeping', 'trash') is suspended: {dayKey: holiday name}. The functions
+  // below take this as an optional `skip` (no sweeping on those days).
+  var _skipCache = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function holidaySkip(cityHolidays, service) {
+    if (!cityHolidays) return null;
+    var byService = _skipCache && _skipCache.get(cityHolidays);
+    if (byService && byService[service]) return byService[service];
+    var out = {};
+    Object.keys(cityHolidays).forEach(function (iso) {
+      var h = cityHolidays[iso], m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+      if (m && h && (h.suspends || []).indexOf(service) >= 0) out[dayKey(+m[1], +m[2], +m[3])] = h.name;
+    });
+    if (_skipCache) { byService = byService || {}; byService[service] = out; _skipCache.set(cityHolidays, byService); }
+    return out;
+  }
+  // The holiday's name when `skip` suspends day p, else ''.
+  function holidayOn(skip, p) { return (skip && skip[dayKey(p.y, p.m, p.d)]) || ''; }
+
+  function sweepsOn(code, y, m, d, skip) {
+    if (skip && skip[dayKey(y, m, d)]) return false;
     var r = codeRule(code);
     if (!r) return false;
     if (r.dates) return r.keys[dayKey(y, m, d)] === 1;
@@ -125,10 +146,10 @@
   }
 
   // Sweep dates of `code` in [start, end] inclusive ({y,m,d} objects).
-  function datesInRange(code, start, end) {
+  function datesInRange(code, start, end, skip) {
     var out = [], cur = start, endK = dayKey(end.y, end.m, end.d);
     while (dayKey(cur.y, cur.m, cur.d) <= endK) {
-      if (sweepsOn(code, cur.y, cur.m, cur.d)) out.push(cur);
+      if (sweepsOn(code, cur.y, cur.m, cur.d, skip)) out.push(cur);
       cur = addDays(cur, 1);
     }
     return out;
@@ -136,12 +157,12 @@
 
   // Both sides' sweeps in [start, end]:
   // [{y, m, d, items: [{side: 'even'|'odd', time}]}] date-sorted.
-  function sweepDays(even, odd, start, end) {
+  function sweepDays(even, odd, start, end, skip) {
     var byKey = {};
     [['even', even || []], ['odd', odd || []]].forEach(function (so) {
       so[1].forEach(function (e) {
         var time = (typeof e[2] === 'string' && e[2].trim()) ? e[2] : '';
-        datesInRange(e[0], start, end).forEach(function (d) {
+        datesInRange(e[0], start, end, skip).forEach(function (d) {
           var k = dayKey(d.y, d.m, d.d);
           var day = byKey[k] || (byKey[k] = { y: d.y, m: d.m, d: d.d, items: [] });
           var dup = day.items.some(function (it) { return it.side === so[0] && it.time === time; });
@@ -210,14 +231,14 @@
   // running (all day when untimed), while yesterday's runs past midnight, or
   // when tomorrow's starts within LEAD_MIN (untimed: at midnight); 'tomorrow'
   // when one is tomorrow; else 'safe'.
-  function checkDaySweeping(entries, now) {
+  function checkDaySweeping(entries, now, skip) {
     var yst = addDays(now, -1), tmr = addDays(now, 1), tomorrow = false;
     for (var i = 0; i < entries.length; i++) {
       var code = entries[i].code, w = timeWindow(entries[i].time || '');
       var overnight = w && w[1] < w[0];
-      if (sweepsOn(code, now.y, now.m, now.d) && (!w || overnight || now.min <= w[1])) return 'today';
-      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d)) return 'today';
-      if (sweepsOn(code, tmr.y, tmr.m, tmr.d)) {
+      if (sweepsOn(code, now.y, now.m, now.d, skip) && (!w || overnight || now.min <= w[1])) return 'today';
+      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip)) return 'today';
+      if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip)) {
         if (1440 - now.min + (w ? w[0] : 0) <= LEAD_MIN) return 'today';
         tomorrow = true;
       }
@@ -386,6 +407,8 @@
     NO_SWEEP_CODES: NO_SWEEP_CODES,
     checkDaySweeping: checkDaySweeping,
     sweepsOn: sweepsOn,
+    holidaySkip: holidaySkip,
+    holidayOn: holidayOn,
     datesInRange: datesInRange,
     nowForTimeZone: nowForTimeZone,
     isNoSweepCode: isNoSweepCode,

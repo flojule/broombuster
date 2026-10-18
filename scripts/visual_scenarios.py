@@ -96,12 +96,20 @@ VIEWS = {
     "home":   lambda pg: pg.evaluate("openItem('h1')"),
     "add":    lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),
     "me":     lambda pg: (pg.click("#tb-me"), pg.evaluate("setDetent('medium')")),
+    # Nearby: markets, events and meetings near the centre target.
+    "nearby": lambda pg: (pg.click("#tb-nearby"), pg.evaluate("setDetent('medium')"),
+                          pg.wait_for_function("!document.querySelector('#nearby-body').textContent.includes('Loading')",
+                                               timeout=30000)),
     "place":  lambda pg: pg.evaluate("startPlacing()"),
     # You-are-here dot with a 40 m accuracy halo, near the first car.
     "here":   lambda pg: pg.evaluate("_setHere(37.7752, -122.4189, 40)"),
     # The "Add here" menu (right-click / long press), up and left of the centre (clear of the car there).
     "menu":   lambda pg: pg.evaluate("(() => { const r = mapDiv.getBoundingClientRect(), x = r.width / 2 - 150, y = r.height / 2 - 110;"
                                      " openCtxMenu(map.unproject([x, y]), r.left + x, r.top + y); })()"),
+    # The Layers menu with permit areas and meters turned on (drawn under the streets).
+    "layers": lambda pg: (pg.click("#btn-layers"), pg.click('[data-layer="parking"]'),
+                          pg.click('[data-layer="meters"]'), pg.keyboard.press("Escape"),
+                          pg.wait_for_timeout(1500)),
     # A car whose schedule failed to load: its page offers Retry.
     "failed": lambda pg: pg.evaluate("delete carSchedules.c1; loadFailed.add('c1'); openItem('c1'); renderCarsPanel()"),
 }

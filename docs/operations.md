@@ -14,14 +14,22 @@ The frontend tests (`tests/test_urgency.py` and most of `tests/test_datetime.py`
 
 - `src/broombuster/api/`: FastAPI app. `POST /api/check` returns a car's street
   schedule, `GET /api/address` adds the house number, `POST /api/check-home` returns
-  trash pickups. `api/auth.py` adds Google sign-in (`/auth/*`) and account data
-  (`/api/me`, `/api/me/prefs`, phone tokens under `/api/cars/`) in `data/users.sqlite`. It also serves `frontend/`.
-  `config.py` holds every setting read from the environment.
+  trash pickups. `GET /api/rules` lists what else applies at a car or home (permit
+  area, meter, closure, fire zone), `/api/closures` the street closures, `/api/around`
+  the Nearby tab, `/api/alerts` weather and air alerts, `/api/vehicle` Chicago's tow
+  records. `api/auth.py` adds Google sign-in (`/auth/*`) and account data
+  (`/api/me`, `/api/me/prefs`, phone tokens under `/api/cars/`, the calendar link under
+  `/api/me/calendar`, served at `/api/calendar/<token>.ics`) in `data/users.sqlite`.
+  It also serves `frontend/`. `config.py` holds every setting read from the environment.
+- Live feeds (`feeds.py`, `around.py`, `alerts.py`, `trash.py`) are fetched on demand and
+  cached in memory; a source that fails answers "nothing known", never an error.
 - `frontend/`: the PWA. Urgency is computed client-side in `js/urgency.js`, and
   the map draws the PMTiles in `tiles/`. MapLibre and PMTiles are vendored in
   `vendor/`.
 - `data/`: one manifest and one FlatGeobuf per city (see `data/README.md`).
-- `scripts/`: data rebuild, tile build, and `build_icons.py` (PNG icons from `frontend/icon.svg`).
+- `scripts/`: data rebuild, tile build, `build_layers.py` (permit areas, meters, EV,
+  fire and evacuation zones, markets; see `data/README.md`), and `build_icons.py`
+  (PNG icons from `frontend/icon.svg`).
 
 ## Deploy (Raspberry Pi, systemd, Cloudflare Tunnel)
 
@@ -71,6 +79,10 @@ and nothing stale can be served. The page itself is `no-cache`; API paths are `n
 
 - The tunnel is the only way in (see above); GitHub branch protection on `main` should
   require a PR and passing CI, because every commit on `main` is deployed.
+- The service sees an empty home directory apart from the repo (read-only) and `data/`
+  (`deploy/broombuster.service`), so a bug in the app cannot read the host user's `gh`
+  token, SSH keys or other credentials. After changing the unit, run `./deploy/install.sh`
+  and check `sudo systemd-analyze security broombuster`.
 - Cloudflare: SSL/TLS > Edge Certificates > enable HSTS.
 - Content-Security-Policy is sent as `Content-Security-Policy-Report-Only` until you set
   `BB_CSP=enforce` in `.env` and restart. Load the site with DevTools open first; any
@@ -81,8 +93,15 @@ and nothing stale can be served. The page itself is `no-cache`; API paths are `n
 
 - Logs are JSON lines (`journalctl -u broombuster -o cat | jq 'select(.status>=500)'`);
   every response carries `X-Request-ID`, which matches the log's `rid`.
-- Rate limits are per client IP (`LIMITS` in `api/web.py`; `/api/check` 60/min, `/api/address`,
-  `/api/locate` and `/api/check-home` 20/min). `BB_RATE_LIMIT=0` turns them off.
+- Rate limits are per client IP (`LIMITS` in `api/web.py`; `/api/check` and `/api/rules`
+  60/min, `/api/address`, `/api/locate` and `/api/check-home` 20/min, `/api/vehicle`
+  10/min). `BB_RATE_LIMIT=0` turns them off.
+- The calendar feed's URL is its secret: the request log shows it as `/api/calendar/…`.
+- Yearly: add next year's holidays to `data/holidays/*.yaml` before December (a test
+  fails from 1 December otherwise). Every few months: `scripts/build_layers.py` and
+  commit what changed; check `data/places/markets.yaml` each spring.
+- Optional keys: `BB_511_API_KEY` (Bay Area work zones in the closures),
+  `BB_NREL_API_KEY` (EV layer builds).
 - `update.sh` rolls back to the previous revision if the new one is not healthy within
   3 minutes and records it in `.deploy-bad`, so the timer skips it until a newer commit lands.
   To roll back by hand: `./deploy/update.sh <sha>`.

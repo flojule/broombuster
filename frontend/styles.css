@@ -123,6 +123,15 @@
       color: var(--text); border-radius: var(--pill); font-size: 1.1rem;
     }
     .zoom-btn { display: none; }
+    .map-btn + .map-btn::before { content: ''; position: absolute; top: 0; left: 10px; right: 10px; border-top: 1px solid var(--hairline); }
+    /* Layers menu: one switch row per layer, its map colour as the key. */
+    .lyr-item[aria-checked="true"] .lyr-check { opacity: 1; }
+    .lyr-check { margin-left: auto; opacity: 0; color: var(--blue); }
+    .lyr-key { flex: none; width: 14px; height: 14px; border-radius: 4px; background: var(--k); }
+    .lyr-note { padding: 6px 12px 8px; font-size: .7rem; color: var(--muted); max-width: 260px; line-height: 1.35; }
+    .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: .8rem;
+      background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
+    .lyr-popup .maplibregl-popup-tip { display: none; }
 
     /* ── Map container ── */
     #map-container { height: 100%; position: relative; }
@@ -171,6 +180,7 @@
                  color: var(--text); font-size: .88rem; font-weight: 500; }
     .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
     .menu-item:hover { background: var(--fill); }
+    a.menu-item { display: flex; align-items: center; color: var(--tint-fg); text-decoration: none; }
     .menu-note { padding: 6px 14px; color: var(--muted); font-size: .78rem; font-weight: 400; overflow-wrap: anywhere; }
     .seg { display: flex; margin: 4px 14px 8px; padding: 3px; gap: 2px; background: var(--fill); border-radius: var(--pill); }
     .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: .8rem; font-weight: 500;
@@ -223,7 +233,7 @@
     }
     #tabbar::before {
       content: ''; position: absolute; top: var(--pad); bottom: var(--pad); left: var(--pad);
-      width: calc((100% - 2 * var(--pad)) / 3); border-radius: var(--pill);
+      width: calc((100% - 2 * var(--pad)) / 4); border-radius: var(--pill);
       background: var(--fill);
       transform: translateX(calc(var(--i, 0) * 100%)); transition: transform .45s var(--spring);
     }
@@ -294,6 +304,28 @@
       border: 1px solid var(--border); border-radius: var(--r-sm);
     }
     .ce-phone .ce-btn { align-self: flex-start; }
+    /* A setting inside a section (the home's collection day): label left, control right. */
+    .ce-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--tap); }
+    .ce-select { min-height: 36px; padding: 0 10px; font: inherit; font-size: 16px; color: var(--text);
+                 background: var(--fill); border: none; border-radius: var(--r-sm); }
+    input.ce-select { width: 8.5em; text-transform: uppercase; }
+    .alert-line { flex-basis: 100%; font-weight: 400; display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; font-size: .8rem; line-height: 1.35; }
+    .alert-line small { color: var(--muted); }
+    /* Nearby tab: one row per item, its kind as a small capsule. */
+    .nb-row { display: flex; gap: 10px; align-items: flex-start; padding: 3px 0; }
+    .nb-kind { flex: none; min-width: 64px; margin-top: 2px; padding: 2px 6px; text-align: center; font-size: .6rem; font-weight: 700;
+               letter-spacing: .03em; text-transform: uppercase; color: var(--muted); background: var(--fill); border-radius: var(--pill); }
+    .nb-text { display: flex; flex-direction: column; min-width: 0; }
+    .nb-title a, .nb-link { color: var(--tint-fg); }
+    .nb-meta { color: var(--muted); font-size: .74rem; }
+    .nb-link { display: flex; align-items: center; min-height: var(--tap); text-decoration: none; }
+    .nb-link + .nb-link { border-top: 1px solid var(--hairline); }
+    .ce-btn-towed { align-self: flex-start; }
+    .ce-note { margin: 4px 14px 0; font-size: .74rem; color: var(--muted); line-height: 1.4; }
+    /* Rules at a car (permit area, meter, closure): one line each, the source in grey. */
+    .ce-rule { display: flex; flex-direction: column; }
+    .ce-rule small { color: var(--muted); font-size: .7rem; }
+    .ce-rule.warn { color: var(--urg-tomorrow); }
 
     /* ── Confirmation (as an iOS 26 alert): text to the left, capsule buttons side by side;
        it springs in from slightly larger. ── */
@@ -390,6 +422,10 @@
     /* One dot per car with sweeping that day, in the car's colour. */
     .cal-dots { display: flex; justify-content: center; gap: 2px; height: 5px; margin-top: 1px; }
     .cal-dot { width: 5px; height: 5px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
+    .cal-dot-home { border-radius: 1px; }  /* a home's pickup: a square, as its key below */
+    /* A no-sweep holiday: struck through, so a weekly street day reads as cancelled. */
+    .cal-hol { text-decoration: line-through; text-decoration-color: var(--muted); }
+    .cal-hol-line { color: var(--muted); }
 
     .cal-nav { font-size: 1.2rem; width: var(--tap); height: var(--tap); color: var(--muted); }
     .cal-nav:hover { color: var(--text); }
@@ -411,6 +447,7 @@
     .cal-detail { flex: none; height: 66px; margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
     .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
     .cal-round { border-radius: 50%; }
+    .cal-square { border-radius: 1px; }
     /* ── Map pins (MapLibre HTML markers): the card's icon in white on a disc of the car's
        colour (--pin, set from JS) or the home green, ringed in white (as in Apple Maps).
        Selected: larger, with a halo in its colour. ── */
@@ -502,7 +539,6 @@
       #map-ctrl, #signs { top: var(--edge); }
       #signs { left: calc(var(--panel-w) + 2 * var(--edge)); }
       .zoom-btn { display: flex; }
-      .map-btn + .map-btn::before { content: ''; position: absolute; top: 0; left: 10px; right: 10px; border-top: 1px solid var(--hairline); }
       /* The panel's height is fixed: up to six whole weeks (js/calendar.js fitCalWeeks). */
       #ic-cal { overflow-y: auto; }
       .cal-scroll { flex: 0 1 auto; height: calc(6 * 43px - 3px); }

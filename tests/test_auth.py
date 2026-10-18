@@ -265,3 +265,24 @@ def test_delete_account_removes_tokens(env, client, monkeypatch):
     assert client.delete("/api/me", headers=ORIGIN).status_code == 204
     r = client.post("/api/cars/location", json=OAKLAND, headers=_bearer(token))
     assert r.status_code == 401
+
+
+def test_calendar_link_and_feed(env, monkeypatch, app_client):
+    client = TestClient(app, follow_redirects=False)  # app_client loaded the city data
+    _sign_in(client, monkeypatch)
+    prefs = {"cars": [{**PREFS["cars"][0], **OAKLAND}], "homes": []}
+    client.put("/api/me/prefs", json=prefs, headers={"Origin": BASE})
+    assert client.post("/api/me/calendar").status_code == 403  # same-origin only
+    made = client.post("/api/me/calendar", headers={"Origin": BASE}).json()
+    assert made["url"].startswith(BASE + "/api/calendar/bbk_") and made["webcal"].startswith("webcal://")
+    assert client.get("/api/me").json()["calendar"] is True
+    path = made["url"][len(BASE):]
+    feed = client.get(path)
+    assert feed.status_code == 200 and feed.headers["content-type"].startswith("text/calendar")
+    assert "Move Car: street sweeping" in feed.text
+    # A new link replaces the old one; turning it off revokes both.
+    again = client.post("/api/me/calendar", headers={"Origin": BASE}).json()
+    assert client.get(path).status_code == 404
+    assert client.delete("/api/me/calendar", headers={"Origin": BASE}).status_code == 204
+    assert client.get(again["url"][len(BASE):]).status_code == 404
+    assert client.get("/api/calendar/nope.ics").status_code == 404

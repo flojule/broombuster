@@ -5,12 +5,24 @@ from datetime import datetime
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from broombuster import analysis, gps, iplocate, resolve, trash
+from broombuster import (
+    alerts,
+    analysis,
+    around,
+    calfeed,
+    feeds,
+    gps,
+    holidays,
+    iplocate,
+    layers,
+    resolve,
+    trash,
+)
 from broombuster.cities import CITIES, REGIONS, city_for_point, region_bbox, region_for_point
 from broombuster.config import REPO_ROOT
 from broombuster.version import app_version
@@ -80,7 +92,9 @@ def health():
 def cities():
     return {
         rk: {"name": rv["name"], "center": rv["center"], "tz": rv["tz"],
-             "zoom": rv["zoom"]}
+             "zoom": rv["zoom"], "holidays": holidays.for_region(rk),
+             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
+             "layers": layers.catalogue(rk)}
         for rk, rv in REGIONS.items()
     }
 
@@ -127,6 +141,7 @@ def check(req: CheckRequest):
                  if loc.resolved else ([], []))
     return {
         "region": loc.region,
+        "city": loc.city_key,
         "address": address,
         "address_pending": pending,
         "car_side": loc.resolved.side if loc.resolved else None,
@@ -157,17 +172,97 @@ def geocode(q: str = Query(..., min_length=1, max_length=200), region: str | Non
 
 class CheckHomeRequest(CheckRequest):
     address: str | None = Field(None, max_length=500)
+    collection_day: int | None = Field(None, ge=0, le=6)  # Mon=0, for trash kind "weekly"
 
 
 @api.post("/check-home")
 def check_home(req: CheckHomeRequest):
-    """Trash pickup dates at a home; tap-placed homes are reverse-geocoded."""
+    """Trash pickup dates at a home; tap-placed homes are reverse-geocoded.
+
+    trash_kind tells the client whether the city looks pickups up ("recollect") or
+    needs the home's collection day ("weekly"); null where nothing is known."""
     region = req.region if req.region in REGIONS else region_for_point(req.lat, req.lon)
     address = req.address or gps.reverse_address(req.lat, req.lon) or ""
     today = datetime.now(ZoneInfo(REGIONS[region]["tz"])).date()
     city = city_for_point(req.lat, req.lon, region)
-    return {"region": region, "address": address,
-            "pickups": trash.pickups(city, address, today)}
+    return {"region": region, "city": city, "address": address,
+            "trash_kind": trash.kind(city),
+            "pickups": trash.pickups(city, address, today, req.collection_day)}
+
+
+@api.get("/rules")
+def rules(lat: float = Query(..., ge=-90.0, le=90.0),
+          lon: float = Query(..., ge=-180.0, le=180.0),
+          region: str | None = None,
+          kind: str = Query("car", pattern="^(car|home)$")):
+    """What applies at a car (permit area, meter, winter ban) or a home (fire and
+    evacuation zones), from the cities' extra layers. Each rule: {theme, label, rule,
+    asof, city}."""
+    region = region if region in REGIONS else region_for_point(lat, lon)
+    out = layers.rules_at(region, lat, lon, kind)
+    if kind == "car":
+        out += feeds.closures_near(region, lat, lon)
+        if city_for_point(lat, lon, region) == "chicago_all":
+            out += feeds.chicago_permit_zone(lat, lon)
+    return {"region": region, "rules": out}
+
+
+@api.get("/closures")
+def closures(region: str = Query(..., pattern="^[a-z_]+$")):
+    """Street closures on now or starting within two weeks (GeoJSON), for the map."""
+    if region not in REGIONS:
+        raise HTTPException(404, "Unknown region.")
+    return {"type": "FeatureCollection", "features": feeds.closures(region)}
+
+
+@api.get("/around")
+def nearby(lat: float = Query(..., ge=-90.0, le=90.0),
+           lon: float = Query(..., ge=-180.0, le=180.0),
+           region: str | None = None):
+    """Markets, events, street events and meetings near a point this week (Nearby tab)."""
+    region = region if region in REGIONS else region_for_point(lat, lon)
+    return {"region": region, **around.around(region, lat, lon)}
+
+
+@api.get("/alerts")
+def place_alerts(lat: float = Query(..., ge=-90.0, le=90.0),
+                 lon: float = Query(..., ge=-180.0, le=180.0),
+                 region: str | None = None):
+    """Weather and air alerts in effect at a place (Red Flag, snow, Spare the Air, …)."""
+    region = region if region in REGIONS else region_for_point(lat, lon)
+    return {"region": region, "alerts": alerts.at(region, lat, lon)}
+
+
+@api.get("/vehicle")
+def vehicle(plate: str = Query(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9 -]+$"),
+            state: str = Query("IL", pattern="^[A-Za-z]{2}$")):
+    """Chicago: was this plate towed or relocated (last 90 days)? 503 when the city's
+    portal does not answer."""
+    got = feeds.chicago_vehicle(plate, state)
+    if got is None:
+        raise HTTPException(503, "The City of Chicago's data portal did not answer.")
+    return got
+
+
+def _car_spot(lat: float, lon: float) -> calfeed.CarSpot | None:
+    loc = _locate(lat, lon, None)
+    if loc.resolved is None:
+        return None
+    even, odd = analysis.schedules_for_all_matching_rows(loc.gdf_3857, loc.resolved)
+    address, _ = _address(loc, lat, lon, network=False)
+    return calfeed.CarSpot(loc.region, loc.city_key, address,
+                           {"even": [list(e) for e in even], "odd": [list(o) for o in odd]},
+                           loc.resolved.side)
+
+
+@api.get("/calendar/{token}.ics", include_in_schema=False)
+def calendar_feed(token: str):
+    """An account's calendar subscription (the token from POST /api/me/calendar)."""
+    prefs = auth.prefs_for_calendar_token(token)
+    if prefs is None:
+        raise HTTPException(404, "Unknown or revoked calendar link.")
+    return Response(calfeed.build(prefs, _car_spot), media_type="text/calendar; charset=utf-8",
+                    headers={"Cache-Control": "private, max-age=900"})
 
 
 class CarLocation(BaseModel):
