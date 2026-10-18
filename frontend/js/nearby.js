@@ -40,13 +40,13 @@ function renderNearby(data) {
     byDay.get(it.date).push(it);
   }
   const days = [...byDay].map(([iso, items]) =>
-    `<div class="ce-sec-label">${esc(_nearbyDay(iso, today))}</div><div class="ce-sec">${items.map(_nearbyRow).join('')}</div>`).join('');
+    `<div class="sec-label">${esc(_nearbyDay(iso, today))}</div><div class="sec">${items.map(_nearbyRow).join('')}</div>`).join('');
   const links = data.links.length
-    ? '<div class="ce-sec-label">More calendars</div><div class="ce-sec">' + data.links.map(l => _safeUrl(l.url)
+    ? '<div class="sec-label">More calendars</div><div class="sec">' + data.links.map(l => _safeUrl(l.url)
       ? `<a class="nb-link" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>` : '').join('') + '</div>'
     : '';
-  nearbyBody.innerHTML = (days || '<p class="ce-note">Nothing listed near here this week.</p>') + links
-    + '<p class="ce-note">From open data and the markets’ own pages; check with the organiser before you go.</p>';
+  nearbyBody.innerHTML = (days || '<p class="note">Nothing listed near here this week.</p>') + links
+    + '<p class="note">From open data and the markets’ own pages; check with the organiser before you go.</p>';
 }
 
 async function loadNearby() {
@@ -54,7 +54,7 @@ async function loadNearby() {
   const c = map.getCenter(), at = { lat: c.lat, lon: c.lng }, n = ++_nearbySeq;
   _nearbyAt = at;
   btnNearbyHere.hidden = true;
-  nearbyBody.innerHTML = '<p class="ce-note">Loading…</p>';
+  nearbyBody.innerHTML = '<p class="note">Loading…</p>';
   const q = new URLSearchParams({ lat: at.lat, lon: at.lon });
   const region = regionAt(at.lat, at.lon);
   if (region) q.set('region', region);
@@ -64,7 +64,7 @@ async function loadNearby() {
     if (!res.ok) throw new Error(res.statusText);
     renderNearby(await res.json());
   } catch (_) {
-    if (n === _nearbySeq) nearbyBody.innerHTML = '<p class="ce-note">Couldn’t load what’s on nearby.</p>';
+    if (n === _nearbySeq) nearbyBody.innerHTML = '<p class="note">Couldn’t load what’s on nearby.</p>';
   }
 }
 

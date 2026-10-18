@@ -75,7 +75,7 @@ function _renderLayersMenu() {
         + ` aria-checked="${_layersOn.has(l.id)}"><i class="lyr-key" style="--k:${esc(LAYER_STYLE[l.id]?.color || '#475569')}"></i>`
         + `${esc(l.name)}<svg class="ic lyr-check" aria-hidden="true"><use href="#i-check"/></svg></button>`).join('')
       + '<p class="lyr-note">From the cities’ open data; the signs on the street win.</p>'
-    : '<p class="lyr-note">No extra layers here.</p><button class="ctx-item" data-layer="">Close</button>';
+    : '<p class="lyr-note">No extra layers here.</p><button class="ctx-item" role="menuitem" data-layer="">Close</button>';
 }
 
 menuButton(btnLayers, layersMenu, _renderLayersMenu);

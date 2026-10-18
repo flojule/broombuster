@@ -54,7 +54,7 @@ function startPlacing(editId = null, kind = 'car') {
   closeNameBox();
   const p = placing = { kind, editId, detent: _detent };
   placeBannerText.innerHTML = icon(editId ? 'pin' : kind)
-    + `<span class="sr-only">${editId ? 'Move' : 'Place'} ${kind}: pan the map to the spot</span>`;
+    + `<span><span class="sr-only">${editId ? 'Move' : 'Place'} ${kind}: </span>Pan to the spot</span>`;
   if (!isDesktop()) setDetent('small');
   document.body.classList.add('placing');
   placeBanner.classList.add('active');
@@ -113,7 +113,7 @@ addMenu.addEventListener('click', e => {
 // Rebuilt each time it opens, for the item open then.
 const itemMenu = document.getElementById('item-menu');
 const _menuRow = (act, label, ic, danger) =>
-  `<button class="ctx-item${danger ? ' danger' : ''}" data-act="${act}">${icon(ic)} ${esc(label)}</button>`;
+  `<button role="menuitem" class="ctx-item${danger ? ' danger' : ''}" data-act="${act}">${icon(ic)} ${esc(label)}</button>`;
 menuButton(btnItemMore, itemMenu, () => {
   const item = selectedItem(), car = cars.includes(item);
   itemMenu.innerHTML = [
@@ -159,20 +159,14 @@ function removeCar(id) {
 }
 
 // ── Context menu: "Add car / home here" (right-click, or a long press on touch) ──
+// At the finger (or the pointer), as the other menus are (ui.js).
 function openCtxMenu(lngLat, x, y) {
   pendingLat = lngLat.lat; pendingLon = lngLat.lng;
-  ctxMenu.style.display = 'block';
-  // At the finger, kept inside the screen; it grows out of that point.
-  const left = Math.max(8, Math.min(x, window.innerWidth - ctxMenu.offsetWidth - 8));
-  const top = Math.max(8, Math.min(y, window.innerHeight - ctxMenu.offsetHeight - 8));
-  ctxMenu.style.left = left + 'px';
-  ctxMenu.style.top = top + 'px';
-  ctxMenu.style.transformOrigin = `${x - left}px ${y - top}px`;
+  openMenu(ctxMenu, null, { x, y });
 }
-function hideCtxMenu() { ctxMenu.style.display = 'none'; }
 
-ctxAddCar.addEventListener('click', () => { hideCtxMenu(); openNameBox(pendingLat, pendingLon); });
-ctxAddHome.addEventListener('click', () => { hideCtxMenu(); addHome(pendingLat, pendingLon); });
+ctxAddCar.addEventListener('click', () => { closeMenu(); openNameBox(pendingLat, pendingLon); });
+ctxAddHome.addEventListener('click', () => { closeMenu(); addHome(pendingLat, pendingLon); });
 
 // ── Name box (arrow popup at the pending location) ─────────────────────────────
 // Anchored MapLibre popup whose tip points at the spot the car will sit. Drops a
@@ -186,15 +180,15 @@ function openNameBox(lat, lon) {
   const row = document.createElement('div');
   row.className = 'np-row';
   const input = document.createElement('input');
-  input.type = 'text'; input.id = 'name-panel-input';
+  input.type = 'text'; input.className = 'field';
   input.placeholder = 'Car name'; input.maxLength = 32;
   input.setAttribute('aria-label', 'Car name');
   input.value = defaultCarName();
   const save = document.createElement('button');
-  save.id = 'btn-np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
-  save.textContent = '✓';
+  save.className = 'btn btn-sm'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
+  save.innerHTML = icon('check');
   const close = document.createElement('button');
-  close.className = 'popup-close';
+  close.className = 'round-btn';
   close.title = 'Close (Esc)'; close.setAttribute('aria-label', 'Close');
   close.innerHTML = icon('close');
   row.append(input, save, close);
@@ -211,8 +205,7 @@ function openNameBox(lat, lon) {
     closeButton: false, closeOnClick: false, anchor: 'bottom', offset: 22,
     className: 'name-popup',
   }).setLngLat([lon, lat]).setDOMContent(row).addTo(map);
-  document.body.classList.add('naming');
-  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; document.body.classList.remove('naming'); });
+  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; });
   setTimeout(() => { input.focus(); input.select(); }, 30);
 }
 
@@ -269,9 +262,9 @@ function _statusHTML(u) {
 // to four lines; while loading, "Loading…", and after a failed load, the error with Retry.
 function schedBlockHTML(id, header, lines) {
   const body = lines ? lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('')
-    : loadFailed.has(id) ? '<div class="ce-error">Couldn’t load the schedule <button class="ce-btn ce-btn-retry">Retry</button></div>'
+    : loadFailed.has(id) ? '<div class="ce-error">Couldn’t load the schedule <button class="btn btn-tinted ce-btn-retry">Retry</button></div>'
     : '<div class="ce-loading">Loading…</div>';
-  return `<div class="ce-sec-label">${esc(header)}</div><div class="ce-sec">${body}</div>`;
+  return `<div class="sec-label">${esc(header)}</div><div class="sec">${body}</div>`;
 }
 
 // A row of the Saved list (icon, name over address, verdict) that opens the item's page
@@ -322,12 +315,12 @@ function vehicleHTML(car) {
     out = rows.length ? rows.map(r => `<div class="ce-rule warn">${esc(r)}</div>`).join('')
       : '<div>No tow or relocation in the last 90 days.</div>';
   }
-  return `<div class="ce-sec-label">Towed or moved?</div><div class="ce-sec">
-    <label class="ce-field">Licence plate <input class="ce-select ce-plate" maxlength="10" autocapitalize="characters"
+  return `<div class="sec-label">Towed or moved?</div><div class="sec">
+    <label class="ce-field">Licence plate <input class="field ce-plate" maxlength="10" autocapitalize="characters"
       autocomplete="off" spellcheck="false" value="${esc(car.plate || '')}" aria-label="Licence plate"></label>
-    <label class="ce-field">State <input class="ce-select ce-plate-state" maxlength="2" autocapitalize="characters"
+    <label class="ce-field">State <input class="field ce-plate-state" maxlength="2" autocapitalize="characters"
       value="${esc(car.plate_state || 'IL')}" aria-label="Plate state"></label>
-    <button class="ce-btn ce-btn-towed">Check the city’s records</button>${out}</div>`;
+    <button class="btn btn-tinted ce-btn-towed">Check the city’s records</button>${out}</div>`;
 }
 async function checkVehicle(car) {
   if (!car.plate) { showToast('Enter the licence plate first', true); return; }
@@ -359,14 +352,14 @@ function phoneLinkHTML(car) {
   const lastUsed = phoneLinks[car.id];
   const status = lastUsed ? `Last reported ${_ago(lastUsed)}.` : 'Has not reported yet.';
   const token = _phoneLink?.carId === car.id ? _phoneLink.token : null;
-  return `<div class="ce-sec-label">Phone</div><div class="ce-sec ce-phone">
-    <div class="ce-token-note">${esc(status)}</div>
+  return `<div class="sec-label">Phone</div><div class="sec">
+    <div class="note">${esc(status)}</div>
     ${token ? `
-    <div class="ce-token-note">Copy this token into your phone automation now; it is shown only once.
+    <div class="note">Copy this token into your phone automation now; it is shown only once.
       The automation posts {"lat", "lon"} to <b>${esc(location.origin)}/api/cars/location</b>
       with the header <b>Authorization: Bearer &lt;token&gt;</b>.</div>
-    <input class="ce-token" readonly value="${esc(token)}" aria-label="Phone token">
-    <button class="ce-btn ce-btn-copy">Copy token</button>` : ''}
+    <input class="field ce-token" readonly value="${esc(token)}" aria-label="Phone token">
+    <button class="btn btn-tinted ce-btn-copy">Copy token</button>` : ''}
   </div>`;
 }
 
@@ -402,7 +395,7 @@ function renderCarsPanel() {
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
       urgency: sched && sweepUrgency(sched), addr: addrText,
       detail: `
-        <button class="btn btn-tinted ce-btn-gps">${icon('locate')} Parked here</button>
+        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
         ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}
         ${rulesBlockHTML('Also here', placeRules[car.id])}
         ${vehicleHTML(car)}
@@ -486,10 +479,7 @@ function updateSavedSummary() {
   savedSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
     : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
     : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
-    : homes.length ? '' : 'Add your car to see when to move it, or your home for trash day.'
-      + `<button class="btn" id="btn-add-first">${icon('plus')} Add</button>`;
+    : homes.length ? '' : '<span class="note">Add your car with + to see when to move it, or your home for trash day.</span>';
   savedSummary.insertAdjacentHTML('beforeend', _alertsHTML());
-  const first = document.getElementById('btn-add-first');
-  if (first) menuButton(first, addMenu);
   tabbar.querySelector('.tab-badge').hidden = !today.length;
 }

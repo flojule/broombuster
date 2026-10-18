@@ -28,12 +28,6 @@ mapDiv.addEventListener('touchstart', e => {
   mapDiv.addEventListener('touchcancel', () => ac.abort(), opts);
 }, { passive: true });
 
-// The name box closes only via its ✕, Esc, or saving: a stray/retargeted tap
-// (soft keyboard, touch) must not discard it.
-document.addEventListener('click', e => {
-  if (!e.target.closest('#ctx-menu')) hideCtxMenu();
-});
-
 // Holistic Escape: dismiss whichever transient UI is open (one layer per
 // press), then close the open item, then shrink the sheet.
 document.addEventListener('keydown', e => {
@@ -45,7 +39,6 @@ document.addEventListener('keydown', e => {
   if (confirmDialog.open) return;  // the dialog cancels itself
   let dismissed = false;
   if (closeMenu(true))                     dismissed = true;
-  if (ctxMenu.style.display === 'block')  { hideCtxMenu();  dismissed = true; }
   if (_namePopup)                          { closeNameBox(); dismissed = true; }
   if (placing)                             { stopPlacing();  dismissed = true; }
   if (dismissed) return;

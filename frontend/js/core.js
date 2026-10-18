@@ -83,10 +83,10 @@ async function loadRules(item, kind) {
 // An item page's section of rules: label, what it means, and the source's date.
 function rulesBlockHTML(header, rules) {
   if (!rules?.length) return '';
-  const rows = rules.map(r => `<div class="ce-sched-item ce-rule${r.warn ? ' warn' : ''}"><b>${esc(r.label)}</b>`
+  const rows = rules.map(r => `<div class="ce-rule${r.warn ? ' warn' : ''}"><b>${esc(r.label)}</b>`
     + (r.rule ? `<span>${esc(r.rule)}</span>` : '')
     + (r.asof ? `<small>Data as of ${esc(r.asof)}</small>` : '') + '</div>').join('');
-  return `<div class="ce-sec-label">${esc(header)}</div><div class="ce-sec">${rows}</div>`;
+  return `<div class="sec-label">${esc(header)}</div><div class="sec">${rows}</div>`;
 }
 
 // Schedules for cars and homes: the latest request per id wins (a slow answer for an

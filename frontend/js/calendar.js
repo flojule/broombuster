@@ -81,7 +81,7 @@ function _dotsHTML(layers, k) {
   const dots = layers.cars.filter(l => l.days.has(k))
     .map(l => `<span class="cal-dot" style="background:${l.color}"></span>`)
     .concat(layers.homes.filter(l => l.days.has(k))
-      .map(() => `<span class="cal-dot cal-dot-home" style="background:${HOME_COLOR}"></span>`)).join('');
+      .map(() => `<span class="cal-dot cal-dot-home" style="background:var(--home)"></span>`)).join('');
   return `<span class="cal-dots">${dots}</span>`;
 }
 
@@ -92,7 +92,7 @@ function _dayLines(layers, k) {
     mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
     text: `${l.car.name}: ${l.days.get(k)}`,
   })).concat(layers.homes.filter(l => l.days.has(k)).map(l => ({
-    mark: `<i class="cal-key cal-square" style="background:${HOME_COLOR}"></i>`,
+    mark: `<i class="cal-key cal-square" style="background:var(--home)"></i>`,
     text: `${itemName(l.home)}: ${l.days.get(k)}`,
   })));
 }

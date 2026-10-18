@@ -24,7 +24,7 @@ function homeUrgency(sched) {
 function _collectionDayHTML(h) {
   const opts = ['<option value="">Not set</option>', ...BroomUrgency.WEEKDAYS.map((w, i) =>
     `<option value="${i}"${h.collection_day === i ? ' selected' : ''}>${esc(w)}</option>`)];
-  return `<label class="ce-field">Collection day <select class="ce-select ce-collection-day">${opts.join('')}</select></label>`;
+  return `<label class="ce-field">Collection day <select class="field ce-collection-day">${opts.join('')}</select></label>`;
 }
 
 function homeScheduleHTML(h, sched) {
@@ -35,8 +35,8 @@ function homeScheduleHTML(h, sched) {
     const note = h.collection_day == null ? 'Pick the day your carts are collected (the city has no lookup).'
       : sched.city === 'berkeley' ? 'If it is also street sweeping day, put the carts on the parking strip.' : '';
     return schedBlockHTML(id, 'Trash day', lines?.length ? lines : [])
-      .replace('<div class="ce-sec">', `<div class="ce-sec">${_collectionDayHTML(h)}`)
-      + (note ? `<p class="ce-note">${esc(note)}</p>` : '');
+      .replace('<div class="sec">', `<div class="sec">${_collectionDayHTML(h)}`)
+      + (note ? `<p class="note">${esc(note)}</p>` : '');
   }
   if (sched && !lines.length) return schedBlockHTML(id, 'Trash day', ['No collection info for this address.']);
   return schedBlockHTML(id, 'Trash day', lines);
