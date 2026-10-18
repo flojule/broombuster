@@ -9,12 +9,11 @@ function placeMarker(marker, at, makeEl) {
 }
 
 // A car or home pin: the card's icon, white on a disc of the item's colour (as in
-// Apple Maps); a tap opens the item in the sheet.
-function _pinEl(kind, id, label) {
+// Apple Maps); a tap opens the item in the sheet. Its label is the item's name (set by the caller).
+function _pinEl(kind, id) {
   const el = document.createElement('button');
   el.className = 'pin';
   el.innerHTML = icon(kind);
-  el.setAttribute('aria-label', label);
   el.addEventListener('click', e => { e.stopPropagation(); openItem(id); });
   return el;
 }
@@ -24,7 +23,7 @@ function updateCarMarkers() {
     if (!cars.find(c => c.id === id)) { marker.remove(); _carMarkers.delete(id); }
   }
   for (const car of cars) {
-    const marker = placeMarker(_carMarkers.get(car.id), car, () => _pinEl('car', car.id, car.name));
+    const marker = placeMarker(_carMarkers.get(car.id), car, () => _pinEl('car', car.id));
     marker.getElement().style.setProperty('--pin', carColor(car));
     marker.getElement().setAttribute('aria-label', car.name);
     _carMarkers.set(car.id, marker);
@@ -39,8 +38,9 @@ function updateHomeMarkers() {
     if (!homes.find(h => h.id === id)) { marker.remove(); _homeMarkers.delete(id); }
   }
   for (const h of homes) {
-    const marker = placeMarker(_homeMarkers.get(h.id), h, () => _pinEl('home', h.id, 'Home'));
+    const marker = placeMarker(_homeMarkers.get(h.id), h, () => _pinEl('home', h.id));
     marker.getElement().style.setProperty('--pin', HOME_COLOR);
+    marker.getElement().setAttribute('aria-label', itemName(h));
     _homeMarkers.set(h.id, marker);
   }
   applySelection();

@@ -16,14 +16,14 @@ const LAYER_PREFIX = 'lyr-';
 const layersMenu = document.getElementById('layers-menu');
 const btnLayers = document.getElementById('btn-layers');
 let _layersOn = new Set();
-try { _layersOn = new Set(JSON.parse(localStorage.getItem('bb_layers') || '[]')); } catch (_) {}
+try { _layersOn = new Set(JSON.parse(_read('bb_layers') || '[]')); } catch (_) {}
 let _layersRegion = null;  // region whose overlays are on the map
 let _layerPopup = null;
 
 function _regionLayers() { return regions[_tilesRegion || _region]?.layers || []; }
 
 function _saveLayersOn() {
-  try { localStorage.setItem('bb_layers', JSON.stringify([..._layersOn])); } catch (_) {}
+  _store('bb_layers', JSON.stringify([..._layersOn]));
 }
 
 // Style layer ids of an overlay: [fill, line, circle].

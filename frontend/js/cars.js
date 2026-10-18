@@ -175,6 +175,7 @@ function openNameBox(lat, lon) {
   closeNameBox();
   pendingLat = lat; pendingLon = lon;
   _tempPin = { lat, lon }; updateTempPin();
+  document.body.classList.add('naming');  // the street sign would cover the box
 
   const row = document.createElement('div');
   row.className = 'np-row';
@@ -204,7 +205,7 @@ function openNameBox(lat, lon) {
     closeButton: false, closeOnClick: false, anchor: 'bottom', offset: 22,
     className: 'name-popup',
   }).setLngLat([lon, lat]).setDOMContent(row).addTo(map);
-  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; });
+  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; document.body.classList.remove('naming'); });
   setTimeout(() => { input.focus(); input.select(); }, 30);
 }
 
@@ -212,6 +213,7 @@ function openNameBox(lat, lon) {
 function closeNameBox() {
   _namePopup?.remove();
   _namePopup = null; _nameInput = null;
+  document.body.classList.remove('naming');
   _tempPin = null; updateTempPin();
   pendingLat = pendingLon = null;
 }
@@ -315,14 +317,14 @@ function vehicleHTML(car) {
       : '<div>No tow or relocation in the last 90 days.</div>';
   }
   return `<div class="sec-label">Towed or moved?</div><div class="sec">
-    <label class="ce-field">Licence plate <input class="field ce-plate" maxlength="10" autocapitalize="characters"
-      autocomplete="off" spellcheck="false" value="${esc(car.plate || '')}" aria-label="Licence plate"></label>
+    <label class="ce-field">License plate <input class="field ce-plate" maxlength="10" autocapitalize="characters"
+      autocomplete="off" spellcheck="false" value="${esc(car.plate || '')}" aria-label="License plate"></label>
     <label class="ce-field">State <input class="field ce-plate-state" maxlength="2" autocapitalize="characters"
       value="${esc(car.plate_state || 'IL')}" aria-label="Plate state"></label>
     <button class="btn btn-tinted ce-btn-towed">Check the city’s records</button>${out}</div>`;
 }
 async function checkVehicle(car) {
-  if (!car.plate) { showToast('Enter the licence plate first', true); return; }
+  if (!car.plate) { showToast('Enter the license plate first', true); return; }
   vehicleChecks[car.id] = { busy: true };
   renderCarsPanel();
   const q = new URLSearchParams({ plate: car.plate, state: car.plate_state || 'IL' });
@@ -471,14 +473,14 @@ function _alertsHTML() {
 }
 
 // Saved tab's first line: the most urgent car verdict, else all clear; with nothing
-// saved, how to start. A red dot on the tab while a car must move today. Alerts in
+// saved, how to start. "All clear" waits until every car's street has loaded. A red dot on the tab while a car must move today. Alerts in
 // effect where cars and homes are follow it.
 function updateSavedSummary() {
   const { today, tomorrow } = urgentCars();
   savedSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
     : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
-    : cars.length ? `<span class="urg-safe">${icon('check')}</span> All clear`
-    : homes.length ? '' : '<span class="note">Add your car with + to see when to move it, or your home for trash day.</span>';
+    : cars.length && cars.every(c => carSchedules[c.id]) ? `<span class="urg-safe">${icon('check')}</span> All clear`
+    : cars.length || homes.length ? '' : '<span class="note">Add your car with + to see when to move it, or your home for trash day.</span>';
   savedSummary.insertAdjacentHTML('beforeend', _alertsHTML());
   tabbar.querySelector('.tab-badge').hidden = !today.length;
 }
