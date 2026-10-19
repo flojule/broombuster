@@ -59,7 +59,8 @@ def build_city(city_key: str, themes: list[str] | None) -> list[str]:
         # Only the city: some sources are county- or statewide.
         lat0, lon0, lat1, lon1 = CITIES[city_key]["bbox"]
         gdf = gdf.clip(shapely.box(lon0, lat0, lon1, lat1))
-        gdf = gdf[~gdf.geometry.is_empty][[*layer_sources.COLUMNS, "geometry"]]
+        cols = [c for c in (*layer_sources.COLUMNS, layer_sources.COLOR) if c in gdf]
+        gdf = gdf[~gdf.geometry.is_empty][[*cols, "geometry"]]
         _write_fgb(gdf, layers.fgb_path(city_key, theme))
         print(f"    {theme}: {len(gdf):,} features")
     return failed
@@ -85,17 +86,53 @@ def build_tables(city_key: str) -> list[str]:
     return failed
 
 
+# Colours for permit areas whose city publishes none: distinct hues that read on both
+# basemaps and stay clear of the sweeping colours (red, orange, blue: core.js URGENCY);
+# neighbouring areas never share one (_area_colors).
+AREA_PALETTE = ("#7c3aed", "#0d9488", "#c026d3", "#65a30d", "#a16207", "#db2777",
+                "#4f46e5", "#0891b2", "#15803d", "#9333ea")
+
+
+def _area_colors(g: geopandas.GeoDataFrame) -> list[str]:
+    """Each area's colour: the city's own when it publishes one, else the least used
+    palette colour no touching area (within 150 m) has, taking the areas biggest first.
+    Stable for a given input, so a rebuild keeps the map's colours."""
+    color = layer_sources.COLOR
+    have = g[color] if color in g else pd.Series([None] * len(g), index=g.index)
+    out = {i: c for i, c in have.items() if isinstance(c, str) and c}
+    near = g.geometry.buffer(150)
+    for i in g.geometry.area.sort_values(ascending=False).index:
+        if i in out:
+            continue
+        taken = {out[j] for j in g.index[near.intersects(near[i])] if j in out}
+        free = [c for c in AREA_PALETTE if c not in taken] or list(AREA_PALETTE)
+        used = list(out.values())
+        out[i] = min(free, key=used.count)
+    return [out[i] for i in g.index]
+
+
+def _edge(color: str) -> str | None:
+    """A darker edge for a light colour (a city's pale yellow vanishes on the light
+    basemap); None when the colour itself reads."""
+    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    if 0.299 * r + 0.587 * g + 0.114 * b <= 165:
+        return None
+    return "#" + "".join(f"{int(c * .6):02x}" for c in (r, g, b))
+
+
 def permit_areas(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    """The map's copy of the parking layer: one area per permit area. Curb-line sources
-    (Oakland, San Francisco) become the area their streets cover: the lines widened by
-    70 m, merged, then shrunk back to 15 m past the outer streets, which fills the blocks
-    between them. Other rules (time limits, tow-away) stay off the map; the street card
-    reads them from the FGBs."""
+    """The map's copy of the parking layer: one area per permit area, each in its own
+    colour (_area_colors). Curb-line sources (Oakland, San Francisco) become the area
+    their streets cover: the lines widened by 70 m, merged, then shrunk back to 15 m past
+    the outer streets, which fills the blocks between them. Other rules (time limits,
+    tow-away) stay off the map; the street card reads them from the FGBs."""
     g = gdf[gdf["label"].str.match(r"Permit (area|zone) ")].to_crs(3857)
-    g = g.dissolve(by=["city", "label"], as_index=False)
+    g = g.dissolve(by=["city", "label"], as_index=False, aggfunc="first")
     g["geometry"] = [geom if geom.geom_type.endswith("Polygon")
                      else geom.buffer(70).buffer(-55).simplify(8) for geom in g.geometry]
-    return g.to_crs(4326)[["label", "city", "geometry"]]
+    g[layer_sources.COLOR] = _area_colors(g)
+    g["edge"] = g[layer_sources.COLOR].map(_edge)
+    return g.to_crs(4326)[["label", "city", layer_sources.COLOR, "edge", "geometry"]]
 
 
 def build_region_geojson(region_key: str) -> None:

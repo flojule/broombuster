@@ -151,6 +151,7 @@
     .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: .8rem;
       background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
     .lyr-popup .maplibregl-popup-tip { display: none; }
+    .lyr-city { display: block; font-size: .7rem; color: var(--muted); }
 
     /* ── Map container ── */
     #map-container { height: 100%; position: relative; }
@@ -391,7 +392,7 @@
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
     .sc-mark { flex: none; display: flex; align-items: center; justify-content: center; width: 17px; height: 17px; margin-top: -1px;
                border-radius: 5px; color: #fff; font-style: normal; font-size: .58rem; font-weight: 800; letter-spacing: -.02em; }
-    .sc-sweep { color: rgba(0,0,0,.72); }  /* a side's tag on its line colour (light) */
+    .sc-sweep, .sc-mark.light { color: rgba(0,0,0,.72); }  /* a letter on a light colour */
     .sc-text { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
     .sc-detail { font-weight: 400; color: var(--muted); }
     .sc-time { white-space: nowrap; }  /* "7–9AM" never breaks */

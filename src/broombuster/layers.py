@@ -29,6 +29,9 @@ THEMES = {
 _FRONTEND = Path(REPO_ROOT) / "frontend" / "layers"
 LIVE_CLOSURES = ("bay_area",)  # regions with a live closures feed (feeds.py)
 _loaded: dict[str, dict[str, geopandas.GeoDataFrame]] = {}  # region -> theme -> EPSG:3857
+# region -> the map's permit areas (label, city, color, rule; EPSG:3857): a point inside
+# one is in that area even where no permit curb is near (the middle of a block).
+_areas: dict[str, geopandas.GeoDataFrame] = {}
 
 
 def city_dir(city_key: str) -> Path:
@@ -58,6 +61,24 @@ def load_all() -> None:
                 gdf.sindex  # noqa: B018 — builds the STRtree
                 themes[theme] = gdf
         _loaded[rk] = themes
+        _areas[rk] = _permit_areas(rk, themes.get("parking"))
+
+
+def _permit_areas(region_key: str, curbs: geopandas.GeoDataFrame | None):
+    """The region's permit areas as drawn on the map (frontend/layers/<region>/parking.geojson,
+    scripts/build_layers.py), each with its most common rule in the city's data."""
+    path = _FRONTEND / region_key / "parking.geojson"
+    if curbs is None or not path.exists():
+        return None
+    g = geopandas.read_file(path).to_crs(3857)
+    by = curbs.groupby(["city", "label"])
+    rule = by["rule"].agg(lambda s: s.mode().iat[0])
+    asof = by["asof"].max()
+    keys = list(zip(g["city"], g["label"], strict=True))
+    g["rule"] = [rule.get(k, "") for k in keys]
+    g["asof"] = [asof.get(k, "") for k in keys]
+    g.sindex  # noqa: B018
+    return g
 
 
 def catalogue(region_key: str) -> list[dict]:
@@ -77,7 +98,8 @@ def catalogue(region_key: str) -> list[dict]:
 
 def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[dict]:
     """[{theme, label, rule, asof, city}] of the features that apply at a point, nearest
-    first per theme, one per (theme, label)."""
+    first per theme, one per (theme, label). A permit area applies anywhere inside the
+    area as drawn on the map, not only by its curbs, and carries its map colour (color)."""
     pt = shapely.Point(*_to_3857(lon, lat))
     out = []
     for theme, gdf in _loaded.get(region_key, {}).items():
@@ -85,21 +107,35 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
         if meta["applies_to"] != applies_to:
             continue
         idx = gdf.sindex.query(pt.buffer(max(meta["near_m"], 1)), predicate="intersects")
-        if not len(idx):
-            continue
         hits = gdf.iloc[idx].copy()
         hits["_d"] = hits.geometry.distance(pt)
         # A polygon applies inside (a 4 m margin for GPS); lines and points within near_m.
         is_poly = hits.geometry.geom_type.isin(("Polygon", "MultiPolygon"))
         hits = hits[hits["_d"] <= is_poly.map({True: 4, False: meta["near_m"]})].sort_values("_d")
+        rows = [r for _, r in hits.iterrows()]
+        areas = _areas.get(region_key) if theme == "parking" else None
+        if areas is not None:  # after the curbs: a curb's own rule is the more precise
+            rows += [areas.iloc[i] for i in areas.sindex.query(pt, predicate="intersects")]
         seen = set()
-        for _, r in hits.iterrows():
+        for r in rows:
             if r["label"] in seen:
                 continue
             seen.add(r["label"])
             out.append({"theme": theme, "label": r["label"], "rule": r["rule"] or "",
-                        "asof": r["asof"] or "", "city": r["city"]})
+                        "asof": r["asof"] or "", "city": r["city"],
+                        **_color(_area_color(areas, r["city"], r["label"]))})
     return out
+
+
+def _area_color(areas, city: str, label: str):
+    if areas is None:
+        return None
+    m = areas[(areas["city"] == city) & (areas["label"] == label)]
+    return m["color"].iat[0] if len(m) else None
+
+
+def _color(c) -> dict:
+    return {"color": c} if isinstance(c, str) and c else {}
 
 
 _T = None
