@@ -42,9 +42,10 @@ function attachMapListeners() {
   });
   map.on('dblclick', () => { if (_tapTimer) { clearTimeout(_tapTimer); _tapTimer = null; } });
 
-  // Signs and calendar: live-read the street under the target while the map
-  // moves (drag/zoom), and once more after tiles finish streaming in (idle).
-  map.on('move', () => renderTargetInfo());
+  // Signs and calendar: live-read the street under the target while the map pans
+  // (the sign only; not while zooming, when every frame brings other streets under it),
+  // and in full once it stops and after tiles finish streaming in (idle).
+  map.on('move', () => { if (!map.isZooming()) renderTargetInfo(undefined, true); });
   map.on('moveend', () => renderTargetInfo());
   map.on('idle', () => renderTargetInfo());
 

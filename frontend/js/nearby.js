@@ -45,8 +45,7 @@ function renderNearby(data) {
     ? '<div class="sec-label">More calendars</div><div class="sec">' + data.links.map(l => _safeUrl(l.url)
       ? `<a class="nb-link" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>` : '').join('') + '</div>'
     : '';
-  nearbyBody.innerHTML = (days || '<p class="note">Nothing listed near here this week.</p>') + links
-    + '<p class="note">From open data and the markets’ own pages; check with the organizer before you go.</p>';
+  nearbyBody.innerHTML = (days || '<p class="note">Nothing this week.</p>') + links;
 }
 
 async function loadNearby() {
@@ -64,7 +63,7 @@ async function loadNearby() {
     if (!res.ok) throw new Error(res.statusText);
     renderNearby(await res.json());
   } catch (_) {
-    if (n === _nearbySeq) nearbyBody.innerHTML = '<p class="note">Couldn’t load what’s on nearby.</p>';
+    if (n === _nearbySeq) nearbyBody.innerHTML = '<p class="note">Couldn’t load.</p>';
   }
 }
 

@@ -32,8 +32,8 @@ function homeScheduleHTML(h, sched) {
   const fmt = iso => { const [y, m, d] = iso.split('-').map(Number); return BroomUrgency.dayLabel({ y, m, d }); };
   const lines = sched && _nextPickups(sched).map(([stream, iso]) => `${stream}: ${fmt(iso)}`);
   if (sched?.trash_kind === 'weekly') {
-    const note = h.collection_day == null ? 'Pick the day your carts are collected (the city has no lookup).'
-      : sched.city === 'berkeley' ? 'If it is also street sweeping day, put the carts on the parking strip.' : '';
+    const note = h.collection_day == null ? 'Pick your collection day.'
+      : sched.city === 'berkeley' ? 'On sweeping days, carts go on the parking strip.' : '';
     return schedBlockHTML(id, 'Trash day', lines?.length ? lines : [])
       .replace('<div class="sec">', `<div class="sec">${_collectionDayHTML(h)}`)
       + (note ? `<p class="note">${esc(note)}</p>` : '');

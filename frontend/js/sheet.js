@@ -6,7 +6,7 @@
 // grabber, a tab's header or its content, or tap the grabber to switch. The map is
 // padded by the sheet (up to medium) so the centre target sits in the middle of the
 // map area left free.
-// Desktop: a full-height panel on the left; no detents.
+// Desktop: a panel on the left, as tall as a month of the calendar; no detents.
 const tabbar  = document.getElementById('tabbar');
 const grabber = document.getElementById('sheet-grabber');
 const TABS = ['calendar', 'saved', 'nearby', 'settings'];
@@ -59,7 +59,8 @@ const sheetGap = () => parseFloat(getComputedStyle(sheet).getPropertyValue('--sh
 
 function applySheet() {
   const desk = isDesktop(), ds = tabDetents();
-  sheet.style.height = desk ? '' : detentHeights()[_shown()] + 'px';
+  const deskH = desk && typeof deskPanelHeight === 'function' ? deskPanelHeight() : 0;
+  sheet.style.height = desk ? (deskH ? deskH + 'px' : '') : detentHeights()[_shown()] + 'px';
   grabber.setAttribute('aria-label', _detent === ds[ds.length - 1] ? 'Shrink the sheet' : 'Enlarge the sheet');
   // The calendar shows the month view whenever it has the room: its medium.
   if (typeof calSetExpanded === 'function') calSetExpanded(desk || (!_compact && _detentOf.calendar !== 'small'));

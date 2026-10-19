@@ -31,7 +31,7 @@ function pointerSched(f) {
   const raw = tileEntries(props);
   const side = s => raw.filter(e => e.side === s).map(e => [e.code, e.desc || '', e.time || '']);
   return { schedule_even: side('even'), schedule_odd: side('odd'), region: _tilesRegion, city: props.city,
-           side_labels: [props.side_even || 'Even', props.side_odd || 'Odd'] };
+           side_labels: sideNames(f) };  // as the street card names them (js/signs.js)
 }
 
 // key -> "Trash, Compost" for a home's pickup days in [start, end].
@@ -184,20 +184,37 @@ function _scrollTo(el, row, smooth) {
 }
 const _weekOf = (range, k) => Math.floor(_dayIdx(range, _keyDay(k)) / 7);
 
-// Desktop: the panel's height is fixed, so the grid shows as many whole weeks as fit
-// (as Apple Calendar does). On a phone the sheet's heights fit whole weeks instead.
 const CAL_ROW = 43;  // px: a 40 px row + the 3 px gap (styles.css .cal-grid)
-function fitCalWeeks() {
-  const el = _scroller();
-  if (!el) return;
-  el.style.height = el.style.flex = '';  // the room the panel leaves (styles.css)
-  if (!isDesktop()) return;
-  // The details share the room: the grid takes all but their three lines (styles.css).
-  const det = icCal.querySelector('.cal-detail');
-  const room = el.clientHeight + (det ? det.offsetHeight - 4.2 * parseFloat(getComputedStyle(det).fontSize) : 0);
-  el.style.height = Math.max(2, Math.floor((room + 3) / CAL_ROW)) * CAL_ROW - 3 + 'px';
-  el.style.flex = 'none';
+// Desktop: the panel is as tall as six weeks of the grid (any month fits, as in Apple's and
+// Google's month views; the grid still scrolls on), fewer on a short screen; every tab
+// takes that height. On a phone the sheet's heights fit whole weeks instead (calFit).
+const DESK_WEEKS = 6;
+let _deskChrome = 0;  // the panel besides the grid, measured with the calendar shown
+// Week rows the month view shows: the panel's (desktop) or the medium sheet's (phone), from
+// their heights rather than the grid's, which may not be laid out yet.
+function _calRows() {
+  if (isDesktop()) return Math.round((deskPanelHeight() - _deskChrome + 3) / CAL_ROW) || DESK_WEEKS;
+  const fit = calFit();
+  return fit ? Math.floor((detentHeights().medium - fit.small) / CAL_ROW) + 1 : DESK_WEEKS;
 }
+function deskPanelHeight() {
+  const el = _scroller();
+  if (!el) return 0;
+  if (!_deskChrome) {
+    // Measured with the calendar in place of the open tab, within this frame (never painted).
+    const open = [...sheet.querySelectorAll('.tab')].find(t => !t.hidden), h = sheet.style.height;
+    if (open !== tabCal) { open.hidden = true; tabCal.hidden = false; }
+    sheet.style.height = '';
+    _deskChrome = sheet.offsetHeight - el.offsetHeight;
+    sheet.style.height = h;
+    if (open !== tabCal) { open.hidden = false; tabCal.hidden = true; }
+  }
+  const room = document.getElementById('app-screen').clientHeight - 2 * parseFloat(getComputedStyle(sheet).top);
+  const rows = Math.max(2, Math.min(DESK_WEEKS, Math.floor((room - _deskChrome + 3) / CAL_ROW)));
+  return _deskChrome + rows * CAL_ROW - 3;
+}
+// The screen changed (or the text size): measure again.
+window.addEventListener('resize', () => { _deskChrome = 0; applySheet(); });
 
 // Phone: sheet heights that show whole weeks and the day details: {small: one week, round(h): the nearest
 // height at or under h showing whole weeks and the day details}; null until the
@@ -262,25 +279,27 @@ function updateCalTitle() {
 
 // Everything that reads the street at the target: the calendar's street days, the
 // signs and the glow on that street. f = the feature there (undefined: look it up).
-function renderTargetInfo(f) {
+// live (the map moving): the sign and glow only; rebuilding the calendar's grid costs
+// far more, so it waits until the map stops (moveend).
+function renderTargetInfo(f, live = false) {
   if (f === undefined) f = _centerFeature();
   const props = f?.properties || null;
-  const lines = props ? tileSchedLines(props) : [];
-  renderSigns(f);
+  renderSigns(f, live);
   setActiveFeature(f ? f.id : null);
+  if (live) return;
+  const lines = props ? tileSchedLines(props) : [];
   const today = calNow(), todayK = _ymdKey(today);
   if (_cal.sel == null) _cal.sel = todayK;
   _ptrSched = props && lines.length ? pointerSched(f) : null;
   const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
   const homeSig = homes.map(h => `${h.id}:${itemName(h)}:${homeSchedules[h.id] ? _schedId(homeSchedules[h.id]) : 0}`).join(',');
-  const key = [_ptrSched ? `${props.city}:${props.sched}` : '', carSig, homeSig, todayK].join('|');
+  const key = [_ptrSched ? `${props.city}:${props.sched}:${_ptrSched.side_labels}` : '', carSig, homeSig, todayK].join('|');
   if (key === _calKey) return;
   _calKey = key;
 
   const range = _calRange0 = _calRange(today);
   const layers = _calLayers0 = calLayers(_ptrSched, range.start, range.end);
   icCal.innerHTML = calendarHTML(layers, range, _cal.sel, today);
-  fitCalWeeks();
   if (_cal.anchor == null) _cal.anchor = _anchorFor(range, today);
   _restoreScroll();
   updateCalTitle();
@@ -295,11 +314,12 @@ function _restoreScroll() {
 }
 
 // Where the grid starts when nothing is remembered: the selected week (small sheet),
-// the week holding the 1st of the selected month (month view).
+// the week holding the 1st of the selected month (month view), lower if that would
+// leave the selected week below what fits (a short screen).
 function _anchorFor(range, today) {
-  const sel = _cal.sel ? _keyDay(_cal.sel) : today;
-  if (!_cal.expanded) return _weekOf(range, _ymdKey(sel));
-  return Math.max(0, Math.floor(_dayIdx(range, { y: sel.y, m: sel.m, d: 1 }) / 7));
+  const sel = _cal.sel ? _keyDay(_cal.sel) : today, week = _weekOf(range, _ymdKey(sel));
+  if (!_cal.expanded) return week;
+  return Math.max(0, Math.floor(_dayIdx(range, { y: sel.y, m: sel.m, d: 1 }) / 7), week - _calRows() + 1);
 }
 
 // The sheet grew past small (expanded) or came back to it. Nothing is rebuilt: folding
@@ -395,7 +415,7 @@ icCal.addEventListener('wheel', e => {
 }, { passive: false });
 
 // The sheet resizing (a drag, a detent, the screen) changes how many weeks show.
-new ResizeObserver(() => requestAnimationFrame(() => { fitCalWeeks(); updateCalTitle(); measureCalChrome(); })).observe(icCal);
+new ResizeObserver(() => requestAnimationFrame(() => { updateCalTitle(); measureCalChrome(); })).observe(icCal);
 // Measured mid-animation is skipped; once the sheet settles, measure.
 sheet.addEventListener('transitionend', e => { if (e.target === sheet && e.propertyName === 'height') measureCalChrome(); });
 // The tab shows again (sheet.js showTab): a re-render while it was hidden left the grid at its top.
@@ -407,3 +427,4 @@ function calShown() {
 
 calSetExpanded(isDesktop() || _detentOf.calendar !== 'small');
 renderTargetInfo();  // initial empty state
+if (isDesktop()) applySheet();  // the panel's height, now that the grid is there

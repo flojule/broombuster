@@ -85,6 +85,19 @@ def build_tables(city_key: str) -> list[str]:
     return failed
 
 
+def permit_areas(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+    """The map's copy of the parking layer: one area per permit area. Curb-line sources
+    (Oakland, San Francisco) become the area their streets cover: the lines widened by
+    70 m, merged, then shrunk back to 15 m past the outer streets, which fills the blocks
+    between them. Other rules (time limits, tow-away) stay off the map; the street card
+    reads them from the FGBs."""
+    g = gdf[gdf["label"].str.match(r"Permit (area|zone) ")].to_crs(3857)
+    g = g.dissolve(by=["city", "label"], as_index=False)
+    g["geometry"] = [geom if geom.geom_type.endswith("Polygon")
+                     else geom.buffer(70).buffer(-55).simplify(8) for geom in g.geometry]
+    return g.to_crs(4326)[["label", "city", "geometry"]]
+
+
 def build_region_geojson(region_key: str) -> None:
     """frontend/layers/<region>/<theme>.geojson from the cities' FGBs."""
     out_dir = _ROOT / "frontend" / "layers" / region_key
@@ -102,6 +115,8 @@ def build_region_geojson(region_key: str) -> None:
             target.unlink(missing_ok=True)
             continue
         gdf = geopandas.GeoDataFrame(pd.concat(parts, ignore_index=True), crs="EPSG:4326")
+        if theme == "parking":
+            gdf = permit_areas(gdf)
         target.write_text(layer_sources.dump_json(gdf))
         print(f"  {region_key}/{theme}.geojson: {len(gdf):,} features, "
               f"{target.stat().st_size / 1e6:.1f} MB")

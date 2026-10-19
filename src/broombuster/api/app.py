@@ -194,16 +194,18 @@ def check_home(req: CheckHomeRequest):
 def rules(lat: float = Query(..., ge=-90.0, le=90.0),
           lon: float = Query(..., ge=-180.0, le=180.0),
           region: str | None = None,
-          kind: str = Query("car", pattern="^(car|home)$")):
+          kind: str = Query("car", pattern="^(car|home)$"),
+          geocode: bool = True):
     """What applies at a car (permit area, meter, winter ban) or a home (fire and
     evacuation zones), from the cities' extra layers. Each rule: {theme, label, rule,
-    asof, city}."""
+    asof, city}. geocode=false (the map's street card, asked at every stop): no new
+    address lookups, so Chicago's permit zone only when the address is cached."""
     region = region if region in REGIONS else region_for_point(lat, lon)
     out = layers.rules_at(region, lat, lon, kind)
     if kind == "car":
         out += feeds.closures_near(region, lat, lon)
         if city_for_point(lat, lon, region) == "chicago_all":
-            out += feeds.chicago_permit_zone(lat, lon)
+            out += feeds.chicago_permit_zone(lat, lon, network=geocode)
     return {"region": region, "rules": out}
 
 

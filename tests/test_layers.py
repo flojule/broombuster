@@ -5,6 +5,7 @@ from pathlib import Path
 
 import geopandas
 import pytest
+import shapely
 
 from broombuster import layer_sources, layers
 from broombuster.cities import CITIES, REGIONS
@@ -97,3 +98,33 @@ def test_sf_rule_text():
     assert layer_sources._sf_rule(row) == "2 h limit, M–F 9am–6pm; permit area N holders exempt."
     assert layer_sources._sf_label(row) == "Permit area N"
     assert layer_sources._sf_label({"regulation": "No overnight parking"}) == "No overnight parking"
+
+
+def test_sf_missing_fields_are_not_nan():
+    # Socrata rows read into a frame carry NaN for an empty field: never "Permit area nan".
+    row = {"regulation": "Time limited", "hrlimit": "4", "days": "M-Sa", "from_time": "8am",
+           "to_time": "6pm", "rpparea1": float("nan")}
+    assert layer_sources._sf_label(row) == "4 h limit"
+    assert layer_sources._sf_rule(row) == "4 h limit, M–Sa 8am–6pm."
+
+
+def test_permit_areas_fill_the_blocks_between_their_streets():
+    # The map's copy (scripts/build_layers.py): two parallel curb lines of one area, 100 m
+    # apart, become one area covering the block between them; other rules leave the map.
+    import importlib.util
+    path = _ROOT / "scripts" / "build_layers.py"
+    spec = importlib.util.spec_from_file_location("build_layers", path)
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    m = 1 / 111_000  # ° of latitude per metre
+    lines = [shapely.LineString([(-122.42, 37.77 + y * m), (-122.4185, 37.77 + y * m)])
+             for y in (0, 100)]
+    gdf = geopandas.GeoDataFrame(
+        {"label": ["Permit area S", "Permit area S", "4 h limit"], "city": ["san_francisco"] * 3},
+        geometry=[*lines, lines[0]], crs="EPSG:4326")
+    out = build.permit_areas(gdf)
+    assert list(out["label"]) == ["Permit area S"]
+    (area,) = out.geometry
+    assert area.geom_type.endswith("Polygon")
+    assert area.contains(shapely.Point(-122.41925, 37.77 + 50 * m))  # mid-block
+    assert not area.contains(shapely.Point(-122.41925, 37.77 + 200 * m))  # past the outer street
