@@ -11,7 +11,7 @@ uv sync --locked --all-extras
 
 ## Docs
 
-- [Operations and architecture (diagrams)](docs/operations.md)
+- [Architecture (diagrams)](docs/architecture.md)
 - [Phone setup: report where the car parked](docs/phone-setup.md)
 - [Data](data/README.md)
 

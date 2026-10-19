@@ -1,7 +1,7 @@
 # Data
 
 Each city: `manifests/<city>.yaml` (`regions.yaml` groups cities, sets timezone and map view) and a committed
-FlatGeobuf at the manifest's `fgb_path`, loaded by the server at startup. Pipeline: [docs/operations.md](../docs/operations.md#3-data).
+FlatGeobuf at the manifest's `fgb_path`, loaded by the server at startup. Pipeline: [docs/architecture.md](../docs/architecture.md#3-data).
 
 ## Rebuild
 

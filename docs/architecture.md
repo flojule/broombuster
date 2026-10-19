@@ -1,4 +1,4 @@
-# Operations
+# Architecture
 
 How BroomBuster works, runs and is changed. Each diagram names the code that does the work.
 
@@ -156,31 +156,3 @@ Purge the Cloudflare cache once after changing this.
 
 Per client IP (`LIMITS` in `api/web.py`). The IP is `CF-Connecting-IP`, validated. `BB_RATE_LIMIT=0` turns them off.
 
-## 8. Operate
-
-| Task | When |
-|---|---|
-| Add next year's dates to `data/holidays/*.yaml` | Before 1 December (a test fails from then) |
-| `python scripts/build_layers.py`, commit the changed outputs | Every few months |
-| Check `data/places/markets.yaml` | Each spring |
-| Optional keys in `.env`: `BB_511_API_KEY` (Bay Area work zones), `BB_NREL_API_KEY` (EV layer build) | Optional |
-| Roll back by hand: `./deploy/update.sh <sha>` | If a deploy is bad |
-| Read logs: `journalctl -u broombuster -o cat \| jq 'select(.status>=500)'` | Errors |
-
-Logs are JSON lines. Each response carries `X-Request-ID`, matching the log's `rid`. A refused phone report logs `reason`.
-The calendar feed URL is its secret: the log shows it as `/api/calendar/…`.
-
-Dependabot opens weekly PRs for Python dependencies and monthly ones for Actions.
-
-## 9. Before a layout change ships
-
-Headless WebKit cannot draw Safari's toolbars, the Dynamic Island or the backdrop blur. On an iPhone, in a Safari tab and
-in the home-screen app, check:
-
-- the map reaches the screen edges (the Safari tab stops at the status bar), and the tab bar clears the address bar and home indicator
-- the sheet snaps to its two heights from the grabber, a header or a scrolled-to-top list; the calendar unfolds smoothly; the centre dot stays in view
-- the street card clears the status bar; the locate button shows the blue dot; long-press on the map offers "Add car here"
-- text on the glass stays readable over a busy map
-
-Screenshots for all platforms: `uv tool run --from playwright python scripts/visual_scenarios.py` (also run on every PR by the Visual workflow).
-Safari's Web Inspector over USB shows the live page.
