@@ -194,14 +194,20 @@ def _build_segment_index(gdf) -> SegmentIndex:
     parts, part_row = parts[ok], part_row[ok]
     first, last = shapely.get_point(parts, 0), shapely.get_point(parts, -1)
     xy = np.column_stack([shapely.get_x(first), shapely.get_y(first),
-                          shapely.get_x(last), shapely.get_y(last)]).tolist()
+                          shapely.get_x(last), shapely.get_y(last)])
+    # line_key, vectorised for metres (the served frames): np.round to 0 decimals
+    # is round()'s half-to-even. Degrees still go through line_key itself.
+    metres = np.abs(xy[:, 0]) > 180
+    xy[metres] = np.round(xy[metres])
 
     by_key: dict = {}
-    for pos, (x0, y0, x1, y1) in zip(part_row.tolist(), xy, strict=False):
+    for pos, m, (x0, y0, x1, y1) in zip(part_row.tolist(), metres.tolist(), xy.tolist(),
+                                        strict=True):
         sk = street_keys[pos]
         if not sk:
             continue
-        lst = by_key.setdefault((sk, line_key(((x0, y0), (x1, y1)))), [])
+        ends = ((x0, y0), (x1, y1))
+        lst = by_key.setdefault((sk, frozenset(ends) if m else line_key(ends)), [])
         if not lst or lst[-1] != pos:  # a row's parts can share one key
             lst.append(pos)
 
