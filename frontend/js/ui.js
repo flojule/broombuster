@@ -14,7 +14,8 @@ function showToast(msg, isError = false, ms = 3100) {
 // the app is for), say how to install it full screen. Safari has no install prompt.
 function offerInstall() {
   if (navigator.standalone !== false || !/iPhone|iPad/.test(navigator.userAgent)) return;
-  try { if (localStorage.getItem('bb_install_hint')) return; localStorage.setItem('bb_install_hint', '1'); } catch (_) { return; }
+  if (_read('bb_install_hint')) return;
+  _store('bb_install_hint', '1');
   showToast('Tip: Share › Add to Home Screen opens BroomBuster full screen.', false, 8000);
 }
 
@@ -121,7 +122,7 @@ function _applyDark(on) {
 }
 // Menu choice (auto / light / dark); auto also reacts to the system changing.
 function setThemePref(pref) {
-  if (pref === 'auto') localStorage.removeItem('bb_theme'); else localStorage.setItem('bb_theme', pref);
+  _store('bb_theme', pref === 'auto' ? null : pref);
   _applyDark(_wantDark());
   document.querySelectorAll('#theme-seg button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.theme === pref)));
 }

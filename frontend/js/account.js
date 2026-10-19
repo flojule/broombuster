@@ -22,8 +22,8 @@ async function loadAccount() {
     phoneLinks = me.phone_links || {};
     calendarOn = !!me.calendar;
     if (!account) return;
-    if (me.prefs) localStorage.setItem(PREFS_KEY, JSON.stringify(me.prefs));
-    else if (localStorage.getItem(PREFS_KEY)) _putPrefs(localStorage.getItem(PREFS_KEY));
+    if (me.prefs) _store(PREFS_KEY, JSON.stringify(me.prefs));
+    else if (_read(PREFS_KEY)) _putPrefs(_read(PREFS_KEY));
   } catch (_) {}
 }
 
@@ -68,7 +68,7 @@ async function refreshFromAccount() {
       }
     }
     if (moved.length) {
-      try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
+      _store(PREFS_KEY, JSON.stringify({ cars, homes }));
       for (const car of moved) checkCar(car);
     }
     updateCarMarkers();  // re-renders the cards (phone link status may have changed)
@@ -97,7 +97,7 @@ async function _leaveAccount(request) {
   const res = await request().catch(() => null);
   if (!res?.ok) { showToast('Request failed', true); return; }
   account = null;
-  localStorage.removeItem(PREFS_KEY);  // the account's cars and homes leave this device
+  _store(PREFS_KEY, null);  // the account's cars and homes leave this device
   location.reload();
 }
 

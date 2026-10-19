@@ -4,7 +4,7 @@
       /* Urgency colours (cards, banner, legend); the map paint lives in core.js URGENCY. */
       --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #2563eb;  /* text and swatches: AA on card tints */
       --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
-      --bg: #f8fafc; --card: #ffffff; --text: #1e293b;
+      --card: #ffffff; --text: #1e293b;
       --muted: #526071; --border: #e2e8f0;
       /* Corner radii (iOS 26): concentric, so a box inside another keeps an even margin
          (inner radius = outer radius - the gap between them). */
@@ -23,6 +23,7 @@
       --spring: cubic-bezier(.34, 1.3, .64, 1);    /* a small bounce: menus, the tab pill (refined below) */
       --inset-t: env(safe-area-inset-top, 0px);     /* the notch / Dynamic Island (home-screen app only) */
       --inset-b: env(safe-area-inset-bottom, 0px);
+      --inset-l: env(safe-area-inset-left, 0px); --inset-r: env(safe-area-inset-right, 0px);  /* a phone on its side */
       --sheet-h: 0px; /* sheet height (phone), set from JS */
       --street: #15803d;  /* street sweeping days in the calendar */
       --tint-fg: #1d4ed8; /* blue text on a blue-tinted button (AA) */
@@ -123,11 +124,12 @@
     /* ── Map controls: top right, below the status bar (as in Find My) ── */
     /* One glass capsule holding the buttons, hairlines between them (as in Maps). */
     #map-ctrl {
-      position: absolute; right: var(--edge); top: calc(var(--inset-t) + var(--edge)); z-index: 24;
+      position: absolute; right: calc(var(--inset-r) + var(--edge)); top: calc(var(--inset-t) + var(--edge)); z-index: 24;
       display: flex; flex-direction: column; align-items: center;
       background: var(--glass); border-radius: var(--pill); box-shadow: var(--rim), var(--shadow-1);
     }
     body.placing #map-ctrl { display: none; }
+    body.naming #signs { display: none; }  /* the name box sits where the sign does on a phone */
     .map-btn {
       position: relative; width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center;
       color: var(--text); border-radius: var(--pill); font-size: 1.1rem;
@@ -191,14 +193,14 @@
                  color: var(--text); font-size: .88rem; font-weight: 500; text-decoration: none; overflow-wrap: anywhere; }
     .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
     :is(button, a).menu-item:hover { background: var(--fill); }
-    a.menu-item { color: var(--tint-fg); }
+    :is(button, a).menu-item { color: var(--tint-fg); }  /* an action; a plain row keeps the text colour */
     .note { margin: 0 14px; font-size: .74rem; color: var(--muted); line-height: 1.4; font-weight: 400; }
     .sec .note { margin: 0; }
     .rows .note { padding: 6px 16px 8px; }
     .about { font-size: .7rem; line-height: 1.45; }
     .about a { color: inherit; }
     /* Destructive actions; after the row styles so it wins over their colour. */
-    .danger, a.danger { color: var(--urg-today); }
+    .danger, .menu-item.danger { color: var(--urg-today); }
 
     /* ── Settings tab ── */
     /* The account's sections (js/account.js) join the tab's column. */
@@ -241,9 +243,9 @@
       flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
       padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
     }
-    .head-btn { flex: none; position: relative; display: flex; align-items: center; justify-content: center; color: var(--muted); }
-    .round-btn { flex: none; position: relative; display: flex; align-items: center; justify-content: center;
-                 width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem; background: var(--fill); }
+    :is(.head-btn, .round-btn) { flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
+    .head-btn { color: var(--muted); }
+    .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem; background: var(--fill); }
     .round-btn::after { content: ''; position: absolute; inset: -4px; }  /* 44 pt touch target */
     #btn-add, #btn-item-more { color: var(--blue); }
     /* Tab bar (iOS 26): a capsule at the sheet's foot, icon over label, the selected tab in
@@ -433,7 +435,7 @@
     #ic-cal.cal-small .cal-scroll { overflow-y: hidden; touch-action: none; scroll-snap-type: none; }  /* hidden weeks are no snap points */
     #ic-cal.cal-folded .cal-day:not(.cal-on) { visibility: hidden; }
     /* Dragged up, the weeks below unfold under the finger (those above stay hidden). */
-    #sheet.dragging #ic-cal .cal-day:not(:has(~ .cal-on)) { visibility: visible; }
+    #sheet.dragging #ic-cal .cal-near { visibility: visible; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 40px; gap: 3px; text-align: center; }
     .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .56rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
     .sw-now .cal-mo, .sw-next .cal-mo { color: #fff; }
@@ -469,7 +471,7 @@
 
     /* ── Dark mode ── */
     body.dark {
-      --bg: #0f172a; --card: #1e293b; --text: #e2e8f0;
+      --card: #1e293b; --text: #e2e8f0;
       --muted: #94a3b8; --border: #334155;
       --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #60a5fa;
       --tint-fg: #93b4f8; --home: #4ade80;
@@ -519,7 +521,7 @@
        the signs sit at the top left of the map beside it. Keep the query in step with
        isDesktop(). ── */
     @media (min-width: 768px), (orientation: landscape) and (max-height: 500px) {
-      #sheet { left: var(--edge); top: var(--edge); bottom: var(--edge); right: auto; width: var(--panel-w); height: auto; transition: none; }
+      #sheet { left: calc(var(--inset-l) + var(--edge)); top: var(--edge); bottom: var(--edge); right: auto; width: var(--panel-w); height: auto; transition: none; }
       #sheet-grabber { display: none; }
       .tab-head { padding-top: 4px; }
       .tab-title { font-size: 1.2rem; }
@@ -531,12 +533,12 @@
       #tabbar [role="tab"] svg.ic { display: none; }
       .tab-badge { top: 3px; left: auto; right: 3px; width: 8px; height: 8px; }
       #map-ctrl, #signs { top: var(--edge); }
-      #signs { left: calc(var(--panel-w) + 2 * var(--edge)); }
+      #signs { left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
       .zoom-btn { display: flex; }
       /* The panel's height is fixed: the grid fills it with whole weeks (js/calendar.js
          fitCalWeeks), the day details take what is left under it. */
       .cal-detail { flex: 1 1 auto; }
       /* Centred in the map area right of the panel. */
-      #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--panel-w) + var(--edge)) / 2); }
-      #toast-container { bottom: 24px; left: calc(var(--panel-w) + 2 * var(--edge)); }
+      #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--inset-l) + var(--panel-w) + var(--edge)) / 2); }
+      #toast-container { bottom: 24px; left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
     }

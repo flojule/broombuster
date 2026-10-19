@@ -23,6 +23,13 @@ function nextCarColor() {
 }
 
 // ── Shared utilities ──────────────────────────────────────────────────────────
+// This device's settings. Storage can be off (private browsing, blocked site data): then
+// nothing is remembered, and nothing breaks. _store(key, null) forgets one.
+const _read = key => { try { return localStorage.getItem(key); } catch (_) { return null; } };
+const _stored = (key, allowed, fallback) => { const v = _read(key); return allowed.includes(v) ? v : fallback; };
+const _store = (key, v) => {
+  try { if (v === null) localStorage.removeItem(key); else localStorage.setItem(key, v); } catch (_) {}
+};
 // Inline SVG icon from the sprite in index.html (stroke follows text colour).
 function icon(name) { return `<svg class="ic"><use href="#i-${name}"/></svg>`; }
 
@@ -222,10 +229,7 @@ const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/positron';
 const DARK_STYLE  = 'https://tiles.openfreemap.org/styles/dark';
 // Appearance: 'auto' follows the system; 'light' / 'dark' pin it (menu).
 const _sysDark = window.matchMedia('(prefers-color-scheme: dark)');
-function _themePref() {
-  const v = localStorage.getItem('bb_theme');
-  return v === 'light' || v === 'dark' ? v : 'auto';
-}
+const _themePref = () => _stored('bb_theme', ['light', 'dark'], 'auto');
 function _wantDark() { const p = _themePref(); return p === 'auto' ? _sysDark.matches : p === 'dark'; }
 let _mapStyle = _wantDark() ? DARK_STYLE : LIGHT_STYLE;
 

@@ -80,10 +80,11 @@ THEMES = ("light", "dark")
 VIEWS = {
     # Calendar tab, small sheet: one week.
     "strip":  lambda pg: None,
-    # Mid-drag between small and medium: the weeks below unfold.
-    "unfold": lambda pg: pg.evaluate("sheet.classList.add('dragging'); sheet.style.height = (detentHeights().small + 120) + 'px'"),
-    # Tapping a day: the month view, sheet at medium.
-    "month":  lambda pg: pg.click("#ic-cal .cal-sel"),
+    # Mid-drag between small and medium: the weeks below unfold (a phone's sheet; the panel has no drag).
+    "unfold": lambda pg: pg.evaluate("isDesktop() || (sheet.classList.add('dragging'),"
+                                     " sheet.style.height = (detentHeights().small + 120) + 'px')"),
+    # The month view: the calendar at medium.
+    "month":  lambda pg: pg.evaluate("setDetent('medium')"),
     "saved":  lambda pg: (pg.click("#tb-saved"), pg.evaluate("setDetent('medium')")),
     # A car's page, opened from the Saved list.
     "item":   lambda pg: (pg.click("#tb-saved"), pg.evaluate("setDetent('medium')"),
@@ -95,7 +96,7 @@ VIEWS = {
     # A home's page, opened from its pin.
     "home":   lambda pg: pg.evaluate("openItem('h1')"),
     "add":    lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),
-    "me":     lambda pg: (pg.click("#tb-me"), pg.evaluate("setDetent('medium')")),
+    "settings": lambda pg: (pg.click("#tb-settings"), pg.evaluate("setDetent('medium')")),
     # Nearby: markets, events and meetings near the centre target.
     "nearby": lambda pg: (pg.click("#tb-nearby"), pg.evaluate("setDetent('medium')"),
                           pg.wait_for_function("!document.querySelector('#nearby-body').textContent.includes('Loading')",

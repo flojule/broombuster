@@ -71,7 +71,7 @@ async function loadCities() {
 const PREFS_KEY = 'bb_prefs';
 function loadPrefs() {
   let p = {};
-  try { p = JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch (_) {}
+  try { p = JSON.parse(_read(PREFS_KEY)) || {}; } catch (_) {}
   cars = Array.isArray(p.cars) ? p.cars : [];
   homes = Array.isArray(p.homes) ? p.homes : [];
   // Cars saved before colours were stored keep the colour their position gave them.
@@ -85,7 +85,7 @@ function touchCarLocation(car) {
   car.loc_rev = Math.max((car.loc_rev || 0) + 1, Math.floor(Date.now() / 1000));
 }
 function savePrefs() {
-  try { localStorage.setItem(PREFS_KEY, JSON.stringify({ cars, homes })); } catch (_) {}
+  _store(PREFS_KEY, JSON.stringify({ cars, homes }));
   syncPrefs();
 }
 

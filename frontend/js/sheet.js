@@ -10,10 +10,6 @@
 const tabbar  = document.getElementById('tabbar');
 const grabber = document.getElementById('sheet-grabber');
 const TABS = ['calendar', 'saved', 'nearby', 'settings'];
-const _stored = (key, allowed, fallback) => {
-  try { const v = localStorage.getItem(key); return allowed.includes(v) ? v : fallback; } catch (_) { return fallback; }
-};
-const _store = (key, v) => { try { localStorage.setItem(key, v); } catch (_) {} };
 let _tab = _stored('bb_tab', [...TABS, 'me'], 'calendar').replace(/^me$/, 'settings');  // Settings was "Me"
 // The detents of a tab, smallest first; each kind of tab remembers where it was left.
 const _kind = t => t === 'calendar' ? 'calendar' : 'list';
@@ -183,9 +179,11 @@ function showTab(name) {
   tabbar.style.setProperty('--i', TABS.indexOf(name));  // the selected pill slides to it
   for (const t of TABS) document.getElementById('tab-' + t).hidden = t !== name;
   _detent = _detentOf[_kind(name)];
+  // The calendar is measured first, while the sheet still rests at the last tab's height,
+  // so the sheet moves once, to the calendar's own height.
+  if (name === 'calendar' && typeof calShown === 'function') calShown();
   applySheet();
   if (name === 'settings' && typeof renderAccountSection === 'function') renderAccountSection();
-  if (name === 'calendar' && typeof calShown === 'function') calShown();
   if (name === 'nearby' && typeof nearbyShown === 'function') nearbyShown();
 }
 // Tapping the open tab again, with the sheet at its smallest, opens it.

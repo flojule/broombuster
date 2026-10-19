@@ -24,7 +24,7 @@ function _nearbyDay(iso, today) {
 function _safeUrl(u) { return /^https?:\/\//.test(u || '') ? u : ''; }
 
 function _nearbyRow(it) {
-  const meta = [it.time, it.place, it.km != null ? `${it.km} km` : ''].filter(Boolean).join(' · ');
+  const meta = [it.time, it.place, it.km != null ? `${(it.km / 1.609).toFixed(1)} mi` : ''].filter(Boolean).join(' · ');
   const url = _safeUrl(it.url);
   const title = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(it.title)}</a>` : esc(it.title);
   return `<div class="nb-row"><span class="nb-kind nb-${esc(it.kind)}">${esc(NEARBY_KIND[it.kind] || it.kind)}</span>`
@@ -46,7 +46,7 @@ function renderNearby(data) {
       ? `<a class="nb-link" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>` : '').join('') + '</div>'
     : '';
   nearbyBody.innerHTML = (days || '<p class="note">Nothing listed near here this week.</p>') + links
-    + '<p class="note">From open data and the markets’ own pages; check with the organiser before you go.</p>';
+    + '<p class="note">From open data and the markets’ own pages; check with the organizer before you go.</p>';
 }
 
 async function loadNearby() {
