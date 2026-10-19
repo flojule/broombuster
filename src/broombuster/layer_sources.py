@@ -144,21 +144,77 @@ def permit_area(v) -> str:
     return "" if v in ("", "0") else v
 
 
+_BERKELEY_RPP_MAP = f"{BERKELEY}/Public_Online_RPP_Map_WFL1/FeatureServer"
+
+
 def berkeley_parking():
-    url = f"{BERKELEY}/Public_Online_RPP_Map_WFL1/FeatureServer/10"
+    # The streets with RPP restrictions (one shape per street and area; "AB": either).
+    url = f"{_BERKELEY_RPP_MAP}/10"
     gdf, asof = arcgis(url, fields="Area")
     gdf = gdf[gdf["Area"].map(permit_area) != ""]
-    # The city's RPP map colours, by area.
-    colors = {permit_area(k): c for k, c in arcgis_colors(url).items()}
-    gdf = _out(gdf, lambda r: f"Permit area {permit_area(r['Area'])}", _BERKELEY_RPP, asof)
-    gdf[COLOR] = [colors.get(lbl.removeprefix("Permit area ")) for lbl in gdf["label"]]
-    return gdf
+    return _out(gdf, lambda r: f"Permit area {permit_area(r['Area'])}", _BERKELEY_RPP, asof)
 
 
 def oakland_parking():
     gdf, asof = arcgis(f"{OAKLAND}/RPPCurbs0819/FeatureServer/0", fields="RPP_ZONE")
     gdf = gdf[gdf["RPP_ZONE"].map(permit_area) != ""]
     return _out(gdf, lambda r: f"Permit area {permit_area(r['RPP_ZONE'])}", _OAKLAND_RPP, asof)
+
+
+# ── Permit areas (the map's) ──────────────────────────────────────────────────
+# Each city's published area boundaries: where residents can get the area's permit. The
+# curbs above say which blocks are restricted; the area is what the map draws and what
+# applies to a car anywhere inside it.
+
+AREA_RULE = ("Residential permit area: on its signed blocks, permit holders are exempt "
+             "from the time limit. This block's signs say whether it is one.")
+
+
+def _areas(gdf: geopandas.GeoDataFrame, key: str, asof: str,
+           close_m: float = 0, min_m2: float = 2000) -> geopandas.GeoDataFrame:
+    """One clean polygon per permit area: the source's shapes by permit_area(key), merged,
+    closed over 2 * close_m gaps (parcel sources: the streets between their lots), parts
+    and holes under min_m2 dropped, simplified ~2 m, and no two areas overlapping (a
+    shared edge drawn twice goes to the first area by label)."""
+    gdf = gdf.assign(_k=gdf[key].map(permit_area))
+    gdf = gdf[(gdf["_k"] != "") & gdf.geometry.notna()].to_crs(3857)
+    gdf["geometry"] = gdf.geometry.make_valid()
+    m = gdf.dissolve(by="_k", as_index=False).sort_values("_k")
+    taken, geoms = shapely.Polygon(), []
+    for g in m.geometry:
+        if close_m:
+            g = g.buffer(close_m).buffer(-close_m)
+        g = _clean(shapely.make_valid(g).buffer(0), min_m2).simplify(2).difference(taken)
+        g = _clean(g.buffer(0), min_m2)  # what the difference left of a sliver
+        taken = taken.union(g)
+        geoms.append(g)
+    m["geometry"] = geoms
+    m = m[~m.geometry.is_empty]
+    return _out(m.to_crs(4326), lambda r: f"Permit area {r['_k']}", AREA_RULE, asof)
+
+
+def berkeley_areas():
+    gdf, asof = arcgis(f"{_BERKELEY_RPP_MAP}/6", fields="Area")
+    out = _areas(gdf, "Area", asof)
+    # The city's RPP map colours, by area (the streets layer carries the renderer).
+    colors = {permit_area(k): c for k, c in arcgis_colors(f"{_BERKELEY_RPP_MAP}/10").items()}
+    out[COLOR] = [colors.get(lbl.removeprefix("Permit area ")) for lbl in out["label"]]
+    return out
+
+
+def oakland_areas():
+    gdf, asof = arcgis(f"{OAKLAND}/RPP_Boundaries_1218/FeatureServer/0", fields="Zone")
+    return _areas(gdf, "Zone", asof)
+
+
+def sf_areas():
+    # SFMTA's eligible parcels, each with its area: merged, they close over the streets
+    # (up to 60 m: the boulevards); a stray block of lots or a hole under a block goes.
+    gdf, asof = socrata("data.sf.gov", "i886-hxz9", select="rppeligib,shape")
+    return _areas(gdf, "rppeligib", asof, close_m=30, min_m2=20000)
+
+
+AREAS = {"berkeley": berkeley_areas, "oakland": oakland_areas, "san_francisco": sf_areas}
 
 
 def _txt(r, key: str) -> str:

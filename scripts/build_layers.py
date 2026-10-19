@@ -35,6 +35,14 @@ def _write_fgb(gdf, path: Path) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def _clip(gdf, city_key: str):
+    """Only the city (some sources are county- or statewide), schema columns only."""
+    lat0, lon0, lat1, lon1 = CITIES[city_key]["bbox"]
+    gdf = gdf.clip(shapely.box(lon0, lat0, lon1, lat1))
+    cols = [c for c in (*layer_sources.COLUMNS, layer_sources.COLOR) if c in gdf]
+    return gdf[~gdf.geometry.is_empty][[*cols, "geometry"]]
+
+
 def build_city(city_key: str, themes: list[str] | None) -> list[str]:
     """Rebuild a city's layers; returns the themes that failed."""
     failed = []
@@ -56,14 +64,28 @@ def build_city(city_key: str, themes: list[str] | None) -> list[str]:
             print(f"    {theme}: no features; keeping the previous file")
             failed.append(theme)
             continue
-        # Only the city: some sources are county- or statewide.
-        lat0, lon0, lat1, lon1 = CITIES[city_key]["bbox"]
-        gdf = gdf.clip(shapely.box(lon0, lat0, lon1, lat1))
-        cols = [c for c in (*layer_sources.COLUMNS, layer_sources.COLOR) if c in gdf]
-        gdf = gdf[~gdf.geometry.is_empty][[*cols, "geometry"]]
+        gdf = _clip(gdf, city_key)
         _write_fgb(gdf, layers.fgb_path(city_key, theme))
         print(f"    {theme}: {len(gdf):,} features")
+        if theme == "parking" and city_key in layer_sources.AREAS:
+            failed += _build_areas(city_key)
     return failed
+
+
+def _build_areas(city_key: str) -> list[str]:
+    """data/<city dir>/permit_areas.fgb: the city's published permit area boundaries."""
+    try:
+        gdf = layer_sources.AREAS[city_key]()
+    except Exception as e:
+        print(f"    {layers.AREAS}: FAILED ({e}); keeping the previous file")
+        return [layers.AREAS]
+    gdf = _clip(gdf, city_key)
+    if gdf.empty:
+        print(f"    {layers.AREAS}: no features; keeping the previous file")
+        return [layers.AREAS]
+    _write_fgb(gdf, layers.fgb_path(city_key, layers.AREAS))
+    print(f"    {layers.AREAS}: {len(gdf):,} areas")
+    return []
 
 
 def build_tables(city_key: str) -> list[str]:
@@ -121,15 +143,17 @@ def _edge(color: str) -> str | None:
 
 
 def permit_areas(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    """The map's copy of the parking layer: one area per permit area, each in its own
-    colour (_area_colors). Curb-line sources (Oakland, San Francisco) become the area
-    their streets cover: the lines widened by 70 m, merged, then shrunk back to 15 m past
-    the outer streets, which fills the blocks between them. Other rules (time limits,
-    tow-away) stay off the map; the street card reads them from the FGBs."""
-    g = gdf[gdf["label"].str.match(r"Permit (area|zone) ")].to_crs(3857)
-    g = g.dissolve(by=["city", "label"], as_index=False, aggfunc="first")
-    g["geometry"] = [geom if geom.geom_type.endswith("Polygon")
-                     else geom.buffer(70).buffer(-55).simplify(8) for geom in g.geometry]
+    """The map's copy of the region's permit areas (each city's permit_areas.fgb): where
+    two cities' areas overlap (their borders, drawn by each), the newer source keeps the
+    overlap; each area in its own colour (_area_colors), edged darker when that is pale."""
+    g = gdf.to_crs(3857).sort_values(["asof", "city"], ascending=False)
+    taken = {}
+    for i, row in g.iterrows():
+        others = [geom for ck, geom in taken.items() if ck != row["city"]]
+        geom = row.geometry.difference(shapely.union_all(others)) if others else row.geometry
+        g.at[i, "geometry"] = geom
+        taken[row["city"]] = shapely.union(taken.get(row["city"], shapely.Polygon()), geom)
+    g = g[~g.geometry.is_empty].sort_index()
     g[layer_sources.COLOR] = _area_colors(g)
     g["edge"] = g[layer_sources.COLOR].map(_edge)
     return g.to_crs(4326)[["label", "city", layer_sources.COLOR, "edge", "geometry"]]
@@ -142,7 +166,8 @@ def build_region_geojson(region_key: str) -> None:
     for theme in layers.THEMES:
         parts = []
         for ck in REGIONS[region_key]["cities"]:
-            p = layers.fgb_path(ck, theme)
+            # The map draws the permit areas, not the curbs (layers.AREAS).
+            p = layers.fgb_path(ck, layers.AREAS if theme == "parking" else theme)
             if p.exists():
                 g = geopandas.read_file(p)
                 g["city"] = ck
