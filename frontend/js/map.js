@@ -139,7 +139,12 @@ function addTilePaintLayers() {
     filter: ['==', ['get', 'render_type'], 'polygon'],
     paint: { 'fill-color': _urgCase('fill') },
   });
-  // The street (or zone) at the target: a soft blue glow under its colour (setActiveFeature).
+  // The zone at the target: its colour again, so it is shaded deeper (setActiveFeature).
+  addLayer({
+    id: 'zones-here', type: 'fill', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+    filter: ['==', ['id'], -1], paint: { 'fill-color': _urgCase('fill') },
+  });
+  // The street at the target: a soft blue glow under its colour.
   addLayer({
     id: 'zones-active', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['id'], -1],
@@ -184,12 +189,16 @@ function addTilePaintLayers() {
   _activeId = null;
 }
 
-// Glow the feature at the target (id from the tiles; null: none).
+// Mark the feature at the target (id from the tiles; null: none): a street glows, a zone is
+// shaded deeper, and so is a permit area there (markOverlayAtTarget, js/layers.js).
 let _activeId = null;
 function setActiveFeature(id) {
+  markOverlayAtTarget();
   if (id === _activeId || !map?.getLayer('zones-active')) return;
   _activeId = id;
-  map.setFilter('zones-active', ['==', ['id'], id ?? -1]);
+  const is = ['==', ['id'], id ?? -1], zone = ['==', ['get', 'render_type'], 'polygon'];
+  map.setFilter('zones-here', ['all', is, zone]);
+  map.setFilter('zones-active', ['all', is, ['!', zone]]);
 }
 
 // ── Areas ─────────────────────────────────────────────────────────────────────

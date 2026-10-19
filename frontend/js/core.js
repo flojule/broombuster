@@ -204,7 +204,7 @@ let _tempPinMarker = null;
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
-const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-outline', 'zones-ward', 'zones-line', 'zones-side-even', 'zones-side-odd'];
+const ZONE_LAYERS  = ['zones-fill', 'zones-here', 'zones-active', 'zones-outline', 'zones-ward', 'zones-line', 'zones-side-even', 'zones-side-odd'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
 // Vector tile source; per-feature urgency arrives via feature-state.
