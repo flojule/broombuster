@@ -146,7 +146,8 @@ def test_permit_areas_take_the_city_colour_else_one_their_neighbours_lack():
     sq = [shapely.box(-122.42 + i * 0.002, 37.77, -122.4185 + i * 0.002, 37.7715) for i in range(4)]
     gdf = geopandas.GeoDataFrame(
         {"label": [f"Permit area {c}" for c in "ABCD"], "city": ["oakland"] * 4,
-         "color": ["#ffff73", None, None, None]}, geometry=sq, crs="EPSG:4326")
+         "asof": ["2019-01-09"] * 4, "color": ["#ffff73", None, None, None]},
+        geometry=sq, crs="EPSG:4326")
     out = build.permit_areas(gdf).set_index("label")
     assert out.loc["Permit area A", "color"] == "#ffff73"
     assert out.loc["Permit area A", "edge"] == "#999945"  # pale: a darker edge
@@ -156,7 +157,7 @@ def test_permit_areas_take_the_city_colour_else_one_their_neighbours_lack():
 
 
 def test_rules_inside_a_permit_area_away_from_its_curbs(app_client, monkeypatch):
-    # Oakland's permit data is curbs: mid-block, the area as drawn on the map still applies.
+    # Away from any permit curb, the area as drawn on the map still applies.
     from broombuster import feeds
     monkeypatch.setattr(feeds, "closures", lambda region, now=None: [])
     fc = json.loads((_ROOT / "frontend" / "layers" / "bay_area" / "parking.geojson").read_text())
@@ -165,21 +166,55 @@ def test_rules_inside_a_permit_area_away_from_its_curbs(app_client, monkeypatch)
     rules = app_client.get("/api/rules", params={"lat": p.y, "lon": p.x}).json()["rules"]
     hit = [r for r in rules if r["label"] == f["properties"]["label"]]
     assert hit and hit[0]["color"] == f["properties"]["color"] and "exempt" in hit[0]["rule"]
+    assert hit[0]["asof"]
 
 
-def test_permit_areas_fill_the_blocks_between_their_streets():
-    # The map's copy (scripts/build_layers.py): two parallel curb lines of one area, 100 m
-    # apart, become one area covering the block between them; other rules leave the map.
+@pytest.mark.parametrize("city", sorted(layer_sources.AREAS))
+def test_committed_permit_areas_are_one_clean_polygon_each(city):
+    gdf = geopandas.read_file(layers.fgb_path(city, layers.AREAS))
+    assert list(gdf.columns[:3]) == list(layer_sources.COLUMNS)
+    assert gdf["label"].is_unique and gdf["label"].str.match(r"Permit area \w+$").all()
+    assert gdf.geometry.is_valid.all()
+    assert set(gdf.geometry.geom_type) <= {"Polygon", "MultiPolygon"}
+    m = gdf.to_crs(3857)
+    for (_, a), (_, b) in itertools.combinations(m.iterrows(), 2):
+        assert a.geometry.intersection(b.geometry).area < 1, (a["label"], b["label"])
+
+
+def test_map_permit_areas_do_not_overlap_across_cities():
+    g = geopandas.read_file(_ROOT / "frontend" / "layers" / "bay_area" / "parking.geojson")
+    by_city = [part.to_crs(3857).union_all() for _, part in g.groupby("city")]
+    for a, b in itertools.combinations(by_city, 2):
+        assert a.intersection(b).area < 500  # the 1e-6° coordinate rounding only
+
+
+def _square(x0, y0, size_m):
+    m = 1 / 111_000  # ° per metre, near enough for a test
+    return shapely.box(-122.42 + x0 * m, 37.77 + y0 * m,
+                       -122.42 + (x0 + size_m) * m, 37.77 + (y0 + size_m) * m)
+
+
+def test_areas_close_over_streets_and_never_overlap():
+    # Parcel sources (SF): one area's lots across a 30 m street become one area; a lot
+    # drawn in two areas goes to the first by label; a lone sliver is dropped.
+    lots = [_square(0, 0, 100), _square(130, 0, 100), _square(220, 0, 100), _square(500, 0, 5)]
+    gdf = geopandas.GeoDataFrame({"area": ["A", "A", "B", "A"]}, geometry=lots,
+                                 crs="EPSG:4326")
+    out = layer_sources._areas(gdf, "area", "2024-01-15", close_m=20).set_index("label")
+    a, b = out.geometry["Permit area A"], out.geometry["Permit area B"]
+    assert len(a.geoms) == 1  # the street between the lots closed, the sliver gone
+    assert a.contains(_square(100, 40, 30).centroid)
+    assert b.intersection(a).area < 1e-12 and not b.is_empty
+    assert set(out["rule"]) == {layer_sources.AREA_RULE} and set(out["asof"]) == {"2024-01-15"}
+
+
+def test_map_areas_give_a_cross_city_overlap_to_the_newer_source():
     build = _build()
-    m = 1 / 111_000  # ° of latitude per metre
-    lines = [shapely.LineString([(-122.42, 37.77 + y * m), (-122.4185, 37.77 + y * m)])
-             for y in (0, 100)]
     gdf = geopandas.GeoDataFrame(
-        {"label": ["Permit area S", "Permit area S", "4 h limit"], "city": ["san_francisco"] * 3},
-        geometry=[*lines, lines[0]], crs="EPSG:4326")
-    out = build.permit_areas(gdf)
-    assert list(out["label"]) == ["Permit area S"]
-    (area,) = out.geometry
-    assert area.geom_type.endswith("Polygon")
-    assert area.contains(shapely.Point(-122.41925, 37.77 + 50 * m))  # mid-block
-    assert not area.contains(shapely.Point(-122.41925, 37.77 + 200 * m))  # past the outer street
+        {"label": ["Permit area A", "Permit area D"], "city": ["berkeley", "oakland"],
+         "asof": ["2026-08-19", "2019-01-09"]},
+        geometry=[_square(0, 0, 100), _square(50, 0, 100)], crs="EPSG:4326")
+    out = build.permit_areas(gdf).set_index("city")
+    assert out.geometry["berkeley"].symmetric_difference(gdf.geometry[0]).area < 1e-12
+    assert not out.geometry["oakland"].contains(_square(60, 40, 10).centroid)
+    assert out.geometry["oakland"].contains(_square(120, 40, 10).centroid)

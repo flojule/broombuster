@@ -26,6 +26,7 @@ THEMES = {
     "markets": {"name": "Farmers markets", "map": True, "near_m": 0, "applies_to": "map"},
 }
 
+AREAS = "permit_areas"  # data/<city>/permit_areas.fgb: the parking theme's areas (the map's)
 _FRONTEND = Path(REPO_ROOT) / "frontend" / "layers"
 LIVE_CLOSURES = ("bay_area",)  # regions with a live closures feed (feeds.py)
 _loaded: dict[str, dict[str, geopandas.GeoDataFrame]] = {}  # region -> theme -> EPSG:3857
@@ -61,22 +62,23 @@ def load_all() -> None:
                 gdf.sindex  # noqa: B018 — builds the STRtree
                 themes[theme] = gdf
         _loaded[rk] = themes
-        _areas[rk] = _permit_areas(rk, themes.get("parking"))
+        _areas[rk] = _permit_areas(rk)
 
 
-def _permit_areas(region_key: str, curbs: geopandas.GeoDataFrame | None):
-    """The region's permit areas as drawn on the map (frontend/layers/<region>/parking.geojson,
-    scripts/build_layers.py), each with its most common rule in the city's data."""
+def _permit_areas(region_key: str):
+    """The region's permit areas as drawn on the map (frontend/layers/<region>/parking.geojson:
+    label, city, color), with their rule and date (data/<city>/permit_areas.fgb)."""
     path = _FRONTEND / region_key / "parking.geojson"
-    if curbs is None or not path.exists():
+    facts = [geopandas.read_file(p, ignore_geometry=True).assign(city=ck)
+             for ck in REGIONS[region_key]["cities"]
+             if (p := fgb_path(ck, AREAS)).exists()]
+    if not facts or not path.exists():
         return None
     g = geopandas.read_file(path).to_crs(3857)
-    by = curbs.groupby(["city", "label"])
-    rule = by["rule"].agg(lambda s: s.mode().iat[0])
-    asof = by["asof"].max()
+    facts = pd.concat(facts).set_index(["city", "label"])
     keys = list(zip(g["city"], g["label"], strict=True))
-    g["rule"] = [rule.get(k, "") for k in keys]
-    g["asof"] = [asof.get(k, "") for k in keys]
+    g["rule"] = [facts["rule"].get(k, "") for k in keys]
+    g["asof"] = [facts["asof"].get(k, "") for k in keys]
     g.sindex  # noqa: B018
     return g
 

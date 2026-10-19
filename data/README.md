@@ -29,7 +29,11 @@ new.
   Socrata, the DOE/NLR EV station API, `places/markets.yaml`). It writes
   `<city dir>/<theme>.fgb` (label, rule, asof only, clipped to the city's bbox) for the
   server's `/api/rules`, and `frontend/layers/<region>/<theme>.geojson` (label, city) for
-  the map. Chicago's permit zones by address go to `chicago/permit_zones.csv`.
+  the map. Permit areas: the parking FGB holds the curbs (each block's rule), and
+  `<city dir>/permit_areas.fgb` the city's published area boundaries (Berkeley's and
+  Oakland's area polygons, SF's eligible parcels merged per area), which the map draws;
+  areas never overlap (within a city the first by label keeps a shared edge, across
+  cities the newer source). Chicago's permit zones by address go to `chicago/permit_zones.csv`.
   Commit the outputs. A source that fails keeps its previous files.
 - `places/markets.yaml`: weekly farmers markets, kept by hand (no open feed exists).
 
