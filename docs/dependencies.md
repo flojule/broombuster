@@ -33,13 +33,11 @@ pyproject.toml
   ├─ api       fastapi 0.143  ──▶ starlette 1.8, pydantic 2.14
   │            uvicorn 0.54 (standard)
   │
-  ├─ scripts   pdfplumber 0.11
+  ├─ scripts   cairosvg 2.9 · pdfplumber 0.11
   │
-  ├─ dev       pytest 9.1 · ruff 0.16 · httpx2 2.13
+  ├─ visual    playwright 1.64 (WebKit and Chromium: uv run playwright install)
   │
-  └─ NOT DECLARED, imported anyway
-               cairosvg     scripts/build_icons.py
-               playwright   scripts/visual_scenarios.py (run via uv tool run --from playwright)
+  └─ dev       pytest 9.1 · ruff 0.16 · httpx2 2.13
 ```
 
 | Package | Used for | Where |
@@ -53,7 +51,8 @@ pyproject.toml
 | Uvicorn | ASGI server | `run.sh`, `broombuster.service` |
 | SQLite (stdlib) | Accounts, hashed sessions, cars, phone tokens | `api/auth.py` |
 | pdfplumber | Reading published PDFs | `scripts/pdf_city.py` |
-| cairosvg | PNG icons from `frontend/icon.svg` | `scripts/build_icons.py` |
+| cairosvg | PNG icons from `frontend/icon.svg` | `scripts/build_icons.py` (`--extra scripts`) |
+| playwright | Layout screenshots and checks | `scripts/visual_scenarios.py` (`--extra visual`) |
 
 ## 3. Browser
 
