@@ -17,8 +17,12 @@ def app_version() -> str:
     try:
         out = subprocess.run(
             ["git", "log", "--first-parent", "--format=%cd", "--date=format-local:%Y.%m.%d"],  # noqa: S607
-            cwd=config.REPO_ROOT, env={**os.environ, "TZ": "UTC"},  # noqa: TID251 (passed to git, not a setting)
-            capture_output=True, text=True, timeout=10, check=True,
+            cwd=config.REPO_ROOT,
+            env={**os.environ, "TZ": "UTC"},  # noqa: TID251 (passed to git, not a setting)
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
         ).stdout.split()
     except (OSError, subprocess.SubprocessError):
         return "dev"

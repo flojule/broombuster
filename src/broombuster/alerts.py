@@ -11,9 +11,12 @@ from broombuster import feeds
 _NWS = "https://api.weather.gov/alerts/active"
 _STA = "https://www.baaqmd.gov/alertstatus"
 # NWS events worth telling someone who parks on the street.
-_EVENTS = re.compile(r"red flag|fire weather|winter storm|blizzard|snow|ice storm|flood|"
-                     r"high wind|wind advisory|excessive heat|extreme heat|heat advisory|"
-                     r"tsunami|evacuation|air quality", re.I)
+_EVENTS = re.compile(
+    r"red flag|fire weather|winter storm|blizzard|snow|ice storm|flood|"
+    r"high wind|wind advisory|excessive heat|extreme heat|heat advisory|"
+    r"tsunami|evacuation|air quality",
+    re.I,
+)
 
 
 def _nws(lat: float, lon: float):
@@ -26,9 +29,16 @@ def _nws(lat: float, lon: float):
         event = p.get("event") or ""
         if not _EVENTS.search(event):
             continue
-        out.append({"title": event, "until": p.get("ends") or p.get("expires") or "",
-                    "detail": p.get("headline") or "", "source": "National Weather Service",
-                    "severity": p.get("severity") or "", "url": "https://alerts.weather.gov/"})
+        out.append(
+            {
+                "title": event,
+                "until": p.get("ends") or p.get("expires") or "",
+                "detail": p.get("headline") or "",
+                "source": "National Weather Service",
+                "severity": p.get("severity") or "",
+                "url": "https://alerts.weather.gov/",
+            }
+        )
     return out
 
 
@@ -45,17 +55,29 @@ def parse_spare_the_air(page: str) -> bool | None:
 
 def _spare_the_air():
     try:
-        r = requests.get(_STA, headers={"User-Agent": "Mozilla/5.0 (BroomBuster)"},
-                         timeout=feeds.TIMEOUT_S)
+        r = requests.get(
+            _STA, headers={"User-Agent": "Mozilla/5.0 (BroomBuster)"}, timeout=feeds.TIMEOUT_S
+        )
         r.raise_for_status()
     except requests.RequestException:
         return None
     on = parse_spare_the_air(r.text)
     if on is None:
         return None
-    return [{"title": "Spare the Air Alert", "until": "", "severity": "Moderate",
-             "detail": "No wood burning, indoors or out; drive less.",
-             "source": "Bay Area Air District", "url": _STA}] if on else []
+    return (
+        [
+            {
+                "title": "Spare the Air Alert",
+                "until": "",
+                "severity": "Moderate",
+                "detail": "No wood burning, indoors or out; drive less.",
+                "source": "Bay Area Air District",
+                "url": _STA,
+            }
+        ]
+        if on
+        else []
+    )
 
 
 def at(region_key: str, lat: float, lon: float) -> list[dict]:

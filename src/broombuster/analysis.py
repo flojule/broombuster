@@ -19,17 +19,30 @@ from broombuster import normalize
 # ---------------------------------------------------------------------------
 
 # Code token -> (weekday Mon=0..Sun=6, display).
-WEEKDAY_CODES = {tok: (i, normalize.WEEKDAYS[i])
-                 for i, tok in enumerate(("M", "T", "W", "TH", "F", "S", "SU"))}
+WEEKDAY_CODES = {
+    tok: (i, normalize.WEEKDAYS[i]) for i, tok in enumerate(("M", "T", "W", "TH", "F", "S", "SU"))
+}
 
 # Codes that explicitly mean "no sweeping" (compared upper-cased, stripped).
 # Oakland: N-E / N-O = no even / odd addresses; MS = "major street uses 2
 # lines"; DM = "shown in a different map"; MISSING = no data.
-NO_SWEEP_CODES = frozenset({
-    "N", "NS", "O", "N-S", "N-E", "N-O",
-    "NS-UC", "NS-H", "NS-O", "NS-A",
-    "MS", "DM", "MISSING",
-})
+NO_SWEEP_CODES = frozenset(
+    {
+        "N",
+        "NS",
+        "O",
+        "N-S",
+        "N-E",
+        "N-O",
+        "NS-UC",
+        "NS-H",
+        "NS-O",
+        "NS-A",
+        "MS",
+        "DM",
+        "MISSING",
+    }
+)
 
 
 def is_no_sweep_code(code) -> bool:
@@ -92,13 +105,14 @@ def schedules_for_all_matching_rows(gdf_3857, resolved):
     # Only rows sharing the street key AND a sub-line endpoint can match; the
     # prebuilt index maps exactly those pairs to row positions.
     index = segment_index(gdf_3857)
-    positions = sorted({p for ep in target_endpoints
-                        for p in index.by_key.get((target_key, ep), ())})
+    positions = sorted(
+        {p for ep in target_endpoints for p in index.by_key.get((target_key, ep), ())}
+    )
 
     seen_even: set = set()
-    seen_odd:  set = set()
+    seen_odd: set = set()
     even_out: list = []
-    odd_out:  list = []
+    odd_out: list = []
 
     for p in positions:
         row = {col: arr[p] for col, arr in index.cols.items()}
@@ -113,7 +127,7 @@ def schedules_for_all_matching_rows(gdf_3857, resolved):
 
     # Stable order: sort by sweep code so message formatting is deterministic.
     even_out.sort(key=lambda t: (t[0] or "", t[1] or "", t[2] or ""))
-    odd_out.sort (key=lambda t: (t[0] or "", t[1] or "", t[2] or ""))
+    odd_out.sort(key=lambda t: (t[0] or "", t[1] or "", t[2] or ""))
     return even_out, odd_out
 
 
@@ -139,11 +153,11 @@ def _segment_endpoints(geom):
     return frozenset(out) if out else None
 
 
-
 class SegmentIndex(NamedTuple):
     """Per-GDF lookup behind schedules_for_all_matching_rows."""
+
     by_key: dict  # (street_key, line_key) -> [row positions], ascending
-    cols: dict    # schedule column -> object ndarray, indexed by row position
+    cols: dict  # schedule column -> object ndarray, indexed by row position
 
 
 _SCHEDULE_COLS = ("DAY_EVEN", "DESC_EVEN", "TIME_EVEN", "DAY_ODD", "DESC_ODD", "TIME_ODD")
@@ -181,8 +195,10 @@ def _build_segment_index(gdf) -> SegmentIndex:
     keys = gdf["STREET_KEY"].to_numpy(object) if "STREET_KEY" in gdf else [None] * n
     names = gdf["STREET_NAME"].to_numpy(object) if "STREET_NAME" in gdf else [None] * n
     # street_name() returns "" for non-text, which the loop below skips.
-    street_keys = [k if normalize.is_text(k) else normalize.street_name(nm)
-                   for k, nm in zip(keys, names, strict=False)]
+    street_keys = [
+        k if normalize.is_text(k) else normalize.street_name(nm)
+        for k, nm in zip(keys, names, strict=False)
+    ]
 
     geoms = np.asarray(gdf.geometry.values, dtype=object)
     type_ids = shapely.get_type_id(geoms)
@@ -193,16 +209,18 @@ def _build_segment_index(gdf) -> SegmentIndex:
     ok = ~shapely.is_empty(parts) & (shapely.get_num_coordinates(parts) >= 2)
     parts, part_row = parts[ok], part_row[ok]
     first, last = shapely.get_point(parts, 0), shapely.get_point(parts, -1)
-    xy = np.column_stack([shapely.get_x(first), shapely.get_y(first),
-                          shapely.get_x(last), shapely.get_y(last)])
+    xy = np.column_stack(
+        [shapely.get_x(first), shapely.get_y(first), shapely.get_x(last), shapely.get_y(last)]
+    )
     # line_key, vectorised for metres (the served frames): np.round to 0 decimals
     # is round()'s half-to-even. Degrees still go through line_key itself.
     metres = np.abs(xy[:, 0]) > 180
     xy[metres] = np.round(xy[metres])
 
     by_key: dict = {}
-    for pos, m, (x0, y0, x1, y1) in zip(part_row.tolist(), metres.tolist(), xy.tolist(),
-                                        strict=True):
+    for pos, m, (x0, y0, x1, y1) in zip(
+        part_row.tolist(), metres.tolist(), xy.tolist(), strict=True
+    ):
         sk = street_keys[pos]
         if not sk:
             continue
@@ -256,6 +274,7 @@ def side_labels(row) -> tuple[str, str]:
     if row is None:
         return DEFAULT_SIDE_LABELS
     e, o = row.get("SIDE_EVEN"), row.get("SIDE_ODD")
-    return (e if normalize.is_text(e) else DEFAULT_SIDE_LABELS[0],
-            o if normalize.is_text(o) else DEFAULT_SIDE_LABELS[1])
-
+    return (
+        e if normalize.is_text(e) else DEFAULT_SIDE_LABELS[0],
+        o if normalize.is_text(o) else DEFAULT_SIDE_LABELS[1],
+    )

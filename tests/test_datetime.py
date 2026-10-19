@@ -5,6 +5,7 @@ The JS is checked against independent Python oracles (datetime / zoneinfo)
 over every code and time window in the committed data, not only hand-picked
 cases.
 """
+
 import datetime
 import json
 import re
@@ -28,8 +29,13 @@ needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not a
 
 def js(*calls):
     """Results of BroomUrgency calls: js(("fn", [args]), ...)."""
-    out = subprocess.run(["node", str(_DIR / "_js_call.js")], input=json.dumps(calls),
-                         capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(
+        ["node", str(_DIR / "_js_call.js")],
+        input=json.dumps(calls),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     return json.loads(out)
 
 
@@ -64,8 +70,7 @@ def oracle_sweeps(code: str, day: datetime.date) -> bool:
     parsed = oracle_days(code)
     if parsed is None or day.weekday() not in parsed[0]:
         return False
-    nth = sum(1 for k in range(1, day.day + 1)
-              if day.replace(day=k).weekday() == day.weekday())
+    nth = sum(1 for k in range(1, day.day + 1) if day.replace(day=k).weekday() == day.weekday())
     return parsed[1] is None or nth in parsed[1]
 
 
@@ -78,14 +83,16 @@ def parse_label(line: str):
     if label.startswith("Every day"):
         return set(range(7)), None
     days = set()
-    for a, b in re.findall(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:–(Mon|Tue|Wed|Thu|Fri|Sat|Sun))?",
-                           label):
+    for a, b in re.findall(
+        r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:–(Mon|Tue|Wed|Thu|Fri|Sat|Sun))?", label
+    ):
         days |= set(range(_WD.index(a), _WD.index(b or a) + 1))
     ords = {int(n) for n in re.findall(r"([1-5])(?:st|nd|rd|th)\b", label)}
     return days, (ords or None)
 
 
 # ── Data under test ──────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def all_rows(bay_area_gdf, chicago_gdf):
@@ -104,11 +111,29 @@ def data_times(all_rows):
     return sorted(t for t in s.dropna().unique() if normalize.clean_text(t))
 
 
-SYNTHETIC_CODES = ["E", "ME", "M13", "M135", "M245", "TTHS", "MTWTHF", "SSU", "SUE", "FE",
-                   "TH5", "me", " THE ", "MWF", "THFE", "F1", "W4"]
+SYNTHETIC_CODES = [
+    "E",
+    "ME",
+    "M13",
+    "M135",
+    "M245",
+    "TTHS",
+    "MTWTHF",
+    "SSU",
+    "SUE",
+    "FE",
+    "TH5",
+    "me",
+    " THE ",
+    "MWF",
+    "THFE",
+    "F1",
+    "W4",
+]
 
 
 # ── Sweep days: JS vs oracle ─────────────────────────────────────────────────
+
 
 @needs_node
 def test_dates_in_range_match_oracle_for_every_code(data_codes):
@@ -125,6 +150,7 @@ def test_dates_in_range_match_oracle_for_every_code(data_codes):
 
 # ── Region-local clock ───────────────────────────────────────────────────────
 
+
 @needs_node
 @pytest.mark.parametrize("region", sorted(REGIONS))
 def test_now_for_time_zone_matches_zoneinfo(region):
@@ -138,8 +164,12 @@ def test_now_for_time_zone_matches_zoneinfo(region):
     got = js(*[("nowForTimeZone", [tz, {"$date": t.isoformat()}]) for t in instants])
     for t, n in zip(instants, got, strict=True):
         loc = t.astimezone(ZoneInfo(tz))
-        assert n == {"y": loc.year, "m": loc.month, "d": loc.day,
-                     "min": loc.hour * 60 + loc.minute}, t
+        assert n == {
+            "y": loc.year,
+            "m": loc.month,
+            "d": loc.day,
+            "min": loc.hour * 60 + loc.minute,
+        }, t
 
 
 # ── Time windows ─────────────────────────────────────────────────────────────
@@ -155,8 +185,8 @@ TIME_CASES = [
     ("12:00 PM-3:00 P,M", "12PM–3PM", [720, 900]),
     ("4:00 AM o 7:00 AM", "4AM–7AM", [240, 420]),
     ("8:00 AM to 9:30 AM", "8AM–9:30AM", [480, 570]),
-    ("AM", "AM", [0, 720]),          # Berkeley: a morning route
-    ("pm", "PM", [720, 1440]),       # Berkeley: an afternoon route
+    ("AM", "AM", [0, 720]),  # Berkeley: a morning route
+    ("pm", "PM", [720, 1440]),  # Berkeley: an afternoon route
     ("13:00PM-14:00PM", "13:00PM-14:00PM", None),  # not a clock time: shown as is
     ("0AM-2AM", "0AM-2AM", None),
     ("8AM", "8AM", None),
@@ -194,10 +224,10 @@ URGENCY_CASES = [
     ("WE", "AM", now(WED, 11, 59), "today"),
     ("WE", "AM", now(WED, 12, 1), "safe"),
     ("WE", "PM", now(WED, 23, 0), "today"),
-    ("WE", "10PM-2AM", now(WED, 23, 0), "today"),   # running past midnight
-    ("WE", "10PM-2AM", now(THU, 1, 0), "today"),    # ... into Thursday
+    ("WE", "10PM-2AM", now(WED, 23, 0), "today"),  # running past midnight
+    ("WE", "10PM-2AM", now(THU, 1, 0), "today"),  # ... into Thursday
     ("WE", "10PM-2AM", now(THU, 2, 1), "safe"),
-    ("WE", "", now(WED, 23, 59), "today"),          # untimed: all day
+    ("WE", "", now(WED, 23, 59), "today"),  # untimed: all day
     ("WE", "garbled", now(WED, 23, 59), "today"),
     # A sweep starting within 6 hours is today's problem, even past midnight.
     ("THE", "12AM-3AM", now(WED, 23, 0), "today"),
@@ -206,14 +236,14 @@ URGENCY_CASES = [
     ("THE", "2AM-6AM", now(WED, 20, 0), "today"),
     ("THE", "2AM-6AM", now(WED, 19, 59), "tomorrow"),
     ("THE", "8AM-10AM", now(WED, 23, 59), "tomorrow"),
-    ("THE", "AM", now(WED, 18, 0), "today"),        # morning route: from midnight
-    ("THE", "", now(WED, 18, 0), "today"),          # untimed: from midnight
+    ("THE", "AM", now(WED, 18, 0), "today"),  # morning route: from midnight
+    ("THE", "", now(WED, 18, 0), "today"),  # untimed: from midnight
     ("THE", "PM", now(WED, 23, 59), "tomorrow"),
     ("THE", "12AM-3AM", now(THU, 0, 0), "today"),
     ("F1", "1AM-3AM", now(datetime.date(2026, 12, 31), 20), "today"),  # into next year
     ("FE", "8AM-10AM", now(datetime.date(2026, 12, 31), 12), "tomorrow"),  # year rollover
     ("F1", "8AM-10AM", now(datetime.date(2026, 12, 31), 12), "tomorrow"),
-    ("TU5", "8AM-10AM", now(WED), "safe"),           # not a code
+    ("TU5", "8AM-10AM", now(WED), "safe"),  # not a code
     ("T5", "8AM-10AM", now(datetime.date(2028, 2, 28), 12), "tomorrow"),  # Feb 29, 5th Tue
     ("DATES:2026-03-01", "", now(datetime.date(2026, 2, 28), 12), "tomorrow"),
 ]
@@ -250,6 +280,7 @@ def test_sweep_deadline(entries, at, want):
 
 
 # ── Schedule display ─────────────────────────────────────────────────────────
+
 
 @needs_node
 def test_display_names_every_sweep_day_of_every_code(data_codes):
@@ -308,11 +339,14 @@ def test_day_label_and_iso_day():
 
 # ── Frontend reads the clock only through the region-local helper ────────────
 
+
 def test_frontend_uses_region_clock():
     """Browser-local calendar fields would put a Bay Area car on Chicago's day."""
     allowed = {("core.js", "_isNight"), ("urgency.js", "d.get")}  # unknown-zone fallback
-    pat = re.compile(r"\.(getDate|getDay|getHours|getMinutes|getMonth|getFullYear|"
-                     r"toDateString|toLocaleDateString|toLocaleTimeString)\(")
+    pat = re.compile(
+        r"\.(getDate|getDay|getHours|getMinutes|getMonth|getFullYear|"
+        r"toDateString|toLocaleDateString|toLocaleTimeString)\("
+    )
     bad = []
     for f in sorted(_FRONTEND.glob("*.js")):
         if f.name.startswith("maplibre"):
@@ -327,24 +361,35 @@ def test_frontend_uses_region_clock():
 
 # ── Source normalisers ───────────────────────────────────────────────────────
 
+
 def _sf(**kw):
-    row = {"corridor": "MARKET ST", "blockside": "EVEN", "week_day": "1",
-           "from_hour": 8, "to_hour": 10, **{f"week_{n}_of_month": 0 for n in range(1, 6)}}
+    row = {
+        "corridor": "MARKET ST",
+        "blockside": "EVEN",
+        "week_day": "1",
+        "from_hour": 8,
+        "to_hour": 10,
+        **{f"week_{n}_of_month": 0 for n in range(1, 6)},
+    }
     row.update(kw)
-    gdf = geopandas.GeoDataFrame([row], geometry=[shapely.geometry.LineString([(0, 0), (1, 0)])],
-                                 crs="EPSG:4326")
+    gdf = geopandas.GeoDataFrame(
+        [row], geometry=[shapely.geometry.LineString([(0, 0), (1, 0)])], crs="EPSG:4326"
+    )
     return schemas._normalise_sf(gdf).iloc[0]
 
 
-@pytest.mark.parametrize("fh,th,want", [
-    (0, 2, "12AM–2AM"),
-    (10, 12, "10AM–12PM"),
-    (12, 14, "12PM–2PM"),
-    (22, 24, "10PM–12AM"),   # hour 24 is midnight, not noon
-    (0, 24, "12AM–12AM"),
-    (6.5, 8, "6:30AM–8AM"),  # half hours are kept
-    ("7", "9", "7AM–9AM"),
-])
+@pytest.mark.parametrize(
+    "fh,th,want",
+    [
+        (0, 2, "12AM–2AM"),
+        (10, 12, "10AM–12PM"),
+        (12, 14, "12PM–2PM"),
+        (22, 24, "10PM–12AM"),  # hour 24 is midnight, not noon
+        (0, 24, "12AM–12AM"),
+        (6.5, 8, "6:30AM–8AM"),  # half hours are kept
+        ("7", "9", "7AM–9AM"),
+    ],
+)
 def test_sf_time_window(fh, th, want):
     r = _sf(from_hour=fh, to_hour=th)
     time, desc = r["TIME_EVEN"], r["DESC_EVEN"]
@@ -360,10 +405,21 @@ def test_sf_missing_hours_are_untimed():
 
 def _oakland(code, desc):
     gdf = geopandas.GeoDataFrame(
-        [{"NAME": "Grand", "TYPE": "Ave", "DAY_EVEN": code, "DAY_ODD": code,
-          "DescDayEve": desc, "DescDayOdd": desc, "DescTimeEv": "9:00AM-12:00PM",
-          "DescTimeOd": "9:00AM-12:00PM"}],
-        geometry=[shapely.geometry.LineString([(0, 0), (1, 0)])], crs="EPSG:4326")
+        [
+            {
+                "NAME": "Grand",
+                "TYPE": "Ave",
+                "DAY_EVEN": code,
+                "DAY_ODD": code,
+                "DescDayEve": desc,
+                "DescDayOdd": desc,
+                "DescTimeEv": "9:00AM-12:00PM",
+                "DescTimeOd": "9:00AM-12:00PM",
+            }
+        ],
+        geometry=[shapely.geometry.LineString([(0, 0), (1, 0)])],
+        crs="EPSG:4326",
+    )
     return schemas._normalise_oakland(gdf).iloc[0]
 
 
@@ -373,8 +429,17 @@ def test_oakland_mon_to_fri_code():
     assert _oakland("MFE", "Every Mon and Fri").DAY_EVEN == "MFE"
 
 
-_DESC_DAY = {"Mon": 0, "Tue": 1, "Tues": 1, "Wed": 2, "Thu": 3, "Thurs": 3, "Fri": 4,
-             "Sat": 5, "Sun": 6}
+_DESC_DAY = {
+    "Mon": 0,
+    "Tue": 1,
+    "Tues": 1,
+    "Wed": 2,
+    "Thu": 3,
+    "Thurs": 3,
+    "Fri": 4,
+    "Sat": 5,
+    "Sun": 6,
+}
 
 
 def _desc_days(desc: str):
@@ -392,8 +457,12 @@ def test_committed_codes_agree_with_their_descriptions(bay_area_gdf):
     """A code's weekdays are the ones its source description names."""
     bad = set()
     for side in ("EVEN", "ODD"):
-        for city, code, desc in zip(bay_area_gdf["_city"], bay_area_gdf[f"DAY_{side}"],
-                                    bay_area_gdf[f"DESC_{side}"], strict=True):
+        for city, code, desc in zip(
+            bay_area_gdf["_city"],
+            bay_area_gdf[f"DAY_{side}"],
+            bay_area_gdf[f"DESC_{side}"],
+            strict=True,
+        ):
             parsed = oracle_days(code) if normalize.is_text(code) else None
             if parsed and normalize.clean_text(desc) and parsed[0] != _desc_days(desc):
                 bad.add((city, code, desc))

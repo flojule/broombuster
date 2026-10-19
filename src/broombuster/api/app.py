@@ -47,8 +47,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="BroomBuster", lifespan=lifespan,
-              docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(
+    title="BroomBuster", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
+)
 
 app.middleware("http")(web.http_middleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -83,8 +84,7 @@ def _address(loc: Located, lat: float, lon: float, *, network: bool) -> tuple[st
     city = CITIES[loc.city_key]["name"].split(",")[0]
     if resolved.is_polygon:
         return f"Zone: {resolved.label}, {city}", False
-    pending = (not network and bool(resolved.street_name)
-               and not gps.house_number_cached(lat, lon))
+    pending = not network and bool(resolved.street_name) and not gps.house_number_cached(lat, lon)
     hn = gps.maybe_house_number(lat, lon, resolved.street_name, network=network)
     return (f"{hn} " if hn else "") + f"{resolved.label}, {city}", pending
 
@@ -97,10 +97,15 @@ def health():
 @api.get("/cities")
 def cities():
     return {
-        rk: {"name": rv["name"], "center": rv["center"], "tz": rv["tz"],
-             "zoom": rv["zoom"], "holidays": holidays.for_region(rk),
-             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
-             "layers": layers.catalogue(rk)}
+        rk: {
+            "name": rv["name"],
+            "center": rv["center"],
+            "tz": rv["tz"],
+            "zoom": rv["zoom"],
+            "holidays": holidays.for_region(rk),
+            "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
+            "layers": layers.catalogue(rk),
+        }
         for rk, rv in REGIONS.items()
     }
 
@@ -143,25 +148,33 @@ def check(req: CheckRequest):
     """
     loc = _locate(req.lat, req.lon, req.region)
     address, pending = _address(loc, req.lat, req.lon, network=False)
-    even, odd = (analysis.schedules_for_all_matching_rows(loc.gdf_3857, loc.resolved)
-                 if loc.resolved else ([], []))
+    even, odd = (
+        analysis.schedules_for_all_matching_rows(loc.gdf_3857, loc.resolved)
+        if loc.resolved
+        else ([], [])
+    )
     return {
         "region": loc.region,
         "city": loc.city_key,
         "address": address,
         "address_pending": pending,
         "car_side": loc.resolved.side if loc.resolved else None,
-        "side_labels": list(analysis.side_labels(loc.resolved.segment)
-                            if loc.resolved else analysis.DEFAULT_SIDE_LABELS),
+        "side_labels": list(
+            analysis.side_labels(loc.resolved.segment)
+            if loc.resolved
+            else analysis.DEFAULT_SIDE_LABELS
+        ),
         "schedule_even": even,
         "schedule_odd": odd,
     }
 
 
 @api.get("/address")
-def address(lat: float = Query(..., ge=-90.0, le=90.0),
-            lon: float = Query(..., ge=-180.0, le=180.0),
-            region: str | None = None):
+def address(
+    lat: float = Query(..., ge=-90.0, le=90.0),
+    lon: float = Query(..., ge=-180.0, le=180.0),
+    region: str | None = None,
+):
     """The /check address with the Nominatim house number (may take ~1 s)."""
     return {"address": _address(_locate(lat, lon, region), lat, lon, network=True)[0]}
 
@@ -191,17 +204,23 @@ def check_home(req: CheckHomeRequest):
     address = req.address or gps.reverse_address(req.lat, req.lon) or ""
     today = datetime.now(ZoneInfo(REGIONS[region]["tz"])).date()
     city = city_for_point(req.lat, req.lon, region)
-    return {"region": region, "city": city, "address": address,
-            "trash_kind": trash.kind(city),
-            "pickups": trash.pickups(city, address, today, req.collection_day)}
+    return {
+        "region": region,
+        "city": city,
+        "address": address,
+        "trash_kind": trash.kind(city),
+        "pickups": trash.pickups(city, address, today, req.collection_day),
+    }
 
 
 @api.get("/rules")
-def rules(lat: float = Query(..., ge=-90.0, le=90.0),
-          lon: float = Query(..., ge=-180.0, le=180.0),
-          region: str | None = None,
-          kind: str = Query("car", pattern="^(car|home)$"),
-          geocode: bool = True):
+def rules(
+    lat: float = Query(..., ge=-90.0, le=90.0),
+    lon: float = Query(..., ge=-180.0, le=180.0),
+    region: str | None = None,
+    kind: str = Query("car", pattern="^(car|home)$"),
+    geocode: bool = True,
+):
     """What applies at a car (permit area, meter, winter ban) or a home (fire and
     evacuation zones), from the cities' extra layers. Each rule: {theme, label, rule,
     asof, city}. geocode=false (the map's street card, asked at every stop): no new
@@ -224,26 +243,32 @@ def closures(region: str = Query(..., pattern="^[a-z_]+$")):
 
 
 @api.get("/around")
-def nearby(lat: float = Query(..., ge=-90.0, le=90.0),
-           lon: float = Query(..., ge=-180.0, le=180.0),
-           region: str | None = None):
+def nearby(
+    lat: float = Query(..., ge=-90.0, le=90.0),
+    lon: float = Query(..., ge=-180.0, le=180.0),
+    region: str | None = None,
+):
     """Markets, events, street events and meetings near a point this week (Nearby tab)."""
     region = region if region in REGIONS else region_for_point(lat, lon)
     return {"region": region, **around.around(region, lat, lon)}
 
 
 @api.get("/alerts")
-def place_alerts(lat: float = Query(..., ge=-90.0, le=90.0),
-                 lon: float = Query(..., ge=-180.0, le=180.0),
-                 region: str | None = None):
+def place_alerts(
+    lat: float = Query(..., ge=-90.0, le=90.0),
+    lon: float = Query(..., ge=-180.0, le=180.0),
+    region: str | None = None,
+):
     """Weather and air alerts in effect at a place (Red Flag, snow, Spare the Air, …)."""
     region = region if region in REGIONS else region_for_point(lat, lon)
     return {"region": region, "alerts": alerts.at(region, lat, lon)}
 
 
 @api.get("/vehicle")
-def vehicle(plate: str = Query(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9 -]+$"),
-            state: str = Query("IL", pattern="^[A-Za-z]{2}$")):
+def vehicle(
+    plate: str = Query(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9 -]+$"),
+    state: str = Query("IL", pattern="^[A-Za-z]{2}$"),
+):
     """Chicago: was this plate towed or relocated (last 90 days)? 503 when the city's
     portal does not answer."""
     got = feeds.chicago_vehicle(plate, state)
@@ -258,9 +283,13 @@ def _car_spot(lat: float, lon: float) -> calfeed.CarSpot | None:
         return None
     even, odd = analysis.schedules_for_all_matching_rows(loc.gdf_3857, loc.resolved)
     address, _ = _address(loc, lat, lon, network=False)
-    return calfeed.CarSpot(loc.region, loc.city_key, address,
-                           {"even": [list(e) for e in even], "odd": [list(o) for o in odd]},
-                           loc.resolved.side)
+    return calfeed.CarSpot(
+        loc.region,
+        loc.city_key,
+        address,
+        {"even": [list(e) for e in even], "odd": [list(o) for o in odd]},
+        loc.resolved.side,
+    )
 
 
 @api.get("/calendar/{token}.ics", include_in_schema=False)
@@ -269,8 +298,11 @@ def calendar_feed(token: str):
     prefs = auth.prefs_for_calendar_token(token)
     if prefs is None:
         raise HTTPException(404, "Unknown or revoked calendar link.")
-    return Response(calfeed.build(prefs, _car_spot), media_type="text/calendar; charset=utf-8",
-                    headers={"Cache-Control": "private, max-age=900"})
+    return Response(
+        calfeed.build(prefs, _car_spot),
+        media_type="text/calendar; charset=utf-8",
+        headers={"Cache-Control": "private, max-age=900"},
+    )
 
 
 # Phone automations send numbers as text, sometimes with a unit ("65 m", "213 ft",
@@ -290,6 +322,7 @@ def _number(units: dict):
         if not m or m[2].lower() not in units:
             return v  # pydantic refuses it
         return float(m[1].replace(",", ".")) * units[m[2].lower()]
+
     return parse
 
 
@@ -297,15 +330,17 @@ class CarLocation(BaseModel):
     lat: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-90.0, le=90.0)]
     lon: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-180.0, le=180.0)]
     # Metres (or with a unit), as the phone reports it.
-    accuracy: Annotated[float | None, BeforeValidator(_number(_METRES)),
-                        Field(ge=0.0, le=1e6)] = None
+    accuracy: Annotated[float | None, BeforeValidator(_number(_METRES)), Field(ge=0.0, le=1e6)] = (
+        None
+    )
 
 
 _PHONE_PATH = "/api/cars/location"
 
 
-async def _phone_refusal(request: Request, status: int, reason: str,
-                         headers: dict | None = None) -> JSONResponse:
+async def _phone_refusal(
+    request: Request, status: int, reason: str, headers: dict | None = None
+) -> JSONResponse:
     """A refused phone report: the reason is also its `summary`, so the phone's
     notification says why; it is kept on the token for the car's page, and logged."""
     if token_hash := getattr(request.state, "car_token", None):
@@ -352,7 +387,8 @@ def car_location(req: CarLocation, who=Depends(auth.car_for_token)):
     """
     if req.accuracy is not None and req.accuracy > resolve.CAR_MAX_DISTANCE_M:
         raise HTTPException(
-            422, f"Position too rough (±{req.accuracy:.0f} m); the car was not moved.")
+            422, f"Position too rough (±{req.accuracy:.0f} m); the car was not moved."
+        )
     if not auth.set_car_location(who["account_id"], who["car_id"], req.lat, req.lon):
         raise HTTPException(404, "That car was removed from your account.")
     loc = _locate(req.lat, req.lon, None)

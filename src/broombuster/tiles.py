@@ -53,11 +53,18 @@ def _merge_lines(gdf_4326):
         for coords in _line_parts(geom):
             if len(coords) < 2:
                 continue
-            sd = seg_data.setdefault(_analysis.line_key(coords), {
-                "coords": coords, "city": _safe(row.get("_city")),
-                "name": _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
-                "labels": labels, "even": [], "odd": [], "even_left": set(),
-            })
+            sd = seg_data.setdefault(
+                _analysis.line_key(coords),
+                {
+                    "coords": coords,
+                    "city": _safe(row.get("_city")),
+                    "name": _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
+                    "labels": labels,
+                    "even": [],
+                    "odd": [],
+                    "even_left": set(),
+                },
+            )
             if left is not None:
                 # A row drawn the other way round has its sides swapped.
                 sd["even_left"].add(left == _same_start(coords, sd["coords"]))
@@ -100,24 +107,28 @@ def merge_segment_rows(gdf):
         if geom is None or geom.is_empty or not isinstance(geom, _POLY_TYPES):
             continue
         even, odd = _analysis.schedules_for_segment(row)
-        records.append({
-            "geometry":    geom,
-            "render_type": "polygon",
-            "street":      _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
-            "city":        _safe(row.get("_city")),
-            "schedule":    _tile_sched(even, odd),
-            "labels":      _analysis.side_labels(row),
-        })
+        records.append(
+            {
+                "geometry": geom,
+                "render_type": "polygon",
+                "street": _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
+                "city": _safe(row.get("_city")),
+                "schedule": _tile_sched(even, odd),
+                "labels": _analysis.side_labels(row),
+            }
+        )
     for sd in _merge_lines(gdf_4326).values():
-        records.append({
-            "geometry":    shapely.geometry.LineString(sd["coords"]),
-            "render_type": "line",
-            "street":      sd["name"],
-            "city":        sd["city"],
-            "schedule":    _tile_sched(sd["even"], sd["odd"]),
-            "labels":      sd["labels"],
-            "even_left":   _even_left(sd),
-        })
+        records.append(
+            {
+                "geometry": shapely.geometry.LineString(sd["coords"]),
+                "render_type": "line",
+                "street": sd["name"],
+                "city": sd["city"],
+                "schedule": _tile_sched(sd["even"], sd["odd"]),
+                "labels": sd["labels"],
+                "even_left": _even_left(sd),
+            }
+        )
     return records
 
 
@@ -181,10 +192,12 @@ def ward_boundary_features(records):
     merged = unary_union(shared)
     if merged is None or merged.is_empty:
         return []
-    return [{
-        "geometry":    merged,
-        "render_type": "ward_boundary",
-        "street":      "",
-        "city":        "",
-        "schedule":    [],
-    }]
+    return [
+        {
+            "geometry": merged,
+            "render_type": "ward_boundary",
+            "street": "",
+            "city": "",
+            "schedule": [],
+        }
+    ]

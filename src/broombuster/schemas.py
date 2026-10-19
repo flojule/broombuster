@@ -13,12 +13,20 @@ from broombuster import analysis, normalize
 SCHEDULE_COLS = ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD")
 ADDR_COLS = ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD")
 # Standard output schema, in FGB column order.
-SCHEMA_COLS = ("STREET_NAME", "STREET_KEY", "STREET_DISPLAY", *SCHEDULE_COLS, *ADDR_COLS,
-               "SIDE_EVEN", "SIDE_ODD")
+SCHEMA_COLS = (
+    "STREET_NAME",
+    "STREET_KEY",
+    "STREET_DISPLAY",
+    *SCHEDULE_COLS,
+    *ADDR_COLS,
+    "SIDE_EVEN",
+    "SIDE_ODD",
+)
 
 # ---------------------------------------------------------------------------
 # Oakland
 # ---------------------------------------------------------------------------
+
 
 def _add_key_and_display(out: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """Upper-case STREET_NAME; derive STREET_KEY and STREET_DISPLAY from it (in place)."""
@@ -42,17 +50,17 @@ def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
     out = gdf.copy()
     out["STREET_NAME"] = (
-        out["NAME"].fillna("").str.strip()
-        + " "
-        + out["TYPE"].fillna("").str.strip()
-    ).str.strip().str.upper()
+        (out["NAME"].fillna("").str.strip() + " " + out["TYPE"].fillna("").str.strip())
+        .str.strip()
+        .str.upper()
+    )
     # Add canonical key and readable short display form so downstream code
     # doesn't need to re-normalise on every access.
     _add_key_and_display(out)
     out["DESC_EVEN"] = out.get("DescDayEve")
-    out["DESC_ODD"]  = out.get("DescDayOdd")
+    out["DESC_ODD"] = out.get("DescDayOdd")
     out["TIME_EVEN"] = out.get("DescTimeEv")
-    out["TIME_ODD"]  = out.get("DescTimeOd")
+    out["TIME_ODD"] = out.get("DescTimeOd")
     # The source codes "Every Mon to Fri" as MF, which reads as Mon and Fri only.
     for s in ("EVEN", "ODD"):
         out.loc[out[f"DESC_{s}"].eq("Every Mon to Fri"), f"DAY_{s}"] = "MTWTHF"
@@ -75,14 +83,34 @@ def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 #   week_1_of_month … week_5_of_month   integer 1 or 0
 
 _SF_DAY_MAP = {
-    "1": "M",  "2": "T",  "3": "W",  "4": "TH", "5": "F", "6": "S", "7": "SU",
-    "monday": "M", "tuesday": "T", "wednesday": "W", "thursday": "TH",
-    "friday": "F", "saturday": "S", "sunday": "SU",
+    "1": "M",
+    "2": "T",
+    "3": "W",
+    "4": "TH",
+    "5": "F",
+    "6": "S",
+    "7": "SU",
+    "monday": "M",
+    "tuesday": "T",
+    "wednesday": "W",
+    "thursday": "TH",
+    "friday": "F",
+    "saturday": "S",
+    "sunday": "SU",
     # 3-4 letter abbreviations used by DataSF (e.g. "Tues", "Thurs")
-    "mon": "M", "tue": "T", "tues": "T", "wed": "W", "weds": "W",
-    "thu": "TH", "thur": "TH", "thurs": "TH",
-    "fri": "F", "sat": "S", "sun": "SU",
+    "mon": "M",
+    "tue": "T",
+    "tues": "T",
+    "wed": "W",
+    "weds": "W",
+    "thu": "TH",
+    "thur": "TH",
+    "thurs": "TH",
+    "fri": "F",
+    "sat": "S",
+    "sun": "SU",
 }
+
 
 def _sf_clock(hour: float) -> str:
     """Hour of day 0–24, fractions allowed -> "6AM", "6:30AM"; 0 and 24 are 12AM."""
@@ -97,21 +125,37 @@ def _sf_desc(code, time) -> str:
         return "N/A"
     letter = code.rstrip("0123456789E")
     day_label = analysis.WEEKDAY_CODES.get(letter, (None, code))[1]
-    suffix = code[len(letter):]
-    desc = (f"Every {day_label} (every)" if suffix == "E"
-            else f"{day_label} {normalize.pretty_ordinals(suffix)} of month")
+    suffix = code[len(letter) :]
+    desc = (
+        f"Every {day_label} (every)"
+        if suffix == "E"
+        else f"{day_label} {normalize.pretty_ordinals(suffix)} of month"
+    )
     return f"{desc}, {time}" if time else desc
 
 
 _OPPOSITE_SIDE = {
-    "North": "South", "South": "North", "East": "West", "West": "East",
-    "NorthEast": "SouthWest", "SouthWest": "NorthEast",
-    "NorthWest": "SouthEast", "SouthEast": "NorthWest",
+    "North": "South",
+    "South": "North",
+    "East": "West",
+    "West": "East",
+    "NorthEast": "SouthWest",
+    "SouthWest": "NorthEast",
+    "NorthWest": "SouthEast",
+    "SouthEast": "NorthWest",
 }
 _COMPASS_CANON = {k.upper(): k for k in _OPPOSITE_SIDE}
 # 45° sectors counter-clockwise from east.
-_COMPASS_SECTORS = ("East", "NorthEast", "North", "NorthWest",
-                    "West", "SouthWest", "South", "SouthEast")
+_COMPASS_SECTORS = (
+    "East",
+    "NorthEast",
+    "North",
+    "NorthWest",
+    "West",
+    "SouthWest",
+    "South",
+    "SouthEast",
+)
 
 
 def _left_compass(geom):
@@ -130,7 +174,7 @@ def _left_compass(geom):
 
 
 def _side_label(compass):
-    """"NorthEast" -> "Northeast"; None stays None."""
+    """ "NorthEast" -> "Northeast"; None stays None."""
     return compass[0] + compass[1:].lower() if isinstance(compass, str) else None
 
 
@@ -147,16 +191,14 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
                 return c[n.lower()]
         return None
 
-    name_col  = col("corridor", "cnn", "street_name")
-    side_col  = col("blockside", "block_side")
-    day_col   = col("week_day", "weekday")
-    fh_col    = col("from_hour", "fromhour")
-    th_col    = col("to_hour", "tohour")
+    name_col = col("corridor", "cnn", "street_name")
+    side_col = col("blockside", "block_side")
+    day_col = col("week_day", "weekday")
+    fh_col = col("from_hour", "fromhour")
+    th_col = col("to_hour", "tohour")
     week_cols = [(n, col(f"week_{n}_of_month", f"week{n}ofmonth", f"week{n}")) for n in range(1, 6)]
 
-    out["STREET_NAME"] = (
-        out[name_col].fillna("").str.strip().str.upper() if name_col else ""
-    )
+    out["STREET_NAME"] = out[name_col].fillna("").str.strip().str.upper() if name_col else ""
     _add_key_and_display(out)
     out[list(ADDR_COLS)] = np.nan
 
@@ -178,23 +220,33 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
             on_flags[n] = out[wc].astype(str).str.strip().isin(["1", "1.0", "true", "True"])
         else:
             on_flags[n] = False
+
     # Build suffix: "E" if no flags or all 4 set; else sorted digit string
     def _suffix(row_flags):
         on = [n for n, v in row_flags.items() if v]
         if not on or set(on) >= {1, 2, 3, 4}:
             return "E"
         return "".join(str(w) for w in sorted(on))
+
     suffix_series = on_flags.apply(_suffix, axis=1)
-    code_series   = (letter_series + suffix_series).where(letter_series != "", other=None)
+    code_series = (letter_series + suffix_series).where(letter_series != "", other=None)
 
     # --- TIME string ("" when the source has no hours) ---
     def _hours(c):
-        return (pd.to_numeric(out[c], errors="coerce") if c
-                else pd.Series(float("nan"), index=out.index))
+        return (
+            pd.to_numeric(out[c], errors="coerce")
+            if c
+            else pd.Series(float("nan"), index=out.index)
+        )
+
     time_series = pd.Series(
-        [f"{_sf_clock(f)}–{_sf_clock(t)}" if pd.notna(f) and pd.notna(t) else ""
-         for f, t in zip(_hours(fh_col), _hours(th_col), strict=True)],
-        index=out.index, dtype=object)
+        [
+            f"{_sf_clock(f)}–{_sf_clock(t)}" if pd.notna(f) and pd.notna(t) else ""
+            for f, t in zip(_hours(fh_col), _hours(th_col), strict=True)
+        ],
+        index=out.index,
+        dtype=object,
+    )
 
     # --- DESC string ---
     desc_series = pd.Series(
@@ -204,10 +256,13 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     )
 
     # --- Side classification ---
-    raw_side = (out[side_col].fillna("").astype(str).str.strip().str.upper() if side_col
-                else pd.Series("", index=out.index))
+    raw_side = (
+        out[side_col].fillna("").astype(str).str.strip().str.upper()
+        if side_col
+        else pd.Series("", index=out.index)
+    )
     is_even = raw_side == "EVEN"
-    is_odd  = raw_side == "ODD"
+    is_odd = raw_side == "ODD"
 
     # Left of the centerline -> even bucket, right -> odd bucket. Synthetic
     # address parity (left 0, right 1) lets resolve._determine_side map the
@@ -222,8 +277,11 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         for cn, v in (("L_F_ADD", 0), ("L_T_ADD", 0), ("R_F_ADD", 1), ("R_T_ADD", 1)):
             out[cn] = np.where(known, v, np.nan)
         cnn_col = col("cnn")
-        cnn = out[cnn_col].astype(str) if cnn_col else pd.Series(out.index.astype(str),
-                                                                  index=out.index)
+        cnn = (
+            out[cnn_col].astype(str)
+            if cnn_col
+            else pd.Series(out.index.astype(str), index=out.index)
+        )
         compass = raw_side.map(_COMPASS_CANON)
         left = compass.where(is_l).groupby(cnn).transform("first")
         right = compass.where(is_r).groupby(cnn).transform("first")
@@ -236,12 +294,12 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         out["SIDE_ODD"] = right.map(_side_label).where(known)
     is_both = ~is_even & ~is_odd
 
-    out["DAY_EVEN"]  = code_series.where(is_even | is_both, other=None)
-    out["DAY_ODD"]   = code_series.where(is_odd  | is_both, other=None)
+    out["DAY_EVEN"] = code_series.where(is_even | is_both, other=None)
+    out["DAY_ODD"] = code_series.where(is_odd | is_both, other=None)
     out["DESC_EVEN"] = desc_series.where(is_even | is_both, other=None)
-    out["DESC_ODD"]  = desc_series.where(is_odd  | is_both, other=None)
+    out["DESC_ODD"] = desc_series.where(is_odd | is_both, other=None)
     out["TIME_EVEN"] = time_series.where(is_even | is_both, other=None)
-    out["TIME_ODD"]  = time_series.where(is_odd  | is_both, other=None)
+    out["TIME_ODD"] = time_series.where(is_odd | is_both, other=None)
 
     return out
 
@@ -252,8 +310,14 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 # Chicago sweep months present in the dataset (no Jan-Mar / Dec sweeping).
 _CHICAGO_MONTHS = {
-    "april": 4, "may": 5, "june": 6, "july": 7,
-    "august": 8, "september": 9, "october": 10, "november": 11,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
 }
 
 # A year whose sweep days exceed this share on weekends is rejected by year
@@ -372,12 +436,12 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
     out["STREET_NAME"] = names
     _add_key_and_display(out)
-    out["DAY_EVEN"]    = day_codes
-    out["DAY_ODD"]     = day_codes
-    out["DESC_EVEN"]   = descs
-    out["DESC_ODD"]    = descs
-    out["TIME_EVEN"]   = None
-    out["TIME_ODD"]    = None
+    out["DAY_EVEN"] = day_codes
+    out["DAY_ODD"] = day_codes
+    out["DESC_EVEN"] = descs
+    out["DESC_ODD"] = descs
+    out["TIME_EVEN"] = None
+    out["TIME_ODD"] = None
     out[list(ADDR_COLS)] = np.nan
     return out
 
@@ -385,6 +449,7 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 # ---------------------------------------------------------------------------
 # Berkeley / Alameda  (pre-built GeoJSON — all columns already present)
 # ---------------------------------------------------------------------------
+
 
 def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
@@ -415,10 +480,9 @@ def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 # ---------------------------------------------------------------------------
 
 SCHEMA_PROFILES = {
-    "oakland":  _normalise_oakland,
-    "sf":       _normalise_sf,
-    "chicago":  _normalise_chicago,
+    "oakland": _normalise_oakland,
+    "sf": _normalise_sf,
+    "chicago": _normalise_chicago,
     "berkeley": _normalise_prebuilt,
-    "alameda":  _normalise_prebuilt,
+    "alameda": _normalise_prebuilt,
 }
-

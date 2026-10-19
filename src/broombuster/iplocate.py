@@ -12,8 +12,9 @@ class _Failed(Exception):
 @lru_cache(maxsize=512)
 def _fetch(ip: str) -> tuple[float, float]:
     try:
-        req = urllib.request.Request(f"https://ipapi.co/{ip}/json/",
-                                     headers={"User-Agent": "broombuster"})
+        req = urllib.request.Request(
+            f"https://ipapi.co/{ip}/json/", headers={"User-Agent": "broombuster"}
+        )
         with urllib.request.urlopen(req, timeout=3.0) as r:  # noqa: S310 (https URL above)
             d = json.load(r)
         return (float(d["latitude"]), float(d["longitude"]))

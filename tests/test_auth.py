@@ -11,8 +11,10 @@ from broombuster.api import auth
 from broombuster.api.app import app
 
 BASE = "http://testserver"
-PREFS = {"cars": [{"id": "c1", "name": "Car", "lat": 37.8, "lon": -122.2, "color": "#10b981"}],
-         "homes": [{"id": "h1", "lat": 37.8, "lon": -122.2, "address": "1 Main St"}]}
+PREFS = {
+    "cars": [{"id": "c1", "name": "Car", "lat": 37.8, "lon": -122.2, "color": "#10b981"}],
+    "homes": [{"id": "h1", "lat": 37.8, "lon": -122.2, "address": "1 Main St"}],
+}
 
 
 @pytest.fixture
@@ -67,21 +69,27 @@ def test_prefs_need_session_and_same_origin(env, client, monkeypatch):
     assert client.put("/api/me/prefs", json=PREFS, headers={"Origin": BASE}).status_code == 401
     _sign_in(client, monkeypatch)
     assert client.put("/api/me/prefs", json=PREFS).status_code == 403
-    assert client.put("/api/me/prefs", json=PREFS,
-                      headers={"Origin": "https://evil.example"}).status_code == 403
+    assert (
+        client.put(
+            "/api/me/prefs", json=PREFS, headers={"Origin": "https://evil.example"}
+        ).status_code
+        == 403
+    )
     assert client.delete("/api/me").status_code == 403
     assert client.get("/api/me").json()["prefs"] is None
 
 
-@pytest.mark.parametrize("bad", [
-    {"cars": [{"id": "c", "name": "n", "lat": 91, "lon": 0}], "homes": []},
-    {"cars": [{"id": "c", "name": "n", "lat": 0, "lon": 0}] * 51, "homes": []},
-    {"cars": []},
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"cars": [{"id": "c", "name": "n", "lat": 91, "lon": 0}], "homes": []},
+        {"cars": [{"id": "c", "name": "n", "lat": 0, "lon": 0}] * 51, "homes": []},
+        {"cars": []},
+    ],
+)
 def test_prefs_validation(env, client, monkeypatch, bad):
     _sign_in(client, monkeypatch)
     assert client.put("/api/me/prefs", json=bad, headers={"Origin": BASE}).status_code == 422
-
 
 
 def test_delete_account_removes_user_and_sessions(env, client, monkeypatch):
@@ -102,7 +110,6 @@ def test_expired_session_is_ignored(env, client, monkeypatch):
     with auth._connect() as db:
         db.execute("UPDATE sessions SET expires_at = 0")
     assert client.get("/api/me").json()["user"] is None
-
 
 
 # ── Phone position updates ────────────────────────────────────────────────────
@@ -131,8 +138,9 @@ def test_phone_token_moves_car_and_bumps_version(env, client, monkeypatch, app_c
     link = client.get("/api/me").json()["phone_links"]["c1"]
     assert link["used"] and link["moved"] and link["error"] is None
     # Shortcuts may send the coordinates as text.
-    r = client.post("/api/cars/location", json={"lat": "37.81", "lon": "-122.27"},
-                    headers=_bearer(token))
+    r = client.post(
+        "/api/cars/location", json={"lat": "37.81", "lon": "-122.27"}, headers=_bearer(token)
+    )
     assert r.status_code == 200
     assert client.get("/api/me").json()["prefs"]["cars"][0]["loc_rev"] == 2
 
@@ -141,43 +149,53 @@ def test_phone_token_rejections(env, client, monkeypatch, app_client):
     token = _signed_in_with_car(client, monkeypatch)
     no_cookie = TestClient(app)  # the phone sends no session cookie
     assert no_cookie.post("/api/cars/location", json=OAKLAND).status_code == 401
-    assert no_cookie.post("/api/cars/location", json=OAKLAND,
-                          headers=_bearer("bbc_nope")).status_code == 401
-    rough = no_cookie.post("/api/cars/location", json={**OAKLAND, "accuracy": 500},
-                           headers=_bearer(token))
+    assert (
+        no_cookie.post("/api/cars/location", json=OAKLAND, headers=_bearer("bbc_nope")).status_code
+        == 401
+    )
+    rough = no_cookie.post(
+        "/api/cars/location", json={**OAKLAND, "accuracy": 500}, headers=_bearer(token)
+    )
     assert rough.status_code == 422
     assert rough.json()["summary"].startswith("Position too rough (±500 m)")  # the phone shows it
     me = client.get("/api/me").json()
     assert me["prefs"]["cars"][0]["lat"] == PREFS["cars"][0]["lat"]
     assert me["phone_links"]["c1"]["error"].startswith("Position too rough")
     assert me["phone_links"]["c1"]["moved"] is None
-    bad = no_cookie.post("/api/cars/location", json={"lat": 37.8, "accuracy": "lots"},
-                         headers=_bearer(token))
+    bad = no_cookie.post(
+        "/api/cars/location", json={"lat": 37.8, "accuracy": "lots"}, headers=_bearer(token)
+    )
     assert bad.status_code == 422
-    assert bad.json()["summary"] == ("Could not read lon missing, accuracy ('lots');"
-                                     " the car was not moved.")
+    assert bad.json()["summary"] == (
+        "Could not read lon missing, accuracy ('lots'); the car was not moved."
+    )
     not_json = no_cookie.post("/api/cars/location", content="lat=1", headers=_bearer(token))
     assert not_json.status_code == 422 and "JSON body" in not_json.json()["summary"]
     # An accepted report clears the refusal.
-    assert no_cookie.post("/api/cars/location", json=OAKLAND,
-                          headers=_bearer(token)).status_code == 200
+    assert (
+        no_cookie.post("/api/cars/location", json=OAKLAND, headers=_bearer(token)).status_code
+        == 200
+    )
     link = client.get("/api/me").json()["phone_links"]["c1"]
     assert link["error"] is None and link["moved"]
 
 
 def test_phone_numbers_as_shortcuts_sends_them(env, client, monkeypatch, app_client):
     token = _signed_in_with_car(client, monkeypatch)
-    for body in ({"lat": "37,8044", "lon": "-122,2712", "accuracy": "35,0 m"},
-                 {"lat": "37.8044°", "lon": " -122.2712 ", "accuracy": "±40 ft"},
-                 {"lat": 37.8044, "lon": -122.2712, "accuracy": "12\u00a0m"}):
+    for body in (
+        {"lat": "37,8044", "lon": "-122,2712", "accuracy": "35,0 m"},
+        {"lat": "37.8044°", "lon": " -122.2712 ", "accuracy": "±40 ft"},
+        {"lat": 37.8044, "lon": -122.2712, "accuracy": "12\u00a0m"},
+    ):
         r = client.post("/api/cars/location", json=body, headers=_bearer(token))
         assert r.status_code == 200, (body, r.json())
     car = client.get("/api/me").json()["prefs"]["cars"][0]
     assert (car["lat"], car["lon"]) == (37.8044, -122.2712)
     # A thousands separator, too rough, an unknown unit.
     for accuracy in ("1,234 ft", "0.1 km", "65 parsecs"):
-        r = client.post("/api/cars/location", json={**OAKLAND, "accuracy": accuracy},
-                        headers=_bearer(token))
+        r = client.post(
+            "/api/cars/location", json={**OAKLAND, "accuracy": accuracy}, headers=_bearer(token)
+        )
         assert r.status_code == 422, accuracy
 
 
@@ -234,9 +252,11 @@ def test_calendar_link_and_feed(env, monkeypatch, app_client):
     client.put("/api/me/prefs", json=prefs, headers={"Origin": BASE})
     assert client.post("/api/me/calendar").status_code == 403  # same-origin only
     made = client.post("/api/me/calendar", headers={"Origin": BASE}).json()
-    assert made["url"].startswith(BASE + "/api/calendar/bbk_") and made["webcal"].startswith("webcal://")
+    assert made["url"].startswith(BASE + "/api/calendar/bbk_") and made["webcal"].startswith(
+        "webcal://"
+    )
     assert client.get("/api/me").json()["calendar"] is True
-    path = made["url"][len(BASE):]
+    path = made["url"][len(BASE) :]
     feed = client.get(path)
     assert feed.status_code == 200 and feed.headers["content-type"].startswith("text/calendar")
     assert "Move Car: street sweeping" in feed.text
@@ -244,7 +264,7 @@ def test_calendar_link_and_feed(env, monkeypatch, app_client):
     again = client.post("/api/me/calendar", headers={"Origin": BASE}).json()
     assert client.get(path).status_code == 404
     assert client.delete("/api/me/calendar", headers={"Origin": BASE}).status_code == 204
-    assert client.get(again["url"][len(BASE):]).status_code == 404
+    assert client.get(again["url"][len(BASE) :]).status_code == 404
     assert client.get("/api/calendar/nope.ics").status_code == 404
 
 
@@ -296,7 +316,6 @@ def _login(client, monkeypatch, cred_id):
 def _invite_token(client):
     url = client.post("/api/me/invite", headers=ORIGIN).json()["url"]
     return url.split("?join=", 1)[1]
-
 
 
 def test_passkey_sign_up_and_sign_in(env, client, monkeypatch):
@@ -364,7 +383,6 @@ def test_expired_invite_is_refused(env, client, monkeypatch):
     assert _register(client, monkeypatch, "Ben", _cid("cred-b"), invite=token).status_code == 400
 
 
-
 def test_invites_are_capped_per_account(env, client, monkeypatch):
     monkeypatch.setattr(auth, "_MAX_MEMBERS", 1)
     _register(client, monkeypatch, "Anna", _cid("cred-a"))
@@ -396,8 +414,6 @@ def test_last_member_leaving_deletes_the_account(env, client, monkeypatch):
     with auth._connect() as db:
         for table in ("accounts", "members", "car_tokens", "sessions"):
             assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
-
-
 
 
 def test_drops_the_google_era_schema(tmp_path, monkeypatch):

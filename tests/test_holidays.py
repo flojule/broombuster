@@ -18,8 +18,13 @@ needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not a
 
 
 def js(*calls):
-    out = subprocess.run(["node", str(_DIR / "_js_call.js")], input=json.dumps(calls),
-                         capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(
+        ["node", str(_DIR / "_js_call.js")],
+        input=json.dumps(calls),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     return json.loads(out)
 
 
@@ -28,6 +33,7 @@ def ymd(d):
 
 
 # ── Holiday files ────────────────────────────────────────────────────────────
+
 
 @pytest.mark.parametrize("city", sorted(CITIES))
 def test_every_city_has_a_holiday_file_with_this_and_next_year(city):
@@ -62,6 +68,7 @@ def test_for_region_is_the_client_copy():
 
 # ── Sweep dates: Python vs urgency.js ────────────────────────────────────────
 
+
 @pytest.fixture(scope="module")
 def data_codes(bay_area_gdf, chicago_gdf):
     rows = pd.concat([bay_area_gdf, chicago_gdf], ignore_index=True)
@@ -90,16 +97,21 @@ def test_time_window_matches_urgency_js(bay_area_gdf):
 
 @needs_node
 def test_holiday_skip_in_js():
-    hol = {"2026-11-11": {"name": "Veterans Day", "suspends": ["sweeping"]},
-           "2026-11-26": {"name": "Thanksgiving", "suspends": ["trash"]}}
+    hol = {
+        "2026-11-11": {"name": "Veterans Day", "suspends": ["sweeping"]},
+        "2026-11-26": {"name": "Thanksgiving", "suspends": ["trash"]},
+    }
     wed = {"y": 2026, "m": 11, "d": 11, "min": 300}
     wed_8am, vets = [{"code": "W", "time": "8AM-10AM"}], {"20261111": "Veterans Day"}
     skip, verdict, plain, dates = js(
         ("holidaySkip", [hol, "sweeping"]),
         ("checkDaySweeping", [wed_8am, wed, vets]),
         ("checkDaySweeping", [wed_8am, wed]),
-        ("datesInRange", ["W", ymd(datetime.date(2026, 11, 4)), ymd(datetime.date(2026, 11, 18)),
-                          vets]))
+        (
+            "datesInRange",
+            ["W", ymd(datetime.date(2026, 11, 4)), ymd(datetime.date(2026, 11, 18)), vets],
+        ),
+    )
     assert skip == {"20261111": "Veterans Day"}
     assert (verdict, plain) == ("safe", "today")
     assert dates == [ymd(datetime.date(2026, 11, 4)), ymd(datetime.date(2026, 11, 18))]
@@ -116,15 +128,16 @@ def test_sweep_days_skip_city_holidays():
 
 # ── Weekly trash days ────────────────────────────────────────────────────────
 
+
 def _days(city, weekday, start, n=21):
     return schedule.weekly_pickups(city, weekday, start, n)
 
 
 def test_berkeley_thanksgiving_week_shifts_from_the_holiday_on():
     mon = datetime.date(2026, 11, 23)  # Thanksgiving is Thursday the 26th
-    assert _days("berkeley", 1, mon, 7) == [datetime.date(2026, 11, 24)]   # Tue: before, unchanged
-    assert _days("berkeley", 3, mon, 7) == [datetime.date(2026, 11, 27)]   # Thu -> Fri
-    assert _days("berkeley", 4, mon, 7) == [datetime.date(2026, 11, 28)]   # Fri -> Sat
+    assert _days("berkeley", 1, mon, 7) == [datetime.date(2026, 11, 24)]  # Tue: before, unchanged
+    assert _days("berkeley", 3, mon, 7) == [datetime.date(2026, 11, 27)]  # Thu -> Fri
+    assert _days("berkeley", 4, mon, 7) == [datetime.date(2026, 11, 28)]  # Fri -> Sat
     assert _days("berkeley", 4, datetime.date(2026, 11, 30), 7) == [datetime.date(2026, 12, 4)]
 
 

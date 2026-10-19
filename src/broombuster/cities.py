@@ -18,12 +18,16 @@ def _read(path: str) -> dict:
 
 def load_all(directory: str = MANIFEST_DIR) -> tuple[dict, dict]:
     """(CITIES, REGIONS), failing loudly on a missing field or unknown city."""
-    cities = {f[:-5]: _read(os.path.join(directory, f))
-              for f in sorted(os.listdir(directory))
-              if f.endswith(".yaml") and f != "regions.yaml"}
+    cities = {
+        f[:-5]: _read(os.path.join(directory, f))
+        for f in sorted(os.listdir(directory))
+        if f.endswith(".yaml") and f != "regions.yaml"
+    }
     regions = _read(os.path.join(directory, "regions.yaml"))
-    for kind, items, fields in (("city", cities, _CITY_FIELDS),
-                                ("region", regions, _REGION_FIELDS)):
+    for kind, items, fields in (
+        ("city", cities, _CITY_FIELDS),
+        ("region", regions, _REGION_FIELDS),
+    ):
         for key, item in items.items():
             missing = [f for f in fields if f not in item]
             if missing:
@@ -50,8 +54,12 @@ def in_bbox(city_key: str, lat: float, lon: float) -> bool:
 def region_bbox(region_key: str) -> tuple[float, float, float, float]:
     """(lat_min, lon_min, lat_max, lon_max) around every city of a region."""
     boxes = [CITIES[ck]["bbox"] for ck in REGIONS[region_key]["cities"]]
-    return (min(b[0] for b in boxes), min(b[1] for b in boxes),
-            max(b[2] for b in boxes), max(b[3] for b in boxes))
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
 
 
 def region_for_point(lat: float, lon: float) -> str:
@@ -67,8 +75,10 @@ def city_for_point(lat: float, lon: float, region_key: str) -> str:
     keys = REGIONS[region_key]["cities"]
     inside = [ck for ck in keys if in_bbox(ck, lat, lon)]
     if inside:
+
         def _area(ck):
             b = CITIES[ck]["bbox"]
             return (b[2] - b[0]) * (b[3] - b[1])
+
         return min(inside, key=_area)
     return min(keys, key=lambda ck: _dist2(CITIES[ck]["center"], lat, lon))

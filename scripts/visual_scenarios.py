@@ -40,9 +40,13 @@ from playwright.sync_api import sync_playwright
 REPO = Path(__file__).resolve().parent.parent
 
 # Two cars and a home, near Market St, San Francisco (data is committed in the repo).
-PREFS = {"cars": [{"id": "c1", "name": "Civic", "lat": 37.7749, "lon": -122.4194},
-                  {"id": "c2", "name": "Golf", "lat": 37.7793, "lon": -122.4148}],
-         "homes": [{"id": "h1", "lat": 37.7765, "lon": -122.4172, "address": "1 Market St"}]}
+PREFS = {
+    "cars": [
+        {"id": "c1", "name": "Civic", "lat": 37.7749, "lon": -122.4194},
+        {"id": "c2", "name": "Golf", "lat": 37.7793, "lon": -122.4148},
+    ],
+    "homes": [{"id": "h1", "lat": 37.7765, "lon": -122.4172, "address": "1 Market St"}],
+}
 
 # Simulated iOS insets for a home-screen app (headless WebKit has none): 62 pt status bar, 34 pt home bar.
 APP_INSETS = ":root { --inset-t: 62px; --inset-b: 34px; }"
@@ -65,54 +69,79 @@ AXE_RUN = """() => axe.run(document, {
 # name -> (browser, device profile or None, viewport override, standalone, expected app height)
 # expected height: "viewport" = the visible height, or a number of CSS px (the whole screen).
 PLATFORMS = {
-    "desktop-webkit":   ("webkit",   None, {"width": 1280, "height": 800}, False, "viewport"),
+    "desktop-webkit": ("webkit", None, {"width": 1280, "height": 800}, False, "viewport"),
     "desktop-chromium": ("chromium", None, {"width": 1280, "height": 800}, False, "viewport"),
-    "desktop-small":    ("webkit",   None, {"width": 1024, "height": 640}, False, "viewport"),
-    "iphone-safari":    ("webkit", "iPhone 17 Pro", {"width": 402, "height": 681}, False, "viewport"),
-    "iphone-app":       ("webkit", "iPhone 17 Pro", {"width": 402, "height": 874}, True, 874),
+    "desktop-small": ("webkit", None, {"width": 1024, "height": 640}, False, "viewport"),
+    "iphone-safari": ("webkit", "iPhone 17 Pro", {"width": 402, "height": 681}, False, "viewport"),
+    "iphone-app": ("webkit", "iPhone 17 Pro", {"width": 402, "height": 874}, True, 874),
     "iphone-landscape": ("webkit", "iPhone 17 Pro landscape", None, False, "viewport"),
-    "ipad":             ("webkit", "iPad Pro 11", None, False, "viewport"),
-    "android-chrome":   ("chromium", "Pixel 7", None, False, "viewport"),
+    "ipad": ("webkit", "iPad Pro 11", None, False, "viewport"),
+    "android-chrome": ("chromium", "Pixel 7", None, False, "viewport"),
 }
 THEMES = ("light", "dark")
 
 # View = how the page is driven before the screenshot (UI clicks and the page's own functions).
 VIEWS = {
     # Calendar tab, small sheet: one week.
-    "strip":  lambda pg: None,
+    "strip": lambda pg: None,
     # Mid-drag between small and medium: the weeks below unfold (a phone's sheet; the panel has no drag).
-    "unfold": lambda pg: pg.evaluate("isDesktop() || (sheet.classList.add('dragging'),"
-                                     " sheet.style.height = (detentHeights().small + 120) + 'px')"),
+    "unfold": lambda pg: pg.evaluate(
+        "isDesktop() || (sheet.classList.add('dragging'),"
+        " sheet.style.height = (detentHeights().small + 120) + 'px')"
+    ),
     # The month view: the calendar at medium.
-    "month":  lambda pg: pg.evaluate("setDetent('medium')"),
-    "saved":  lambda pg: (pg.click("#tb-saved"), pg.evaluate("setDetent('medium')")),
+    "month": lambda pg: pg.evaluate("setDetent('medium')"),
+    "saved": lambda pg: (pg.click("#tb-saved"), pg.evaluate("setDetent('medium')")),
     # A car's page, opened from the Saved list.
-    "item":   lambda pg: (pg.click("#tb-saved"), pg.evaluate("setDetent('medium')"),
-                          pg.click('.car-entry[data-id="c1"] .ce-header')),
+    "item": lambda pg: (
+        pg.click("#tb-saved"),
+        pg.evaluate("setDetent('medium')"),
+        pg.click('.car-entry[data-id="c1"] .ce-header'),
+    ),
     # Its "…" menu, and removing it (the confirmation).
-    "more":   lambda pg: (pg.evaluate("openItem('c1')"), pg.wait_for_timeout(600), pg.click("#btn-item-more")),
-    "remove": lambda pg: (pg.evaluate("openItem('c1')"), pg.wait_for_timeout(600), pg.click("#btn-item-more"),
-                          pg.click('#item-menu [data-act="remove"]')),
+    "more": lambda pg: (
+        pg.evaluate("openItem('c1')"),
+        pg.wait_for_timeout(600),
+        pg.click("#btn-item-more"),
+    ),
+    "remove": lambda pg: (
+        pg.evaluate("openItem('c1')"),
+        pg.wait_for_timeout(600),
+        pg.click("#btn-item-more"),
+        pg.click('#item-menu [data-act="remove"]'),
+    ),
     # A home's page, opened from its pin.
-    "home":   lambda pg: pg.evaluate("openItem('h1')"),
-    "add":    lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),
+    "home": lambda pg: pg.evaluate("openItem('h1')"),
+    "add": lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),
     "settings": lambda pg: (pg.click("#tb-settings"), pg.evaluate("setDetent('medium')")),
     # Nearby: markets, events and meetings near the centre target.
-    "nearby": lambda pg: (pg.click("#tb-nearby"), pg.evaluate("setDetent('medium')"),
-                          pg.wait_for_function("!document.querySelector('#nearby-body').textContent.includes('Loading')",
-                                               timeout=30000)),
-    "place":  lambda pg: pg.evaluate("startPlacing()"),
+    "nearby": lambda pg: (
+        pg.click("#tb-nearby"),
+        pg.evaluate("setDetent('medium')"),
+        pg.wait_for_function(
+            "!document.querySelector('#nearby-body').textContent.includes('Loading')", timeout=30000
+        ),
+    ),
+    "place": lambda pg: pg.evaluate("startPlacing()"),
     # You-are-here dot with a 40 m accuracy halo, near the first car.
-    "here":   lambda pg: pg.evaluate("_setHere(37.7752, -122.4189, 40)"),
+    "here": lambda pg: pg.evaluate("_setHere(37.7752, -122.4189, 40)"),
     # The "Add here" menu (right-click / long press), up and left of the centre (clear of the car there).
-    "menu":   lambda pg: pg.evaluate("(() => { const r = mapDiv.getBoundingClientRect(), x = r.width / 2 - 150, y = r.height / 2 - 110;"
-                                     " openCtxMenu(map.unproject([x, y]), r.left + x, r.top + y); })()"),
+    "menu": lambda pg: pg.evaluate(
+        "(() => { const r = mapDiv.getBoundingClientRect(), x = r.width / 2 - 150, y = r.height / 2 - 110;"
+        " openCtxMenu(map.unproject([x, y]), r.left + x, r.top + y); })()"
+    ),
     # The Layers menu with permit areas and meters turned on (drawn under the streets).
-    "layers": lambda pg: (pg.click("#btn-layers"), pg.click('[data-layer="parking"]'),
-                          pg.click('[data-layer="meters"]'), pg.keyboard.press("Escape"),
-                          pg.wait_for_timeout(1500)),
+    "layers": lambda pg: (
+        pg.click("#btn-layers"),
+        pg.click('[data-layer="parking"]'),
+        pg.click('[data-layer="meters"]'),
+        pg.keyboard.press("Escape"),
+        pg.wait_for_timeout(1500),
+    ),
     # A car whose schedule failed to load: its page offers Retry.
-    "failed": lambda pg: pg.evaluate("delete carSchedules.c1; loadFailed.add('c1'); openItem('c1'); renderCarsPanel()"),
+    "failed": lambda pg: pg.evaluate(
+        "delete carSchedules.c1; loadFailed.add('c1'); openItem('c1'); renderCarsPanel()"
+    ),
 }
 
 
@@ -161,13 +190,15 @@ def check(m, expect_h):
         return [*bad, "centre target not visible"]
     cx, cy = m["center"]
     if max(abs(cx - m["mapCenter"][0]), abs(cy - m["mapCenter"][1])) > 2:
-        bad.append(f"centre target at {cx:.0f},{cy:.0f} but the map centre is at {m['mapCenter'][0]:.0f},{m['mapCenter'][1]:.0f}")
+        bad.append(
+            f"centre target at {cx:.0f},{cy:.0f} but the map centre is at {m['mapCenter'][0]:.0f},{m['mapCenter'][1]:.0f}"
+        )
     for k, (x0, y0, x1, y1) in boxes.items():
         if x0 - 12 <= cx <= x1 + 12 and y0 - 12 <= cy <= y1 + 12:
             bad.append(f"{k} covers the centre target")
     names = list(boxes)
     for i, a in enumerate(names):
-        for b in names[i + 1:]:
+        for b in names[i + 1 :]:
             (al, at, ar, ab), (bl, bt, br, bb) = boxes[a], boxes[b]
             if min(ar, br) - max(al, bl) > 1 and min(ab, bb) - max(at, bt) > 1:
                 bad.append(f"{a} overlaps {b}")
@@ -187,7 +218,11 @@ def start_server():
     port = free_port()
     proc = subprocess.Popen(
         ["uv", "run", "python", "-m", "uvicorn", "broombuster.api.app:app", "--port", str(port)],
-        cwd=REPO, env={**os.environ, "BB_RATE_LIMIT": "0"}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cwd=REPO,
+        env={**os.environ, "BB_RATE_LIMIT": "0"},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     for _ in range(120):
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
@@ -217,16 +252,21 @@ def run_one(pw, browsers, base, out, platform, theme, view, axe):
     if engine not in browsers:
         browsers[engine] = getattr(pw, engine).launch()
     ctx = browsers[engine].new_context(**kw)
-    seed = (f"if (!sessionStorage.s) {{ sessionStorage.s = 1; localStorage.setItem('bb_prefs', {json.dumps(json.dumps(PREFS))});"
-            f" localStorage.setItem('bb_tab', 'calendar'); localStorage.setItem('bb_detent', 'small');"
-            f" localStorage.setItem('bb_theme', '{theme}'); }}")
+    seed = (
+        f"if (!sessionStorage.s) {{ sessionStorage.s = 1; localStorage.setItem('bb_prefs', {json.dumps(json.dumps(PREFS))});"
+        f" localStorage.setItem('bb_tab', 'calendar'); localStorage.setItem('bb_detent', 'small');"
+        f" localStorage.setItem('bb_theme', '{theme}'); }}"
+    )
     ctx.add_init_script(seed + (STANDALONE if standalone else ""))
     pg = ctx.new_page()
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(base)
     if standalone:
-        pg.evaluate("css => { const s = document.createElement('style'); s.textContent = css; document.head.append(s); }", APP_INSETS)
+        pg.evaluate(
+            "css => { const s = document.createElement('style'); s.textContent = css; document.head.append(s); }",
+            APP_INSETS,
+        )
     pg.wait_for_function(READY, timeout=60000)
     VIEWS[view](pg)
     pg.wait_for_function(SETTLED, timeout=60000)
@@ -246,7 +286,9 @@ def run_one(pw, browsers, base, out, platform, theme, view, axe):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--only", nargs="*", choices=PLATFORMS, help="platforms (default: all)")
     ap.add_argument("--theme", nargs="*", choices=THEMES, help="themes (default: both)")
     ap.add_argument("--view", nargs="*", choices=VIEWS, help="views (default: all)")
@@ -269,10 +311,20 @@ def main():
                     for view in a.view or VIEWS:
                         try:
                             name, bad = run_one(pw, browsers, base, out, platform, theme, view, axe)
-                        except Exception as e:  # a scenario that cannot run is a failure, not a crash
-                            name, bad = f"{platform}-{theme}-{view}", [f"could not run: {str(e).splitlines()[0]}"]
+                        except (
+                            Exception
+                        ) as e:  # a scenario that cannot run is a failure, not a crash
+                            name, bad = (
+                                f"{platform}-{theme}-{view}",
+                                [f"could not run: {str(e).splitlines()[0]}"],
+                            )
                         results.append((name, bad))
-                        print(("FAIL " if bad else "ok   ") + name + ("  " + "; ".join(bad) if bad else ""), flush=True)
+                        print(
+                            ("FAIL " if bad else "ok   ")
+                            + name
+                            + ("  " + "; ".join(bad) if bad else ""),
+                            flush=True,
+                        )
             for b in browsers.values():
                 b.close()
     finally:
@@ -282,12 +334,17 @@ def main():
     (out / "report.txt").write_text("\n".join(lines) + "\n")
     cells = "".join(
         f'<figure class="{"bad" if bad else "ok"}"><img src="{n}.png" loading="lazy"><figcaption>{html.escape(n)}'
-        f'{"<br>" + html.escape("; ".join(bad)) if bad else ""}</figcaption></figure>' for n, bad in results)
+        f"{'<br>' + html.escape('; '.join(bad)) if bad else ''}</figcaption></figure>"
+        for n, bad in results
+    )
     (out / "index.html").write_text(
         "<!doctype html><meta charset=utf-8><title>BroomBuster scenarios</title><style>"
         "body{font:13px system-ui;margin:16px;background:#f3f4f1}main{display:flex;flex-wrap:wrap;gap:14px}"
         "figure{margin:0;width:260px}img{width:100%;border:3px solid #15803d;border-radius:6px}"
-        ".bad img{border-color:#b91c1c}.bad figcaption{color:#b91c1c}</style><main>" + cells + "</main>")
+        ".bad img{border-color:#b91c1c}.bad figcaption{color:#b91c1c}</style><main>"
+        + cells
+        + "</main>"
+    )
     failed = sum(1 for _, bad in results if bad)
     print(f"\n{len(results) - failed}/{len(results)} scenarios pass; screenshots in {out}")
     sys.exit(1 if failed else 0)

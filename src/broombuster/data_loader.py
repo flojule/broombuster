@@ -21,9 +21,9 @@ def load_city_data(city_key: str) -> geopandas.GeoDataFrame:
 def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
     """Every city of a region in one EPSG:4326 GeoDataFrame."""
     return geopandas.GeoDataFrame(
-        pd.concat([load_city_data(ck) for ck in REGIONS[region_key]["cities"]],
-                  ignore_index=True),
-        crs="EPSG:4326")
+        pd.concat([load_city_data(ck) for ck in REGIONS[region_key]["cities"]], ignore_index=True),
+        crs="EPSG:4326",
+    )
 
 
 def build_city_fgb(city_key: str) -> geopandas.GeoDataFrame:

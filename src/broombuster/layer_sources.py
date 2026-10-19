@@ -37,6 +37,7 @@ AFDC = "https://developer.nlr.gov/api/alt-fuel-stations/v1.json"  # NREL's API, 
 
 # ── Fetching ──────────────────────────────────────────────────────────────────
 
+
 def _get(url: str, **params) -> requests.Response:
     r = requests.get(url, params=params, headers=_UA, timeout=_TIMEOUT_S)
     r.raise_for_status()
@@ -49,17 +50,29 @@ def _frame(features: list) -> geopandas.GeoDataFrame:
     return geopandas.GeoDataFrame.from_features(features, crs="EPSG:4326")
 
 
-def arcgis(layer_url: str, where: str = "1=1",
-           fields: str = "*") -> tuple[geopandas.GeoDataFrame, str]:
+def arcgis(
+    layer_url: str, where: str = "1=1", fields: str = "*"
+) -> tuple[geopandas.GeoDataFrame, str]:
     """(every feature of an ArcGIS FeatureServer/MapServer layer, its last edit date)."""
     meta = _get(layer_url, f="json").json()
     edited = (meta.get("editingInfo") or {}).get("lastEditDate")
-    asof = datetime.datetime.fromtimestamp(edited / 1000, datetime.UTC).date().isoformat() if edited else ""
+    asof = (
+        datetime.datetime.fromtimestamp(edited / 1000, datetime.UTC).date().isoformat()
+        if edited
+        else ""
+    )
     page = min(int(meta.get("maxRecordCount") or 1000), 2000)
     feats, offset = [], 0
     while True:
-        data = _get(f"{layer_url}/query", where=where, outFields=fields, outSR=4326, f="geojson",
-                    resultOffset=offset, resultRecordCount=page).json()
+        data = _get(
+            f"{layer_url}/query",
+            where=where,
+            outFields=fields,
+            outSR=4326,
+            f="geojson",
+            resultOffset=offset,
+            resultRecordCount=page,
+        ).json()
         batch = data.get("features") or []
         feats += batch
         if len(batch) < page and not data.get("exceededTransferLimit"):
@@ -82,8 +95,9 @@ def arcgis_colors(layer_url: str) -> dict[str, str]:
     return out
 
 
-def socrata(domain: str, dataset: str, where: str | None = None,
-            select: str | None = None) -> tuple[geopandas.GeoDataFrame, str]:
+def socrata(
+    domain: str, dataset: str, where: str | None = None, select: str | None = None
+) -> tuple[geopandas.GeoDataFrame, str]:
     """(rows of a Socrata dataset with a geometry column, its last data update)."""
     meta = _get(f"https://{domain}/api/views/{dataset}.json").json()
     upd = meta.get("rowsUpdatedAt")
@@ -109,9 +123,11 @@ def _out(gdf: geopandas.GeoDataFrame, label, rule, asof: str) -> geopandas.GeoDa
 def _clean(geom, min_area: float):
     """Drop parts and holes under min_area (m², EPSG:3857 units near enough here)."""
     parts = getattr(geom, "geoms", [geom])
-    keep = [shapely.Polygon(p.exterior,
-                            [h for h in p.interiors if shapely.Polygon(h).area >= min_area])
-            for p in parts if p.area >= min_area]
+    keep = [
+        shapely.Polygon(p.exterior, [h for h in p.interiors if shapely.Polygon(h).area >= min_area])
+        for p in parts
+        if p.area >= min_area
+    ]
     return shapely.MultiPolygon(keep) if keep else shapely.Polygon()
 
 
@@ -129,10 +145,12 @@ def _dissolve(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 # ── Parking rules ─────────────────────────────────────────────────────────────
 
-_BERKELEY_RPP = ("Without a permit: 2 hours, generally Mon–Fri 8 AM–7 PM; "
-                 "the signs give each block's hours.")
-_OAKLAND_RPP = ("Permit holders are exempt from the posted time limit; "
-                "everyone else follows the signs.")
+_BERKELEY_RPP = (
+    "Without a permit: 2 hours, generally Mon–Fri 8 AM–7 PM; the signs give each block's hours."
+)
+_OAKLAND_RPP = (
+    "Permit holders are exempt from the posted time limit; everyone else follows the signs."
+)
 
 
 def permit_area(v) -> str:
@@ -166,12 +184,15 @@ def oakland_parking():
 # curbs above say which blocks are restricted; the area is what the map draws and what
 # applies to a car anywhere inside it.
 
-AREA_RULE = ("Residential permit area: on its signed blocks, permit holders are exempt "
-             "from the time limit. This block's signs say whether it is one.")
+AREA_RULE = (
+    "Residential permit area: on its signed blocks, permit holders are exempt "
+    "from the time limit. This block's signs say whether it is one."
+)
 
 
-def _areas(gdf: geopandas.GeoDataFrame, key: str, asof: str,
-           close_m: float = 0, min_m2: float = 2000) -> geopandas.GeoDataFrame:
+def _areas(
+    gdf: geopandas.GeoDataFrame, key: str, asof: str, close_m: float = 0, min_m2: float = 2000
+) -> geopandas.GeoDataFrame:
     """One clean polygon per permit area: the source's shapes by permit_area(key), merged,
     closed over 2 * close_m gaps (parcel sources: the streets between their lots), parts
     and holes under min_m2 dropped, simplified ~2 m, and no two areas overlapping (a
@@ -271,8 +292,9 @@ def sf_towaway():
     gdf, asof = socrata("data.sf.gov", "wnhf-gu86")
     if gdf.empty:
         return gdf
-    return _out(gdf, "Tow-away zone",
-                lambda r: f"Tow-away {_sf_hours(r) or 'at the posted hours'}.", asof)
+    return _out(
+        gdf, "Tow-away zone", lambda r: f"Tow-away {_sf_hours(r) or 'at the posted hours'}.", asof
+    )
 
 
 def sf_parking_all():
@@ -282,52 +304,78 @@ def sf_parking_all():
 
 # ── Meters ────────────────────────────────────────────────────────────────────
 
+
 def berkeley_meters():
     gdf, asof = arcgis(f"{BERKELEY_GIS}/Public/Portal_CommSvcs/MapServer/3", fields="METERTYPE")
-    return _out(gdf, "Meter",
-                "Metered: goBerkeley sets each block's rate and limit by demand; see the meter.",
-                asof)
+    return _out(
+        gdf,
+        "Meter",
+        "Metered: goBerkeley sets each block's rate and limit by demand; see the meter.",
+        asof,
+    )
 
 
 def oakland_meters():
-    gdf, asof = arcgis(f"{OAKLAND}/Oakland_Parking_Meters/FeatureServer/0",
-                       fields="AREA,POLE_STATU")
-    return _out(gdf, "Meter",
-                "Metered: most meters $3/h ($1–$4), Mon–Sat 8 AM–6 PM; "
-                "around Lake Merritt also evenings and Sunday afternoons.", asof)
+    gdf, asof = arcgis(
+        f"{OAKLAND}/Oakland_Parking_Meters/FeatureServer/0", fields="AREA,POLE_STATU"
+    )
+    return _out(
+        gdf,
+        "Meter",
+        "Metered: most meters $3/h ($1–$4), Mon–Sat 8 AM–6 PM; "
+        "around Lake Merritt also evenings and Sunday afternoons.",
+        asof,
+    )
 
 
 def sf_meters():
     gdf, asof = socrata("data.sf.gov", "27b3-yjjx")
+
     def label(r):
-        street = re.sub(r"(\d)(St|Nd|Rd|Th)\b", lambda m: m[1] + m[2].lower(),
-                        _txt(r, "street_name").title())
+        street = re.sub(
+            r"(\d)(St|Nd|Rd|Th)\b", lambda m: m[1] + m[2].lower(), _txt(r, "street_name").title()
+        )
         return f"Metered block, {street}" if street else "Metered block"
 
-    return _out(gdf, label, "Metered: pay at the meter or app; hours and rate are on the meter.",
-                asof)
+    return _out(
+        gdf, label, "Metered: pay at the meter or app; hours and rate are on the meter.", asof
+    )
 
 
 # ── Chicago winter bans ───────────────────────────────────────────────────────
+
 
 def chicago_winter():
     night, a1 = socrata("data.cityofchicago.org", "mcad-r2g5")
     snow, a2 = socrata("data.cityofchicago.org", "i6k4-giaj")
     parts = []
     if not night.empty:
-        parts.append(_out(night, "Winter overnight parking ban",
-                          "No parking 3–7 AM from Dec 1 to Apr 1, snow or not (towed).", a1))
+        parts.append(
+            _out(
+                night,
+                "Winter overnight parking ban",
+                "No parking 3–7 AM from Dec 1 to Apr 1, snow or not (towed).",
+                a1,
+            )
+        )
     if not snow.empty:
-        parts.append(_out(snow, "2-inch snow route",
-                          "No parking once 2 inches of snow have fallen, until plowed.",
-                          a2))
+        parts.append(
+            _out(
+                snow,
+                "2-inch snow route",
+                "No parking once 2 inches of snow have fallen, until plowed.",
+                a2,
+            )
+        )
     return pd.concat(parts, ignore_index=True)
 
 
 # ── Fire hazard and evacuation zones ──────────────────────────────────────────
 
-_FIRE_RULE = ("Hill fire zone: keep narrow streets clear for fire engines; "
-              "on Red Flag days don't park on them.")
+_FIRE_RULE = (
+    "Hill fire zone: keep narrow streets clear for fire engines; "
+    "on Red Flag days don't park on them."
+)
 
 
 def _city_box(city_key):
@@ -359,13 +407,20 @@ def oakland_fire():
 
 def _evac(gdf, asof, prefix):
     gdf = gdf[gdf["zone_id"].astype(str).str.upper().str.startswith(prefix)]
-    return _out(gdf, lambda r: f"Evacuation zone {r['zone_id']}",
-                "Genasys Protect zone: alerts and evacuation orders name it.", asof)
+    return _out(
+        gdf,
+        lambda r: f"Evacuation zone {r['zone_id']}",
+        "Genasys Protect zone: alerts and evacuation orders name it.",
+        asof,
+    )
 
 
 def berkeley_evac():
-    gdf, asof = arcgis(f"{BERKELEY}/cob_evacuation_zones/FeatureServer/109",
-                       where="city_abbr = 'BER'", fields="zone_id,city_abbr")
+    gdf, asof = arcgis(
+        f"{BERKELEY}/cob_evacuation_zones/FeatureServer/109",
+        where="city_abbr = 'BER'",
+        fields="zone_id,city_abbr",
+    )
     return _evac(gdf, asof, "")
 
 
@@ -392,59 +447,90 @@ def ev(city_key: str, bbox) -> geopandas.GeoDataFrame:
     from broombuster import config
 
     lat0, lon0, lat1, lon1 = bbox
-    data = _get(AFDC, api_key=config.nrel_api_key(), fuel_type="ELEC", access="public",
-                status="E", limit="all", zip=",".join(str(z) for z in _ZIPS[city_key])).json()
+    data = _get(
+        AFDC,
+        api_key=config.nrel_api_key(),
+        fuel_type="ELEC",
+        access="public",
+        status="E",
+        limit="all",
+        zip=",".join(str(z) for z in _ZIPS[city_key]),
+    ).json()
     stations = data.get("fuel_stations") or []
     rows = []
     for s in stations:
         lat, lon = s.get("latitude"), s.get("longitude")
         if lat is None or lon is None or not (lat0 <= lat <= lat1 and lon0 <= lon <= lon1):
             continue
-        ports = [f"{n} DC fast" for n in [s.get("ev_dc_fast_num")] if n] + \
-                [f"{n} Level 2" for n in [s.get("ev_level2_evse_num")] if n]
+        ports = [f"{n} DC fast" for n in [s.get("ev_dc_fast_num")] if n] + [
+            f"{n} Level 2" for n in [s.get("ev_level2_evse_num")] if n
+        ]
         network = (s.get("ev_network") or "").replace("Non-Networked", "").strip()
-        rows.append({"label": s.get("station_name") or "EV charging",
-                     "rule": ", ".join(x for x in (", ".join(ports), network) if x),
-                     "asof": str(s.get("updated_at") or "")[:10],
-                     "geometry": shapely.Point(lon, lat)})
-    return geopandas.GeoDataFrame(rows, columns=[*COLUMNS, "geometry"], geometry="geometry",
-                                  crs="EPSG:4326")
+        rows.append(
+            {
+                "label": s.get("station_name") or "EV charging",
+                "rule": ", ".join(x for x in (", ".join(ports), network) if x),
+                "asof": str(s.get("updated_at") or "")[:10],
+                "geometry": shapely.Point(lon, lat),
+            }
+        )
+    return geopandas.GeoDataFrame(
+        rows, columns=[*COLUMNS, "geometry"], geometry="geometry", crs="EPSG:4326"
+    )
 
 
 # ── Farmers markets (hand list) ───────────────────────────────────────────────
+
 
 def markets(city_key: str) -> geopandas.GeoDataFrame:
     """data/places/markets.yaml rows of a city: weekly markets, kept by hand."""
     with open(os.path.join(REPO_ROOT, "data", "places", "markets.yaml"), encoding="utf-8") as fh:
         doc = yaml.safe_load(fh)
-    rows = [{"label": m["name"], "rule": f"{m['day']} {m['hours']}",
-             "asof": str(doc.get("last_verified") or ""),
-             "geometry": shapely.Point(m["lon"], m["lat"])}
-            for m in doc["markets"] if m["city"] == city_key]
-    return geopandas.GeoDataFrame(rows, columns=[*COLUMNS, "geometry"], geometry="geometry",
-                                  crs="EPSG:4326")
+    rows = [
+        {
+            "label": m["name"],
+            "rule": f"{m['day']} {m['hours']}",
+            "asof": str(doc.get("last_verified") or ""),
+            "geometry": shapely.Point(m["lon"], m["lat"]),
+        }
+        for m in doc["markets"]
+        if m["city"] == city_key
+    ]
+    return geopandas.GeoDataFrame(
+        rows, columns=[*COLUMNS, "geometry"], geometry="geometry", crs="EPSG:4326"
+    )
 
 
 # ── Tables (no geometry) ──────────────────────────────────────────────────────
+
 
 def chicago_permit_zones() -> pd.DataFrame:
     """Chicago's residential permit zones by address range (active rows only):
     street (normalize.street_name key), low, high, side (O / E / B), zone."""
     from broombuster import normalize
 
-    rows = _get("https://data.cityofchicago.org/resource/u9xt-hiju.json",
-                **{"$limit": 50000, "$where": "status = 'ACTIVE'"}).json()
+    rows = _get(
+        "https://data.cityofchicago.org/resource/u9xt-hiju.json",
+        **{"$limit": 50000, "$where": "status = 'ACTIVE'"},
+    ).json()
     out = []
     for r in rows:
-        street = " ".join(str(r.get(k) or "").strip()
-                          for k in ("street_direction", "street_name", "street_type")).strip()
+        street = " ".join(
+            str(r.get(k) or "").strip() for k in ("street_direction", "street_name", "street_type")
+        ).strip()
         try:
             low, high = int(float(r["address_range_low"])), int(float(r["address_range_high"]))
         except (KeyError, TypeError, ValueError):
             continue
-        out.append({"street": normalize.street_name(street), "low": low, "high": high,
-                    "side": str(r.get("odd_even") or "B").strip().upper()[:1] or "B",
-                    "zone": str(r.get("zone") or "").strip()})
+        out.append(
+            {
+                "street": normalize.street_name(street),
+                "low": low,
+                "high": high,
+                "side": str(r.get("odd_even") or "B").strip().upper()[:1] or "B",
+                "zone": str(r.get("zone") or "").strip(),
+            }
+        )
     return pd.DataFrame(out, columns=["street", "low", "high", "side", "zone"])
 
 
@@ -466,12 +552,16 @@ SOURCES = {
         "san_francisco": lambda c: sf_meters(),
     },
     "winter": {"chicago_all": lambda c: chicago_winter()},
-    "ev": {ck: (lambda c, ck=ck: ev(ck, c["bbox"])) for ck in
-           ("berkeley", "oakland", "alameda", "san_francisco", "chicago_all")},
+    "ev": {
+        ck: (lambda c, ck=ck: ev(ck, c["bbox"]))
+        for ck in ("berkeley", "oakland", "alameda", "san_francisco", "chicago_all")
+    },
     "fire": {"berkeley": lambda c: berkeley_fire(), "oakland": lambda c: oakland_fire()},
     "evac": {"berkeley": lambda c: berkeley_evac(), "oakland": lambda c: oakland_evac()},
-    "markets": {ck: (lambda c, ck=ck: markets(ck)) for ck in
-                ("berkeley", "oakland", "alameda", "san_francisco", "chicago_all")},
+    "markets": {
+        ck: (lambda c, ck=ck: markets(ck))
+        for ck in ("berkeley", "oakland", "alameda", "san_francisco", "chicago_all")
+    },
 }
 
 # Who to credit for each theme's data (shown in the Me tab).

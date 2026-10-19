@@ -5,6 +5,7 @@
 The maskable icon shrinks the artwork into the central safe zone so launchers
 can crop it to any shape.
 """
+
 import re
 from pathlib import Path
 
@@ -26,7 +27,7 @@ OUTPUTS = {
 def render(size: int, scale: float) -> bytes:
     svg = SVG
     if scale != 1.0:
-        art = re.search(r'(<g .*</g>)', svg, re.S).group(1)
+        art = re.search(r"(<g .*</g>)", svg, re.S).group(1)
         c = 256 * (1 - scale)
         wrapped = f'<g transform="translate({c:.1f} {c:.1f}) scale({scale})">{art}</g>'
         svg = svg.replace(art, wrapped)

@@ -127,9 +127,10 @@ def _drop_google_schema(db: sqlite3.Connection) -> None:
 def init_db() -> None:
     with closing(_connect()) as db, db:
         db.execute("BEGIN IMMEDIATE")
-        if (db.execute("SELECT 1 FROM sqlite_master WHERE name = 'users'").fetchone()
-                and not db.execute(
-                    "SELECT 1 FROM sqlite_master WHERE name = 'accounts'").fetchone()):
+        if (
+            db.execute("SELECT 1 FROM sqlite_master WHERE name = 'users'").fetchone()
+            and not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'accounts'").fetchone()
+        ):
             _drop_google_schema(db)
         for stmt in _SCHEMA:
             db.execute(stmt)
@@ -150,16 +151,19 @@ def _secure(base: str) -> bool:
 
 
 def _set_cookie(resp: Response, name: str, value: str, max_age: int, base: str, path: str) -> None:
-    resp.set_cookie(name, value, max_age=max_age, path=path, httponly=True,
-                    secure=_secure(base), samesite="lax")
+    resp.set_cookie(
+        name, value, max_age=max_age, path=path, httponly=True, secure=_secure(base), samesite="lax"
+    )
 
 
 def _start_session(resp: Response, member_id: str, base: str) -> None:
     token, now = secrets.token_urlsafe(32), int(time.time())
     with closing(_connect()) as db, db:
         db.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
-        db.execute("INSERT INTO sessions (token_hash, expires_at, member_id) VALUES (?, ?, ?)",
-                   (_hash(token), now + _SESSION_TTL_S, member_id))
+        db.execute(
+            "INSERT INTO sessions (token_hash, expires_at, member_id) VALUES (?, ?, ?)",
+            (_hash(token), now + _SESSION_TTL_S, member_id),
+        )
     _set_cookie(resp, _SESSION_COOKIE, token, _SESSION_TTL_S, base, "/")
 
 
@@ -172,7 +176,8 @@ def _session_user(request: Request) -> sqlite3.Row | None:
         return db.execute(
             "SELECT m.* FROM sessions s JOIN members m ON m.id = s.member_id"
             " WHERE s.token_hash = ? AND s.expires_at > ?",
-            (_hash(token), int(time.time()))).fetchone()
+            (_hash(token), int(time.time())),
+        ).fetchone()
 
 
 def _same_origin(request: Request) -> None:
@@ -195,26 +200,31 @@ class _BadInvite(Exception):
 
 
 def _member_count(db: sqlite3.Connection, account_id: str) -> int:
-    return db.execute("SELECT COUNT(*) FROM members WHERE account_id = ?",
-                      (account_id,)).fetchone()[0]
+    return db.execute(
+        "SELECT COUNT(*) FROM members WHERE account_id = ?", (account_id,)
+    ).fetchone()[0]
 
 
-def _add_member(db: sqlite3.Connection, member_id: str, account_id: str | None,
-                name: str) -> None:
+def _add_member(db: sqlite3.Connection, member_id: str, account_id: str | None, name: str) -> None:
     """A new member, in `account_id` if given, else in a new account."""
     now = int(time.time())
     if account_id is None:
         account_id = secrets.token_urlsafe(16)
-        db.execute("INSERT INTO accounts (id, prefs, created_at) VALUES (?, NULL, ?)",
-                   (account_id, now))
-    db.execute("INSERT INTO members (id, account_id, name, created_at) VALUES (?, ?, ?, ?)",
-               (member_id, account_id, name, now))
+        db.execute(
+            "INSERT INTO accounts (id, prefs, created_at) VALUES (?, NULL, ?)", (account_id, now)
+        )
+    db.execute(
+        "INSERT INTO members (id, account_id, name, created_at) VALUES (?, ?, ?, ?)",
+        (member_id, account_id, name, now),
+    )
 
 
 def _account_for_invite(db: sqlite3.Connection, token: str) -> str:
     """The account a valid, unused invite opens; the invite is used up here."""
-    row = db.execute("SELECT account_id FROM invites WHERE token_hash = ? AND expires_at > ?",
-                     (_hash(token), int(time.time()))).fetchone()
+    row = db.execute(
+        "SELECT account_id FROM invites WHERE token_hash = ? AND expires_at > ?",
+        (_hash(token), int(time.time())),
+    ).fetchone()
     if row is None or _member_count(db, row["account_id"]) >= _MAX_MEMBERS:
         raise _BadInvite()
     db.execute("DELETE FROM invites WHERE token_hash = ?", (_hash(token),))
@@ -275,8 +285,10 @@ def _rp_id(base: str) -> str:
 
 
 _RESIDENT_KEY = AuthenticatorSelectionCriteria(
-    resident_key=ResidentKeyRequirement.REQUIRED, require_resident_key=True,
-    user_verification=UserVerificationRequirement.REQUIRED)
+    resident_key=ResidentKeyRequirement.REQUIRED,
+    require_resident_key=True,
+    user_verification=UserVerificationRequirement.REQUIRED,
+)
 
 
 class NewPasskey(BaseModel):
@@ -294,12 +306,24 @@ def passkey_register_options(request: Request, body: NewPasskey):
         raise HTTPException(422, "Give your name.")
     member_id = secrets.token_urlsafe(16)
     options = generate_registration_options(
-        rp_id=_rp_id(base), rp_name="BroomBuster", user_name=name,
-        user_id=member_id.encode(), user_display_name=name,
-        authenticator_selection=_RESIDENT_KEY)
-    return _options_response(options, base, {
-        "purpose": "new", "challenge": options.challenge, "member_id": member_id,
-        "name": name, "invite": _valid_invite(body.invite)})
+        rp_id=_rp_id(base),
+        rp_name="BroomBuster",
+        user_name=name,
+        user_id=member_id.encode(),
+        user_display_name=name,
+        authenticator_selection=_RESIDENT_KEY,
+    )
+    return _options_response(
+        options,
+        base,
+        {
+            "purpose": "new",
+            "challenge": options.challenge,
+            "member_id": member_id,
+            "name": name,
+            "invite": _valid_invite(body.invite),
+        },
+    )
 
 
 @router.post("/auth/passkey/register/verify", status_code=204)
@@ -311,8 +335,12 @@ def passkey_register_verify(request: Request, credential: dict = Body(...)):
         raise HTTPException(400, "That sign-in took too long. Please try again.")
     try:
         verified = verify_registration_response(
-            credential=credential, expected_challenge=state["challenge"],
-            expected_rp_id=_rp_id(base), expected_origin=base, require_user_verification=True)
+            credential=credential,
+            expected_challenge=state["challenge"],
+            expected_rp_id=_rp_id(base),
+            expected_origin=base,
+            require_user_verification=True,
+        )
     except (InvalidRegistrationResponse, InvalidJSONStructure, KeyError, TypeError, ValueError):
         raise HTTPException(400, "The passkey could not be verified.") from None
 
@@ -325,10 +353,17 @@ def passkey_register_verify(request: Request, credential: dict = Body(...)):
             raise HTTPException(400, "This invite link has expired or is used up.") from None
         _add_member(db, state["member_id"], account_id, state["name"])
         try:
-            db.execute("INSERT INTO passkeys (credential_id, member_id, public_key, sign_count,"
-                       " created_at) VALUES (?, ?, ?, ?, ?)",
-                       (bytes_to_base64url(verified.credential_id), state["member_id"],
-                        verified.credential_public_key, verified.sign_count, now))
+            db.execute(
+                "INSERT INTO passkeys (credential_id, member_id, public_key, sign_count,"
+                " created_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    bytes_to_base64url(verified.credential_id),
+                    state["member_id"],
+                    verified.credential_public_key,
+                    verified.sign_count,
+                    now,
+                ),
+            )
         except sqlite3.IntegrityError:
             raise HTTPException(409, "This passkey is already saved.") from None
 
@@ -345,7 +380,8 @@ def passkey_login_options(request: Request):
     base = _require_base()
     # No allow-list: the passkey itself names the account it belongs to.
     options = generate_authentication_options(
-        rp_id=_rp_id(base), user_verification=UserVerificationRequirement.REQUIRED)
+        rp_id=_rp_id(base), user_verification=UserVerificationRequirement.REQUIRED
+    )
     return _options_response(options, base, {"purpose": "login", "challenge": options.challenge})
 
 
@@ -359,21 +395,34 @@ def passkey_login_verify(request: Request, credential: dict = Body(...)):
     cred_id = credential.get("id")
     with closing(_connect()) as db, db:
         db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT * FROM passkeys WHERE credential_id = ?",
-                         (cred_id if isinstance(cred_id, str) else "",)).fetchone()
+        row = db.execute(
+            "SELECT * FROM passkeys WHERE credential_id = ?",
+            (cred_id if isinstance(cred_id, str) else "",),
+        ).fetchone()
         if row is None:
             raise HTTPException(400, "That passkey is not saved here.")
         try:
             verified = verify_authentication_response(
-                credential=credential, expected_challenge=state["challenge"],
-                expected_rp_id=_rp_id(base), expected_origin=base,
+                credential=credential,
+                expected_challenge=state["challenge"],
+                expected_rp_id=_rp_id(base),
+                expected_origin=base,
                 credential_public_key=row["public_key"],
-                credential_current_sign_count=row["sign_count"], require_user_verification=True)
-        except (InvalidAuthenticationResponse, InvalidJSONStructure, KeyError, TypeError,
-                ValueError):
+                credential_current_sign_count=row["sign_count"],
+                require_user_verification=True,
+            )
+        except (
+            InvalidAuthenticationResponse,
+            InvalidJSONStructure,
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
             raise HTTPException(400, "The passkey could not be verified.") from None
-        db.execute("UPDATE passkeys SET sign_count = ? WHERE credential_id = ?",
-                   (verified.new_sign_count, row["credential_id"]))
+        db.execute(
+            "UPDATE passkeys SET sign_count = ? WHERE credential_id = ?",
+            (verified.new_sign_count, row["credential_id"]),
+        )
 
     resp = Response(status_code=204)
     resp.headers["Cache-Control"] = "no-store"
@@ -394,8 +443,10 @@ def create_invite(user: sqlite3.Row = Depends(_signed_in_mutation)):
         if _member_count(db, user["account_id"]) >= _MAX_MEMBERS:
             raise HTTPException(409, f"An account has at most {_MAX_MEMBERS} people.")
         db.execute("DELETE FROM invites WHERE expires_at < ?", (now,))
-        db.execute("INSERT INTO invites (token_hash, expires_at, account_id) VALUES (?, ?, ?)",
-                   (_hash(token), now + _INVITE_TTL_S, user["account_id"]))
+        db.execute(
+            "INSERT INTO invites (token_hash, expires_at, account_id) VALUES (?, ?, ?)",
+            (_hash(token), now + _INVITE_TTL_S, user["account_id"]),
+        )
     return {"url": f"{base}/?join={token}", "days": _INVITE_TTL_S // 86400}
 
 
@@ -459,18 +510,35 @@ def me(request: Request, response: Response):
     with closing(_connect()) as db:
         account_id = user["account_id"]
         account = db.execute("SELECT prefs FROM accounts WHERE id = ?", (account_id,)).fetchone()
-        links = {r["car_id"]: {"used": r["last_used"], "moved": r["last_moved"],
-                               "error": r["last_error"]} for r in db.execute(
-            "SELECT car_id, last_used, last_moved, last_error FROM car_tokens"
-            " WHERE account_id = ?", (account_id,))}
-        cal = db.execute("SELECT created_at FROM calendar_tokens WHERE account_id = ?",
-                         (account_id,)).fetchone()
-        family = [r["name"] for r in db.execute(
-            "SELECT name FROM members WHERE account_id = ? ORDER BY created_at", (account_id,))]
-    return {"enabled": True, "user": {"name": user["name"]},
-            "family": family,
-            "prefs": json.loads(account["prefs"]) if account and account["prefs"] else None,
-            "phone_links": links, "calendar": cal is not None}
+        links = {
+            r["car_id"]: {
+                "used": r["last_used"],
+                "moved": r["last_moved"],
+                "error": r["last_error"],
+            }
+            for r in db.execute(
+                "SELECT car_id, last_used, last_moved, last_error FROM car_tokens"
+                " WHERE account_id = ?",
+                (account_id,),
+            )
+        }
+        cal = db.execute(
+            "SELECT created_at FROM calendar_tokens WHERE account_id = ?", (account_id,)
+        ).fetchone()
+        family = [
+            r["name"]
+            for r in db.execute(
+                "SELECT name FROM members WHERE account_id = ? ORDER BY created_at", (account_id,)
+            )
+        ]
+    return {
+        "enabled": True,
+        "user": {"name": user["name"]},
+        "family": family,
+        "prefs": json.loads(account["prefs"]) if account and account["prefs"] else None,
+        "phone_links": links,
+        "calendar": cal is not None,
+    }
 
 
 @router.put("/api/me/prefs", status_code=204)
@@ -480,8 +548,10 @@ def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
     with closing(_connect()) as db, db:
         db.execute("BEGIN IMMEDIATE")  # a phone update can't slip in between read and write
         new["cars"] = _merge_cars(new["cars"], _stored_prefs(db, account_id)["cars"])
-        db.execute("UPDATE accounts SET prefs = ? WHERE id = ?",
-                   (json.dumps(new, separators=(",", ":")), account_id))
+        db.execute(
+            "UPDATE accounts SET prefs = ? WHERE id = ?",
+            (json.dumps(new, separators=(",", ":")), account_id),
+        )
         keep = [c["id"] for c in new["cars"]]
         marks = ",".join("?" * len(keep))  # placeholders only; the values are bound
         db.execute(
@@ -517,18 +587,24 @@ def create_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutatio
         if not any(c["id"] == car_id for c in _stored_prefs(db, account_id)["cars"]):
             raise HTTPException(404, "Car not saved to your account yet.")
         token = _TOKEN_PREFIX + secrets.token_urlsafe(32)
-        db.execute("DELETE FROM car_tokens WHERE account_id = ? AND car_id = ?",
-                   (account_id, car_id))
-        db.execute("INSERT INTO car_tokens (token_hash, car_id, created_at, account_id)"
-                   " VALUES (?, ?, ?, ?)", (_hash(token), car_id, int(time.time()), account_id))
+        db.execute(
+            "DELETE FROM car_tokens WHERE account_id = ? AND car_id = ?", (account_id, car_id)
+        )
+        db.execute(
+            "INSERT INTO car_tokens (token_hash, car_id, created_at, account_id)"
+            " VALUES (?, ?, ?, ?)",
+            (_hash(token), car_id, int(time.time()), account_id),
+        )
     return {"token": token}
 
 
 @router.delete("/api/cars/{car_id}/token", status_code=204)
 def revoke_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutation)):
     with closing(_connect()) as db, db:
-        db.execute("DELETE FROM car_tokens WHERE account_id = ? AND car_id = ?",
-                   (user["account_id"], car_id))
+        db.execute(
+            "DELETE FROM car_tokens WHERE account_id = ? AND car_id = ?",
+            (user["account_id"], car_id),
+        )
 
 
 def car_for_token(request: Request) -> sqlite3.Row:
@@ -542,10 +618,13 @@ def car_for_token(request: Request) -> sqlite3.Row:
         raise HTTPException(401, "Missing bearer token.")
     token_hash = _hash(token.strip())
     with closing(_connect()) as db, db:
-        db.execute("UPDATE car_tokens SET last_used = ? WHERE token_hash = ?",
-                   (int(time.time()), token_hash))
-        row = db.execute("SELECT account_id, car_id FROM car_tokens WHERE token_hash = ?",
-                         (token_hash,)).fetchone()
+        db.execute(
+            "UPDATE car_tokens SET last_used = ? WHERE token_hash = ?",
+            (int(time.time()), token_hash),
+        )
+        row = db.execute(
+            "SELECT account_id, car_id FROM car_tokens WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
     if row is None:
         raise HTTPException(401, "Unknown or revoked token.")
     request.state.car_token = token_hash
@@ -555,8 +634,9 @@ def car_for_token(request: Request) -> sqlite3.Row:
 def record_refusal(token_hash: str, reason: str) -> None:
     """Note why a phone report was refused, for the car's page."""
     with closing(_connect()) as db, db:
-        db.execute("UPDATE car_tokens SET last_error = ? WHERE token_hash = ?",
-                   (reason[:300], token_hash))
+        db.execute(
+            "UPDATE car_tokens SET last_error = ? WHERE token_hash = ?", (reason[:300], token_hash)
+        )
 
 
 # ── Calendar subscription ─────────────────────────────────────────────────────
@@ -568,8 +648,10 @@ def create_calendar_token(request: Request, user: sqlite3.Row = Depends(_signed_
     token = _CAL_PREFIX + secrets.token_urlsafe(32)
     with closing(_connect()) as db, db:
         db.execute("DELETE FROM calendar_tokens WHERE account_id = ?", (user["account_id"],))
-        db.execute("INSERT INTO calendar_tokens (token_hash, created_at, account_id)"
-                   " VALUES (?, ?, ?)", (_hash(token), int(time.time()), user["account_id"]))
+        db.execute(
+            "INSERT INTO calendar_tokens (token_hash, created_at, account_id) VALUES (?, ?, ?)",
+            (_hash(token), int(time.time()), user["account_id"]),
+        )
     base = _require_base()
     https = f"{base}/api/calendar/{token}.ics"
     return {"url": https, "webcal": "webcal://" + https.split("://", 1)[1]}
@@ -587,12 +669,15 @@ def prefs_for_calendar_token(token: str) -> dict | None:
         return None
     token_hash = _hash(token)
     with closing(_connect()) as db, db:
-        row = db.execute("SELECT account_id FROM calendar_tokens WHERE token_hash = ?",
-                         (token_hash,)).fetchone()
+        row = db.execute(
+            "SELECT account_id FROM calendar_tokens WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
         if row is None:
             return None
-        db.execute("UPDATE calendar_tokens SET last_used = ? WHERE token_hash = ?",
-                   (int(time.time()), token_hash))
+        db.execute(
+            "UPDATE calendar_tokens SET last_used = ? WHERE token_hash = ?",
+            (int(time.time()), token_hash),
+        )
         return _stored_prefs(db, row["account_id"])
 
 
@@ -606,8 +691,13 @@ def set_car_location(account_id: str, car_id: str, lat: float, lon: float) -> bo
         if car is None:
             return False
         car.update(lat=lat, lon=lon, loc_rev=car.get("loc_rev", 0) + 1)
-        db.execute("UPDATE accounts SET prefs = ? WHERE id = ?",
-                   (json.dumps(prefs, separators=(",", ":")), account_id))
-        db.execute("UPDATE car_tokens SET last_moved = ?, last_error = NULL"
-                   " WHERE account_id = ? AND car_id = ?", (int(time.time()), account_id, car_id))
+        db.execute(
+            "UPDATE accounts SET prefs = ? WHERE id = ?",
+            (json.dumps(prefs, separators=(",", ":")), account_id),
+        )
+        db.execute(
+            "UPDATE car_tokens SET last_moved = ?, last_error = NULL"
+            " WHERE account_id = ? AND car_id = ?",
+            (int(time.time()), account_id, car_id),
+        )
     return True

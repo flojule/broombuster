@@ -14,8 +14,9 @@ from broombuster import normalize
 
 _geocoder = Nominatim(user_agent="broombuster", timeout=5)
 # One throttle for every call (reverse and search share Nominatim's 1 request/s).
-_call = RateLimiter(lambda fn, *a, **kw: fn(*a, **kw),
-                    min_delay_seconds=1, max_retries=0, swallow_exceptions=False)
+_call = RateLimiter(
+    lambda fn, *a, **kw: fn(*a, **kw), min_delay_seconds=1, max_retries=0, swallow_exceptions=False
+)
 
 # Lookup key -> answer, for both directions. Only answers are cached, so an
 # outage is retried.
@@ -62,8 +63,9 @@ def _nominatim(lat: float, lon: float) -> dict:
 def _nominatim_search(query: str, bbox: tuple | None) -> dict:
     """{"lat", "lon"} of the best match inside bbox, {} if none; raises on network failure."""
     viewbox = [(bbox[0], bbox[1]), (bbox[2], bbox[3])] if bbox else None
-    location = _call(_geocoder.geocode, query, exactly_one=True,
-                     viewbox=viewbox, bounded=bool(bbox))
+    location = _call(
+        _geocoder.geocode, query, exactly_one=True, viewbox=viewbox, bounded=bool(bbox)
+    )
     return {"lat": location.latitude, "lon": location.longitude} if location else {}
 
 
@@ -91,7 +93,7 @@ def house_number_cached(lat: float, lon: float) -> bool:
 
 
 def reverse_address(lat: float, lon: float) -> str | None:
-    """"<number> <road>, <city>" for a point, or None."""
+    """ "<number> <road>, <city>" for a point, or None."""
     addr = _lookup(lat, lon)
     if not addr:
         return None
@@ -100,8 +102,9 @@ def reverse_address(lat: float, lon: float) -> str | None:
     return ", ".join(p for p in (street, city) if p) or None
 
 
-def maybe_house_number(lat: float, lon: float, expected_street: str,
-                       *, network: bool = True) -> int | None:
+def maybe_house_number(
+    lat: float, lon: float, expected_street: str, *, network: bool = True
+) -> int | None:
     """Nominatim house number, only when its road is `expected_street`.
 
     Guards corners: if the resolver chose "Grand Ave" but Nominatim answers

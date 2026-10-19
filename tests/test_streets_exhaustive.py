@@ -9,6 +9,7 @@ FlatGeobuf and verify:
 These exercises help catch regressions in name-indexing, range parsing,
 and schedule propagation when normalizers or persistence change.
 """
+
 import math
 
 import pytest
@@ -93,8 +94,7 @@ def test_common_streets_index_and_schedule(city_key):
         if CITIES.get(city_key, {}).get("schema") == "chicago":
             continue
         has_schedule = any(
-            (isinstance(x, str) and x.strip())
-            for x in (de, do, de_desc, do_desc, te, to)
+            (isinstance(x, str) and x.strip()) for x in (de, do, de_desc, do_desc, te, to)
         )
         assert has_schedule, f"Nearest segment for {name} in {city_key} missing schedule info"
 
@@ -131,7 +131,8 @@ def test_address_range_presence_and_sample_lookup(city_key):
                 rf = row.get("R_F_ADD")
                 rt = row.get("R_T_ADD")
                 nums = [
-                    int(float(v)) for v in (lf, lt, rf, rt)
+                    int(float(v))
+                    for v in (lf, lt, rf, rt)
                     if v is not None and v != "" and not (isinstance(v, float) and math.isnan(v))
                 ]
             except Exception:
@@ -151,8 +152,10 @@ def test_address_range_presence_and_sample_lookup(city_key):
                     except Exception:
                         sample_num = None
                 if sample_num is not None:
-                    if (isinstance(row.get("L_F_ADD"), (int, float, str))
-                            and row.get("L_F_ADD") is not None):
+                    if (
+                        isinstance(row.get("L_F_ADD"), (int, float, str))
+                        and row.get("L_F_ADD") is not None
+                    ):
                         try:
                             lf = int(float(row.get("L_F_ADD")))
                             lt = int(float(row.get("L_T_ADD")))
@@ -160,8 +163,10 @@ def test_address_range_presence_and_sample_lookup(city_key):
                                 covers_sample = True
                         except Exception:
                             pass
-                    if (isinstance(row.get("R_F_ADD"), (int, float, str))
-                            and row.get("R_F_ADD") is not None):
+                    if (
+                        isinstance(row.get("R_F_ADD"), (int, float, str))
+                        and row.get("R_F_ADD") is not None
+                    ):
                         try:
                             rf = int(float(row.get("R_F_ADD")))
                             rt = int(float(row.get("R_T_ADD")))
@@ -183,8 +188,10 @@ def test_address_range_presence_and_sample_lookup(city_key):
 # street_display helpers
 # ---------------------------------------------------------------------------
 
+
 def test_display_ordinals_preserved():
     import re
+
     cases = ["12th St", "62ND STREET", "100TH AVE"]
     for inp in cases:
         out = normalize.street_display(inp)
