@@ -13,11 +13,11 @@ What BroomBuster is built on. Python versions: `uv.lock`. Browser libraries: `fr
    └────────────┬──────────────┘                  │ pandas · numpy · PyYAML · requests   │
                 │                                 │ geopy                                │
                 │ tiles, style                    │ SQLite (stdlib) · data/*.fgb         │
-                ▼                                 └──┬───────────┬───────────┬───────────┘
-        OpenFreeMap                                  │           │           │
-        tiles.openfreemap.org                        ▼           ▼           ▼
-                                             city open data   Google    Nominatim
-                                             (see §4)         sign-in   (OpenStreetMap)
+                ▼                                 └──┬───────────┬──────────────────────┘
+        OpenFreeMap                                  │           │
+        tiles.openfreemap.org                        ▼           ▼
+                                             city open data   Nominatim
+                                             (see §4)         (OpenStreetMap)
 ```
 
 Ingress and hosting (Cloudflare Tunnel, Raspberry Pi, systemd) are in [architecture.md](architecture.md).
@@ -49,7 +49,8 @@ pyproject.toml
 | geopy (Nominatim) | Address ↔ coordinates, 1 request/s | `gps.py` |
 | FastAPI, Starlette, Pydantic | HTTP API, validation, phone-report errors | `api/` |
 | Uvicorn | ASGI server | `run.sh`, `broombuster.service` |
-| SQLite (stdlib) | Accounts, hashed sessions, cars, phone tokens | `api/auth.py` |
+| webauthn (py_webauthn) | Passkey sign-in and sign-up: challenge and signature checks | `api/auth.py` |
+| SQLite (stdlib) | Accounts, members, passkeys, hashed sessions, cars, phone tokens | `api/auth.py` |
 | pdfplumber | Reading published PDFs | `scripts/pdf_city.py` |
 | cairosvg | PNG icons from `frontend/icon.svg` | `scripts/build_icons.py` (`--extra scripts`) |
 | playwright | Layout screenshots and checks | `scripts/visual_scenarios.py` (`--extra visual`) |
@@ -83,8 +84,7 @@ Server ──▶ city open data, on demand, results cached in memory
   ├─ BAAQMD         www.baaqmd.gov                                        Spare the Air
   ├─ 511.org        api.511.org  (BB_511_API_KEY)                         Bay Area work zones
   ├─ Nominatim      OpenStreetMap                                         address search, reverse
-  ├─ ipapi.co       approximate position from IP (iplocate.py)
-  └─ Google OIDC    accounts.google.com · oauth2.googleapis.com           sign-in
+  └─ ipapi.co       approximate position from IP (iplocate.py)
 
 Failure: a source that fails answers "nothing known" (failures cached 5 min), never an error.
 ```

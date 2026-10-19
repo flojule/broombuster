@@ -22,6 +22,7 @@ dependencies = [
 api = [
     "fastapi>=0.142",
     "uvicorn[standard]>=0.54",
+    "webauthn>=3.0.1",
 ]
 scripts = [
     "cairosvg>=2.9",

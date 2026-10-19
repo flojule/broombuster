@@ -353,7 +353,7 @@ def car_location(req: CarLocation, who=Depends(auth.car_for_token)):
     if req.accuracy is not None and req.accuracy > resolve.CAR_MAX_DISTANCE_M:
         raise HTTPException(
             422, f"Position too rough (±{req.accuracy:.0f} m); the car was not moved.")
-    if not auth.set_car_location(who["sub"], who["car_id"], req.lat, req.lon):
+    if not auth.set_car_location(who["account_id"], who["car_id"], req.lat, req.lon):
         raise HTTPException(404, "That car was removed from your account.")
     loc = _locate(req.lat, req.lon, None)
     address, _ = _address(loc, req.lat, req.lon, network=False)
