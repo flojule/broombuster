@@ -28,8 +28,8 @@ async function initApp() {
 initApp();
 
 // Clock tick: map colours, the calendar and the cards follow the clock (a window
-// closes, a day starts). Cards re-render only when some urgency or a region-local
-// date changed.
+// starts or closes, a day starts). Cards re-render only when some urgency, a car's
+// deadline ("Move by 9AM" -> "Sweeping now") or a region-local date changed.
 let _liveUrgencySig = '';
 function tick() {
   scheduleUrgencyUpdate();
@@ -38,7 +38,7 @@ function tick() {
   for (const c of cars) if (carSchedules[c.id]) loadRules(c, 'car').then(n => n && renderCarsPanel());
   for (const h of homes) if (homeSchedules[h.id]) loadRules(h, 'home').then(n => n && renderHomePanel());
   const day = s => BroomUrgency.isoDay(schedNow(s));
-  const sig = [...Object.entries(carSchedules).map(([id, s]) => `${id}:${sweepUrgency(s)}:${day(s)}`),
+  const sig = [...Object.entries(carSchedules).map(([id, s]) => `${id}:${sweepUrgency(s)}:${deadlineText(s)?.long}:${day(s)}`),
                ...Object.entries(homeSchedules).map(([id, s]) => `${id}:${day(s)}`)].join('|');
   if (sig === _liveUrgencySig) return;
   _liveUrgencySig = sig;

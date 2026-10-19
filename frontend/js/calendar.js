@@ -31,7 +31,8 @@ function pointerSched(f) {
   const raw = tileEntries(props);
   const side = s => raw.filter(e => e.side === s).map(e => [e.code, e.desc || '', e.time || '']);
   return { schedule_even: side('even'), schedule_odd: side('odd'), region: _tilesRegion, city: props.city,
-           side_labels: sideNames(f) };  // as the street card names them (js/signs.js)
+           side_labels: sideNames(f),  // as the street card names them (js/signs.js)
+           street: props.street !== 'N/A' ? props.street : '' };
 }
 
 // key -> "Trash, Compost" for a home's pickup days in [start, end].
@@ -61,12 +62,13 @@ function holidayDayMap(scheds) {
   return out;
 }
 
-// Layers for [start, end]: {ptr: Map, cars: [{car, color, days: Map}], homes: [{home,
-// days: Map}], hol: Map}.
+// Layers for [start, end]: {ptr: Map, street: its name, cars: [{car, color, days: Map}],
+// homes: [{home, days: Map}], hol: Map}.
 function calLayers(ptrSched, start, end) {
   const carScheds = cars.map(c => carSchedules[c.id]).filter(Boolean);
   return {
     ptr: sweepDayMap(ptrSched, start, end),
+    street: ptrSched?.street || '',
     cars: cars.flatMap(car => carSchedules[car.id]
       ? [{ car, color: carColor(car),
            days: sweepDayMap(carSchedules[car.id], start, end, carSchedules[car.id].car_side) }]
@@ -85,27 +87,32 @@ function _dotsHTML(layers, k) {
   return `<span class="cal-dots">${dots}</span>`;
 }
 
-// Each car with sweeping that day and each home with a pickup: [{mark (HTML), text}].
-// The street is shown by the day tint and the signs, not repeated here.
-function _dayLines(layers, k) {
-  return layers.cars.filter(l => l.days.has(k)).map(l => ({
-    mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
-    text: `${l.car.name}: ${l.days.get(k)}`,
-  })).concat(layers.homes.filter(l => l.days.has(k)).map(l => ({
-    mark: `<i class="cal-key cal-square" style="background:var(--home)"></i>`,
-    text: `${itemName(l.home)}: ${l.days.get(k)}`,
-  })));
+// What happens that day, each with its mark as in the legend (js/layers.js): the street
+// at the target ("S", in its colour that day as on the street card), each car with
+// sweeping (a dot in its colour) and each home with a pickup (a square): [{mark, text}].
+function _dayLines(layers, k, today) {
+  const u = k === _ymdKey(today) ? 'today' : k === _ymdKey(_ymdAdd(today, 1)) ? 'tomorrow' : 'safe';
+  const street = layers.ptr.has(k) ? [{ mark: markHTML({ color: URGENCY[u].line, mark: 'S', sweep: true }),
+                                        text: `${layers.street || 'This street'}: ${layers.ptr.get(k)}` }] : [];
+  return [...street,
+    ...layers.cars.filter(l => l.days.has(k)).map(l => ({
+      mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
+      text: `${l.car.name}: ${l.days.get(k)}`,
+    })),
+    ...layers.homes.filter(l => l.days.has(k)).map(l => ({
+      mark: `<i class="cal-key cal-square" style="background:var(--home)"></i>`,
+      text: `${itemName(l.home)}: ${l.days.get(k)}`,
+    }))];
 }
 
-// What a screen reader says for a day: date, the street's sweeping, each car's.
+// What a screen reader says for a day: date, a holiday, then what happens.
 function _dayAria(layers, k, p, today) {
   return [_dayLabel(p) + (k === _ymdKey(today) ? ', today' : ''),
-          layers.ptr.has(k) ? `street sweeping ${layers.ptr.get(k)}` : '',
           layers.hol.has(k) ? `no sweeping: ${layers.hol.get(k)}` : '',
-          ..._dayLines(layers, k).map(l => l.text)].filter(Boolean).join('; ');
+          ..._dayLines(layers, k, today).map(l => l.text)].filter(Boolean).join('; ');
 }
 
-// Street day tint: red today, orange tomorrow (as on the map), else light green.
+// Street days: red today, orange tomorrow (as on the map), else a light tint (styles.css).
 function _streetCls(layers, k, today) {
   if (!layers.ptr.has(k)) return '';
   return 'sw-day' + (k === _ymdKey(today) ? ' sw-now' : k === _ymdKey(_ymdAdd(today, 1)) ? ' sw-next' : '');
@@ -122,12 +129,11 @@ function _dayIdx(range, p) {
   return Math.round((Date.UTC(p.y, p.m - 1, p.d) - Date.UTC(range.start.y, range.start.m - 1, range.start.d)) / 864e5);
 }
 
-// The day details under the grid: a no-sweep holiday, each car with sweeping and each
-// home with a pickup that day, else the street's sweeping.
+// The day details under the grid: a no-sweep holiday, then what happens that day.
 function _detailHTML(layers, sel) {
   const hol = layers.hol.has(sel) ? `<div class="cal-hol-line">No sweeping: ${esc(layers.hol.get(sel))}</div>` : '';
-  return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + (_dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('')
-    || (layers.ptr.has(sel) ? `<div>Sweeping: ${esc(layers.ptr.get(sel))}</div>` : hol ? '' : '<div class="cal-muted">No sweeping</div>'));
+  return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + (_dayLines(layers, sel, calNow()).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('')
+    || (hol ? '' : '<div class="cal-muted">No sweeping</div>'));
 }
 
 // Weeks in a column (scrolls vertically); `sel` is the selected day key. The first of
@@ -137,16 +143,17 @@ function calendarHTML(layers, range, sel, today) {
   let cells = '';
   for (let i = 0; i < CAL_WEEKS * 7; i++) {
     const p = _ymdAdd(range.start, i), k = _ymdKey(p);
-    const cls = ['cal-day', _streetCls(layers, k, today), layers.hol.has(k) ? 'cal-hol' : '', p.m % 2 ? 'cal-alt' : '',
+    const cls = ['cal-day', `cal-m${p.m}`, _streetCls(layers, k, today), layers.hol.has(k) ? 'cal-hol' : '',
                  k === todayK ? 'sw-today' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
     cells += `<button class="${cls}" data-cal-day="${k}" aria-label="${esc(_dayAria(layers, k, p, today))}"`
            + ` aria-pressed="${k === sel}">`
-           + (p.d === 1 ? `<i class="cal-mo">${_MONTHS[p.m - 1].slice(0, 3)}</i>` : '')
+           + (p.d === 1 ? `<i class="cal-mo">${_MONTHS[p.m - 1].slice(0, 3)}</i>`
+              : k === todayK ? '<i class="cal-mo" aria-hidden="true">Today</i>' : '')
            + `${p.d}${_dotsHTML(layers, k)}</button>`;
   }
   return `<div class="cal-wds" aria-hidden="true">${_WD1.map(w => `<span>${w}</span>`).join('')}</div>`
        + `<div class="cal-scroll"><div class="cal-grid">${cells}</div></div>`
-       + `<div class="cal-detail" aria-live="polite">${_detailHTML(layers, sel)}</div>`;
+       + `<div class="cal-detail" tabindex="0" role="region" aria-label="Day details" aria-live="polite">${_detailHTML(layers, sel)}</div>`;
 }
 
 // ── Calendar tab ─────────────────────────────────────────────────────────────
@@ -190,13 +197,6 @@ const CAL_ROW = 43;  // px: a 40 px row + the 3 px gap (styles.css .cal-grid)
 // takes that height. On a phone the sheet's heights fit whole weeks instead (calFit).
 const DESK_WEEKS = 6;
 let _deskChrome = 0;  // the panel besides the grid, measured with the calendar shown
-// Week rows the month view shows: the panel's (desktop) or the medium sheet's (phone), from
-// their heights rather than the grid's, which may not be laid out yet.
-function _calRows() {
-  if (isDesktop()) return Math.round((deskPanelHeight() - _deskChrome + 3) / CAL_ROW) || DESK_WEEKS;
-  const fit = calFit();
-  return fit ? Math.floor((detentHeights().medium - fit.small) / CAL_ROW) + 1 : DESK_WEEKS;
-}
 function deskPanelHeight() {
   const el = _scroller();
   if (!el) return 0;
@@ -257,7 +257,8 @@ function _markWeek(el, pitch) {
   _weekNear = mark('cal-near', _weekNear, below ? row(b + 1, b + below) : []);
 }
 
-// Header title: the month in the middle of what is on screen.
+// Header title: the month of the top week on screen (of its Thursday, so a week belongs
+// to the month holding most of it; ‹ › scroll to such a week, calStep).
 function updateCalTitle() {
   const el = _scroller(), t = document.getElementById('ic-month');
   if (!el || !t || !_calRange0) return;
@@ -266,11 +267,11 @@ function updateCalTitle() {
   const pos = Math.round(el.scrollTop / pitch);
   _cal.anchor = el.scrollTop / pitch;
   _markWeek(el, pitch);
-  const midRow = Math.max(0, Math.floor((el.clientHeight / pitch - 1) / 2));
-  const mid = _ymdAdd(_calRange0.start, (pos + midRow) * 7 + 3);
+  const mid = _ymdAdd(_calRange0.start, pos * 7 + 3);
   const key = `${mid.y}-${mid.m}-${t.clientWidth}`;
   if (t.dataset.key === key) return;
   t.dataset.key = key; t.dataset.y = mid.y; t.dataset.m = mid.m;
+  icCal.dataset.m = mid.m;  // days of the other months are muted (styles.css)
   // The longest form that fits ("September 2026", "Sep 2026", then without this year's).
   const M = _MONTHS[mid.m - 1], forms = [`${M} ${mid.y}`, `${M.slice(0, 3)} ${mid.y}`];
   if (mid.y === calNow().y) forms.push(M, M.slice(0, 3));
@@ -313,13 +314,10 @@ function _restoreScroll() {
   if (!_cal.pending) _scrollTo(el, _cal.anchor, false);
 }
 
-// Where the grid starts when nothing is remembered: the selected week (small sheet),
-// the week holding the 1st of the selected month (month view), lower if that would
-// leave the selected week below what fits (a short screen).
+// Where the grid starts when nothing is remembered: the selected week, in both views
+// (the weeks ahead matter, not those past; ‹ › still step whole months).
 function _anchorFor(range, today) {
-  const sel = _cal.sel ? _keyDay(_cal.sel) : today, week = _weekOf(range, _ymdKey(sel));
-  if (!_cal.expanded) return week;
-  return Math.max(0, Math.floor(_dayIdx(range, { y: sel.y, m: sel.m, d: 1 }) / 7), week - _calRows() + 1);
+  return _weekOf(range, _ymdKey(_cal.sel ? _keyDay(_cal.sel) : today));
 }
 
 // The sheet grew past small (expanded) or came back to it. Nothing is rebuilt: folding
@@ -367,7 +365,8 @@ function calStep(dir) {
   }
   const d = new Date(Date.UTC(Number(t.dataset.y), Number(t.dataset.m) - 1 + dir, 1));
   const first = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: 1 };
-  _scrollTo(el, Math.max(0, Math.floor(_dayIdx(_calRange0, first) / 7)), true);
+  // The month's first week, or the next when the 1st falls after Thursday (that week is the last month's).
+  _scrollTo(el, Math.max(0, Math.floor(_dayIdx(_calRange0, first) / 7) + (_dow(first) > 3 ? 1 : 0)), true);
 }
 
 // Today: selects today and scrolls back to it.

@@ -93,7 +93,7 @@ def catalogue(region_key: str) -> list[dict]:
             out.append({"id": theme, "name": meta["name"],
                         "url": f"/layers/{region_key}/{theme}.geojson?v={v}"})
     if region_key in LIVE_CLOSURES:  # fetched live, not built (feeds.closures)
-        out.append({"id": "closures", "name": "Street closures (2 weeks)",
+        out.append({"id": "closures", "name": "Street closures",
                     "url": f"/api/closures?region={region_key}"})
     return out
 

@@ -225,6 +225,30 @@ def test_check_day_sweeping(code, time, at, want):
     assert js(("checkDaySweeping", [[{"code": code, "time": time}], at])) == [want]
 
 
+DEADLINE_CASES = [
+    ([("WE", "9AM-11AM")], now(WED, 7, 0), {"state": "by", "at": "9AM"}),
+    ([("WE", "9AM-11AM")], now(WED, 10, 0), {"state": "running", "at": "11AM"}),
+    ([("WE", "9AM-11AM")], now(WED, 11, 1), None),
+    ([("WE", "")], now(WED, 20, 0), {"state": "today", "at": None}),
+    ([("THE", "9:30AM-11AM")], now(WED, 12, 0), {"state": "tomorrow", "at": "9:30AM"}),
+    ([("THE", "")], now(WED, 12, 0), {"state": "tomorrow", "at": None}),
+    ([("THE", "12AM-3AM")], now(WED, 20, 0), {"state": "by", "at": "midnight"}),
+    ([("WE", "10PM-2AM")], now(THU, 1, 0), {"state": "running", "at": "2AM"}),
+    # The running window wins over a later one; the sooner start wins among starts.
+    ([("WE", "2PM-4PM"), ("WE", "9AM-11AM")], now(WED, 10, 0), {"state": "running", "at": "11AM"}),
+    ([("WE", "2PM-4PM"), ("WE", "12PM-1PM")], now(WED, 10, 0), {"state": "by", "at": "12PM"}),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("entries,at,want", DEADLINE_CASES)
+def test_sweep_deadline(entries, at, want):
+    es = [{"code": c, "time": t} for c, t in entries]
+    assert js(("sweepDeadline", [es, at])) == [want]
+    # Due exactly when the verdict says the car must move.
+    assert (want is not None) == (js(("checkDaySweeping", [es, at]))[0] != "safe")
+
+
 # ── Schedule display ─────────────────────────────────────────────────────────
 
 @needs_node

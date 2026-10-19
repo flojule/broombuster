@@ -37,8 +37,8 @@ Deploying and operating: [docs/operations.md](docs/operations.md).
 Layout check: `scripts/visual_scenarios.py` screenshots every platform (desktop WebKit and Chromium, iPhone
 Safari tab and home-screen app, landscape, iPad, Android Chrome) x light/dark x view into `build/visual/`, and
 fails if the centre target is covered, panels overlap, the app is the wrong height, a street has no colour or
-axe-core finds a serious WCAG 2.2 AA problem. It runs on every pull request (Visual workflow, screenshots
-attached to the run):
+axe-core finds a serious WCAG 2.2 AA problem. Run it locally before a UI change; it is not part of CI and
+nothing enforces it:
 
 ```bash
 uv tool run --from playwright python scripts/visual_scenarios.py [--only iphone-safari] [--view month] [--theme dark]

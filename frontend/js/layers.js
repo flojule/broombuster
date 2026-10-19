@@ -131,16 +131,22 @@ function syncOverlays() {
   }
 }
 
-// Under the layers, the legend: the streets' colours, and the street card's marks
-// (CARD_MARKS, js/signs.js).
+// Under the layers, the legend: the streets' colours, then the marks the street card and
+// the calendar use (CARD_MARKS, js/signs.js; a car's dot, a home's square).
 function _legendHTML() {
   const colors = [['today', 'Today', 3], ['tomorrow', 'Tomorrow', 2], ['safe', 'Clear', 1], ['none', 'No sweeping', 0]]
     .map(([u, name, w]) => `<span class="urg-${u}"><i class="lg lg-${w}"></i>${name}</span>`).join('');
   const have = new Set(_regionLayers().map(l => l.id));
   const marks = CARD_MARKS.filter(m => !m.layer || have.has(m.layer)).map(m => `<span>${markHTML({ ...m, sweep: m.key === 'sweep' })}${esc(m.name)}</span>`).join('');
-  return `<div class="lyr-legend" role="none"><b>Sweeping</b><div class="legend">${colors}</div>`
-       + `<b>Street card</b><div class="lyr-marks">${marks}</div></div>`;
+  const cal = '<span><i class="cal-key cal-round" style="background:var(--muted)"></i>Your car</span>'
+            + '<span><i class="cal-key cal-square" style="background:var(--home)"></i>Home pickup</span>';
+  return `<button class="ctx-item lyr-legend-btn" role="menuitem" aria-expanded="${_legendOpen}" aria-controls="lyr-legend">`
+       + `Legend<svg class="ic lyr-chev" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>`
+       + `<div class="lyr-legend" id="lyr-legend" role="none"${_legendOpen ? '' : ' hidden'}><b>Sweeping</b><div class="legend">${colors}</div>`
+       + `<b>Marks</b><div class="lyr-marks">${marks}${cal}</div></div>`;
 }
+// The legend folds under its own row (open or not is remembered on this device).
+let _legendOpen = _read('bb_legend') === '1';
 
 // A layer's swatch: its colours (permit areas: several), else its colour.
 function _layerKey(id) { return LAYER_STYLE[id]?.key || LAYER_STYLE[id]?.color || '#475569'; }
@@ -159,6 +165,15 @@ function _renderLayersMenu() {
 
 menuButton(btnLayers, layersMenu, _renderLayersMenu);
 layersMenu.addEventListener('click', e => {
+  const lg = e.target.closest('.lyr-legend-btn');
+  if (lg) {
+    e.stopPropagation();
+    _legendOpen = !_legendOpen;
+    _store('bb_legend', _legendOpen ? '1' : null);
+    lg.setAttribute('aria-expanded', String(_legendOpen));
+    document.getElementById('lyr-legend').hidden = !_legendOpen;
+    return;
+  }
   const b = e.target.closest('[data-layer]');
   if (!b) return;
   e.stopPropagation();  // the menu stays open: several layers can be switched in a row

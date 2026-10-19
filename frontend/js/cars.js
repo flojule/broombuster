@@ -29,10 +29,10 @@ async function upgradeAddress(car, sched) {
   } catch (_) {}
 }
 
-// Car names by sweeping verdict; feeds the Saved summary and the tab's badge.
+// Cars by sweeping verdict; feeds the Saved summary and the tab's badge.
 function urgentCars() {
   const out = { today: [], tomorrow: [] };
-  for (const car of cars) out[sweepUrgency(carSchedules[car.id])]?.push(car.name);
+  for (const car of cars) out[sweepUrgency(carSchedules[car.id])]?.push(car);
   return out;
 }
 
@@ -244,25 +244,45 @@ function defaultCarName() {
 // Region-local clock for a /check response (the car's region, not the selected one).
 function schedNow(sched) { return regionNow(sched?.region || _region); }
 
-// Sweeping urgency from the raw schedules against the live clock — the same
-// verdict as the map colour, so cards roll over when a window closes.
+// The car's side of the street when it is known (as the calendar and the .ics feed read
+// it), else both sides.
+function _sweepEntries(sched) {
+  const side = sched.car_side === 'even' ? sched.schedule_even : sched.car_side === 'odd' ? sched.schedule_odd
+    : [...sched.schedule_even, ...sched.schedule_odd];
+  return side.map(e => ({ code: e[0], time: e[2] || '' }));
+}
+// Sweeping urgency from the raw schedules against the live clock — the same rules as
+// the map colour, so cards roll over when a window closes.
 function sweepUrgency(sched) {
   if (!sched) return 'safe';
-  const entries = [...sched.schedule_even, ...sched.schedule_odd]
-    .map(e => ({ code: e[0], time: e[2] || '' }));
-  return BroomUrgency.checkDaySweeping(entries, schedNow(sched), schedSkip(sched));
+  return BroomUrgency.checkDaySweeping(_sweepEntries(sched), schedNow(sched), schedSkip(sched));
 }
 
-// Verdict pill: icon + word (never colour alone).
-function _statusHTML(u) {
-  const ic = URGENCY[u].icon;
-  return `<span class="ce-status" style="color:${URGENCY[u].color}">${ic ? icon(ic) + ' ' : ''}${esc(URGENCY[u].short)}</span>`;
+// When to move, in words (urgency.js sweepDeadline): `short` for a Saved row, `long`
+// after "Move" (the car's page) or "Move <name>" (the Saved summary); null: nothing due.
+function deadlineText(sched) {
+  const d = sched && BroomUrgency.sweepDeadline(_sweepEntries(sched), schedNow(sched), schedSkip(sched));
+  if (!d) return null;
+  if (d.state === 'running') return { short: 'Sweeping now', long: `now, sweeping until ${d.at}` };
+  if (d.state === 'by') return { short: `Move by ${d.at}`, long: `by ${d.at}` };
+  if (d.state === 'today') return { short: 'Today', long: 'today' };
+  return { short: d.at ? `Tomorrow ${d.at}` : 'Tomorrow', long: d.at ? `tomorrow by ${d.at}` : 'tomorrow' };
+}
+
+// Verdict: icon + words (never colour alone); the row shows the short form, the item's
+// page the long one (CSS). `words`: {short, long}, else the verdict's name.
+function _statusHTML(u, words) {
+  const ic = URGENCY[u].icon, short = words?.short || URGENCY[u].short, long = words?.long || short;
+  return `<span class="ce-status" style="color:${URGENCY[u].color}">${ic ? icon(ic) + ' ' : ''}`
+       + `<span class="st-short">${esc(short)}</span><span class="st-long">${esc(long)}</span></span>`;
 }
 
 // An item page's section (as iOS grouped lists): a label over a rounded box holding up
-// to four lines; while loading, "Loading…", and after a failed load, the error with Retry.
+// to six lines (text, or {text, cls}); while loading, "Loading…", and after a failed load,
+// the error with Retry.
 function schedBlockHTML(id, header, lines) {
-  const body = lines ? lines.slice(0, 4).map(l => `<div class="ce-sched-item">${esc(l)}</div>`).join('')
+  const body = lines ? lines.slice(0, 6).map(l => typeof l === 'string' ? { text: l } : l)
+    .map(l => `<div class="ce-sched-item ${l.cls || ''}">${esc(l.text)}</div>`).join('')
     : loadFailed.has(id) ? '<div class="ce-error">Couldn’t load the schedule <button class="btn btn-tinted ce-btn-retry">Retry</button></div>'
     : '<div class="ce-loading">Loading…</div>';
   return `<div class="sec-label">${esc(header)}</div><div class="sec">${body}</div>`;
@@ -270,10 +290,11 @@ function schedBlockHTML(id, header, lines) {
 
 // A row of the Saved list (icon, name over address, verdict) that opens the item's page
 // (click, Enter or Space); `detail` shows on that page only.
-function itemCard({ id, kind, color, name, urgency, addr, detail }) {
+function itemCard({ id, kind, color, name, urgency, words, addr, detail }) {
   const entry = document.createElement('div');
   entry.className = 'car-entry' + (kind === 'home' ? ' home-entry' : '');
   entry.dataset.id = id;
+  if (urgency) entry.dataset.urg = urgency;
   entry.style.setProperty('--car-color', color);
   entry.innerHTML = `
     <div class="ce-header" role="button" tabindex="0">
@@ -282,7 +303,7 @@ function itemCard({ id, kind, color, name, urgency, addr, detail }) {
         <span class="ce-name">${esc(name)}</span>
         <span class="ce-addr" contenteditable="false">${esc(addr)}</span>
       </span>
-      ${urgency ? _statusHTML(urgency) : ''}
+      ${urgency ? _statusHTML(urgency, words) : ''}
     </div>
     <div class="ce-detail">${detail}</div>`;
   entry.addEventListener('click', e => {
@@ -383,8 +404,17 @@ async function _togglePhoneLink(car) {
   document.querySelector('.ce-token')?.scrollIntoView({ block: 'nearest' });  // it is below the schedule
 }
 
-// The car rows (before the homes) and, on a car's page, its one visible action: Parked
-// here, the one used every time (as Find My keeps Play Sound out); the rest is under "…".
+// A car's sweeping lines, its side first (formatBothSides); the other side's are muted.
+function carSchedLines(sched) {
+  const labels = sched.side_labels || ['Even', 'Odd'];
+  const lines = BroomUrgency.formatBothSides(sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, labels);
+  if (!sched.car_side) return lines;
+  const other = `${labels[sched.car_side === 'odd' ? 0 : 1]}: `;
+  return lines.map(text => text.startsWith(other) ? { cls: 'ce-other', text } : text);
+}
+
+// The car rows (before the homes) and, on a car's page, its one visible action: I parked
+// here (the car moves to the device's position), the one used every time (as Find My keeps Play Sound out); the rest is under "…".
 function renderCarsPanel() {
   if (isEditingIn(carsPanel) || savedTitle.isContentEditable) return;
   for (const el of [...itemList.querySelectorAll(':scope > .car-entry:not(.home-entry)')]) el.remove();
@@ -392,13 +422,12 @@ function renderCarsPanel() {
   for (const car of cars) {
     const sched = carSchedules[car.id];
     const addrText = sched?.address || '';
-    const lines = sched && BroomUrgency.formatBothSides(
-      sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, sched.side_labels);
+    const lines = sched && carSchedLines(sched), dl = deadlineText(sched);
     const entry = itemCard({
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
-      urgency: sched && sweepUrgency(sched), addr: addrText,
+      urgency: sched && sweepUrgency(sched), words: dl && { short: dl.short, long: `Move ${dl.long}` }, addr: addrText,
       detail: `
-        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
+        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} I parked here</button>
         ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}
         ${rulesBlockHTML('Also here', placeRules[car.id])}
         ${vehicleHTML(car)}
@@ -474,15 +503,26 @@ function _alertsHTML() {
   }).join('');
 }
 
-// Saved tab's first line: the most urgent car verdict, else all clear; with nothing
-// saved, how to start. "All clear" waits until every car's street has loaded. A red dot on the tab while a car must move today. Alerts in
-// effect where cars and homes are follow it.
+// Saved tab's first lines: each car to move today and when ("Move Civic by 9AM"), else
+// those to move tomorrow, else all clear; with nothing saved, the two ways to start.
+// "All clear" waits until every car's street has loaded. A red dot on the tab while a car
+// must move today. Alerts in effect where cars and homes are follow it.
 function updateSavedSummary() {
   const { today, tomorrow } = urgentCars();
-  savedSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
-    : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
-    : cars.length && cars.every(c => carSchedules[c.id]) ? `<span class="urg-safe">${icon('check')}</span> All clear`
-    : cars.length || homes.length ? '' : '<span class="note">Add a car or home with +</span>';
+  const due = today.length ? ['today', today] : tomorrow.length ? ['tomorrow', tomorrow] : null;
+  savedSummary.innerHTML = due
+    ? due[1].map(car => `<div class="sum-line"><span class="urg-${due[0]}">${icon('alert')}</span> `
+        + `Move ${esc(car.name)} ${esc(deadlineText(carSchedules[car.id])?.long || due[0])}</div>`).join('')
+    : cars.length && cars.every(c => carSchedules[c.id]) ? `<div class="sum-line"><span class="urg-safe">${icon('check')}</span> All clear</div>`
+    : cars.length || homes.length ? ''
+    : `<div class="empty-saved"><p class="note">Know when your street gets swept.</p>
+         <div class="empty-btns"><button class="btn" data-add="car">${icon('car')} Add car</button>
+         <button class="btn btn-plain" data-add="home">${icon('home')} Add home</button></div></div>`;
   savedSummary.insertAdjacentHTML('beforeend', _alertsHTML());
   tabbar.querySelector('.tab-badge').hidden = !today.length;
 }
+// Nothing saved yet: the empty state's buttons start placing a car or a home.
+savedSummary.addEventListener('click', e => {
+  const b = e.target.closest('[data-add]');
+  if (b) startPlacing(null, b.dataset.add);
+});

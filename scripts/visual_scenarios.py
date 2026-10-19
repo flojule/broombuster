@@ -129,7 +129,11 @@ MEASURE = """() => {
   for (const f of feats) {
     if (!map.getFeatureState({ source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id }).urgency) unset++;
   }
-  const ch = rect(document.getElementById('center-crosshair'));
+  // A pin on the target hides it (js/markers.js syncCrosshair): measure where it would be.
+  const chEl = document.getElementById('center-crosshair'), underPin = chEl.classList.contains('under-pin');
+  chEl.classList.remove('under-pin');
+  const ch = rect(chEl);
+  if (underPin) chEl.classList.add('under-pin');
   const c = map.project(map.getCenter()), mc = document.getElementById('map').getBoundingClientRect();
   return { app: rect(document.getElementById('app-screen')), inner: [innerWidth, innerHeight],
            center: ch && [(ch[0] + ch[2]) / 2, (ch[1] + ch[3]) / 2], mapCenter: [mc.left + c.x, mc.top + c.y],

@@ -120,10 +120,10 @@ function _evenSideDirection(f) {
 
 // A row: a mark (its colour, a letter), what applies, and a detail; `said` for screen readers.
 // A row without a colour continues the one above (another time window of that side).
-function _rowHTML({ heading, color, mark, text, detail = '', soon = false, said, sweep = false, ...rest }) {
+function _rowHTML({ heading, when, color, mark, text, detail = '', said, sweep = false, ...rest }) {
   if (rest.divider) return '<hr class="sc-rule">';
-  if (heading) return `<div class="sc-side" aria-hidden="true">${esc(heading)}</div>`;  // each row says its side
-  return `<div class="sc-row${soon ? ' soon' : ''}">${markHTML({ color, mark, sweep })}`
+  if (heading) return `<div class="sc-side" aria-hidden="true">${esc(heading)}${when ? _whenBadge(when) : ''}</div>`;  // each row says its side
+  return `<div class="sc-row">${markHTML({ color, mark, sweep })}`
        + `<span class="sr-only">${esc(said || `${text} ${detail}`.trim())}</span>`
        + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail${sweep ? ' sc-time' : ''}">${esc(detail)}</span>` : ''}</span></div>`;
 }
@@ -134,26 +134,28 @@ function _sideUrgency({ entries }, now, skip) {
 }
 
 // A side's sweeping rows (one per time window): "S" once, in its map line colour; when
-// the sides differ, under the side's heading ("NORTH SIDE").
+// the sides differ, under the side's heading ("NORTH SIDE"), which carries "Today" /
+// "Tomorrow" when that side is swept then.
 function _sweepRows(sec, now, skip) {
-  const { lines, side, tag } = sec, u = _sideUrgency(sec, now, skip);
-  const head = tag ? [{ heading: side }] : [];
+  const { lines, side, tag } = sec, u = _sideUrgency(sec, now, skip), soon = u === 'today' || u === 'tomorrow';
+  const head = tag ? [{ heading: side, when: soon && u }] : [];
   const mark = { sweep: true, mark: _MARK.sweep.mark };
   if (!lines.length) return [...head, { ...mark, color: URGENCY.none.line, text: 'No sweeping', said: `${side}: no sweeping` }];
   return [...head, ...lines.map((l, i) => ({
-    ...(i ? { sweep: true, mark: '' } : mark), color: i ? '' : URGENCY[u].line, soon: u === 'today' || u === 'tomorrow',
-    text: l.days, detail: l.time, said: `${side}: sweeping ${l.days} ${l.time}`.trim(),
+    ...(i ? { sweep: true, mark: '' } : mark), color: i ? '' : URGENCY[u].line,
+    text: l.days, detail: l.time, said: `${side}: ${!i && soon ? `swept ${u}; ` : ''}sweeping ${l.days} ${l.time}`.trim(),
   }))];
 }
 
-// Beside the street's name: "Today" / "Tomorrow" when a side is swept then (the
-// sooner one; with its tag when the sides differ).
+// Beside the street's name: "Today" / "Tomorrow" when the street (both sides alike, or a
+// zone) is swept then. When the sides differ, each side's heading carries its own.
 function _whenHTML(secs, now, skip) {
-  const soon = secs.map(s => ({ s, u: _sideUrgency(s, now, skip) })).filter(x => x.u === 'today' || x.u === 'tomorrow');
-  if (!soon.length) return '';
-  const { s, u } = soon.find(x => x.u === 'today') || soon[0];
-  const said = secs.length > 1 && soon.length < secs.length ? `${s.side}: ` : '';
-  return `<b class="sc-when" style="background:var(--urg-${u}-bg)"><span class="sr-only">${esc(said)}</span>${esc(URGENCY[u].short)}</b>`;
+  if (secs.length !== 1) return '';
+  const u = _sideUrgency(secs[0], now, skip);
+  return u === 'today' || u === 'tomorrow' ? _whenBadge(u) : '';
+}
+function _whenBadge(u) {
+  return `<b class="sc-when" style="background:var(--urg-${u}-bg)">${esc(URGENCY[u].short)}</b>`;
 }
 
 // A mark: a letter on a colour (dark on a light one: a city's pale permit colours).
@@ -172,33 +174,23 @@ function _isLight(color) {
 // (a permit area: its own colour on the map, LAYER_STYLE.key).
 const CARD_MARKS = [
   { key: 'sweep',   mark: 'S', color: URGENCY.safe.line, name: 'Street sweeping' },
-  { key: 'permit',  mark: 'P', color: LAYER_STYLE.parking.key, name: 'Permit area, in its colour', layer: 'parking' },
+  { key: 'permit',  mark: 'P', color: LAYER_STYLE.parking.key, name: 'Permit area', layer: 'parking' },
   { key: 'limit',   mark: 'h', color: '#6d28d9', name: 'Time limit', layer: 'parking' },
   { key: 'meter',   mark: '$', color: LAYER_STYLE.meters.color, name: 'Meter', layer: 'meters' },
   { key: 'winter',  mark: '*', color: LAYER_STYLE.winter.color, name: 'Winter ban', layer: 'winter' },
   { key: 'fire',    mark: 'F', color: LAYER_STYLE.fire.color, name: 'Fire zone', layer: 'fire' },
-  { key: 'ban',     mark: '!', color: LAYER_STYLE.closures.color, name: 'Closure, tow-away or ban' },
+  { key: 'ban',     mark: '!', color: LAYER_STYLE.closures.color, name: 'Closure or ban' },
 ];
 const _MARK = Object.fromEntries(CARD_MARKS.map(m => [m.key, m]));
 
-// /api/rules' rules as rows: the label, and the first clause of the rule when it says
-// something the label does not (hours, a limit, a rate).
+// /api/rules' rules as rows: the mark of their kind, and the rule in a few words (ruleText).
 function _ruleRow(r) {
-  const rule = String(r.rule || '');
-  let text = r.label, detail = rule.split(/;|\. /)[0].replace(/\.$/, '').trim();
+  const { text, detail } = ruleText(r);
   const kind = r.theme === 'meters' ? 'meter' : r.theme === 'winter' ? 'winter' : r.theme === 'closures' ? 'ban'
     : r.theme === 'fire' ? 'fire'
     : /^Permit (area|zone) /.test(text) ? 'permit' : /\b(h|min) limit$/.test(text) ? 'limit' : 'ban';
-  if (kind === 'meter') {
-    text = 'Metered';
-    detail = detail.replace(/^Metered:\s*/i, '');
-    if (!/\d/.test(detail)) detail = '';  // "pay at the meter": nothing to add
-  }
-  // "No oversized vehicles" + "No oversized vehicles, M–Su 12am–6am": the hours only.
-  if (detail.toLowerCase().startsWith(text.toLowerCase())) detail = detail.slice(text.length).replace(/^[\s,:–-]+/, '');
-  if (/exempt from the posted|follows? the (posted|signs)/i.test(detail)) detail = '';
   const { mark } = _MARK[kind], color = kind === 'permit' && r.color || _MARK[kind].color;
-  return { mark, color, text, detail, said: rule.startsWith(text) ? rule : `${text}${rule ? ': ' + rule : ''}` };
+  return { mark, color, text, detail, said: detail ? `${text}: ${detail}` : text };
 }
 
 // Rules at the target, by spot (~10 m): fetched once the map stops, zoomed in to street

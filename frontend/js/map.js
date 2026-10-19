@@ -14,6 +14,7 @@ function initMap(center) {
   _crosshair.classList.add('visible');
   map.on('load', () => {
     map.resize();
+    tuneBasemapLabels();
     attachMapListeners();
   });
   map.on('error', (e) => console.error('[MapLibre]', e.error));
@@ -46,6 +47,7 @@ function attachMapListeners() {
   // (the sign only; not while zooming, when every frame brings other streets under it),
   // and in full once it stops and after tiles finish streaming in (idle).
   map.on('move', () => { if (!map.isZooming()) renderTargetInfo(undefined, true); });
+  map.on('move', syncCrosshair);
   map.on('moveend', () => renderTargetInfo());
   map.on('idle', () => renderTargetInfo());
 
@@ -109,21 +111,43 @@ function _sideOffset(side) {
     ...Object.entries(px).flatMap(([z, o]) => [Number(z), ['case', _isSplit, -o * s, o * s]])];
 }
 
+// Where the basemap's labels start: the layer after its last road, area or building (some
+// styles put a water label among those). Street colours go there: over the roads, under
+// the names, so the names stay readable.
+function firstLabelLayer(layers = map.getStyle().layers) {
+  return layers[layers.findLastIndex(l => l.type !== 'symbol') + 1]?.id;
+}
+
+// The dark basemap's street and place names are dim grey on black: brighter, with a dark
+// halo (they sit over the street colours). Paint for `layers` (a style being loaded), else
+// set on the live map.
+const DARK_LABEL = { 'text-color': '#b8c0cc', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.5 };
+function _darkLabel(l) { return l.type === 'symbol' && /^(highway_name|place_)/.test(l.id); }
+function tuneBasemapLabels(layers) {
+  if (!document.body.classList.contains('dark')) return layers;
+  if (layers) return layers.map(l => _darkLabel(l) ? { ...l, paint: { ...l.paint, ...DARK_LABEL } } : l);
+  for (const l of map.getStyle().layers.filter(_darkLabel)) {
+    for (const [k, v] of Object.entries(DARK_LABEL)) map.setPaintProperty(l.id, k, v);
+  }
+}
+
 function addTilePaintLayers() {
-  map.addLayer({
+  const below = firstLabelLayer();
+  const addLayer = def => map.addLayer(def, below);
+  addLayer({
     id: 'zones-fill', type: 'fill', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['get', 'render_type'], 'polygon'],
     paint: { 'fill-color': _urgCase('fill') },
   });
   // The street (or zone) at the target: a soft blue glow under its colour (setActiveFeature).
-  map.addLayer({
+  addLayer({
     id: 'zones-active', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['id'], -1],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': 'rgba(59,130,246,0.35)', 'line-blur': 2,
              'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 14, 18, 20] },
   });
-  map.addLayer({
+  addLayer({
     id: 'zones-outline', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['get', 'render_type'], 'polygon'],
     paint: { 'line-color': _urgCase('border'), 'line-width': 1.5 },
@@ -132,7 +156,7 @@ function addTilePaintLayers() {
   // distinct from (and heavier than) the per-section outlines above. Colour is
   // theme-aware (light line on the dark basemap, dark line on the light one) so
   // it stays visible in both; recomputed when the basemap switches.
-  map.addLayer({
+  addLayer({
     id: 'zones-ward', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['get', 'render_type'], 'ward_boundary'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -141,7 +165,7 @@ function addTilePaintLayers() {
       'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.0, 13, 2.0, 16, 3.2, 18, 4.5],
     },
   });
-  map.addLayer({
+  addLayer({
     id: 'zones-line', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
     filter: ['==', ['get', 'render_type'], 'line'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -149,7 +173,7 @@ function addTilePaintLayers() {
              'line-opacity': ['step', ['zoom'], 1, SIDE_ZOOM, ['case', ['has', 'even_left'], 0, 1]] },
   });
   for (const side of ['even', 'odd']) {
-    map.addLayer({
+    addLayer({
       id: `zones-side-${side}`, type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
       minzoom: SIDE_ZOOM, filter: ['all', ['==', ['get', 'render_type'], 'line'], ['has', 'even_left']],
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
