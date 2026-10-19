@@ -224,10 +224,10 @@ function _urgCase(prop, key = 'urgency') {
   ];
 }
 // Street line width scales with zoom so it stays thin on city-wide views; it also
-// grows with urgency (today x2, tomorrow x1.5; no sweeping x0.6) so colour is not the only cue.
+// grows with urgency (today x2, tomorrow x1.5; no sweeping a hairline) so colour is not the only cue.
 // One side's line (key 'urgency_even' / 'urgency_odd') is `scale` of that.
 const LINE_W = { 11: 0.8, 14: 1.5, 16: 2.5, 18: 4 };
-const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.6 };
+const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.35 };
 function _lineWidth(key = 'urgency', scale = 1) {
   const stops = Object.entries(LINE_W).flatMap(([z, w]) => [Number(z), [
     'case',

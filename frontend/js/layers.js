@@ -11,10 +11,11 @@
 // menu swatch when features differ. icon: the glyph of a point layer's marker (a 24 px
 // SVG path, white on the colour); fill: the glyph is filled, else stroked; line: more of
 // the glyph, stroked (a carrot's leaves).
-// minzoom: hidden zoomed out (meters are many).
+// minzoom: hidden zoomed out (meters are many). tint: an area's fill opacity; only permit
+// areas are shaded (where a car may park), other areas are an outline, to keep the map light.
 const LAYER_STYLE = {
-  parking: { color: '#7c3aed', key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #db2777 0 75%, #a16207 0)' },
-  meters:  { color: '#0f766e', minzoom: 15 },
+  parking: { color: '#7c3aed', tint: 0.16, key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #db2777 0 75%, #a16207 0)' },
+  meters:  { color: '#0f766e', minzoom: 17 },
   winter:  { color: '#0369a1' },
   ev:      { color: '#16a34a', minzoom: 12, fill: true, icon: 'M13.5 3 6 13.5h5L10 21l8-11h-5.2l.7-7z' },
   fire:    { color: '#dc2626' },
@@ -86,12 +87,13 @@ function _addOverlay(layer) {
   const is = (...types) => ['in', ['geometry-type'], ['literal', types]];
   const poly = is('Polygon', 'MultiPolygon');
   const meters = layer.id === 'meters';
-  // Areas: a tint and an edge in their colour, like Chicago's sweeping zones (the edge
-  // tells neighbouring areas apart).
+  // Areas: an edge in their colour (it tells neighbouring areas apart), shaded when the
+  // style has a tint. The fill stays even when clear: a tap or the target finds the area.
   if (!map.getLayer(fill)) map.addLayer({ id: fill, type: 'fill', source: src, filter: poly, ...zoom,
-    paint: { 'fill-color': color, 'fill-opacity': meters ? 0.1 : 0.2 } }, below);
+    paint: { 'fill-color': color, 'fill-opacity': st.tint || 0 } }, below);
   if (!meters && !map.getLayer(edge)) map.addLayer({ id: edge, type: 'line', source: src, filter: poly, ...zoom,
-    paint: { 'line-color': ['coalesce', ['get', 'edge'], color], 'line-opacity': 0.85, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 16, 2] } }, below);
+    paint: { 'line-color': ['coalesce', ['get', 'edge'], color], 'line-opacity': st.tint ? 0.85 : 0.6,
+             'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 16, st.tint ? 2 : 1.4] } }, below);
   if (!map.getLayer(line)) map.addLayer({ id: line, type: 'line', source: src, ...zoom,
     filter: is('LineString', 'MultiLineString'),
     paint: { 'line-color': color, 'line-opacity': 0.8, 'line-dasharray': [2, 1.5],
