@@ -133,7 +133,3 @@ GitHub Actions
 
 Local: `uv sync --locked --all-extras`, then `uv run pytest -q`. Frontend tests need `node`.
 
-## 8. Gaps
-
-- `cairosvg` and `playwright` are imported but not declared in `pyproject.toml` or `uv.lock`.
-- `tippecanoe`, `gh`, `cloudflared`, `git` and `uv` are system tools, not Python packages.
