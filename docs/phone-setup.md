@@ -1,44 +1,33 @@
-# Phone setup: report where the car parked
+# Phone setup
 
-The phone sends its position when it disconnects from the car. One automation and one
-token per car: the trigger decides *when*, the token decides *which car*.
+The phone reports the car's position when it disconnects from the car. One automation and one token per car:
+the trigger decides *when*, the token decides *which car*.
 
-## 1. Get a token
+## 1. Token
 
-Sign in, open the car, tap **Link phone**, copy the token (shown once).
-**Unlink phone** revokes it.
+Sign in, open the car, **Link phone**, copy the token (shown once). **Unlink phone** revokes it.
 
-## 2. Pick the trigger
+## 2. Trigger
 
-| Your car | Trigger | Tell cars apart |
+| Car | Trigger | Tells cars apart |
 |---|---|---|
-| Wireless CarPlay | Bluetooth, the car's name | yes |
-| Bluetooth only (no CarPlay) | Bluetooth, the car's name | yes |
-| Wired CarPlay | Bluetooth if the car is paired (Settings > Bluetooth), else CarPlay | Bluetooth only |
+| Wireless CarPlay, or Bluetooth only | Bluetooth, the car's name | yes |
+| Wired CarPlay | Bluetooth if the car is paired, else CarPlay | Bluetooth only |
 
-The CarPlay trigger fires for any CarPlay disconnect and cannot pick a car; use it only
-if you link a single car. Wireless CarPlay's Wi-Fi link is private and not selectable
-as a Wi-Fi trigger.
+The CarPlay trigger fires on any CarPlay disconnect and cannot pick a car: use it only with a single linked car.
 
-## 3. iPhone: create the automation
+## 3. iPhone
 
-Shortcuts > Automation > **+** > *Bluetooth* (or *CarPlay*) > choose the car > **Is
-Disconnected** > **Run Immediately** > *New Blank Automation*. Add:
+Shortcuts > Automation > **+** > *Bluetooth* (or *CarPlay*) > the car > **Is Disconnected** > **Run Immediately** >
+*New Blank Automation*. Turn off *Notify When Run*. Add:
 
 1. **Get Current Location**
-2. **Get Details of Locations**: Latitude (repeat for Longitude and Horizontal Accuracy)
-3. **Get Contents of URL**
-   - URL: `https://broombuster.com/api/cars/location`
-   - Method: POST
-   - Headers: `Authorization` = `Bearer <token>`
-   - Request Body: JSON, `lat` = Latitude, `lon` = Longitude, `accuracy` = Horizontal Accuracy
-4. **Get Dictionary Value** `summary` from the contents, then **Show Notification**
+2. **Get Details of Locations**: Latitude, Longitude, Horizontal Accuracy
+3. **Get Contents of URL**: `https://broombuster.com/api/cars/location`, POST, header `Authorization` = `Bearer <token>`,
+   JSON body `lat` = Latitude, `lon` = Longitude, `accuracy` = Horizontal Accuracy
+4. **Get Dictionary Value** `summary`, then **Show Notification**
 
-Turn off *Notify When Run*.
-
-## Android
-
-Tasker or MacroDroid: on Bluetooth disconnect from the car, send the same request.
+Android: Tasker or MacroDroid, on Bluetooth disconnect from the car, send the same request.
 
 ## Request
 
@@ -48,11 +37,9 @@ Authorization: Bearer <token>
 {"lat": 37.8044, "lon": -122.2712, "accuracy": 8}
 ```
 
-Reply `{"summary": "Parked at 12 Oak St, Oakland."}`. Numbers may be sent as text, with
-a decimal comma or a unit (`"35 m"`, `"115 ft"`). `accuracy` is optional (metres unless a
-unit says otherwise); above 50 m the position is refused (422). `401` = token revoked;
-`404` = car removed.
+Reply: `{"summary": "Parked at 12 Oak St, Oakland."}`.
 
-A refused report also answers with a `summary` that says why ("Position too rough (±65 m);
-the car was not moved."), so the notification of step 4 shows it, and the car's page in
-the app shows the last refusal.
+- `accuracy` is optional, in metres. Above 50 m the report is refused (422).
+- A refusal also answers with a `summary` saying why ("Position too rough (±65 m); the car was not moved."). The app shows the last refusal on the car's page.
+- Numbers may be text, with a decimal comma or a unit (`"35 m"`, `"115 ft"`).
+- `401`: token revoked. `404`: car removed.
