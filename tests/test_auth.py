@@ -201,7 +201,8 @@ def test_phone_token_moves_car_and_bumps_version(env, client, monkeypatch):
     assert r.status_code == 200 and r.json()["summary"].startswith("Parked at ")
     car = client.get("/api/me").json()["prefs"]["cars"][0]
     assert (car["lat"], car["lon"], car["loc_rev"]) == (OAKLAND["lat"], OAKLAND["lon"], 1)
-    assert client.get("/api/me").json()["phone_links"]["c1"] is not None  # last_used set
+    link = client.get("/api/me").json()["phone_links"]["c1"]
+    assert link["used"] and link["moved"] and link["error"] is None
     # Shortcuts may send the coordinates as text.
     r = client.post("/api/cars/location", json={"lat": "37.81", "lon": "-122.27"},
                     headers=_bearer(token))
@@ -218,7 +219,39 @@ def test_phone_token_rejections(env, client, monkeypatch):
     rough = no_cookie.post("/api/cars/location", json={**OAKLAND, "accuracy": 500},
                            headers=_bearer(token))
     assert rough.status_code == 422
-    assert client.get("/api/me").json()["prefs"]["cars"][0]["lat"] == PREFS["cars"][0]["lat"]
+    assert rough.json()["summary"].startswith("Position too rough (±500 m)")  # the phone shows it
+    me = client.get("/api/me").json()
+    assert me["prefs"]["cars"][0]["lat"] == PREFS["cars"][0]["lat"]
+    assert me["phone_links"]["c1"]["error"].startswith("Position too rough")
+    assert me["phone_links"]["c1"]["moved"] is None
+    bad = no_cookie.post("/api/cars/location", json={"lat": 37.8, "accuracy": "lots"},
+                         headers=_bearer(token))
+    assert bad.status_code == 422
+    assert bad.json()["summary"] == ("Could not read lon missing, accuracy ('lots');"
+                                     " the car was not moved.")
+    not_json = no_cookie.post("/api/cars/location", content="lat=1", headers=_bearer(token))
+    assert not_json.status_code == 422 and "JSON body" in not_json.json()["summary"]
+    # An accepted report clears the refusal.
+    assert no_cookie.post("/api/cars/location", json=OAKLAND,
+                          headers=_bearer(token)).status_code == 200
+    link = client.get("/api/me").json()["phone_links"]["c1"]
+    assert link["error"] is None and link["moved"]
+
+
+def test_phone_numbers_as_shortcuts_sends_them(env, client, monkeypatch):
+    token = _signed_in_with_car(client, monkeypatch)
+    for body in ({"lat": "37,8044", "lon": "-122,2712", "accuracy": "35,0 m"},
+                 {"lat": "37.8044°", "lon": " -122.2712 ", "accuracy": "±40 ft"},
+                 {"lat": 37.8044, "lon": -122.2712, "accuracy": "12\u00a0m"}):
+        r = client.post("/api/cars/location", json=body, headers=_bearer(token))
+        assert r.status_code == 200, (body, r.json())
+    car = client.get("/api/me").json()["prefs"]["cars"][0]
+    assert (car["lat"], car["lon"]) == (37.8044, -122.2712)
+    # A thousands separator, too rough, an unknown unit.
+    for accuracy in ("1,234 ft", "0.1 km", "65 parsecs"):
+        r = client.post("/api/cars/location", json={**OAKLAND, "accuracy": accuracy},
+                        headers=_bearer(token))
+        assert r.status_code == 422, accuracy
 
 
 def test_phone_token_revoked_and_replaced(env, client, monkeypatch):

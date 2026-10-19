@@ -2,7 +2,7 @@
 let accountEnabled = false;  // server has Google sign-in configured
 let account    = null;   // { email } while signed in
 let _syncTimer = null;
-let phoneLinks = {};     // car id -> epoch seconds of the phone's last report (null: never)
+let phoneLinks = {};     // car id -> the phone's last report, {used, moved, error} (auth.me)
 let calendarOn = false;  // the account has a calendar subscription link
 let _calendarUrl = null; // a freshly made link, shown once: {url, webcal}
 
