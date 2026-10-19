@@ -1,6 +1,6 @@
 """Render frontend/icon.svg to the PNG icons (favicon, apple-touch, PWA).
 
-    uv run --no-project --with cairosvg python scripts/build_icons.py
+    uv run --extra scripts python scripts/build_icons.py
 
 The maskable icon shrinks the artwork into the central safe zone so launchers
 can crop it to any shape.

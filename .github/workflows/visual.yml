@@ -23,9 +23,9 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --locked --extra api
-      - run: uv tool run --from playwright playwright install --with-deps webkit chromium
-      - run: uv tool run --from playwright python scripts/visual_scenarios.py
+      - run: uv sync --locked --extra api --extra visual
+      - run: uv run --extra visual playwright install --with-deps webkit chromium
+      - run: uv run --extra visual python scripts/visual_scenarios.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
