@@ -47,8 +47,7 @@ def _cached(key: tuple, ttl: float, fetch):
 
 def _get(path: str, **params):
     try:
-        r = requests.get(f"{_API}/{path}", params={**params, "locale": "en-US"},
-                         timeout=_TIMEOUT_S)
+        r = requests.get(f"{_API}/{path}", params={**params, "locale": "en-US"}, timeout=_TIMEOUT_S)
         r.raise_for_status()
         return r.json()
     except (requests.RequestException, ValueError):
@@ -78,8 +77,9 @@ def kind(city_key: str) -> str | None:
     return cfg.get("kind", "recollect") if cfg else None
 
 
-def pickups(city_key: str, address: str, today: datetime.date,
-            collection_day: int | None = None) -> dict[str, list[str]]:
+def pickups(
+    city_key: str, address: str, today: datetime.date, collection_day: int | None = None
+) -> dict[str, list[str]]:
     """{stream: [ISO dates]} for the next DAYS_AHEAD days at a home, or {}.
 
     collection_day (Mon=0..Sun=6) is the weekday the user picked, for kind weekly."""
@@ -103,9 +103,13 @@ def pickups(city_key: str, address: str, today: datetime.date,
         return {}
 
     def events():
-        data = _get(f"places/{place_id}/services/{service}/events",
-                    nomerge=1, hide="reminder_only", after=today.isoformat(),
-                    before=(today + datetime.timedelta(days=DAYS_AHEAD)).isoformat())
+        data = _get(
+            f"places/{place_id}/services/{service}/events",
+            nomerge=1,
+            hide="reminder_only",
+            after=today.isoformat(),
+            before=(today + datetime.timedelta(days=DAYS_AHEAD)).isoformat(),
+        )
         if data is None:
             return None
         return parse_pickups(data.get("events", []) if isinstance(data, dict) else data, today)

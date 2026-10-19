@@ -54,5 +54,8 @@ def suspended(city_key: str, service: str, day: datetime.date) -> str | None:
 def for_region(region_key: str) -> dict[str, dict[str, dict]]:
     """{city: {iso date: {"name", "suspends"}}} for the cities of a region (the
     client's copy, served by /api/cities)."""
-    return {ck: {d.isoformat(): h for d, h in sorted(for_city(ck).items())}
-            for ck in REGIONS[region_key]["cities"] if for_city(ck)}
+    return {
+        ck: {d.isoformat(): h for d, h in sorted(for_city(ck).items())}
+        for ck in REGIONS[region_key]["cities"]
+        if for_city(ck)
+    }

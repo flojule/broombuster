@@ -18,11 +18,11 @@ from broombuster.config import REPO_ROOT
 # applies_to: "car" rules, "home" facts, or "map" only.
 THEMES = {
     "parking": {"name": "Permit areas", "map": True, "near_m": 12, "applies_to": "car"},
-    "meters":  {"name": "Meters", "map": True, "near_m": 20, "applies_to": "car"},
-    "winter":  {"name": "Winter parking bans", "map": True, "near_m": 15, "applies_to": "car"},
-    "ev":      {"name": "EV charging", "map": True, "near_m": 0, "applies_to": "map"},
-    "fire":    {"name": "Fire hazard zones", "map": True, "near_m": 0, "applies_to": "home"},
-    "evac":    {"name": "Evacuation zones", "map": False, "near_m": 0, "applies_to": "home"},
+    "meters": {"name": "Meters", "map": True, "near_m": 20, "applies_to": "car"},
+    "winter": {"name": "Winter parking bans", "map": True, "near_m": 15, "applies_to": "car"},
+    "ev": {"name": "EV charging", "map": True, "near_m": 0, "applies_to": "map"},
+    "fire": {"name": "Fire hazard zones", "map": True, "near_m": 0, "applies_to": "home"},
+    "evac": {"name": "Evacuation zones", "map": False, "near_m": 0, "applies_to": "home"},
     "markets": {"name": "Farmers markets", "map": True, "near_m": 0, "applies_to": "map"},
 }
 
@@ -57,8 +57,9 @@ def load_all() -> None:
                     g["city"] = ck
                     parts.append(g)
             if parts:
-                gdf = geopandas.GeoDataFrame(pd.concat(parts, ignore_index=True),
-                                             crs="EPSG:4326").to_crs(3857)
+                gdf = geopandas.GeoDataFrame(
+                    pd.concat(parts, ignore_index=True), crs="EPSG:4326"
+                ).to_crs(3857)
                 gdf.sindex  # noqa: B018 — builds the STRtree
                 themes[theme] = gdf
         _loaded[rk] = themes
@@ -69,9 +70,11 @@ def _permit_areas(region_key: str):
     """The region's permit areas as drawn on the map (frontend/layers/<region>/parking.geojson:
     label, city, color), with their rule and date (data/<city>/permit_areas.fgb)."""
     path = _FRONTEND / region_key / "parking.geojson"
-    facts = [geopandas.read_file(p, ignore_geometry=True).assign(city=ck)
-             for ck in REGIONS[region_key]["cities"]
-             if (p := fgb_path(ck, AREAS)).exists()]
+    facts = [
+        geopandas.read_file(p, ignore_geometry=True).assign(city=ck)
+        for ck in REGIONS[region_key]["cities"]
+        if (p := fgb_path(ck, AREAS)).exists()
+    ]
     if not facts or not path.exists():
         return None
     g = geopandas.read_file(path).to_crs(3857)
@@ -90,11 +93,21 @@ def catalogue(region_key: str) -> list[dict]:
         path = _FRONTEND / region_key / f"{theme}.geojson"
         if meta["map"] and path.exists():
             v = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
-            out.append({"id": theme, "name": meta["name"],
-                        "url": f"/layers/{region_key}/{theme}.geojson?v={v}"})
+            out.append(
+                {
+                    "id": theme,
+                    "name": meta["name"],
+                    "url": f"/layers/{region_key}/{theme}.geojson?v={v}",
+                }
+            )
     if region_key in LIVE_CLOSURES:  # fetched live, not built (feeds.closures)
-        out.append({"id": "closures", "name": "Street closures",
-                    "url": f"/api/closures?region={region_key}"})
+        out.append(
+            {
+                "id": "closures",
+                "name": "Street closures",
+                "url": f"/api/closures?region={region_key}",
+            }
+        )
     return out
 
 
@@ -123,9 +136,16 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
             if r["label"] in seen:
                 continue
             seen.add(r["label"])
-            out.append({"theme": theme, "label": r["label"], "rule": r["rule"] or "",
-                        "asof": r["asof"] or "", "city": r["city"],
-                        **_color(_area_color(areas, r["city"], r["label"]))})
+            out.append(
+                {
+                    "theme": theme,
+                    "label": r["label"],
+                    "rule": r["rule"] or "",
+                    "asof": r["asof"] or "",
+                    "city": r["city"],
+                    **_color(_area_color(areas, r["city"], r["label"])),
+                }
+            )
     return out
 
 
@@ -147,6 +167,7 @@ def _to_3857(lon: float, lat: float) -> tuple[float, float]:
     global _T
     if _T is None:
         from pyproj import Transformer
+
         _T = Transformer.from_crs(4326, 3857, always_xy=True)
     return _T.transform(lon, lat)
 

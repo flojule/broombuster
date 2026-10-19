@@ -28,6 +28,7 @@ from broombuster import normalize
 # street_name() — basic case + suffix
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestStreetNameBasic:
     def test_uppercase_passthrough(self):
         assert normalize.street_name("GRAND AVE") == normalize.street_name("GRAND AVE")
@@ -64,21 +65,56 @@ class TestStreetNameBasic:
 # Suffix stripping — abbreviated forms
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestSuffixStripping:
-    @pytest.mark.parametrize("suffix", [
-        "ST", "AVE", "AV", "BLVD", "BL", "DR", "RD", "CT", "PL",
-        "LN", "WAY", "TER", "TERR", "CIR", "HWY", "PKWY", "PKY",
-        "EXPY", "FWY", "TPKE",
-    ])
+    @pytest.mark.parametrize(
+        "suffix",
+        [
+            "ST",
+            "AVE",
+            "AV",
+            "BLVD",
+            "BL",
+            "DR",
+            "RD",
+            "CT",
+            "PL",
+            "LN",
+            "WAY",
+            "TER",
+            "TERR",
+            "CIR",
+            "HWY",
+            "PKWY",
+            "PKY",
+            "EXPY",
+            "FWY",
+            "TPKE",
+        ],
+    )
     def test_abbreviated_suffix_stripped(self, suffix):
         norm = normalize.street_name(f"GRAND {suffix}")
         assert norm == "GRAND", f"Expected 'GRAND', got {norm!r} (suffix={suffix!r})"
 
-    @pytest.mark.parametrize("suffix", [
-        "STREET", "AVENUE", "BOULEVARD", "DRIVE", "ROAD", "COURT",
-        "PLACE", "LANE", "CIRCLE", "HIGHWAY", "PARKWAY",
-        "EXPRESSWAY", "FREEWAY", "TURNPIKE",
-    ])
+    @pytest.mark.parametrize(
+        "suffix",
+        [
+            "STREET",
+            "AVENUE",
+            "BOULEVARD",
+            "DRIVE",
+            "ROAD",
+            "COURT",
+            "PLACE",
+            "LANE",
+            "CIRCLE",
+            "HIGHWAY",
+            "PARKWAY",
+            "EXPRESSWAY",
+            "FREEWAY",
+            "TURNPIKE",
+        ],
+    )
     def test_spelled_out_suffix_stripped(self, suffix):
         norm = normalize.street_name(f"GRAND {suffix}")
         assert norm == "GRAND", f"Expected 'GRAND', got {norm!r} (suffix={suffix!r})"
@@ -117,33 +153,40 @@ class TestSuffixStripping:
 # N / NORTH, S / SOUTH, E / EAST, W / WEST, NE / NORTHEAST …
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestDirectionalPrefix:
     """
     Abbreviated and spelled-out leading directionals must produce the same key.
     e.g. "N MAIN ST" == "NORTH MAIN ST" == "N. MAIN ST"
     """
 
-    @pytest.mark.parametrize("short,long", [
-        ("N", "NORTH"),
-        ("S", "SOUTH"),
-        ("E", "EAST"),
-        ("W", "WEST"),
-        ("NE", "NORTHEAST"),
-        ("NW", "NORTHWEST"),
-        ("SE", "SOUTHEAST"),
-        ("SW", "SOUTHWEST"),
-    ])
+    @pytest.mark.parametrize(
+        "short,long",
+        [
+            ("N", "NORTH"),
+            ("S", "SOUTH"),
+            ("E", "EAST"),
+            ("W", "WEST"),
+            ("NE", "NORTHEAST"),
+            ("NW", "NORTHWEST"),
+            ("SE", "SOUTHEAST"),
+            ("SW", "SOUTHWEST"),
+        ],
+    )
     def test_directional_abbrev_matches_full(self, short, long):
         a = normalize.street_name(f"{short} PARK AVE")
         b = normalize.street_name(f"{long} PARK AVE")
         assert a == b, f"{short!r} → {a!r}  vs  {long!r} → {b!r}"
 
-    @pytest.mark.parametrize("short,long", [
-        ("N", "NORTH"),
-        ("S", "SOUTH"),
-        ("E", "EAST"),
-        ("W", "WEST"),
-    ])
+    @pytest.mark.parametrize(
+        "short,long",
+        [
+            ("N", "NORTH"),
+            ("S", "SOUTH"),
+            ("E", "EAST"),
+            ("W", "WEST"),
+        ],
+    )
     def test_directional_case_insensitive(self, short, long):
         a = normalize.street_name(f"{short.lower()} Park Ave")
         b = normalize.street_name(f"{long.title()} Park Avenue")
@@ -167,7 +210,7 @@ class TestDirectionalPrefix:
         Oakland GDF stores "E 12th St"; Nominatim returns "East 12th Street".
         Both should produce the same normalized key.
         """
-        gdf_name  = "E 12th St"      # Oakland shapefile style (Title Case + abbrev)
+        gdf_name = "E 12th St"  # Oakland shapefile style (Title Case + abbrev)
         nominatim = "East 12th Street"  # Nominatim output
         assert normalize.street_name(gdf_name) == normalize.street_name(nominatim)
 
@@ -186,6 +229,7 @@ class TestDirectionalPrefix:
 # ─────────────────────────────────────────────────────────────────────────────
 # Period / punctuation stripping
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestPeriodStripping:
     def test_period_in_directional(self):
@@ -206,59 +250,65 @@ class TestPeriodStripping:
 # Cross-city real-world equivalences
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestCrossCityEquivalences:
     """
     Real pairs of (GDF stored name, Nominatim returned name) that must match.
     """
 
-    @pytest.mark.parametrize("gdf_name, nominatim_name", [
-        # Oakland (mixed-case GDF, Nominatim spelled-out)
-        ("100th Ave",        "100th Avenue"),
-        ("Grand Ave",        "Grand Avenue"),
-        ("MacArthur Blvd",   "MacArthur Boulevard"),
-        ("Fruitvale Ave",    "Fruitvale Avenue"),
-        ("International Blvd", "International Boulevard"),
-        ("Foothill Blvd",    "Foothill Boulevard"),
-        ("High St",          "High Street"),
-        ("Park Blvd",        "Park Boulevard"),
-        ("Lakeshore Ave",    "Lakeshore Avenue"),
-        ("Bancroft Ave",     "Bancroft Avenue"),
-        # Berkeley / Alameda (UPPERCASE GDF)
-        ("TELEGRAPH AVE",    "Telegraph Avenue"),
-        ("SHATTUCK AVE",     "Shattuck Avenue"),
-        ("UNIVERSITY AVE",   "University Avenue"),
-        ("ADELINE ST",       "Adeline Street"),
-        ("CEDAR ST",         "Cedar Street"),
-        ("ADAMS ST",         "Adams Street"),
-        ("CENTRAL AVE",      "Central Avenue"),
-        # SF (UPPERCASE GDF, corridor name)
-        ("MARKET ST",        "Market Street"),
-        ("MISSION ST",       "Mission Street"),
-        ("HAYES ST",         "Hayes Street"),
-        ("GEARY BLVD",       "Geary Boulevard"),
-        ("DIVISADERO ST",    "Divisadero Street"),
-        # Numbered streets
-        ("12th St",          "12th Street"),
-        ("12TH ST",          "12th Street"),
-        ("62ND STREET",      "62nd Street"),
-        ("100th Ave",        "100th Avenue"),
-    ])
+    @pytest.mark.parametrize(
+        "gdf_name, nominatim_name",
+        [
+            # Oakland (mixed-case GDF, Nominatim spelled-out)
+            ("100th Ave", "100th Avenue"),
+            ("Grand Ave", "Grand Avenue"),
+            ("MacArthur Blvd", "MacArthur Boulevard"),
+            ("Fruitvale Ave", "Fruitvale Avenue"),
+            ("International Blvd", "International Boulevard"),
+            ("Foothill Blvd", "Foothill Boulevard"),
+            ("High St", "High Street"),
+            ("Park Blvd", "Park Boulevard"),
+            ("Lakeshore Ave", "Lakeshore Avenue"),
+            ("Bancroft Ave", "Bancroft Avenue"),
+            # Berkeley / Alameda (UPPERCASE GDF)
+            ("TELEGRAPH AVE", "Telegraph Avenue"),
+            ("SHATTUCK AVE", "Shattuck Avenue"),
+            ("UNIVERSITY AVE", "University Avenue"),
+            ("ADELINE ST", "Adeline Street"),
+            ("CEDAR ST", "Cedar Street"),
+            ("ADAMS ST", "Adams Street"),
+            ("CENTRAL AVE", "Central Avenue"),
+            # SF (UPPERCASE GDF, corridor name)
+            ("MARKET ST", "Market Street"),
+            ("MISSION ST", "Mission Street"),
+            ("HAYES ST", "Hayes Street"),
+            ("GEARY BLVD", "Geary Boulevard"),
+            ("DIVISADERO ST", "Divisadero Street"),
+            # Numbered streets
+            ("12th St", "12th Street"),
+            ("12TH ST", "12th Street"),
+            ("62ND STREET", "62nd Street"),
+            ("100th Ave", "100th Avenue"),
+        ],
+    )
     def test_gdf_equals_nominatim(self, gdf_name, nominatim_name):
         a = normalize.street_name(gdf_name)
         b = normalize.street_name(nominatim_name)
         assert a == b, (
-            f"Mismatch:\n  GDF {gdf_name!r} → {a!r}\n"
-            f"  Nominatim {nominatim_name!r} → {b!r}"
+            f"Mismatch:\n  GDF {gdf_name!r} → {a!r}\n  Nominatim {nominatim_name!r} → {b!r}"
         )
 
-    @pytest.mark.parametrize("gdf_name, nominatim_name", [
-        # Directional prefix cases
-        ("E 12th St",       "East 12th Street"),
-        ("N Broadway",      "North Broadway"),
-        ("S Main St",       "South Main Street"),
-        ("W Grand Ave",     "West Grand Avenue"),
-        ("N. Park Blvd",    "North Park Boulevard"),
-    ])
+    @pytest.mark.parametrize(
+        "gdf_name, nominatim_name",
+        [
+            # Directional prefix cases
+            ("E 12th St", "East 12th Street"),
+            ("N Broadway", "North Broadway"),
+            ("S Main St", "South Main Street"),
+            ("W Grand Ave", "West Grand Avenue"),
+            ("N. Park Blvd", "North Park Boulevard"),
+        ],
+    )
     def test_directional_gdf_equals_nominatim(self, gdf_name, nominatim_name):
         a = normalize.street_name(gdf_name)
         b = normalize.street_name(nominatim_name)
@@ -272,6 +322,7 @@ class TestCrossCityEquivalences:
 # STREET_NAME storage: should be uppercase in all cities
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestStreetNameStorage:
     """
     Verify that STREET_NAME in FGB files is uppercase for all cities.
@@ -279,36 +330,39 @@ class TestStreetNameStorage:
     but causes display inconsistency in tooltips.
     """
 
-    @pytest.mark.parametrize("fgb_path,city", [
-        ("data/oakland/StreetSweeping.fgb",            "Oakland"),
-        ("data/san_francisco/StreetSweeping.fgb",       "San Francisco"),
-        ("data/berkeley/StreetSweeping.fgb",            "Berkeley"),
-        ("data/alameda/StreetSweeping.fgb",             "Alameda"),
-        ("data/chicago/StreetSweepingZones.fgb",        "Chicago"),
-    ])
+    @pytest.mark.parametrize(
+        "fgb_path,city",
+        [
+            ("data/oakland/StreetSweeping.fgb", "Oakland"),
+            ("data/san_francisco/StreetSweeping.fgb", "San Francisco"),
+            ("data/berkeley/StreetSweeping.fgb", "Berkeley"),
+            ("data/alameda/StreetSweeping.fgb", "Alameda"),
+            ("data/chicago/StreetSweepingZones.fgb", "Chicago"),
+        ],
+    )
     def test_street_names_are_uppercase(self, fgb_path, city):
         import os
         import re
 
         import geopandas as gpd
+
         root = os.path.join(os.path.dirname(__file__), "..")
         path = os.path.join(root, fgb_path)
         if not os.path.exists(path):
             pytest.skip(f"{fgb_path} not built yet")
         gdf = gpd.read_file(path)
         bad = [
-            n for n in gdf["STREET_NAME"].dropna()
-            if isinstance(n, str) and re.search(r"[a-z]", n)
+            n for n in gdf["STREET_NAME"].dropna() if isinstance(n, str) and re.search(r"[a-z]", n)
         ]
         assert not bad, (
-            f"{city}: {len(bad)} STREET_NAME values contain lowercase letters. "
-            f"Samples: {bad[:5]}"
+            f"{city}: {len(bad)} STREET_NAME values contain lowercase letters. Samples: {bad[:5]}"
         )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # time_display()
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestTimeDisplay:
     def test_already_clean(self):
@@ -353,6 +407,7 @@ class TestTimeDisplay:
 # ─────────────────────────────────────────────────────────────────────────────
 # house_number()
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestHouseNumber:
     def test_plain_integer(self):
@@ -403,6 +458,7 @@ class TestHouseNumber:
 # Regression: specific mismatches reported in production
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestRegressions:
     def test_mosley_ave_vs_mosley_avenue(self):
         """Original bug: GDF had 'MOSLEY AVE', Nominatim returned 'Mosley Avenue'."""
@@ -438,13 +494,16 @@ class TestStreetDisplayAbbreviations:
 
 
 class TestFGBSchemaAndKeys:
-    @pytest.mark.parametrize("fgb_path", [
-        "data/oakland/StreetSweeping.fgb",
-        "data/san_francisco/StreetSweeping.fgb",
-        "data/berkeley/StreetSweeping.fgb",
-        "data/alameda/StreetSweeping.fgb",
-        "data/chicago/StreetSweepingZones.fgb",
-    ])
+    @pytest.mark.parametrize(
+        "fgb_path",
+        [
+            "data/oakland/StreetSweeping.fgb",
+            "data/san_francisco/StreetSweeping.fgb",
+            "data/berkeley/StreetSweeping.fgb",
+            "data/alameda/StreetSweeping.fgb",
+            "data/chicago/StreetSweepingZones.fgb",
+        ],
+    )
     def test_fgb_has_key_and_display_and_key_matches(self, fgb_path):
         root = os.path.dirname(os.path.dirname(__file__))
         path = os.path.join(root, fgb_path)

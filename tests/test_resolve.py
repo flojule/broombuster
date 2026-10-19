@@ -10,6 +10,7 @@ Covers:
 The side logic uses both geometry (cross product) and the segment's
 L_/R_ address-range parity. These tests lock in the combined rule.
 """
+
 import geopandas
 import pandas as pd
 import pyproj
@@ -72,11 +73,16 @@ def east_west_street():
             "STREET_NAME": "TEST ST",
             "STREET_DISPLAY": "Test St",
             "STREET_KEY": "TEST",
-            "L_F_ADD": 100, "L_T_ADD": 198,  # north = even
-            "R_F_ADD": 101, "R_T_ADD": 199,  # south = odd
-            "DAY_EVEN": "ME", "DAY_ODD": "WE",
-            "DESC_EVEN": "Mon sweep", "DESC_ODD": "Wed sweep",
-            "TIME_EVEN": "8AM-10AM", "TIME_ODD": "10AM-12PM",
+            "L_F_ADD": 100,
+            "L_T_ADD": 198,  # north = even
+            "R_F_ADD": 101,
+            "R_T_ADD": 199,  # south = odd
+            "DAY_EVEN": "ME",
+            "DAY_ODD": "WE",
+            "DESC_EVEN": "Mon sweep",
+            "DESC_ODD": "Wed sweep",
+            "TIME_EVEN": "8AM-10AM",
+            "TIME_ODD": "10AM-12PM",
             "_city": "oakland",
         }
     ]
@@ -129,11 +135,16 @@ def test_reversed_segment_still_assigns_sides_correctly():
             "STREET_DISPLAY": "Test St",
             "STREET_KEY": "TEST",
             # When direction flips, left and right swap. L is now south, R is now north.
-            "L_F_ADD": 101, "L_T_ADD": 199,  # south = odd
-            "R_F_ADD": 100, "R_T_ADD": 198,  # north = even
-            "DAY_EVEN": None, "DAY_ODD": None,
-            "DESC_EVEN": "", "DESC_ODD": "",
-            "TIME_EVEN": "", "TIME_ODD": "",
+            "L_F_ADD": 101,
+            "L_T_ADD": 199,  # south = odd
+            "R_F_ADD": 100,
+            "R_T_ADD": 198,  # north = even
+            "DAY_EVEN": None,
+            "DAY_ODD": None,
+            "DESC_EVEN": "",
+            "DESC_ODD": "",
+            "TIME_EVEN": "",
+            "TIME_ODD": "",
             "_city": "oakland",
         }
     ]
@@ -157,11 +168,16 @@ def test_no_address_ranges_returns_none_side():
             "STREET_NAME": "MYSTERY ST",
             "STREET_DISPLAY": "Mystery St",
             "STREET_KEY": "MYSTERY",
-            "L_F_ADD": None, "L_T_ADD": None,
-            "R_F_ADD": None, "R_T_ADD": None,
-            "DAY_EVEN": None, "DAY_ODD": None,
-            "DESC_EVEN": "", "DESC_ODD": "",
-            "TIME_EVEN": "", "TIME_ODD": "",
+            "L_F_ADD": None,
+            "L_T_ADD": None,
+            "R_F_ADD": None,
+            "R_T_ADD": None,
+            "DAY_EVEN": None,
+            "DAY_ODD": None,
+            "DESC_EVEN": "",
+            "DESC_ODD": "",
+            "TIME_EVEN": "",
+            "TIME_ODD": "",
             "_city": "oakland",
         }
     ]
@@ -181,11 +197,16 @@ def test_one_side_range_infers_other_side():
             "STREET_NAME": "HALF ST",
             "STREET_DISPLAY": "Half St",
             "STREET_KEY": "HALF",
-            "L_F_ADD": 100, "L_T_ADD": 198,
-            "R_F_ADD": None, "R_T_ADD": None,
-            "DAY_EVEN": None, "DAY_ODD": None,
-            "DESC_EVEN": "", "DESC_ODD": "",
-            "TIME_EVEN": "", "TIME_ODD": "",
+            "L_F_ADD": 100,
+            "L_T_ADD": 198,
+            "R_F_ADD": None,
+            "R_T_ADD": None,
+            "DAY_EVEN": None,
+            "DAY_ODD": None,
+            "DESC_EVEN": "",
+            "DESC_ODD": "",
+            "TIME_EVEN": "",
+            "TIME_ODD": "",
             "_city": "oakland",
         }
     ]
@@ -216,11 +237,16 @@ def test_polygon_containment_returns_zone():
             "STREET_NAME": "ZONE 42",
             "STREET_DISPLAY": "Zone 42",
             "STREET_KEY": "ZONE42",
-            "L_F_ADD": None, "L_T_ADD": None,
-            "R_F_ADD": None, "R_T_ADD": None,
-            "DAY_EVEN": "ME", "DAY_ODD": "ME",
-            "DESC_EVEN": "Ward sweep", "DESC_ODD": "Ward sweep",
-            "TIME_EVEN": "8AM-12PM", "TIME_ODD": "8AM-12PM",
+            "L_F_ADD": None,
+            "L_T_ADD": None,
+            "R_F_ADD": None,
+            "R_T_ADD": None,
+            "DAY_EVEN": "ME",
+            "DAY_ODD": "ME",
+            "DESC_EVEN": "Ward sweep",
+            "DESC_ODD": "Ward sweep",
+            "TIME_EVEN": "8AM-12PM",
+            "TIME_ODD": "8AM-12PM",
             "_city": "chicago",
         }
     ]
@@ -241,19 +267,24 @@ def test_polygon_containment_returns_zone():
 def test_city_key_filter_skips_wrong_city():
     # Two overlapping lines, each tagged with a different city. Resolver
     # with city_key="oakland" must ignore the SF-tagged one even if closer.
-    near = LineString([(0, 0), (100, 0)])     # 5 m from car (SF, should be skipped)
-    far  = LineString([(0, 50), (100, 50)])   # 45 m from car (oakland, pick this)
+    near = LineString([(0, 0), (100, 0)])  # 5 m from car (SF, should be skipped)
+    far = LineString([(0, 50), (100, 50)])  # 45 m from car (oakland, pick this)
     rows = [
         {
             "geometry": near,
             "STREET_NAME": "SF ST",
             "STREET_DISPLAY": "SF St",
             "STREET_KEY": "SFST",
-            "L_F_ADD": 100, "L_T_ADD": 198,
-            "R_F_ADD": 101, "R_T_ADD": 199,
-            "DAY_EVEN": None, "DAY_ODD": None,
-            "DESC_EVEN": "", "DESC_ODD": "",
-            "TIME_EVEN": "", "TIME_ODD": "",
+            "L_F_ADD": 100,
+            "L_T_ADD": 198,
+            "R_F_ADD": 101,
+            "R_T_ADD": 199,
+            "DAY_EVEN": None,
+            "DAY_ODD": None,
+            "DESC_EVEN": "",
+            "DESC_ODD": "",
+            "TIME_EVEN": "",
+            "TIME_ODD": "",
             "_city": "san_francisco",
         },
         {
@@ -261,19 +292,22 @@ def test_city_key_filter_skips_wrong_city():
             "STREET_NAME": "OAK ST",
             "STREET_DISPLAY": "Oak St",
             "STREET_KEY": "OAK",
-            "L_F_ADD": 100, "L_T_ADD": 198,
-            "R_F_ADD": 101, "R_T_ADD": 199,
-            "DAY_EVEN": None, "DAY_ODD": None,
-            "DESC_EVEN": "", "DESC_ODD": "",
-            "TIME_EVEN": "", "TIME_ODD": "",
+            "L_F_ADD": 100,
+            "L_T_ADD": 198,
+            "R_F_ADD": 101,
+            "R_T_ADD": 199,
+            "DAY_EVEN": None,
+            "DAY_ODD": None,
+            "DESC_EVEN": "",
+            "DESC_ODD": "",
+            "TIME_EVEN": "",
+            "TIME_ODD": "",
             "_city": "oakland",
         },
     ]
     gdf = _gdf_from_rows(rows)
     car_lon, car_lat = _ll(50.0, 5.0)
-    resolved = resolve_car_segment(
-        gdf, car_lat, car_lon, city_key="oakland", max_distance_m=60.0
-    )
+    resolved = resolve_car_segment(gdf, car_lat, car_lon, city_key="oakland", max_distance_m=60.0)
     assert resolved.street_name == "OAK ST"
 
 
@@ -290,6 +324,7 @@ def test_oakland_known_coord_snaps_to_chestnut(bay_area_3857):
     # Oakland shapefile's address-range parity convention is covered by the
     # synthetic tests above.
     from broombuster.normalize import street_name as _norm
+
     assert _norm(resolved.street_name) == _norm("CHESTNUT ST")
     assert resolved.is_polygon is False
     assert resolved.distance_m < 40.0
@@ -300,11 +335,15 @@ def test_oakland_known_coord_snaps_to_chestnut(bay_area_3857):
 # resolved segment's own entries.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("lat,lon,city", [
-    (37.821326, -122.280705, "oakland"),
-    (37.830060, -122.261070, "oakland"),
-    (37.759700, -122.421200, "san_francisco"),
-])
+
+@pytest.mark.parametrize(
+    "lat,lon,city",
+    [
+        (37.821326, -122.280705, "oakland"),
+        (37.830060, -122.261070, "oakland"),
+        (37.759700, -122.421200, "san_francisco"),
+    ],
+)
 def test_union_keeps_resolved_schedule(bay_area_3857, lat, lon, city):
     from broombuster import analysis
 

@@ -32,10 +32,22 @@ def test_ttl_cache_keeps_failures_briefly(monkeypatch):
 
 
 _LINE = {"type": "LineString", "coordinates": [[-122.45, 37.77], [-122.449, 37.77]]}
-_SF = {"features": [{"type": "Feature", "geometry": _LINE, "properties": {
-    "case_name": "Street Fair", "type": "Special Event", "status": "Permitted",
-    "start_utc": "2026-10-18T17:00:00.000", "end_utc": "2026-10-19T01:00:00.000",
-    "loc_desc": "OAK ST between A and B"}}]}
+_SF = {
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": _LINE,
+            "properties": {
+                "case_name": "Street Fair",
+                "type": "Special Event",
+                "status": "Permitted",
+                "start_utc": "2026-10-18T17:00:00.000",
+                "end_utc": "2026-10-19T01:00:00.000",
+                "loc_desc": "OAK ST between A and B",
+            },
+        }
+    ]
+}
 
 
 def _fake_closures(monkeypatch, sf=_SF, oakland=None):
@@ -45,6 +57,7 @@ def _fake_closures(monkeypatch, sf=_SF, oakland=None):
         if "Latest_Street_Closures" in url:
             return oakland if oakland is not None else {"features": []}
         raise AssertionError(url)
+
     monkeypatch.setattr(feeds, "get_json", get_json)
 
 
@@ -66,9 +79,20 @@ def test_closures_failure_is_empty(monkeypatch):
 
 def test_oakland_closures_dates(monkeypatch):
     ms = int(datetime.datetime(2026, 10, 31, tzinfo=datetime.UTC).timestamp() * 1000)
-    oak = {"features": [{"type": "Feature", "geometry": _LINE, "properties": {
-        "ST_NAME": "MITCHELL", "Start_date": ms, "End_date": ms,
-        "Event_type": "Nightmare on Mitchell Street"}}]}
+    oak = {
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": _LINE,
+                "properties": {
+                    "ST_NAME": "MITCHELL",
+                    "Start_date": ms,
+                    "End_date": ms,
+                    "Event_type": "Nightmare on Mitchell Street",
+                },
+            }
+        ]
+    }
     _fake_closures(monkeypatch, sf={"features": []}, oakland=oak)
     (f,) = feeds.closures("bay_area", NOW)
     assert f["properties"]["start"] == "2026-10-31" and f["properties"]["street"] == "Mitchell"
@@ -81,9 +105,15 @@ def test_chicago_vehicle(monkeypatch):
     def get_json(url, **params):
         seen.append(params["$where"])
         if "ygr5" in url:
-            return [{"tow_date": "2026-10-17T00:00:00", "towed_to_address": "10300 S. Doty",
-                     "tow_facility_phone": "(773) 568-8495"}]
+            return [
+                {
+                    "tow_date": "2026-10-17T00:00:00",
+                    "towed_to_address": "10300 S. Doty",
+                    "tow_facility_phone": "(773) 568-8495",
+                }
+            ]
         return []
+
     monkeypatch.setattr(feeds, "get_json", get_json)
     got = feeds.chicago_vehicle("ab-12'3; drop", "il")
     tow = {"date": "2026-10-17", "to": "10300 S. Doty", "phone": "(773) 568-8495"}
@@ -101,16 +131,22 @@ def test_vehicle_endpoint(app_client, monkeypatch):
 
 
 def test_chicago_permit_zone(monkeypatch):
-    monkeypatch.setattr(feeds, "_zones", pd.DataFrame([
-        {"street": "NORTH WOLCOTT", "low": 1600, "high": 1688, "side": "E", "zone": "154"},
-        {"street": "NORTH WOLCOTT", "low": 1601, "high": 1699, "side": "O", "zone": "155"}]))
+    monkeypatch.setattr(
+        feeds,
+        "_zones",
+        pd.DataFrame(
+            [
+                {"street": "NORTH WOLCOTT", "low": 1600, "high": 1688, "side": "E", "zone": "154"},
+                {"street": "NORTH WOLCOTT", "low": 1601, "high": 1699, "side": "O", "zone": "155"},
+            ]
+        ),
+    )
     addr = {"house_number": "1640", "road": "North Wolcott Avenue"}
     monkeypatch.setattr(gps, "address_parts", lambda lat, lon, network=True: addr)
     (rule,) = feeds.chicago_permit_zone(41.9, -87.67)
     assert rule["label"] == "Permit zone 154"
     monkeypatch.setattr(gps, "address_parts", lambda lat, lon, network=True: None)
     assert feeds.chicago_permit_zone(41.9, -87.67) == []
-
 
 
 def test_rules_without_geocode_never_ask_nominatim(app_client, monkeypatch):
@@ -123,6 +159,7 @@ def test_rules_without_geocode_never_ask_nominatim(app_client, monkeypatch):
     app_client.get("/api/rules", params=params)  # a car's rules still look its address up
     assert asked
 
+
 def test_spare_the_air_parse():
     assert alerts.parse_spare_the_air("<p>There is no Spare the Air Alert in effect.</p>") is False
     assert alerts.parse_spare_the_air("<h2>Spare the Air Alert in effect</h2>") is True
@@ -130,10 +167,17 @@ def test_spare_the_air_parse():
 
 
 def test_nws_keeps_parking_relevant_events(monkeypatch):
-    monkeypatch.setattr(feeds, "get_json", lambda url, **p: {"features": [
-        {"properties": {"event": "Red Flag Warning", "ends": "2026-10-18T05:00:00-07:00"}},
-        {"properties": {"event": "Small Craft Advisory"}}]})
-    monkeypatch.setattr(alerts, "_spare_the_air", lambda: [])
+    monkeypatch.setattr(
+        feeds,
+        "get_json",
+        lambda url, **p: {
+            "features": [
+                {"properties": {"event": "Red Flag Warning", "ends": "2026-10-18T05:00:00-07:00"}},
+                {"properties": {"event": "Small Craft Advisory"}},
+            ]
+        },
+    )
+    monkeypatch.setattr(alerts, "_spare_the_air", list)
     assert [a["title"] for a in alerts.at("bay_area", 37.87, -122.27)] == ["Red Flag Warning"]
 
 
@@ -148,9 +192,21 @@ def test_markets_next_day_and_distance():
 
 def test_around_endpoint(app_client, monkeypatch):
     monkeypatch.setattr(feeds, "closures", lambda region, now=None: [])
-    monkeypatch.setattr(around, "_legistar", lambda client, today: [
-        {"kind": "meeting", "title": "City Council", "date": today.isoformat(), "time": "6:00 PM",
-         "place": "", "url": "https://oakland.legistar.com/x", "source": "Oakland Legistar"}])
+    monkeypatch.setattr(
+        around,
+        "_legistar",
+        lambda client, today: [
+            {
+                "kind": "meeting",
+                "title": "City Council",
+                "date": today.isoformat(),
+                "time": "6:00 PM",
+                "place": "",
+                "url": "https://oakland.legistar.com/x",
+                "source": "Oakland Legistar",
+            }
+        ],
+    )
     j = app_client.get("/api/around", params={"lat": 37.8106, "lon": -122.2479}).json()
     assert j["city"] == "oakland"
     kinds = {i["kind"] for i in j["items"]}
@@ -160,23 +216,32 @@ def test_around_endpoint(app_client, monkeypatch):
 
 # ── Calendar feed ────────────────────────────────────────────────────────────
 
+
 def _spot(lat, lon):
-    return calfeed.CarSpot("bay_area", "oakland", "Chestnut St, Oakland",
-                           {"even": [["W", "", "8AM-10AM"]], "odd": [["TH", "", "N/A"]]}, "even")
+    return calfeed.CarSpot(
+        "bay_area",
+        "oakland",
+        "Chestnut St, Oakland",
+        {"even": [["W", "", "8AM-10AM"]], "odd": [["TH", "", "N/A"]]},
+        "even",
+    )
 
 
 def test_feed_events_holidays_and_format(monkeypatch):
-    prefs = {"cars": [{"id": "c1", "name": "Civic", "lat": 37.82, "lon": -122.28}],
-             "homes": [{"id": "h1", "lat": 37.8716, "lon": -122.2727, "address": "",
-                        "collection_day": 3}]}
+    prefs = {
+        "cars": [{"id": "c1", "name": "Civic", "lat": 37.82, "lon": -122.28}],
+        "homes": [
+            {"id": "h1", "lat": 37.8716, "lon": -122.2727, "address": "", "collection_day": 3}
+        ],
+    }
     ics = calfeed.build(prefs, _spot, now=datetime.datetime(2026, 11, 1, 12, tzinfo=datetime.UTC))
     assert ics.startswith("BEGIN:VCALENDAR\r\n") and ics.endswith("END:VCALENDAR\r\n")
     assert all(len(line.encode()) <= 75 for line in ics.split("\r\n"))
-    assert "DTSTART:20261104T160000Z" in ics            # Wed Nov 4, 8 AM PST
-    assert "UID:sweep-c1-20261111" not in ics            # Veterans Day: no sweeping in Oakland
+    assert "DTSTART:20261104T160000Z" in ics  # Wed Nov 4, 8 AM PST
+    assert "UID:sweep-c1-20261111" not in ics  # Veterans Day: no sweeping in Oakland
     assert "No street sweeping: Veterans Day" in ics
-    assert "sweep-c1-20261105" not in ics                # the odd side is not the car's
-    assert "UID:trash-h1-20261127" in ics                # Thanksgiving week: Thu -> Fri
+    assert "sweep-c1-20261105" not in ics  # the odd side is not the car's
+    assert "UID:trash-h1-20261127" in ics  # Thanksgiving week: Thu -> Fri
     assert ics.count("BEGIN:VALARM") >= 8
 
 

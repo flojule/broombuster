@@ -44,15 +44,37 @@ where = ["src"]
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF"]
-ignore = [
-    "RUF001", "RUF002", "RUF003",  # en dashes and emoji are intentional
-    "B008",                        # FastAPI Depends() in defaults
-    "SIM105", "SIM108",            # explicit try/except and if/else read better here
+select = [
+    "E", "W", "F", "I", "UP", "B", "SIM", "RUF",
+    "S",       # security (bandit): an auth service
+    "DTZ",     # naive datetimes: a car must land on its own city's day
+    "C4", "PIE",
+    "TID251",  # banned APIs: settings come from config.py only (see below)
 ]
+ignore = [
+    "SIM105", "SIM108",  # explicit try/except and if/else read better here
+]
+allowed-confusables = ["–", "×"]  # en dash and multiplication sign are intentional
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"os.environ".msg = "Read settings in broombuster/config.py only."
+"os.getenv".msg = "Read settings in broombuster/config.py only."
 
 [tool.ruff.lint.per-file-ignores]
+"src/broombuster/config.py" = ["TID251"]
+"scripts/*" = ["S603", "S607", "TID251"]  # developer tools run git, node, uv; may read the environment
 "scripts/visual_scenarios.py" = ["E501"]  # embedded JS and one-line scenario tables
+"tests/*" = [
+    "S101",                  # assert
+    "S603", "S607",          # run node and git
+    "S311", "S110", "S112",  # seeded random, tolerant exhaustive loops
+    "S608",                  # SQL on a throwaway database
+    "TID251",                # tests set the environment
+    "DTZ011",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Body"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["broombuster"]

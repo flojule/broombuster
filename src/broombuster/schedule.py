@@ -14,7 +14,9 @@ _DAY_TOKEN_RE = re.compile(r"TH|SU|M|T|W|F|S")
 _TIME_RANGE_RE = re.compile(
     r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)"
     r"[\s,]*(?:[-–—•·o]|to)\s*"
-    r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)", re.I)
+    r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)",
+    re.I,
+)
 _HALF_DAY = {"AM": (0, 720), "PM": (720, 1440)}
 
 
@@ -88,8 +90,9 @@ def sweep_days(entries, city_key: str | None, start: datetime.date, end: datetim
     return out
 
 
-def weekly_pickups(city_key: str, weekday: int, start: datetime.date,
-                   days: int) -> list[datetime.date]:
+def weekly_pickups(
+    city_key: str, weekday: int, start: datetime.date, days: int
+) -> list[datetime.date]:
     """A weekly collection day's dates in [start, start + days), moved by the city's
     trash holiday rule (manifest `trash.holiday_rule`):
 

@@ -28,9 +28,12 @@ class JsonFormatter(logging.Formatter):
     """One JSON object per line, so journald output can be filtered with jq."""
 
     def format(self, record: logging.LogRecord) -> str:
-        out = {"ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
-               "level": record.levelname, "logger": record.name,
-               "msg": record.getMessage()}
+        out = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
         out.update({k: getattr(record, k) for k in _RECORD_FIELDS if hasattr(record, k)})
         if record.exc_info:
             out["exc"] = self.formatException(record.exc_info)
@@ -66,10 +69,22 @@ def client_ip(request: Request) -> str:
 # ── Rate limits ───────────────────────────────────────────────────────────────
 # (path prefix, requests per minute per client). /address, /geocode and /locate also
 # call third-party services, so they get less.
-LIMITS = (("/api/address", 20), ("/api/geocode", 20), ("/api/locate", 20), ("/api/check-home", 20),
-          ("/api/rules", 60), ("/api/calendar", 30), ("/api/closures", 30), ("/api/vehicle", 10),
-          ("/api/around", 30), ("/api/alerts", 30),
-          ("/api/check", 60), ("/api/me", 30), ("/api/cars", 30), ("/auth/", 30))
+LIMITS = (
+    ("/api/address", 20),
+    ("/api/geocode", 20),
+    ("/api/locate", 20),
+    ("/api/check-home", 20),
+    ("/api/rules", 60),
+    ("/api/calendar", 30),
+    ("/api/closures", 30),
+    ("/api/vehicle", 10),
+    ("/api/around", 30),
+    ("/api/alerts", 30),
+    ("/api/check", 60),
+    ("/api/me", 30),
+    ("/api/cars", 30),
+    ("/auth/", 30),
+)
 _WINDOW_S = 60
 
 
@@ -130,8 +145,9 @@ _sw_js: str | None = None
 def _asset_version() -> str:
     """Hash of every script and stylesheet: changes exactly when one does."""
     h = hashlib.sha256()
-    for f in sorted([*_FRONTEND.glob("js/*.js"), *_FRONTEND.glob("vendor/*"),
-                     _FRONTEND / "styles.css"]):
+    for f in sorted(
+        [*_FRONTEND.glob("js/*.js"), *_FRONTEND.glob("vendor/*"), _FRONTEND / "styles.css"]
+    ):
         h.update(f.name.encode())
         h.update(f.read_bytes())
     return h.hexdigest()[:12]
@@ -143,8 +159,9 @@ def index_response() -> HTMLResponse:
         v = _asset_version()
         html = (_FRONTEND / "index.html").read_text()
         html = _ASSET.sub(lambda m: f"{m[1]}/{m[2]}?v={v}{m[1]}", html)
-        _index_html = (html.replace("__BASE_URL__", config.base_url())
-                       .replace("__APP_VERSION__", app_version()))
+        _index_html = html.replace("__BASE_URL__", config.base_url()).replace(
+            "__APP_VERSION__", app_version()
+        )
     return HTMLResponse(_index_html, headers={"Cache-Control": "no-cache"})
 
 
@@ -153,15 +170,34 @@ def service_worker_response() -> Response:
     new worker) and the server's API path list."""
     global _sw_js
     if _sw_js is None:
-        shell = ["/", "/styles.css", "/manifest.json", "/icon-192.png", "/icon-512.png",
-                 "/apple-touch-icon.png", "/favicon-32.png", "/icon.svg", "/icon-maskable-512.png",
-                 *(f"/{f.relative_to(_FRONTEND)}" for f in sorted(
-                     [*_FRONTEND.glob("js/*.js"), *_FRONTEND.glob("vendor/*.*js"),
-                      *_FRONTEND.glob("vendor/*.css")]))]
-        _sw_js = ((_FRONTEND / "sw.js").read_text()
-                  .replace("__VERSION__", _asset_version())
-                  .replace("__API_PATHS__", json.dumps(API_PATHS))
-                  .replace("__SHELL__", json.dumps(shell)))
+        shell = [
+            "/",
+            "/styles.css",
+            "/manifest.json",
+            "/icon-192.png",
+            "/icon-512.png",
+            "/apple-touch-icon.png",
+            "/favicon-32.png",
+            "/icon.svg",
+            "/icon-maskable-512.png",
+            *(
+                f"/{f.relative_to(_FRONTEND)}"
+                for f in sorted(
+                    [
+                        *_FRONTEND.glob("js/*.js"),
+                        *_FRONTEND.glob("vendor/*.*js"),
+                        *_FRONTEND.glob("vendor/*.css"),
+                    ]
+                )
+            ),
+        ]
+        _sw_js = (
+            (_FRONTEND / "sw.js")
+            .read_text()
+            .replace("__VERSION__", _asset_version())
+            .replace("__API_PATHS__", json.dumps(API_PATHS))
+            .replace("__SHELL__", json.dumps(shell))
+        )
     return Response(_sw_js, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
 
@@ -171,19 +207,24 @@ def service_worker_response() -> Response:
 # No inline or remote scripts. Inline style attributes are allowed (the UI sets
 # colours that way). OpenFreeMap serves the basemap style, tiles, glyphs and
 # sprites; address searches go through our own /api/geocode.
-CSP = "; ".join((
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://tiles.openfreemap.org",
-    "connect-src 'self' https://tiles.openfreemap.org",
-    "worker-src 'self' blob:",
-    "frame-ancestors 'none'", "object-src 'none'", "base-uri 'self'", "form-action 'self'",
-))
+CSP = "; ".join(
+    (
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https://tiles.openfreemap.org",
+        "connect-src 'self' https://tiles.openfreemap.org",
+        "worker-src 'self' blob:",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+    )
+)
 SECURITY_HEADERS = {
-    "X-Content-Type-Options":  "nosniff",
-    "Referrer-Policy":         "strict-origin-when-cross-origin",
-    "X-Frame-Options":         "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
 }
 CSP_ENFORCE = config.csp_enforced()
 
@@ -194,23 +235,35 @@ async def http_middleware(request: Request, call_next):
     shown = "/api/calendar/…" if path.startswith("/api/calendar/") else path  # a feed's secret
     rule = _limit_for(path) if request.method != "OPTIONS" else None
     if rule and RATE_LIMIT and not _limiter.allow(ip, rule[0], rule[1]):
-        response = JSONResponse({"detail": "Too many requests."}, status_code=429,
-                                headers={"Retry-After": str(_WINDOW_S)})
+        response = JSONResponse(
+            {"detail": "Too many requests."},
+            status_code=429,
+            headers={"Retry-After": str(_WINDOW_S)},
+        )
     else:
         try:
             response = await call_next(request)
         except Exception:
-            log.exception("unhandled error", extra={"rid": rid, "method": request.method,
-                                                    "path": shown, "ip": ip})
+            log.exception(
+                "unhandled error",
+                extra={"rid": rid, "method": request.method, "path": shown, "ip": ip},
+            )
             response = JSONResponse({"detail": "Internal error."}, status_code=500)
     response.headers.update(SECURITY_HEADERS)
-    response.headers["Content-Security-Policy" if CSP_ENFORCE
-                     else "Content-Security-Policy-Report-Only"] = CSP
+    response.headers[
+        "Content-Security-Policy" if CSP_ENFORCE else "Content-Security-Policy-Report-Only"
+    ] = CSP
     response.headers["X-Request-ID"] = rid
     if "cache-control" not in response.headers:
         response.headers["Cache-Control"] = cache_control(path, "v" in request.query_params)
-    extra = {"rid": rid, "method": request.method, "path": shown, "status": response.status_code,
-             "ms": round((time.perf_counter() - t0) * 1000), "ip": ip}
+    extra = {
+        "rid": rid,
+        "method": request.method,
+        "path": shown,
+        "status": response.status_code,
+        "ms": round((time.perf_counter() - t0) * 1000),
+        "ip": ip,
+    }
     if reason := getattr(request.state, "log_reason", None):  # why a request was refused
         extra["reason"] = reason
     log.info("request", extra=extra)

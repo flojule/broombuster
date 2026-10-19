@@ -26,9 +26,7 @@ from shapely.geometry import Point
 from broombuster import normalize
 from broombuster.cities import CITIES, city_for_point
 
-_TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs(
-    "EPSG:4326", "EPSG:3857", always_xy=True
-)
+_TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
 # Max car-to-centerline distance for the car and home flows.
 CAR_MAX_DISTANCE_M = 50.0
@@ -40,13 +38,13 @@ class NoSegmentNearby(Exception):
 
 @dataclass(frozen=True)
 class ResolvedCar:
-    segment: Any                 # The authoritative GDF row (pandas Series)
-    street_name: str             # Canonical upper-case name from the segment
-    street_display: str          # Short display form (STREET_DISPLAY or derived)
-    side: str | None          # "even" | "odd" | None (None when unknown)
-    distance_m: float            # Point-to-line distance in metres
+    segment: Any  # The authoritative GDF row (pandas Series)
+    street_name: str  # Canonical upper-case name from the segment
+    street_display: str  # Short display form (STREET_DISPLAY or derived)
+    side: str | None  # "even" | "odd" | None (None when unknown)
+    distance_m: float  # Point-to-line distance in metres
     projected_point: tuple[float, float]  # Nearest point on centerline (EPSG:3857)
-    is_polygon: bool             # True when the segment is a polygon (zone-based data)
+    is_polygon: bool  # True when the segment is a polygon (zone-based data)
 
     @property
     def label(self) -> str:
@@ -128,8 +126,7 @@ def resolve_car_segment(
 
     if best_line_idx is None or best_line_dist > max_distance_m:
         raise NoSegmentNearby(
-            f"No street segment within {max_distance_m:.0f} m of "
-            f"({lat:.5f}, {lon:.5f})"
+            f"No street segment within {max_distance_m:.0f} m of ({lat:.5f}, {lon:.5f})"
         )
 
     row = gdf_3857.iloc[best_line_idx]
@@ -145,9 +142,7 @@ def resolve_car_segment(
     return ResolvedCar(
         segment=row,
         street_name=normalize.clean_text(row.get("STREET_NAME")),
-        street_display=normalize.clean_text(
-            row.get("STREET_DISPLAY") or row.get("STREET_NAME")
-        ),
+        street_display=normalize.clean_text(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
         side=side,
         distance_m=float(best_line_dist),
         projected_point=(px, py),

@@ -77,32 +77,50 @@ CLOSURE_DAYS = 14  # closures starting within this many days
 
 def _sf_closures(now: datetime.datetime):
     soon = now + datetime.timedelta(days=CLOSURE_DAYS)
-    where = (f"end_utc >= '{now:%Y-%m-%dT%H:%M:%S}' AND start_utc <= '{soon:%Y-%m-%dT%H:%M:%S}'"
-             " AND type != 'Roadway Shared Spaces'")
-    data = get_json("https://data.sf.gov/resource/8x25-yybr.geojson",
-                    **{"$where": where, "$limit": 5000})
+    where = (
+        f"end_utc >= '{now:%Y-%m-%dT%H:%M:%S}' AND start_utc <= '{soon:%Y-%m-%dT%H:%M:%S}'"
+        " AND type != 'Roadway Shared Spaces'"
+    )
+    data = get_json(
+        "https://data.sf.gov/resource/8x25-yybr.geojson", **{"$where": where, "$limit": 5000}
+    )
     if data is None:
         return None
     out = []
     for f in data.get("features") or []:
         p = f.get("properties") or {}
-        out.append({"type": "Feature", "geometry": f.get("geometry"), "properties": {
-            "title": p.get("case_name") or p.get("type") or "Street closure",
-            "start": (p.get("start_utc") or "")[:19] + "Z",
-            "end": (p.get("end_utc") or "")[:19] + "Z",
-            "street": p.get("loc_desc") or p.get("street") or "", "kind": p.get("type") or "",
-            "status": p.get("status") or "", "source": "DataSF temporary street closures"}})
+        out.append(
+            {
+                "type": "Feature",
+                "geometry": f.get("geometry"),
+                "properties": {
+                    "title": p.get("case_name") or p.get("type") or "Street closure",
+                    "start": (p.get("start_utc") or "")[:19] + "Z",
+                    "end": (p.get("end_utc") or "")[:19] + "Z",
+                    "street": p.get("loc_desc") or p.get("street") or "",
+                    "kind": p.get("type") or "",
+                    "status": p.get("status") or "",
+                    "source": "DataSF temporary street closures",
+                },
+            }
+        )
     return out
 
 
-_OAKLAND_CLOSURES = ("https://services.arcgis.com/9tC74aDHuml0x5Yz/arcgis/rest/services/"
-                     "Latest_Street_Closures_Nov24/FeatureServer/0/query")
+_OAKLAND_CLOSURES = (
+    "https://services.arcgis.com/9tC74aDHuml0x5Yz/arcgis/rest/services/"
+    "Latest_Street_Closures_Nov24/FeatureServer/0/query"
+)
 
 
 def _oakland_closures(now: datetime.datetime):
-    data = get_json(_OAKLAND_CLOSURES, where=f"End_date >= DATE '{now:%Y-%m-%d}'",
-                 outFields="ST_NAME,Start_date,End_date,Event_type,Event_time,Status",
-                 outSR=4326, f="geojson")
+    data = get_json(
+        _OAKLAND_CLOSURES,
+        where=f"End_date >= DATE '{now:%Y-%m-%d}'",
+        outFields="ST_NAME,Start_date,End_date,Event_type,Event_time,Status",
+        outSR=4326,
+        f="geojson",
+    )
     if data is None:
         return None
     soon = now + datetime.timedelta(days=CLOSURE_DAYS)
@@ -112,11 +130,21 @@ def _oakland_closures(now: datetime.datetime):
         start = p.get("Start_date")
         if isinstance(start, int | float) and start / 1000 > soon.timestamp():
             continue
-        out.append({"type": "Feature", "geometry": f.get("geometry"), "properties": {
-            "title": p.get("Event_type") or "Street closure",
-            "start": _iso_utc(start)[:10], "end": _iso_utc(p.get("End_date"))[:10],
-            "street": str(p.get("ST_NAME") or "").title(), "kind": p.get("Event_time") or "",
-            "status": p.get("Status") or "", "source": "City of Oakland special event closures"}})
+        out.append(
+            {
+                "type": "Feature",
+                "geometry": f.get("geometry"),
+                "properties": {
+                    "title": p.get("Event_type") or "Street closure",
+                    "start": _iso_utc(start)[:10],
+                    "end": _iso_utc(p.get("End_date"))[:10],
+                    "street": str(p.get("ST_NAME") or "").title(),
+                    "kind": p.get("Event_time") or "",
+                    "status": p.get("Status") or "",
+                    "source": "City of Oakland special event closures",
+                },
+            }
+        )
     return out
 
 
@@ -131,7 +159,7 @@ def _511_work_zones(now: datetime.datetime):
     soon = now + datetime.timedelta(days=CLOSURE_DAYS)
     out = []
     for f in data.get("features") or []:
-        core = ((f.get("properties") or {}).get("core_details") or {})
+        core = (f.get("properties") or {}).get("core_details") or {}
         p = f.get("properties") or {}
         start, end = p.get("start_date") or "", p.get("end_date") or ""
         try:
@@ -141,10 +169,21 @@ def _511_work_zones(now: datetime.datetime):
                 continue
         except ValueError:
             pass
-        out.append({"type": "Feature", "geometry": f.get("geometry"), "properties": {
-            "title": core.get("description") or "Work zone", "start": start, "end": end,
-            "street": ", ".join(core.get("road_names") or []), "kind": "Work zone",
-            "status": "", "source": "511 SF Bay work zones (WZDx)"}})
+        out.append(
+            {
+                "type": "Feature",
+                "geometry": f.get("geometry"),
+                "properties": {
+                    "title": core.get("description") or "Work zone",
+                    "start": start,
+                    "end": end,
+                    "street": ", ".join(core.get("road_names") or []),
+                    "kind": "Work zone",
+                    "status": "",
+                    "source": "511 SF Bay work zones (WZDx)",
+                },
+            }
+        )
     return out
 
 
@@ -157,8 +196,9 @@ def closures(region_key: str, now: datetime.datetime | None = None) -> list[dict
     now = now or datetime.datetime.now(datetime.UTC)
     out = []
     for src in _CLOSURE_SOURCES.get(region_key, ()):
-        got = cache.get(("closures", src.__name__, now.strftime("%Y%m%d%H")), 15 * 60,
-                        lambda src=src: src(now))
+        got = cache.get(
+            ("closures", src.__name__, now.strftime("%Y%m%d%H")), 15 * 60, lambda src=src: src(now)
+        )
         out += [f for f in got or [] if f.get("geometry")]
     return out
 
@@ -181,14 +221,22 @@ def closures_near(region_key: str, lat: float, lon: float, meters: float = 15) -
             continue
         seen.add(key)
         when = _when(p["start"], p["end"], region_key)
-        out.append({"theme": "closures", "label": f"Street closed: {p['title']}",
-                    "rule": f"{when}. {p['street']}".strip(" ."), "asof": "", "city": "",
-                    "warn": True, "source": p["source"]})
+        out.append(
+            {
+                "theme": "closures",
+                "label": f"Street closed: {p['title']}",
+                "rule": f"{when}. {p['street']}".strip(" ."),
+                "asof": "",
+                "city": "",
+                "warn": True,
+                "source": p["source"],
+            }
+        )
     return out
 
 
 def _when(start: str, end: str, region_key: str) -> str:
-    """"Sun Feb 7, 7–10 AM" style text for a closure's span, in the region's time."""
+    """ "Sun Feb 7, 7–10 AM" style text for a closure's span, in the region's time."""
     from zoneinfo import ZoneInfo
 
     tz = ZoneInfo(REGIONS[region_key]["tz"])
@@ -208,6 +256,7 @@ def _when(start: str, end: str, region_key: str) -> str:
     day = f"{a:%a %b} {a.day}"
     if len(start) <= 10:  # dates only
         return day if b is None or b.date() == a.date() else f"{day} to {b:%a %b} {b.day}"
+
     def hm(d):
         minutes = f":{d.minute:02d}" if d.minute else ""
         return f"{d.hour % 12 or 12}{minutes} {'AM' if d.hour < 12 else 'PM'}"
@@ -220,6 +269,7 @@ def _when(start: str, end: str, region_key: str) -> str:
 
 
 # ── Chicago: towed and relocated vehicles ─────────────────────────────────────
+
 
 def _plate(plate: str) -> str:
     return "".join(ch for ch in plate.upper() if ch.isalnum())
@@ -236,25 +286,51 @@ def chicago_vehicle(plate: str, state: str = "IL") -> dict | None:
         return {"towed": [], "relocated": []}
 
     def fetch():
-        since = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
-        towed = get_json("https://data.cityofchicago.org/resource/ygr5-vcbg.json",
-                      **{"$where": f"plate = '{p}' AND state = '{st}' AND tow_date >= '{since}'",
-                         "$order": "tow_date DESC", "$limit": 5})
-        moved = get_json("https://data.cityofchicago.org/resource/5k2z-suxx.json",
-                      **{"$where": f"plate = '{p}' AND state = '{st}'"
-                                   f" AND relocated_date >= '{since}'",
-                         "$order": "relocated_date DESC", "$limit": 5})
+        since = (
+            datetime.datetime.now(datetime.UTC).date() - datetime.timedelta(days=90)
+        ).isoformat()
+        towed = get_json(
+            "https://data.cityofchicago.org/resource/ygr5-vcbg.json",
+            **{
+                "$where": f"plate = '{p}' AND state = '{st}' AND tow_date >= '{since}'",
+                "$order": "tow_date DESC",
+                "$limit": 5,
+            },
+        )
+        moved = get_json(
+            "https://data.cityofchicago.org/resource/5k2z-suxx.json",
+            **{
+                "$where": f"plate = '{p}' AND state = '{st}' AND relocated_date >= '{since}'",
+                "$order": "relocated_date DESC",
+                "$limit": 5,
+            },
+        )
         if towed is None or moved is None:
             return None
         return {
-            "towed": [{"date": str(t.get("tow_date") or "")[:10],
-                       "to": t.get("towed_to_address") or "",
-                       "phone": t.get("tow_facility_phone") or ""} for t in towed],
-            "relocated": [{"date": str(m.get("relocated_date") or "")[:16],
-                           "to": " ".join(str(m.get(k) or "") for k in (
-                               "relocated_to_address_number", "relocated_to_direction",
-                               "relocated_to_street_name")).strip(),
-                           "reason": m.get("relocated_reason") or ""} for m in moved],
+            "towed": [
+                {
+                    "date": str(t.get("tow_date") or "")[:10],
+                    "to": t.get("towed_to_address") or "",
+                    "phone": t.get("tow_facility_phone") or "",
+                }
+                for t in towed
+            ],
+            "relocated": [
+                {
+                    "date": str(m.get("relocated_date") or "")[:16],
+                    "to": " ".join(
+                        str(m.get(k) or "")
+                        for k in (
+                            "relocated_to_address_number",
+                            "relocated_to_direction",
+                            "relocated_to_street_name",
+                        )
+                    ).strip(),
+                    "reason": m.get("relocated_reason") or "",
+                }
+                for m in moved
+            ],
         }
 
     return cache.get(("chicago_vehicle", p, st), 10 * 60, fetch)
@@ -270,8 +346,11 @@ def _permit_zones() -> pd.DataFrame:
         from broombuster import layers
 
         path = layers.city_dir("chicago_all") / "permit_zones.csv"
-        _zones = (pd.read_csv(path, dtype={"zone": str}) if path.exists()
-                  else pd.DataFrame(columns=["street", "low", "high", "side", "zone"]))
+        _zones = (
+            pd.read_csv(path, dtype={"zone": str})
+            if path.exists()
+            else pd.DataFrame(columns=["street", "low", "high", "side", "zone"])
+        )
     return _zones
 
 
@@ -287,8 +366,19 @@ def chicago_permit_zone(lat: float, lon: float, network: bool = True) -> list[di
     street = normalize.street_name(addr["road"])
     z = _permit_zones()
     side = "E" if number % 2 == 0 else "O"
-    hit = z[(z["street"] == street) & (z["low"] <= number) & (z["high"] >= number)
-            & z["side"].isin((side, "B"))]
-    return [{"theme": "parking", "label": f"Permit zone {zone}",
-             "rule": "Residential permit parking: without zone permit, follow the posted hours.",
-             "asof": "", "city": "chicago_all"} for zone in sorted(set(hit["zone"]))]
+    hit = z[
+        (z["street"] == street)
+        & (z["low"] <= number)
+        & (z["high"] >= number)
+        & z["side"].isin((side, "B"))
+    ]
+    return [
+        {
+            "theme": "parking",
+            "label": f"Permit zone {zone}",
+            "rule": "Residential permit parking: without zone permit, follow the posted hours.",
+            "asof": "",
+            "city": "chicago_all",
+        }
+        for zone in sorted(set(hit["zone"]))
+    ]

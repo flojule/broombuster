@@ -41,9 +41,14 @@ _WHITESPACE_RE = re.compile(r"\s+")
 # Maps abbreviated leading directionals to their canonical full-word form.
 # Full words that are already canonical map through .get(d, d) unchanged.
 _DIR_EXPAND = {
-    "N":  "NORTH", "S":  "SOUTH", "E":  "EAST",  "W":  "WEST",
-    "NE": "NORTHEAST", "NW": "NORTHWEST",
-    "SE": "SOUTHEAST", "SW": "SOUTHWEST",
+    "N": "NORTH",
+    "S": "SOUTH",
+    "E": "EAST",
+    "W": "WEST",
+    "NE": "NORTHEAST",
+    "NW": "NORTHWEST",
+    "SE": "SOUTHEAST",
+    "SW": "SOUTHWEST",
 }
 
 # Matches an abbreviated or full-word directional at the very start of the
@@ -94,22 +99,41 @@ def street_name(raw: str) -> str:
 # Returns a short, readable title-cased name with abbreviated suffixes
 # and abbreviated directionals (e.g. "East 12th Street" -> "E 12th St").
 _SUFFIX_ABBR = {
-    "STREET": "St", "ST": "St",
-    "AVENUE": "Ave", "AVE": "Ave", "AV": "Ave",
-    "BOULEVARD": "Blvd", "BLVD": "Blvd", "BL": "Blvd",
-    "DRIVE": "Dr", "DR": "Dr",
-    "ROAD": "Rd", "RD": "Rd",
-    "COURT": "Ct", "CT": "Ct",
-    "PLACE": "Pl", "PL": "Pl",
-    "LANE": "Ln", "LN": "Ln",
+    "STREET": "St",
+    "ST": "St",
+    "AVENUE": "Ave",
+    "AVE": "Ave",
+    "AV": "Ave",
+    "BOULEVARD": "Blvd",
+    "BLVD": "Blvd",
+    "BL": "Blvd",
+    "DRIVE": "Dr",
+    "DR": "Dr",
+    "ROAD": "Rd",
+    "RD": "Rd",
+    "COURT": "Ct",
+    "CT": "Ct",
+    "PLACE": "Pl",
+    "PL": "Pl",
+    "LANE": "Ln",
+    "LN": "Ln",
     "WAY": "Way",
-    "TERRACE": "Ter", "TER": "Ter", "TERR": "Ter",
-    "CIRCLE": "Cir", "CIR": "Cir",
-    "HIGHWAY": "Hwy", "HWY": "Hwy",
-    "PARKWAY": "Pkwy", "PKWY": "Pkwy", "PKY": "Pkwy",
-    "EXPRESSWAY": "Expy", "EXPY": "Expy",
-    "FREEWAY": "Fwy", "FWY": "Fwy",
-    "TURNPIKE": "Tpke", "TPKE": "Tpke",
+    "TERRACE": "Ter",
+    "TER": "Ter",
+    "TERR": "Ter",
+    "CIRCLE": "Cir",
+    "CIR": "Cir",
+    "HIGHWAY": "Hwy",
+    "HWY": "Hwy",
+    "PARKWAY": "Pkwy",
+    "PKWY": "Pkwy",
+    "PKY": "Pkwy",
+    "EXPRESSWAY": "Expy",
+    "EXPY": "Expy",
+    "FREEWAY": "Fwy",
+    "FWY": "Fwy",
+    "TURNPIKE": "Tpke",
+    "TPKE": "Tpke",
 }
 
 # Full directional -> short abbreviation.
@@ -145,7 +169,7 @@ def street_display(raw: str) -> str:
     # Trailing suffix?
     suffix = None
     if rest:
-        last_up = rest[-1].upper().rstrip('.')
+        last_up = rest[-1].upper().rstrip(".")
         if last_up in _SUFFIX_ABBR:
             suffix = _SUFFIX_ABBR[last_up]
             rest = rest[:-1]
@@ -198,8 +222,11 @@ _TIME_RANGE_RE = re.compile(
 
 def _clock_parts(h: str, m: str | None, ap: str) -> tuple[int, int, str]:
     """(hour, minute, "AM"|"PM") from captured groups, minus PDF stray spaces."""
-    return int(re.sub(r"\s+", "", h)), int(re.sub(r"\s+", "", m)) if m else 0, \
-        re.sub(r"[\s,]+", "", ap).upper()
+    return (
+        int(re.sub(r"\s+", "", h)),
+        int(re.sub(r"\s+", "", m)) if m else 0,
+        re.sub(r"[\s,]+", "", ap).upper(),
+    )
 
 
 def _fmt_part(h: str, m: str | None, ap: str) -> str:
@@ -227,8 +254,10 @@ def time_display(raw: str) -> str:
     if not match:
         return s
     h1, m1, ap1, h2, m2, ap2 = match.groups()
-    if not all(1 <= hh <= 12 and mn <= 59
-               for hh, mn, _ in (_clock_parts(h1, m1, ap1), _clock_parts(h2, m2, ap2))):
+    if not all(
+        1 <= hh <= 12 and mn <= 59
+        for hh, mn, _ in (_clock_parts(h1, m1, ap1), _clock_parts(h2, m2, ap2))
+    ):
         return s
     return f"{_fmt_part(h1, m1, ap1)}–{_fmt_part(h2, m2, ap2)}"
 
@@ -247,11 +276,13 @@ _ORD_SUFFIX = {"1": "st", "2": "nd", "3": "rd"}
 
 def pretty_ordinals(text: str) -> str:
     """Bare week-of-month digit runs -> ordinals: "13" -> "1st & 3rd"."""
+
     def _repl(m: "re.Match") -> str:
         parts = [d + _ORD_SUFFIX.get(d, "th") for d in m.group(1)]
         if len(parts) == 1:
             return parts[0]
         return ", ".join(parts[:-1]) + " & " + parts[-1]
+
     return _BARE_ORD_RE.sub(_repl, text)
 
 

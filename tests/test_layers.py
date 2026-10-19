@@ -24,8 +24,9 @@ def test_every_manifest_layer_has_a_source(city, theme):
     assert city in layer_sources.SOURCES[theme]
 
 
-@pytest.mark.parametrize("city,theme", [(c, t) for c, t in _manifest_layers()
-                                        if layers.fgb_path(c, t).exists()])
+@pytest.mark.parametrize(
+    "city,theme", [(c, t) for c, t in _manifest_layers() if layers.fgb_path(c, t).exists()]
+)
 def test_committed_layer_files_keep_only_the_schema(city, theme):
     gdf = geopandas.read_file(layers.fgb_path(city, theme))
     extra = [layer_sources.COLOR] if layer_sources.COLOR in gdf else []  # a city's own colours
@@ -38,9 +39,14 @@ def test_committed_layer_files_keep_only_the_schema(city, theme):
 
 
 def test_core_layers_are_committed():
-    for city, theme in [("berkeley", "parking"), ("oakland", "parking"),
-                        ("san_francisco", "parking"), ("oakland", "meters"),
-                        ("chicago_all", "winter"), ("berkeley", "fire")]:
+    for city, theme in [
+        ("berkeley", "parking"),
+        ("oakland", "parking"),
+        ("san_francisco", "parking"),
+        ("oakland", "meters"),
+        ("chicago_all", "winter"),
+        ("berkeley", "fire"),
+    ]:
         assert layers.fgb_path(city, theme).exists(), (city, theme)
     assert (layers.city_dir("chicago_all") / "permit_zones.csv").exists()
 
@@ -52,8 +58,9 @@ def test_client_geojson_is_small_and_has_no_rule_text(region):
         fc = json.loads(path.read_text())
         assert fc["features"]
         props = set(fc["features"][0]["properties"])
-        assert props == ({"label", "city", "color", "edge"} if path.stem == "parking"
-                         else {"label", "city"}), path
+        assert props == (
+            {"label", "city", "color", "edge"} if path.stem == "parking" else {"label", "city"}
+        ), path
 
 
 def test_catalogue_lists_hashed_urls_and_live_closures(app_client):
@@ -76,6 +83,7 @@ def _inside(city, theme, label_prefix=""):
 
 def test_rules_at_a_berkeley_permit_area(app_client, monkeypatch):
     from broombuster import feeds
+
     monkeypatch.setattr(feeds, "closures", lambda region, now=None: [])
     lat, lon, label = _inside("berkeley", "parking", "Permit area")
     rules = app_client.get("/api/rules", params={"lat": lat, "lon": lon}).json()["rules"]
@@ -97,8 +105,14 @@ def test_rules_reject_bad_kind(app_client):
 
 
 def test_sf_rule_text():
-    row = {"regulation": "Time limited", "hrlimit": "2", "days": "M-F", "from_time": "9am",
-           "to_time": "6pm", "rpparea1": "N"}
+    row = {
+        "regulation": "Time limited",
+        "hrlimit": "2",
+        "days": "M-F",
+        "from_time": "9am",
+        "to_time": "6pm",
+        "rpparea1": "N",
+    }
     assert layer_sources._sf_rule(row) == "2 h limit, M–F 9am–6pm; permit area N holders exempt."
     assert layer_sources._sf_label(row) == "Permit area N"
     assert layer_sources._sf_label({"regulation": "No overnight parking"}) == "No overnight parking"
@@ -106,14 +120,21 @@ def test_sf_rule_text():
 
 def test_sf_missing_fields_are_not_nan():
     # Socrata rows read into a frame carry NaN for an empty field: never "Permit area nan".
-    row = {"regulation": "Time limited", "hrlimit": "4", "days": "M-Sa", "from_time": "8am",
-           "to_time": "6pm", "rpparea1": float("nan")}
+    row = {
+        "regulation": "Time limited",
+        "hrlimit": "4",
+        "days": "M-Sa",
+        "from_time": "8am",
+        "to_time": "6pm",
+        "rpparea1": float("nan"),
+    }
     assert layer_sources._sf_label(row) == "4 h limit"
     assert layer_sources._sf_rule(row) == "4 h limit, M–Sa 8am–6pm."
 
 
 def _build():
     import importlib.util
+
     path = _ROOT / "scripts" / "build_layers.py"
     spec = importlib.util.spec_from_file_location("build_layers", path)
     build = importlib.util.module_from_spec(spec)
@@ -131,12 +152,21 @@ def test_permit_area_codes_and_sf_limits():
 
 
 def test_arcgis_colors_read_the_city_renderer(monkeypatch):
-    meta = {"drawingInfo": {"renderer": {"type": "uniqueValue", "uniqueValueInfos": [
-        {"value": "AREA A", "symbol": {"color": [115, 178, 255, 255]}}]}}}
+    meta = {
+        "drawingInfo": {
+            "renderer": {
+                "type": "uniqueValue",
+                "uniqueValueInfos": [
+                    {"value": "AREA A", "symbol": {"color": [115, 178, 255, 255]}}
+                ],
+            }
+        }
+    }
 
     class R:
         def json(self):
             return meta
+
     monkeypatch.setattr(layer_sources, "_get", lambda url, **p: R())
     assert layer_sources.arcgis_colors("x") == {"AREA A": "#73b2ff"}
 
@@ -145,9 +175,15 @@ def test_permit_areas_take_the_city_colour_else_one_their_neighbours_lack():
     build = _build()
     sq = [shapely.box(-122.42 + i * 0.002, 37.77, -122.4185 + i * 0.002, 37.7715) for i in range(4)]
     gdf = geopandas.GeoDataFrame(
-        {"label": [f"Permit area {c}" for c in "ABCD"], "city": ["oakland"] * 4,
-         "asof": ["2019-01-09"] * 4, "color": ["#ffff73", None, None, None]},
-        geometry=sq, crs="EPSG:4326")
+        {
+            "label": [f"Permit area {c}" for c in "ABCD"],
+            "city": ["oakland"] * 4,
+            "asof": ["2019-01-09"] * 4,
+            "color": ["#ffff73", None, None, None],
+        },
+        geometry=sq,
+        crs="EPSG:4326",
+    )
     out = build.permit_areas(gdf).set_index("label")
     assert out.loc["Permit area A", "color"] == "#ffff73"
     assert out.loc["Permit area A", "edge"] == "#999945"  # pale: a darker edge
@@ -159,6 +195,7 @@ def test_permit_areas_take_the_city_colour_else_one_their_neighbours_lack():
 def test_rules_inside_a_permit_area_away_from_its_curbs(app_client, monkeypatch):
     # Away from any permit curb, the area as drawn on the map still applies.
     from broombuster import feeds
+
     monkeypatch.setattr(feeds, "closures", lambda region, now=None: [])
     fc = json.loads((_ROOT / "frontend" / "layers" / "bay_area" / "parking.geojson").read_text())
     f = next(f for f in fc["features"] if f["properties"]["city"] == "oakland")
@@ -190,16 +227,16 @@ def test_map_permit_areas_do_not_overlap_across_cities():
 
 def _square(x0, y0, size_m):
     m = 1 / 111_000  # ° per metre, near enough for a test
-    return shapely.box(-122.42 + x0 * m, 37.77 + y0 * m,
-                       -122.42 + (x0 + size_m) * m, 37.77 + (y0 + size_m) * m)
+    return shapely.box(
+        -122.42 + x0 * m, 37.77 + y0 * m, -122.42 + (x0 + size_m) * m, 37.77 + (y0 + size_m) * m
+    )
 
 
 def test_areas_close_over_streets_and_never_overlap():
     # Parcel sources (SF): one area's lots across a 30 m street become one area; a lot
     # drawn in two areas goes to the first by label; a lone sliver is dropped.
     lots = [_square(0, 0, 100), _square(130, 0, 100), _square(220, 0, 100), _square(500, 0, 5)]
-    gdf = geopandas.GeoDataFrame({"area": ["A", "A", "B", "A"]}, geometry=lots,
-                                 crs="EPSG:4326")
+    gdf = geopandas.GeoDataFrame({"area": ["A", "A", "B", "A"]}, geometry=lots, crs="EPSG:4326")
     out = layer_sources._areas(gdf, "area", "2024-01-15", close_m=20).set_index("label")
     a, b = out.geometry["Permit area A"], out.geometry["Permit area B"]
     assert len(a.geoms) == 1  # the street between the lots closed, the sliver gone
@@ -211,9 +248,14 @@ def test_areas_close_over_streets_and_never_overlap():
 def test_map_areas_give_a_cross_city_overlap_to_the_newer_source():
     build = _build()
     gdf = geopandas.GeoDataFrame(
-        {"label": ["Permit area A", "Permit area D"], "city": ["berkeley", "oakland"],
-         "asof": ["2026-08-19", "2019-01-09"]},
-        geometry=[_square(0, 0, 100), _square(50, 0, 100)], crs="EPSG:4326")
+        {
+            "label": ["Permit area A", "Permit area D"],
+            "city": ["berkeley", "oakland"],
+            "asof": ["2026-08-19", "2019-01-09"],
+        },
+        geometry=[_square(0, 0, 100), _square(50, 0, 100)],
+        crs="EPSG:4326",
+    )
     out = build.permit_areas(gdf).set_index("city")
     assert out.geometry["berkeley"].symmetric_difference(gdf.geometry[0]).area < 1e-12
     assert not out.geometry["oakland"].contains(_square(60, 40, 10).centroid)

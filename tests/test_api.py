@@ -67,44 +67,60 @@ def test_check_rejects_bad_coordinates(client):
     assert client.post("/api/check", json={"lat": 91, "lon": 0}).status_code == 422
 
 
-@pytest.mark.parametrize("road,number,expected", [
-    ("Grand Avenue", "1234", 1234),   # same street: kept
-    ("5th Street", "1234", None),     # corner: Nominatim's road differs, dropped
-    (None, None, None),
-])
+@pytest.mark.parametrize(
+    "road,number,expected",
+    [
+        ("Grand Avenue", "1234", 1234),  # same street: kept
+        ("5th Street", "1234", None),  # corner: Nominatim's road differs, dropped
+        (None, None, None),
+    ],
+)
 def test_house_number_gate(monkeypatch, road, number, expected):
     gps._cache.clear()
-    monkeypatch.setattr(gps, "_nominatim",
-                        lambda lat, lon: {"road": road, "house_number": number})
+    monkeypatch.setattr(gps, "_nominatim", lambda lat, lon: {"road": road, "house_number": number})
     assert gps.maybe_house_number(37.0, -122.0, "GRAND AVE") == expected
     gps._cache.clear()
 
 
 # Schedule extraction from a GDF row ------------------------------------------
 
+
 def _row(**kw):
     return pd.Series({"DAY_EVEN": None, "DAY_ODD": None, **kw})
 
 
-@pytest.mark.parametrize("row,expected", [
-    (_row(DAY_EVEN="ME", DESC_EVEN="Every Mon", TIME_EVEN="8AM-10AM"),
-     ("ME", "Every Mon", "8AM-10AM")),
-    (_row(DAY_EVEN="ME"), ("ME", "", "")),                     # missing desc/time columns
-    (_row(DAY_EVEN="ME", DESC_EVEN="N/A", TIME_EVEN=float("nan")), ("ME", "", "")),
-    (_row(DAY_EVEN="NS"), None),                                # explicit no-sweep
-    (_row(DAY_EVEN=""), None),
-    (_row(DAY_EVEN="   "), None),
-    (_row(DAY_EVEN=float("nan")), None),
-    (_row(DAY_EVEN=0), None),
-])
+@pytest.mark.parametrize(
+    "row,expected",
+    [
+        (
+            _row(DAY_EVEN="ME", DESC_EVEN="Every Mon", TIME_EVEN="8AM-10AM"),
+            ("ME", "Every Mon", "8AM-10AM"),
+        ),
+        (_row(DAY_EVEN="ME"), ("ME", "", "")),  # missing desc/time columns
+        (_row(DAY_EVEN="ME", DESC_EVEN="N/A", TIME_EVEN=float("nan")), ("ME", "", "")),
+        (_row(DAY_EVEN="NS"), None),  # explicit no-sweep
+        (_row(DAY_EVEN=""), None),
+        (_row(DAY_EVEN="   "), None),
+        (_row(DAY_EVEN=float("nan")), None),
+        (_row(DAY_EVEN=0), None),
+    ],
+)
 def test_get_schedule(row, expected):
     assert analysis.get_schedule(row, 0) == expected
 
 
-@pytest.mark.parametrize("args,expected", [
-    ((100, 200), "even"), ((101, 201), "odd"), ((100, 201), None), ((0, 100), "even"),
-    ((None, 200), None), (("100.0", "200.0"), "even"), (("nan", "200"), None),
-])
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        ((100, 200), "even"),
+        ((101, 201), "odd"),
+        ((100, 201), None),
+        ((0, 100), "even"),
+        ((None, 200), None),
+        (("100.0", "200.0"), "even"),
+        (("nan", "200"), None),
+    ],
+)
 def test_address_range_parity(args, expected):
     assert resolve._parity(*args) == expected
 
@@ -131,6 +147,7 @@ def test_index_assets_are_versioned_and_cacheable(client):
 
 def test_rate_limit_blocks_bursts(client, monkeypatch):
     from broombuster.api import web
+
     monkeypatch.setattr(web, "RATE_LIMIT", True)
     monkeypatch.setattr(web, "_limiter", web.RateLimiter())
     hdr = {"cf-connecting-ip": "9.9.9.9", "cf-iplatitude": "37.8", "cf-iplongitude": "-122.3"}
@@ -143,6 +160,7 @@ def test_client_ip_ignores_garbage_header():
     from types import SimpleNamespace
 
     from broombuster.api import web
+
     req = lambda h: SimpleNamespace(headers=h, client=SimpleNamespace(host="127.0.0.1"))  # noqa: E731
     assert web.client_ip(req({"cf-connecting-ip": "9.9.9.9"})) == "9.9.9.9"
     assert web.client_ip(req({"cf-connecting-ip": "evil/../x"})) == "127.0.0.1"
@@ -176,6 +194,7 @@ def test_geocode_searches_inside_the_region(client, monkeypatch):
     def _search(q, bbox):
         seen.append((q, bbox))
         return {"lat": 37.8, "lon": -122.27} if "market" in q.lower() else {}
+
     monkeypatch.setattr(gps, "_nominatim_search", _search)
     r = client.get("/api/geocode", params={"q": "  1 Market   St ", "region": "bay_area"})
     assert r.json() == {"lat": 37.8, "lon": -122.27}
@@ -189,5 +208,6 @@ def test_geocode_searches_inside_the_region(client, monkeypatch):
 def test_geocode_outage_is_503(client, monkeypatch):
     def _down(q, bbox):
         raise OSError("down")
+
     monkeypatch.setattr(gps, "_nominatim_search", _down)
     assert client.get("/api/geocode", params={"q": "1 Main St"}).status_code == 503

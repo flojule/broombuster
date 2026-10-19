@@ -46,8 +46,10 @@ def fetch_osm_streets(city: str) -> geopandas.GeoDataFrame:
     resp = requests.post(_OVERPASS_URL, data={"data": query}, timeout=200)
     resp.raise_for_status()
     rows = [
-        {"geometry": LineString([(p["lon"], p["lat"]) for p in el["geometry"]]),
-         "key": normalize.street_name(el.get("tags", {}).get("name", ""))}
+        {
+            "geometry": LineString([(p["lon"], p["lat"]) for p in el["geometry"]]),
+            "key": normalize.street_name(el.get("tags", {}).get("name", "")),
+        }
         for el in resp.json().get("elements", [])
         if len(el.get("geometry", [])) >= 2
     ]
@@ -74,13 +76,22 @@ def join_blocks(blocks: dict, streets: geopandas.GeoDataFrame) -> geopandas.GeoD
         even = b["even"] or (None, None, None)
         odd = b["odd"] or (None, None, None)
         lf, lt, rf, rt = (float(a) for a in b["addr"])
-        rows.append({
-            "geometry": hits.geometry.union_all(),
-            "STREET_NAME": b["street"],
-            "DAY_EVEN": even[0], "DESC_EVEN": even[1], "TIME_EVEN": even[2],
-            "DAY_ODD": odd[0], "DESC_ODD": odd[1], "TIME_ODD": odd[2],
-            "L_F_ADD": lf, "L_T_ADD": lt, "R_F_ADD": rf, "R_T_ADD": rt,
-        })
+        rows.append(
+            {
+                "geometry": hits.geometry.union_all(),
+                "STREET_NAME": b["street"],
+                "DAY_EVEN": even[0],
+                "DESC_EVEN": even[1],
+                "TIME_EVEN": even[2],
+                "DAY_ODD": odd[0],
+                "DESC_ODD": odd[1],
+                "TIME_ODD": odd[2],
+                "L_F_ADD": lf,
+                "L_T_ADD": lt,
+                "R_F_ADD": rf,
+                "R_T_ADD": rt,
+            }
+        )
     if dropped:
         print(f"  ⚠  {dropped} blocks had no matching OSM geometry and were dropped.")
     return geopandas.GeoDataFrame(rows, crs="EPSG:4326")

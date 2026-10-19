@@ -4,6 +4,7 @@ Tests for data_loader normalizers and load_city_data / load_region_data.
 Integration tests use the bundled / already-downloaded data files.
 Unit tests use synthetic GeoDataFrames so they never hit the network.
 """
+
 import datetime
 import functools
 import re
@@ -20,17 +21,23 @@ def _dates(code: str) -> list[datetime.date]:
     assert code.startswith("DATES:"), code
     return [datetime.date.fromisoformat(d) for d in code[6:].split(",")]
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 _REQUIRED_COLUMNS = {
     "STREET_NAME",
-    "DAY_EVEN", "DAY_ODD",
-    "DESC_EVEN", "DESC_ODD",
-    "TIME_EVEN", "TIME_ODD",
-    "L_F_ADD",   "L_T_ADD",
-    "R_F_ADD",   "R_T_ADD",
+    "DAY_EVEN",
+    "DAY_ODD",
+    "DESC_EVEN",
+    "DESC_ODD",
+    "TIME_EVEN",
+    "TIME_ODD",
+    "L_F_ADD",
+    "L_T_ADD",
+    "R_F_ADD",
+    "R_T_ADD",
 }
 
 _LINE = shapely.geometry.LineString([(0, 0), (1, 0)])
@@ -56,8 +63,11 @@ _CODE_RE = re.compile(rf"(?:TH|SU|M|T|W|F|S)+(?:E|[1-5]+)?|E|DATES:{_DATE}(?:,{_
 def _assert_codes_parse(gdf, city):
     """Every real DAY_* code is a sweep rule or an explicit no-sweep marker."""
     codes = set(gdf["DAY_EVEN"].dropna()) | set(gdf["DAY_ODD"].dropna())
-    bad = sorted(c for c in codes
-                 if not analysis.is_no_sweep_code(c) and not _CODE_RE.fullmatch(c.strip().upper()))
+    bad = sorted(
+        c
+        for c in codes
+        if not analysis.is_no_sweep_code(c) and not _CODE_RE.fullmatch(c.strip().upper())
+    )
     assert not bad, f"{city}: unparseable day codes {bad[:10]}"
 
 
@@ -88,8 +98,8 @@ class TestLoadCityDataIntegration:
         gdf = _city("san_francisco")
         # EVEN rows should have DAY_EVEN set; ODD rows should have DAY_ODD set
         even_rows = gdf[gdf["DAY_EVEN"].notna() & gdf["DAY_ODD"].isna()]
-        odd_rows  = gdf[gdf["DAY_ODD"].notna()  & gdf["DAY_EVEN"].isna()]
-        both_rows = gdf[gdf["DAY_EVEN"].notna()  & gdf["DAY_ODD"].notna()]
+        odd_rows = gdf[gdf["DAY_ODD"].notna() & gdf["DAY_EVEN"].isna()]
+        both_rows = gdf[gdf["DAY_EVEN"].notna() & gdf["DAY_ODD"].notna()]
         assert len(even_rows) + len(odd_rows) + len(both_rows) > 0
 
     def test_san_francisco_day_codes_parseable(self):
@@ -150,6 +160,7 @@ class TestLoadRegionData:
 # Unit – SF normalizer with a synthetic GeoDataFrame
 # ---------------------------------------------------------------------------
 
+
 def _make_sf_gdf(rows: list[dict]) -> geopandas.GeoDataFrame:
     """Build a minimal DataSF-shaped GeoDataFrame from a list of row dicts."""
     df = pd.DataFrame(rows)
@@ -159,95 +170,183 @@ def _make_sf_gdf(rows: list[dict]) -> geopandas.GeoDataFrame:
 
 class TestNormaliseSF:
     def test_even_side_only_sets_day_even(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "MARKET ST", "blockside": "EVEN",
-            "week_day": "1", "from_hour": 8, "to_hour": 10,
-            "week_1_of_month": 1, "week_2_of_month": 0,
-            "week_3_of_month": 1, "week_4_of_month": 0, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "MARKET ST",
+                    "blockside": "EVEN",
+                    "week_day": "1",
+                    "from_hour": 8,
+                    "to_hour": 10,
+                    "week_1_of_month": 1,
+                    "week_2_of_month": 0,
+                    "week_3_of_month": 1,
+                    "week_4_of_month": 0,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         assert out["DAY_EVEN"].iloc[0] == "M13"
         assert pd.isna(out["DAY_ODD"].iloc[0])
 
     def test_odd_side_only_sets_day_odd(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "MARKET ST", "blockside": "ODD",
-            "week_day": "5", "from_hour": 9, "to_hour": 11,
-            "week_1_of_month": 0, "week_2_of_month": 1,
-            "week_3_of_month": 0, "week_4_of_month": 1, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "MARKET ST",
+                    "blockside": "ODD",
+                    "week_day": "5",
+                    "from_hour": 9,
+                    "to_hour": 11,
+                    "week_1_of_month": 0,
+                    "week_2_of_month": 1,
+                    "week_3_of_month": 0,
+                    "week_4_of_month": 1,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         assert out["DAY_ODD"].iloc[0] == "F24"
         assert pd.isna(out["DAY_EVEN"].iloc[0])
 
     def test_both_side_sets_both_columns(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "VALENCIA ST", "blockside": "BOTH",
-            "week_day": "3", "from_hour": 7, "to_hour": 9,
-            "week_1_of_month": 1, "week_2_of_month": 1,
-            "week_3_of_month": 1, "week_4_of_month": 1, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "VALENCIA ST",
+                    "blockside": "BOTH",
+                    "week_day": "3",
+                    "from_hour": 7,
+                    "to_hour": 9,
+                    "week_1_of_month": 1,
+                    "week_2_of_month": 1,
+                    "week_3_of_month": 1,
+                    "week_4_of_month": 1,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         assert out["DAY_EVEN"].iloc[0] == "WE"
         assert out["DAY_ODD"].iloc[0] == "WE"
 
     def test_every_week_flags_produce_E_suffix(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "HAYES ST", "blockside": "EVEN",
-            "week_day": "4", "from_hour": 8, "to_hour": 10,
-            "week_1_of_month": 1, "week_2_of_month": 1,
-            "week_3_of_month": 1, "week_4_of_month": 1, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "HAYES ST",
+                    "blockside": "EVEN",
+                    "week_day": "4",
+                    "from_hour": 8,
+                    "to_hour": 10,
+                    "week_1_of_month": 1,
+                    "week_2_of_month": 1,
+                    "week_3_of_month": 1,
+                    "week_4_of_month": 1,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         assert out["DAY_EVEN"].iloc[0] == "THE"
 
     def test_no_flags_produces_E_suffix(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "PINE ST", "blockside": "EVEN",
-            "week_day": "2", "from_hour": 8, "to_hour": 10,
-            "week_1_of_month": 0, "week_2_of_month": 0,
-            "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "PINE ST",
+                    "blockside": "EVEN",
+                    "week_day": "2",
+                    "from_hour": 8,
+                    "to_hour": 10,
+                    "week_1_of_month": 0,
+                    "week_2_of_month": 0,
+                    "week_3_of_month": 0,
+                    "week_4_of_month": 0,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         assert out["DAY_EVEN"].iloc[0] == "TE"
 
     def test_time_string_format(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "OAK ST", "blockside": "EVEN",
-            "week_day": "1", "from_hour": 8, "to_hour": 10,
-            "week_1_of_month": 1, "week_2_of_month": 0,
-            "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "OAK ST",
+                    "blockside": "EVEN",
+                    "week_day": "1",
+                    "from_hour": 8,
+                    "to_hour": 10,
+                    "week_1_of_month": 1,
+                    "week_2_of_month": 0,
+                    "week_3_of_month": 0,
+                    "week_4_of_month": 0,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         assert out["TIME_EVEN"].iloc[0] == "8AM–10AM"
 
     def test_street_name_uppercased(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "market st", "blockside": "EVEN",
-            "week_day": "1", "from_hour": 8, "to_hour": 10,
-            "week_1_of_month": 1, "week_2_of_month": 0,
-            "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "market st",
+                    "blockside": "EVEN",
+                    "week_day": "1",
+                    "from_hour": 8,
+                    "to_hour": 10,
+                    "week_1_of_month": 1,
+                    "week_2_of_month": 0,
+                    "week_3_of_month": 0,
+                    "week_4_of_month": 0,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         assert out["STREET_NAME"].iloc[0] == "MARKET ST"
 
     def test_unknown_day_produces_null_code(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "UNKNOWN ST", "blockside": "EVEN",
-            "week_day": "99", "from_hour": 8, "to_hour": 10,
-            "week_1_of_month": 1, "week_2_of_month": 0,
-            "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "UNKNOWN ST",
+                    "blockside": "EVEN",
+                    "week_day": "99",
+                    "from_hour": 8,
+                    "to_hour": 10,
+                    "week_1_of_month": 1,
+                    "week_2_of_month": 0,
+                    "week_3_of_month": 0,
+                    "week_4_of_month": 0,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         assert pd.isna(out["DAY_EVEN"].iloc[0])
 
     @staticmethod
     def _lr_row(lr, blockside, week_day="1"):
         return {
-            "corridor": "MARKET ST", "cnn": "100", "cnnrightleft": lr, "blockside": blockside,
-            "week_day": week_day, "from_hour": 8, "to_hour": 10,
-            "week_1_of_month": 1, "week_2_of_month": 0,
-            "week_3_of_month": 1, "week_4_of_month": 0, "week_5_of_month": 1,
+            "corridor": "MARKET ST",
+            "cnn": "100",
+            "cnnrightleft": lr,
+            "blockside": blockside,
+            "week_day": week_day,
+            "from_hour": 8,
+            "to_hour": 10,
+            "week_1_of_month": 1,
+            "week_2_of_month": 0,
+            "week_3_of_month": 1,
+            "week_4_of_month": 0,
+            "week_5_of_month": 1,
         }
 
     def test_left_right_rows_fill_side_buckets_with_compass_labels(self):
@@ -263,20 +362,31 @@ class TestNormaliseSF:
 
     def test_missing_blockside_uses_opposite_then_geometry(self):
         # Only the right side is labelled -> left is its opposite.
-        out = schemas._normalise_sf(_make_sf_gdf([
-            self._lr_row("L", None), self._lr_row("R", "SouthWest", "2")]))
+        out = schemas._normalise_sf(
+            _make_sf_gdf([self._lr_row("L", None), self._lr_row("R", "SouthWest", "2")])
+        )
         assert out["SIDE_EVEN"].iloc[0] == "Northeast"
         # No labels at all -> from geometry: an eastward line has north on its left.
         out = schemas._normalise_sf(_make_sf_gdf([self._lr_row("L", None)]))
         assert (out["SIDE_EVEN"].iloc[0], out["SIDE_ODD"].iloc[0]) == ("North", "South")
 
     def test_schema_contract(self):
-        gdf = _make_sf_gdf([{
-            "corridor": "TEST ST", "blockside": "BOTH",
-            "week_day": "1", "from_hour": 8, "to_hour": 10,
-            "week_1_of_month": 1, "week_2_of_month": 0,
-            "week_3_of_month": 0, "week_4_of_month": 0, "week_5_of_month": 0,
-        }])
+        gdf = _make_sf_gdf(
+            [
+                {
+                    "corridor": "TEST ST",
+                    "blockside": "BOTH",
+                    "week_day": "1",
+                    "from_hour": 8,
+                    "to_hour": 10,
+                    "week_1_of_month": 1,
+                    "week_2_of_month": 0,
+                    "week_3_of_month": 0,
+                    "week_4_of_month": 0,
+                    "week_5_of_month": 0,
+                }
+            ]
+        )
         out = schemas._normalise_sf(gdf)
         _assert_schema(out, "_normalise_sf")
 
@@ -284,6 +394,7 @@ class TestNormaliseSF:
 # ---------------------------------------------------------------------------
 # Unit – Chicago normalizer with a synthetic GeoDataFrame
 # ---------------------------------------------------------------------------
+
 
 def _make_chicago_gdf(rows: list[dict]) -> geopandas.GeoDataFrame:
     df = pd.DataFrame(rows)
@@ -362,6 +473,7 @@ class TestNormaliseChicago:
 def _weekday_pairs_for(year: int) -> list:
     """(month, day) pairs that all fall on weekdays in `year` (Apr-Jun sample)."""
     import calendar
+
     pairs = []
     for m in (4, 5, 6):
         for d in range(1, calendar.monthrange(year, m)[1] + 1):
@@ -390,6 +502,7 @@ class TestInferChicagoYear:
         # Every day of a month always includes ~2/7 weekend days in any year,
         # so no candidate year clears the threshold -> fail fast, not silent.
         import pytest
+
         pairs = [(4, d) for d in range(1, 31)]  # all of April
         with pytest.raises(ValueError, match="stale"):
             schemas._infer_chicago_year(pairs, 2026)
@@ -399,6 +512,7 @@ class TestInferChicagoYear:
 # Unit – Oakland normalizer with a synthetic GeoDataFrame
 # ---------------------------------------------------------------------------
 
+
 class TestNormaliseOakland:
     def _make_gdf(self, rows):
         df = pd.DataFrame(rows)
@@ -406,21 +520,38 @@ class TestNormaliseOakland:
         return geopandas.GeoDataFrame(df, crs="EPSG:4326")
 
     def test_street_name_combines_name_and_type(self):
-        gdf = self._make_gdf([{
-            "NAME": "TELEGRAPH", "TYPE": "AVE",
-            "DAY_EVEN": "ME", "DAY_ODD": "ME",
-            "L_F_ADD": 1000, "L_T_ADD": 1100,
-            "R_F_ADD": 1001, "R_T_ADD": 1099,
-        }])
+        gdf = self._make_gdf(
+            [
+                {
+                    "NAME": "TELEGRAPH",
+                    "TYPE": "AVE",
+                    "DAY_EVEN": "ME",
+                    "DAY_ODD": "ME",
+                    "L_F_ADD": 1000,
+                    "L_T_ADD": 1100,
+                    "R_F_ADD": 1001,
+                    "R_T_ADD": 1099,
+                }
+            ]
+        )
         out = schemas._normalise_oakland(gdf)
         assert out["STREET_NAME"].iloc[0] == "TELEGRAPH AVE"
 
     def test_schema_contract(self):
-        gdf = self._make_gdf([{
-            "NAME": "BROADWAY", "TYPE": "ST",
-            "DAY_EVEN": "WE", "DAY_ODD": "WE",
-            "L_F_ADD": 1, "L_T_ADD": 99, "R_F_ADD": 2, "R_T_ADD": 98,
-        }])
+        gdf = self._make_gdf(
+            [
+                {
+                    "NAME": "BROADWAY",
+                    "TYPE": "ST",
+                    "DAY_EVEN": "WE",
+                    "DAY_ODD": "WE",
+                    "L_F_ADD": 1,
+                    "L_T_ADD": 99,
+                    "R_F_ADD": 2,
+                    "R_T_ADD": 98,
+                }
+            ]
+        )
         out = schemas._normalise_oakland(gdf)
         _assert_schema(out, "_normalise_oakland")
 
@@ -429,6 +560,7 @@ class TestNormaliseOakland:
 # Unit – prebuilt normalizer (Berkeley / Alameda)
 # ---------------------------------------------------------------------------
 
+
 class TestNormalisePrebuilt:
     def _make_gdf(self, rows):
         df = pd.DataFrame(rows)
@@ -436,14 +568,23 @@ class TestNormalisePrebuilt:
         return geopandas.GeoDataFrame(df, crs="EPSG:4326")
 
     def test_passthrough_with_all_columns_present(self):
-        gdf = self._make_gdf([{
-            "STREET_NAME": "SHATTUCK AVE",
-            "DAY_EVEN": "ME", "DAY_ODD": "TE",
-            "DESC_EVEN": "Every Mon, 8AM–10AM", "DESC_ODD": "Every Tue, 8AM–10AM",
-            "TIME_EVEN": "8AM–10AM", "TIME_ODD": "8AM–10AM",
-            "L_F_ADD": 1000, "L_T_ADD": 1100,
-            "R_F_ADD": 1001, "R_T_ADD": 1099,
-        }])
+        gdf = self._make_gdf(
+            [
+                {
+                    "STREET_NAME": "SHATTUCK AVE",
+                    "DAY_EVEN": "ME",
+                    "DAY_ODD": "TE",
+                    "DESC_EVEN": "Every Mon, 8AM–10AM",
+                    "DESC_ODD": "Every Tue, 8AM–10AM",
+                    "TIME_EVEN": "8AM–10AM",
+                    "TIME_ODD": "8AM–10AM",
+                    "L_F_ADD": 1000,
+                    "L_T_ADD": 1100,
+                    "R_F_ADD": 1001,
+                    "R_T_ADD": 1099,
+                }
+            ]
+        )
         out = schemas._normalise_prebuilt(gdf)
         assert out["STREET_NAME"].iloc[0] == "SHATTUCK AVE"
         assert out["DAY_EVEN"].iloc[0] == "ME"
@@ -456,13 +597,23 @@ class TestNormalisePrebuilt:
             assert pd.isna(out[col].iloc[0])
 
     def test_schema_contract(self):
-        gdf = self._make_gdf([{
-            "STREET_NAME": "PARK ST",
-            "DAY_EVEN": "FE", "DAY_ODD": "FE",
-            "DESC_EVEN": "Fri", "DESC_ODD": "Fri",
-            "TIME_EVEN": "8AM–10AM", "TIME_ODD": "8AM–10AM",
-            "L_F_ADD": 1, "L_T_ADD": 99, "R_F_ADD": 2, "R_T_ADD": 98,
-        }])
+        gdf = self._make_gdf(
+            [
+                {
+                    "STREET_NAME": "PARK ST",
+                    "DAY_EVEN": "FE",
+                    "DAY_ODD": "FE",
+                    "DESC_EVEN": "Fri",
+                    "DESC_ODD": "Fri",
+                    "TIME_EVEN": "8AM–10AM",
+                    "TIME_ODD": "8AM–10AM",
+                    "L_F_ADD": 1,
+                    "L_T_ADD": 99,
+                    "R_F_ADD": 2,
+                    "R_T_ADD": 98,
+                }
+            ]
+        )
         _assert_schema(schemas._normalise_prebuilt(gdf), "_normalise_prebuilt")
 
 
@@ -470,19 +621,32 @@ class TestNormalisePrebuilt:
 # build_city_fgb replaces the FGB only after a successful rebuild
 # ---------------------------------------------------------------------------
 
+
 class TestBuildCityFgb:
     def _setup(self, tmp_path, monkeypatch):
-        city = {"name": "Testville", "fgb_path": "out/test.fgb", "schema": "berkeley",
-                "source": {"local_path": "raw/src.geojson"}}
+        city = {
+            "name": "Testville",
+            "fgb_path": "out/test.fgb",
+            "schema": "berkeley",
+            "source": {"local_path": "raw/src.geojson"},
+        }
         monkeypatch.setitem(data_loader.CITIES, "testville", city)
         monkeypatch.setattr(data_loader, "_ROOT", str(tmp_path))
         raw = tmp_path / "raw" / "src.geojson"
         raw.parent.mkdir()
         gdf = geopandas.GeoDataFrame(
-            {"STREET_NAME": ["a st"], "DAY_EVEN": ["ME"], "DAY_ODD": ["TE"],
-             "DESC_EVEN": ["Every Mon"], "DESC_ODD": ["Every Tue"],
-             "TIME_EVEN": ["8AM-10AM"], "TIME_ODD": ["8AM-10AM"]},
-            geometry=[_LINE], crs="EPSG:4326")
+            {
+                "STREET_NAME": ["a st"],
+                "DAY_EVEN": ["ME"],
+                "DAY_ODD": ["TE"],
+                "DESC_EVEN": ["Every Mon"],
+                "DESC_ODD": ["Every Tue"],
+                "TIME_EVEN": ["8AM-10AM"],
+                "TIME_ODD": ["8AM-10AM"],
+            },
+            geometry=[_LINE],
+            crs="EPSG:4326",
+        )
         gdf.to_file(raw, driver="GeoJSON")
         return raw, gdf
 

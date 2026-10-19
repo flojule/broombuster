@@ -52,10 +52,10 @@ def _write_ndjson(region_key: str, path: Path) -> int:
                 continue
             props = {
                 "render_type": rec["render_type"],
-                "street":      rec["street"],
-                "city":        rec["city"],
+                "street": rec["street"],
+                "city": rec["city"],
                 # Raw schedule codes as a JSON string (MVT props are scalar).
-                "sched":       json.dumps(rec["schedule"], separators=(",", ":")),
+                "sched": json.dumps(rec["schedule"], separators=(",", ":")),
             }
             # Side display labels (e.g. SF "North"/"South") when not Even/Odd.
             labels = rec.get("labels")
@@ -79,16 +79,20 @@ def _write_ndjson(region_key: str, path: Path) -> int:
 def _run_tippecanoe(ndjson: Path, out: Path) -> None:
     cmd = [
         "tippecanoe",
-        "-q",                      # quiet: no progress spam
-        "-o", str(out),
-        "-l", _SOURCE_LAYER,
-        "-Z", str(_MINZOOM),
-        "-z", str(_MAXZOOM),
-        "--generate-ids",          # stable numeric ids for feature-state
+        "-q",  # quiet: no progress spam
+        "-o",
+        str(out),
+        "-l",
+        _SOURCE_LAYER,
+        "-Z",
+        str(_MINZOOM),
+        "-z",
+        str(_MAXZOOM),
+        "--generate-ids",  # stable numeric ids for feature-state
         "--no-feature-limit",
         "--no-tile-size-limit",
         "--no-tiny-polygon-reduction",
-        "--force",                 # overwrite existing archive
+        "--force",  # overwrite existing archive
         str(ndjson),
     ]
     print("    " + " ".join(cmd))
@@ -118,10 +122,15 @@ def main() -> int:
         print("ERROR: tippecanoe not found on PATH (brew install tippecanoe).")
         return 2
 
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--region", action="append", choices=list(REGIONS),
-                    help="Region key to build (repeatable; default: all)")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--region",
+        action="append",
+        choices=list(REGIONS),
+        help="Region key to build (repeatable; default: all)",
+    )
     args = ap.parse_args()
 
     failed = []

@@ -111,8 +111,18 @@ def build_tables(city_key: str) -> list[str]:
 # Colours for permit areas whose city publishes none: distinct hues that read on both
 # basemaps and stay clear of the sweeping colours (red, orange, blue: core.js URGENCY);
 # neighbouring areas never share one (_area_colors).
-AREA_PALETTE = ("#7c3aed", "#0d9488", "#c026d3", "#65a30d", "#a16207", "#db2777",
-                "#4f46e5", "#0891b2", "#15803d", "#9333ea")
+AREA_PALETTE = (
+    "#7c3aed",
+    "#0d9488",
+    "#c026d3",
+    "#65a30d",
+    "#a16207",
+    "#db2777",
+    "#4f46e5",
+    "#0891b2",
+    "#15803d",
+    "#9333ea",
+)
 
 
 def _area_colors(g: geopandas.GeoDataFrame) -> list[str]:
@@ -136,10 +146,10 @@ def _area_colors(g: geopandas.GeoDataFrame) -> list[str]:
 def _edge(color: str) -> str | None:
     """A darker edge for a light colour (a city's pale yellow vanishes on the light
     basemap); None when the colour itself reads."""
-    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    r, g, b = (int(color[i : i + 2], 16) for i in (1, 3, 5))
     if 0.299 * r + 0.587 * g + 0.114 * b <= 165:
         return None
-    return "#" + "".join(f"{int(c * .6):02x}" for c in (r, g, b))
+    return "#" + "".join(f"{int(c * 0.6):02x}" for c in (r, g, b))
 
 
 def permit_areas(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
@@ -180,13 +190,16 @@ def build_region_geojson(region_key: str) -> None:
         if theme == "parking":
             gdf = permit_areas(gdf)
         target.write_text(layer_sources.dump_json(gdf))
-        print(f"  {region_key}/{theme}.geojson: {len(gdf):,} features, "
-              f"{target.stat().st_size / 1e6:.1f} MB")
+        print(
+            f"  {region_key}/{theme}.geojson: {len(gdf):,} features, "
+            f"{target.stat().st_size / 1e6:.1f} MB"
+        )
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("cities", nargs="*", choices=list(CITIES), help="cities (default: all)")
     ap.add_argument("--theme", action="append", choices=list(layers.THEMES))
     a = ap.parse_args()

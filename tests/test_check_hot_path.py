@@ -4,6 +4,7 @@ match plain row-by-row scans, on the real Bay Area + Chicago data and synthetic
 edge cases. Also: /check never waits on Nominatim, GET /address adds the house
 number, and startup builds the indexes.
 """
+
 import gc
 import random
 
@@ -33,11 +34,21 @@ def _ref_table(gdf):
                 n = row.get("STREET_NAME")
                 k = normalize.street_name(n) if normalize.is_text(n) else None
             g = row["geometry"]
-            if k is None or g is None or g.is_empty or \
-                    g.geom_type not in ("LineString", "MultiLineString"):
+            if (
+                k is None
+                or g is None
+                or g.is_empty
+                or g.geom_type not in ("LineString", "MultiLineString")
+            ):
                 continue
-            table.append((k, analysis._segment_endpoints(g),
-                          analysis.get_schedule(row, 0), analysis.get_schedule(row, 1)))
+            table.append(
+                (
+                    k,
+                    analysis._segment_endpoints(g),
+                    analysis.get_schedule(row, 0),
+                    analysis.get_schedule(row, 1),
+                )
+            )
         _REF_TABLES[id(gdf)] = (gdf, table)  # holds gdf so the id stays unique
     return _REF_TABLES[id(gdf)][1]
 
@@ -109,8 +120,13 @@ def sample_points():
     rng = random.Random(7)
     pts = [(rng.uniform(37.72, 37.88), rng.uniform(-122.51, -122.22)) for _ in range(250)]
     # Long multi-row streets: Market St, Broadway, Santa Clara Ave, Folsom St.
-    pts += [(37.7749, -122.4194), (37.8044, -122.2712), (37.7652, -122.2416),
-            (37.7599, -122.4148), (37.7858, -122.4064)]
+    pts += [
+        (37.7749, -122.4194),
+        (37.8044, -122.2712),
+        (37.7652, -122.2416),
+        (37.7599, -122.4148),
+        (37.7858, -122.4064),
+    ]
     return pts
 
 
@@ -120,8 +136,9 @@ def test_union_matches_full_scan_on_bay_area(bay_area_3857, sample_points):
         r = resolve.nearest_segment(bay_area_3857, lat, lon)
         if r is None:
             continue
-        assert analysis.schedules_for_all_matching_rows(bay_area_3857, r) == \
-            _ref_union(bay_area_3857, r), (lat, lon, r.label)
+        assert analysis.schedules_for_all_matching_rows(bay_area_3857, r) == _ref_union(
+            bay_area_3857, r
+        ), (lat, lon, r.label)
         checked += 1
     assert checked >= 50, "too few resolved points to be meaningful"
 
@@ -172,22 +189,47 @@ def _synthetic():
     b = LineString([(100, 0), (200, 0)])
     rows = [
         # Same block, one row per weekday (SF shape); orientation reversed once.
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="ME", DESC_EVEN="Mon",
-             TIME_EVEN="8AM-10AM", DAY_ODD=None, geometry=a),
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="WE", DESC_EVEN="Wed",
-             TIME_EVEN="8AM-10AM", DAY_ODD="TE", geometry=LineString([(100, 0), (0, 0)])),
+        {
+            "STREET_KEY": "ELM",
+            "STREET_NAME": "ELM ST",
+            "DAY_EVEN": "ME",
+            "DESC_EVEN": "Mon",
+            "TIME_EVEN": "8AM-10AM",
+            "DAY_ODD": None,
+            "geometry": a,
+        },
+        {
+            "STREET_KEY": "ELM",
+            "STREET_NAME": "ELM ST",
+            "DAY_EVEN": "WE",
+            "DESC_EVEN": "Wed",
+            "TIME_EVEN": "8AM-10AM",
+            "DAY_ODD": "TE",
+            "geometry": LineString([(100, 0), (0, 0)]),
+        },
         # Whole street as one MultiLineString (Alameda shape) overlapping block a.
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="F13", DESC_EVEN="Fri",
-             TIME_EVEN="", DAY_ODD="F24", geometry=MultiLineString([a.coords, b.coords])),
+        {
+            "STREET_KEY": "ELM",
+            "STREET_NAME": "ELM ST",
+            "DAY_EVEN": "F13",
+            "DESC_EVEN": "Fri",
+            "TIME_EVEN": "",
+            "DAY_ODD": "F24",
+            "geometry": MultiLineString([a.coords, b.coords]),
+        },
         # Different street sharing block a's endpoints: never merged.
-        dict(STREET_KEY="OAK", STREET_NAME="OAK ST", DAY_EVEN="SE", geometry=a),
+        {"STREET_KEY": "OAK", "STREET_NAME": "OAK ST", "DAY_EVEN": "SE", "geometry": a},
         # NaN STREET_KEY falls back to the normalised STREET_NAME.
-        dict(STREET_KEY=np.nan, STREET_NAME="Elm Street", DAY_EVEN="THE", geometry=a),
+        {"STREET_KEY": np.nan, "STREET_NAME": "Elm Street", "DAY_EVEN": "THE", "geometry": a},
         # No-sweep code and an empty geometry contribute nothing.
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="NS", geometry=a),
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="SUE", geometry=LineString()),
-        dict(STREET_KEY="ZONE", STREET_NAME="ZONE 1", DAY_EVEN="ME",
-             geometry=Polygon([(0, 10), (50, 10), (50, 60), (0, 60)])),
+        {"STREET_KEY": "ELM", "STREET_NAME": "ELM ST", "DAY_EVEN": "NS", "geometry": a},
+        {"STREET_KEY": "ELM", "STREET_NAME": "ELM ST", "DAY_EVEN": "SUE", "geometry": LineString()},
+        {
+            "STREET_KEY": "ZONE",
+            "STREET_NAME": "ZONE 1",
+            "DAY_EVEN": "ME",
+            "geometry": Polygon([(0, 10), (50, 10), (50, 60), (0, 60)]),
+        },
     ]
     gdf = geopandas.GeoDataFrame(rows, geometry="geometry", crs="EPSG:3857")
     gdf.index = pd.Index([10 * i + 5 for i in range(len(gdf))])
@@ -195,9 +237,15 @@ def _synthetic():
 
 
 def _resolved(row, is_polygon=False):
-    return resolve.ResolvedCar(segment=row, street_name=row["STREET_NAME"],
-                               street_display="", side=None, distance_m=0.0,
-                               projected_point=(0.0, 0.0), is_polygon=is_polygon)
+    return resolve.ResolvedCar(
+        segment=row,
+        street_name=row["STREET_NAME"],
+        street_display="",
+        side=None,
+        distance_m=0.0,
+        projected_point=(0.0, 0.0),
+        is_polygon=is_polygon,
+    )
 
 
 @pytest.mark.parametrize("pos", [0, 1, 2, 3, 4])
@@ -267,6 +315,7 @@ def client(app_client):
 def test_check_does_not_call_nominatim(client, monkeypatch):
     def _boom(lat, lon):
         raise AssertionError("/api/check must not call Nominatim")
+
     monkeypatch.setattr(gps, "_nominatim", _boom)
     data = client.post("/api/check", json=_OAKLAND).json()
     assert data["address_pending"] is True
@@ -274,8 +323,9 @@ def test_check_does_not_call_nominatim(client, monkeypatch):
 
 
 def test_address_endpoint_adds_house_number_then_check_uses_cache(client, monkeypatch):
-    monkeypatch.setattr(gps, "_nominatim",
-                        lambda lat, lon: {"road": "Chestnut Street", "house_number": "2931"})
+    monkeypatch.setattr(
+        gps, "_nominatim", lambda lat, lon: {"road": "Chestnut Street", "house_number": "2931"}
+    )
     street = "Chestnut St"
     client.post("/api/check", json=_OAKLAND)
     resp = client.get("/api/address", params=_OAKLAND)
@@ -288,8 +338,9 @@ def test_address_endpoint_adds_house_number_then_check_uses_cache(client, monkey
 
 
 def test_zone_address_is_never_pending(client):
-    data = client.post("/api/check", json={"lat": 41.8781, "lon": -87.6298,
-                                       "region": "chicago"}).json()
+    data = client.post(
+        "/api/check", json={"lat": 41.8781, "lon": -87.6298, "region": "chicago"}
+    ).json()
     assert data["address"].startswith("Zone:")
     assert data["address_pending"] is False
 
@@ -303,6 +354,7 @@ def test_geocode_failure_is_not_cached(monkeypatch):
         if len(calls) == 1:
             raise TimeoutError
         return {"road": "Grand Avenue", "house_number": "12"}
+
     monkeypatch.setattr(gps, "_nominatim", _flaky)
     assert gps.maybe_house_number(37.5, -122.5, "Grand Ave") is None
     assert not gps.house_number_cached(37.5, -122.5)
