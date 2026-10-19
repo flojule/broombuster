@@ -23,8 +23,8 @@ uv run pytest -q          # frontend (JS) tests need node and are skipped withou
   scripts or event-handler attributes (the CSP forbids them).
 - **Assets are versioned by content hash** (`api/web.py`); `sw.js` is a template the server
   fills in (version, API paths, precache list). Never hard-code a cache version.
-- **API**: everything the frontend fetches lives under `/api/`, except `/auth/*` (the Google
-  redirect URI is registered) and `/health` (used by the deploy script). The list of such
+- **API**: everything the frontend fetches lives under `/api/`, except `/auth/*` (passkey
+  sign-in) and `/health` (used by the deploy script). The list of such
   prefixes is `API_PATHS` in `api/web.py`.
 - **Settings** come from `broombuster/config.py` only; do not read `os.environ` elsewhere.
 - **Client IP** comes from `web.client_ip` (validated `CF-Connecting-IP`). The app must only

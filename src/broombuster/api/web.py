@@ -69,7 +69,7 @@ def client_ip(request: Request) -> str:
 LIMITS = (("/api/address", 20), ("/api/geocode", 20), ("/api/locate", 20), ("/api/check-home", 20),
           ("/api/rules", 60), ("/api/calendar", 30), ("/api/closures", 30), ("/api/vehicle", 10),
           ("/api/around", 30), ("/api/alerts", 30),
-          ("/api/check", 60), ("/api/me", 30), ("/api/cars", 30), ("/auth/logout", 30))
+          ("/api/check", 60), ("/api/me", 30), ("/api/cars", 30), ("/auth/", 30))
 _WINDOW_S = 60
 
 

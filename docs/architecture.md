@@ -14,11 +14,11 @@ Cloudflare Tunnel ──────────── the only way in
 uvicorn 127.0.0.1:8000        src/broombuster/api/app.py
   │
   ├─ /api/*   schedule, rules, closures, nearby, alerts, calendar feed, phone reports
-  ├─ /auth/*  Google sign-in                                  api/auth.py
+  ├─ /auth/*  passkey sign-in                      api/auth.py
   └─ /        frontend/ (index.html, js/, sw.js, tiles/, layers/, vendor/)
         │
         ├─ data/<city>.fgb        loaded at startup         data_loader.py, state.py
-        ├─ data/users.sqlite      accounts, sessions, cars  auth.py  (BB_DB)
+        ├─ data/users.sqlite      accounts, members, passkeys, sessions  auth.py  (BB_DB)
         └─ live feeds             511, weather, trash, tows  cached in memory;
                                   a failed source = "nothing known", never an error
 ```
@@ -57,13 +57,22 @@ resolve → address
 ### Sign-in
 
 ```
-browser ──/auth/login──▶ Google (OpenID Connect) ──/auth/callback──▶ auth.py
-                                                                       │
-                                  users.sqlite: sessions stored hashed  │
-browser ◀── cookie bb_session (httponly, 30 days) ◀────────────────────┘
+browser ──/auth/passkey/*──▶ auth.py (WebAuthn, via `webauthn`)
+                                │
+       users.sqlite: sessions stored hashed
+browser ◀── cookie bb_session (httponly, 30 days)
 ```
 
-Enabled only when `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `BB_BASE_URL` are all set.
+Enabled when `BB_BASE_URL` is set. No email, no password: "Create account" makes an account
+from a name and a passkey; "Sign in" finds the account from the passkey itself. Passkeys
+sync between a person's devices through their platform (iCloud Keychain, Google Password
+Manager). There is no account recovery: lose the passkey and the account is gone.
+
+Accounts are shared: an account (its cars, homes, phone and calendar links) has members,
+each a person with their own sign-in. Under Settings > Account, "Invite someone" makes a
+single-use link (valid 7 days) that adds the opener's account to whoever opens it, through
+a passkey. Up to 10 members per account. Leaving removes only yourself; the
+account goes when its last member leaves.
 
 ## 3. Data
 
@@ -116,8 +125,8 @@ poll /health for 3 min
    that lets the update timer restart the service and nothing else. Unit changes need this again.
 2. Cloudflare Zero Trust > Networks > Tunnels: create `broombuster`, run its install command on the host,
    public hostname `broombuster.com` → `HTTP localhost:8000`.
-3. Google Cloud Console > OAuth client (Web): redirect URI `https://broombuster.com/auth/callback`
-   (plus `http://localhost:8000/auth/callback` for local runs). Fill `.env`, restart. `/api/me` reports `"enabled": true`.
+3. Set `BB_BASE_URL=https://broombuster.com` in `.env` and restart: this turns sign-in on. It is also
+   the passkey domain, so changing it orphans every passkey.
 4. GitHub: branch protection on `main` requires a PR and passing CI, since every commit on `main` is deployed.
 5. Cloudflare: SSL/TLS > Edge Certificates > enable HSTS.
 
