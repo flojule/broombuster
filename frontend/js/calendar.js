@@ -12,13 +12,13 @@ const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
 function calNow() { return regionNow(_tilesRegion || _region); }
 
 // key -> text for sweep days in [start, end] (holidays of the street's city excluded).
-// `side` limits to one street side.
+// `side` limits to one street side (a car's), which the text then leaves out.
 function sweepDayMap(sched, start, end, side = null) {
   const out = new Map();
   if (!sched) return out;
   for (const day of BroomUrgency.sweepDays(sched.schedule_even, sched.schedule_odd, start, end, schedSkip(sched))) {
     const items = side ? day.items.filter(it => it.side === side) : day.items;
-    if (items.length) out.set(_ymdKey(day), BroomUrgency.dayText(items, sched.side_labels));
+    if (items.length) out.set(_ymdKey(day), BroomUrgency.dayText(items, sched.side_labels, !!side));
   }
   return out;
 }
@@ -31,8 +31,7 @@ function pointerSched(f) {
   const raw = tileEntries(props);
   const side = s => raw.filter(e => e.side === s).map(e => [e.code, e.desc || '', e.time || '']);
   return { schedule_even: side('even'), schedule_odd: side('odd'), region: _tilesRegion, city: props.city,
-           side_labels: sideNames(f),  // as the street card names them (js/signs.js)
-           street: props.street !== 'N/A' ? props.street : '' };
+           side_labels: sideNames(f) };  // as the street card names them (js/signs.js)
 }
 
 // key -> "Trash, Compost" for a home's pickup days in [start, end].
@@ -62,13 +61,12 @@ function holidayDayMap(scheds) {
   return out;
 }
 
-// Layers for [start, end]: {ptr: Map, street: its name, cars: [{car, color, days: Map}],
+// Layers for [start, end]: {ptr: Map, cars: [{car, color, days: Map}],
 // homes: [{home, days: Map}], hol: Map}.
 function calLayers(ptrSched, start, end) {
   const carScheds = cars.map(c => carSchedules[c.id]).filter(Boolean);
   return {
     ptr: sweepDayMap(ptrSched, start, end),
-    street: ptrSched?.street || '',
     cars: cars.flatMap(car => carSchedules[car.id]
       ? [{ car, color: carColor(car),
            days: sweepDayMap(carSchedules[car.id], start, end, carSchedules[car.id].car_side) }]
@@ -87,29 +85,28 @@ function _dotsHTML(layers, k) {
   return `<span class="cal-dots">${dots}</span>`;
 }
 
-// What happens that day, each with its mark as in the legend (js/layers.js): the street
-// at the target ("S", in its colour that day as on the street card), each car with
-// sweeping (a dot in its colour) and each home with a pickup (a square): [{mark, text}].
-function _dayLines(layers, k, today) {
-  const u = k === _ymdKey(today) ? 'today' : k === _ymdKey(_ymdAdd(today, 1)) ? 'tomorrow' : 'safe';
-  const street = layers.ptr.has(k) ? [{ mark: markHTML({ color: URGENCY[u].line, mark: 'S', sweep: true }),
-                                        text: `${layers.street || 'This street'}: ${layers.ptr.get(k)}` }] : [];
-  return [...street,
+// What happens that day, each with its mark as in the legend (js/layers.js) and saying
+// what it is: each car with sweeping (a dot in its colour; "Civic · sweeping 9AM–11AM")
+// and each home with a pickup (a square; "Home · trash, recycling pickup"): [{mark, text}].
+const _lower = t => t.charAt(0).toLowerCase() + t.slice(1);  // "West side …" mid-line
+function _dayLines(layers, k) {
+  return [
     ...layers.cars.filter(l => l.days.has(k)).map(l => ({
       mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
-      text: `${l.car.name}: ${l.days.get(k)}`,
+      text: `${l.car.name} · sweeping ${_lower(l.days.get(k))}`,
     })),
     ...layers.homes.filter(l => l.days.has(k)).map(l => ({
       mark: `<i class="cal-key cal-square" style="background:var(--home)"></i>`,
-      text: `${itemName(l.home)}: ${l.days.get(k)}`,
+      text: `${itemName(l.home)} · ${l.days.get(k).toLowerCase()} pickup`,
     }))];
 }
 
-// What a screen reader says for a day: date, a holiday, then what happens.
+// What a screen reader says for a day: date, the street's sweeping, a holiday, each car's.
 function _dayAria(layers, k, p, today) {
   return [_dayLabel(p) + (k === _ymdKey(today) ? ', today' : ''),
+          layers.ptr.has(k) ? `street sweeping ${layers.ptr.get(k)}` : '',
           layers.hol.has(k) ? `no sweeping: ${layers.hol.get(k)}` : '',
-          ..._dayLines(layers, k, today).map(l => l.text)].filter(Boolean).join('; ');
+          ..._dayLines(layers, k).map(l => l.text)].filter(Boolean).join('; ');
 }
 
 // Street days: red today, orange tomorrow (as on the map), else a light tint (styles.css).
@@ -132,8 +129,8 @@ function _dayIdx(range, p) {
 // The day details under the grid: a no-sweep holiday, then what happens that day.
 function _detailHTML(layers, sel) {
   const hol = layers.hol.has(sel) ? `<div class="cal-hol-line">No sweeping: ${esc(layers.hol.get(sel))}</div>` : '';
-  return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + (_dayLines(layers, sel, calNow()).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('')
-    || (hol ? '' : '<div class="cal-muted">No sweeping</div>'));
+  return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + (_dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('')
+    || (layers.ptr.has(sel) ? `<div>Sweeping ${esc(_lower(layers.ptr.get(sel)))}</div>` : hol ? '' : '<div class="cal-muted">No sweeping</div>'));
 }
 
 // Weeks in a column (scrolls vertically); `sel` is the selected day key. The first of

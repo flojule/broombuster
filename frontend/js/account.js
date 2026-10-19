@@ -37,8 +37,8 @@ async function loadAccount() {
 function _putPrefs(body) {
   return fetch('/api/me/prefs', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive: true,
-  }).then(res => { if (!res.ok) showToast('Could not save to your account', true); })
-    .catch(() => showToast('Could not save to your account', true));
+  }).then(res => { if (!res.ok) showToast('Couldn’t save to your account', true); })
+    .catch(() => showToast('Couldn’t save to your account', true));
 }
 
 // Called by savePrefs(): upload cars and homes shortly after the last change.
@@ -102,7 +102,7 @@ function _section(label, rows) {
 async function _leaveAccount(request) {
   await _flushPrefs();
   const res = await request().catch(() => null);
-  if (!res?.ok) { showToast('Request failed', true); return; }
+  if (!res?.ok) { showToast('Couldn’t reach the server', true); return; }
   account = null;
   _store(PREFS_KEY, null);  // the account's cars and homes leave this device
   location.reload();
@@ -144,7 +144,7 @@ async function _passkeyCeremony(create, optionsUrl, body, verifyUrl) {
   const res = await fetch(optionsUrl, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined });
-  if (!res.ok) throw new Error(await _errorText(res, 'Passkeys are not available'));
+  if (!res.ok) throw new Error(await _errorText(res, 'Passkeys aren’t available'));
   const opts = await res.json();
   opts.challenge = _b64uToBuf(opts.challenge);
   for (const c of [...(opts.excludeCredentials || []), ...(opts.allowCredentials || [])]) {
@@ -164,11 +164,13 @@ async function _passkeyCeremony(create, optionsUrl, body, verifyUrl) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: cred.id, rawId: _bufToB64u(cred.rawId), type: cred.type,
       response: answer, clientExtensionResults: cred.getClientExtensionResults() }) });
-  if (!done.ok) throw new Error(await _errorText(done, 'The passkey could not be verified'));
+  if (!done.ok) throw new Error(await _errorText(done, 'Couldn’t verify the passkey'));
 }
 
+// Cancelled: nothing to say. The browser's own errors (DOMException) are not for people.
 function _passkeyFailed(e) {
-  if (e?.name !== 'NotAllowedError') showToast(e?.message || 'Passkey failed', true);
+  if (e?.name === 'NotAllowedError') return;
+  showToast(e instanceof DOMException || !e?.message ? 'Couldn’t use the passkey' : e.message, true);
 }
 async function _passkeySignIn() {
   try {
@@ -177,7 +179,7 @@ async function _passkeySignIn() {
   } catch (e) { _passkeyFailed(e); }
 }
 async function _passkeyCreate(name) {
-  if (!name.trim()) { showToast('Name?', true); return; }
+  if (!name.trim()) { showToast('Enter a name', true); return; }
   try {
     await _passkeyCeremony(true, '/auth/passkey/register/options',
       { name: name.trim(), invite: _joinToken }, '/auth/passkey/register/verify');
@@ -187,7 +189,7 @@ async function _passkeyCreate(name) {
 // ── Invites: a single-use link that adds someone to this account ──────────────
 async function _makeInvite() {
   const res = await fetch('/api/me/invite', { method: 'POST' }).catch(() => null);
-  if (!res?.ok) { showToast(res ? await _errorText(res, 'Could not make an invite') : 'Could not make an invite', true); return; }
+  if (!res?.ok) { showToast(res ? await _errorText(res, 'Couldn’t make an invite') : 'Couldn’t make an invite', true); return; }
   _inviteLink = await res.json();
   renderAccountSection();
 }
@@ -205,7 +207,7 @@ function _inviteItems() {
 async function _makeCalendarLink() {
   await _flushPrefs();
   const res = await fetch('/api/me/calendar', { method: 'POST' }).catch(() => null);
-  if (!res?.ok) { showToast('Could not make a calendar link', true); return; }
+  if (!res?.ok) { showToast('Couldn’t make a calendar link', true); return; }
   _calendarUrl = await res.json();
   calendarOn = true;
   renderAccountSection();
@@ -213,7 +215,7 @@ async function _makeCalendarLink() {
 async function _stopCalendar() {
   if (!await askConfirm('Turn off the calendar link?', 'Calendars subscribed to it stop updating.', 'Turn off')) return;
   const res = await fetch('/api/me/calendar', { method: 'DELETE' }).catch(() => null);
-  if (!res?.ok) { showToast('Could not turn it off', true); return; }
+  if (!res?.ok) { showToast('Couldn’t turn it off', true); return; }
   calendarOn = false; _calendarUrl = null;
   renderAccountSection();
 }

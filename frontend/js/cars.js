@@ -4,7 +4,7 @@
 async function checkCar(car, loud = false) {
   const warmupTimer = loud && setTimeout(() => showToast('Server warming up'), 5000);
   const data = await loadSchedule(car.id, carSchedules, () => postCheck(car.lat, car.lon),
-                                  loud ? msg => showToast(`Error: ${msg}`, true) : null);
+                                  loud ? msg => showToast(msg, true) : null);
   clearTimeout(warmupTimer);
   if (data) upgradeAddress(car, data);
   updateCarMarkers();  // re-renders the cards (data, or the Retry state)
@@ -136,7 +136,7 @@ itemMenu.addEventListener('click', async e => {
   else if (act === 'rename') savedTitle.startEdit();
   else if (act === 'phone') {
     if (!(item.id in phoneLinks)
-        || await askConfirm(`Unlink the phone from ${name}?`, 'Its automation will stop updating where the car is.', 'Unlink')) {
+        || await askConfirm(`Unlink the phone from ${name}?`, 'The phone stops updating where the car is.', 'Unlink')) {
       _togglePhoneLink(car);
     }
   } else if (act === 'remove') {
@@ -352,8 +352,8 @@ async function checkVehicle(car) {
   try {
     const res = await fetch('/api/vehicle?' + q);
     vehicleChecks[car.id] = res.ok ? { result: await res.json() }
-      : { error: (await res.json().catch(() => ({}))).detail || 'The lookup failed.' };
-  } catch (_) { vehicleChecks[car.id] = { error: 'The lookup failed.' }; }
+      : { error: (await res.json().catch(() => ({}))).detail || 'Couldn’t check.' };
+  } catch (_) { vehicleChecks[car.id] = { error: 'Couldn’t check.' }; }
   renderCarsPanel();
 }
 
@@ -372,7 +372,7 @@ function _ago(epochS) {
 function phoneLinkHTML(car) {
   if (!(car.id in phoneLinks)) return '';
   const { used, moved, error } = phoneLinks[car.id] || {};
-  const status = !used ? 'Has not reported yet.'
+  const status = !used ? 'No report yet.'
     : !error ? `Last reported ${_ago(moved || used)}.`
     : `Last report (${_ago(used)}) was refused: ${error}`
       + (moved ? ` Last position received ${_ago(moved)}.` : ' No position received yet.');
@@ -392,7 +392,7 @@ async function _togglePhoneLink(car) {
   if (!linked) await _flushPrefs();  // the server only issues tokens for cars it has saved
   const res = await fetch(`/api/cars/${encodeURIComponent(car.id)}/token`,
                           { method: linked ? 'DELETE' : 'POST' }).catch(() => null);
-  if (!res?.ok) { showToast(linked ? 'Could not unlink the phone' : 'Could not link a phone', true); return; }
+  if (!res?.ok) { showToast(linked ? 'Couldn’t unlink the phone' : 'Couldn’t link a phone', true); return; }
   if (linked) {
     delete phoneLinks[car.id];
     _phoneLink = null;
@@ -413,7 +413,7 @@ function carSchedLines(sched) {
   return lines.map(text => text.startsWith(other) ? { cls: 'ce-other', text } : text);
 }
 
-// The car rows (before the homes) and, on a car's page, its one visible action: I parked
+// The car rows (before the homes) and, on a car's page, its one visible action: Parked
 // here (the car moves to the device's position), the one used every time (as Find My keeps Play Sound out); the rest is under "…".
 function renderCarsPanel() {
   if (isEditingIn(carsPanel) || savedTitle.isContentEditable) return;
@@ -427,9 +427,9 @@ function renderCarsPanel() {
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
       urgency: sched && sweepUrgency(sched), words: dl && { short: dl.short, long: `Move ${dl.long}` }, addr: addrText,
       detail: `
-        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} I parked here</button>
+        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
         ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}
-        ${rulesBlockHTML('Also here', placeRules[car.id])}
+        ${rulesBlockHTML('Other rules', placeRules[car.id])}
         ${vehicleHTML(car)}
         ${account ? phoneLinkHTML(car) : ''}`,
     });
@@ -439,7 +439,7 @@ function renderCarsPanel() {
       addrEl.textContent = '…';
       let hit;
       try { hit = await geocode(q, regionAt(car.lat, car.lon) || _region); }
-      catch (_) { showToast('Could not look up the address', true); addrEl.textContent = addrText; return; }
+      catch (_) { showToast('Couldn’t find the address', true); addrEl.textContent = addrText; return; }
       if (!hit) { showToast('Address not found', true); addrEl.textContent = addrText; return; }
       if (map) map.jumpTo({ center: [hit.lon, hit.lat], zoom: 16 });
       moveCar(car, hit.lat, hit.lon);

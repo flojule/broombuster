@@ -189,7 +189,7 @@ def build_region_geojson(region_key: str) -> None:
         gdf = geopandas.GeoDataFrame(pd.concat(parts, ignore_index=True), crs="EPSG:4326")
         if theme == "parking":
             gdf = permit_areas(gdf)
-        target.write_text(layer_sources.dump_json(gdf))
+        target.write_text(layer_sources.dump_json(gdf, theme))
         print(
             f"  {region_key}/{theme}.geojson: {len(gdf):,} features, "
             f"{target.stat().st_size / 1e6:.1f} MB"

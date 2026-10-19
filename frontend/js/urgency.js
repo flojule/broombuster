@@ -421,13 +421,14 @@
 
   // One calendar day's sweeps (sweepDays items) as text: "9AM–12PM" when both
   // sides share the times, "Even side 9AM–12PM" for one side, else per side.
-  function dayText(items, labels) {
+  function dayText(items, labels, oneSide) {
     labels = labels || ['Even', 'Odd'];
     var per = { even: [], odd: [] };
     items.forEach(function (it) {
       var t = it.time ? timeDisplay(it.time) : 'time n/a';
       if (per[it.side].indexOf(t) < 0) per[it.side].push(t);
     });
+    if (oneSide) return per.even.concat(per.odd).join(', ');  // the side is known (a car's)
     if (!per.odd.length) return labels[0] + ' side ' + per.even.join(', ');
     if (!per.even.length) return labels[1] + ' side ' + per.odd.join(', ');
     if (per.even.join() === per.odd.join()) return per.even.join(', ');

@@ -52,15 +52,24 @@ def test_core_layers_are_committed():
 
 
 @pytest.mark.parametrize("region", sorted(REGIONS))
-def test_client_geojson_is_small_and_has_no_rule_text(region):
+def test_client_geojson_is_small_and_has_rule_text_only_for_popups(region):
     for path in (_ROOT / "frontend" / "layers" / region).glob("*.geojson"):
         assert path.stat().st_size < 3_000_000, path
         fc = json.loads(path.read_text())
         assert fc["features"]
         props = set(fc["features"][0]["properties"])
         assert props == (
-            {"label", "city", "color", "edge"} if path.stem == "parking" else {"label", "city"}
+            {"label", "city", "color", "edge"}
+            if path.stem == "parking"
+            else {"label", "city", "rule"}
+            if path.stem in layer_sources.POPUP_RULE
+            else {"label", "city"}
         ), path
+
+
+def test_markets_one_point_per_place_with_days_and_hours():
+    sf = layer_sources.markets("san_francisco").set_index("label")["rule"]
+    assert sf["Ferry Plaza Farmers Market"] == "Tue, Thu 10 AM–2 PM · Sat 8 AM–2 PM"
 
 
 def test_catalogue_lists_hashed_urls_and_live_closures(app_client):

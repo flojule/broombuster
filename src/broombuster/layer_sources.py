@@ -483,18 +483,24 @@ def ev(city_key: str, bbox) -> geopandas.GeoDataFrame:
 
 
 def markets(city_key: str) -> geopandas.GeoDataFrame:
-    """data/places/markets.yaml rows of a city: weekly markets, kept by hand."""
+    """data/places/markets.yaml rows of a city: weekly markets, kept by hand. One point
+    per market; its rule is its days and hours ("Tue, Thu 10 AM–2 PM · Sat 8 AM–2 PM")."""
     with open(os.path.join(REPO_ROOT, "data", "places", "markets.yaml"), encoding="utf-8") as fh:
         doc = yaml.safe_load(fh)
+    places: dict[tuple, dict[str, list[str]]] = {}  # (name, lon, lat) -> hours -> days
+    for m in sorted(
+        (m for m in doc["markets"] if m["city"] == city_key), key=lambda m: m["weekday"]
+    ):
+        when = places.setdefault((m["name"], m["lon"], m["lat"]), {})
+        when.setdefault(m["hours"], []).append(m["day"])
     rows = [
         {
-            "label": m["name"],
-            "rule": f"{m['day']} {m['hours']}",
+            "label": name,
+            "rule": " · ".join(f"{', '.join(days)} {hours}" for hours, days in when.items()),
             "asof": str(doc.get("last_verified") or ""),
-            "geometry": shapely.Point(m["lon"], m["lat"]),
+            "geometry": shapely.Point(lon, lat),
         }
-        for m in doc["markets"]
-        if m["city"] == city_key
+        for (name, lon, lat), when in places.items()
     ]
     return geopandas.GeoDataFrame(
         rows, columns=[*COLUMNS, "geometry"], geometry="geometry", crs="EPSG:4326"
@@ -576,9 +582,17 @@ ATTRIBUTION = {
 }
 
 
-def dump_json(gdf: geopandas.GeoDataFrame) -> str:
-    """Compact GeoJSON for the client's copy: label, city and colours (when given) only
-    (the rule text comes from /api/rules), coordinates to 1e-6° (~10 cm)."""
-    gdf = gdf[["label", "city", *(c for c in (COLOR, "edge") if c in gdf), "geometry"]].copy()
+# Themes whose map points carry their rule for the tap popup (a market's days and hours,
+# a charger's ports); the others' rule text comes from /api/rules.
+POPUP_RULE = ("markets", "ev")
+
+
+def dump_json(gdf: geopandas.GeoDataFrame, theme: str = "") -> str:
+    """Compact GeoJSON for the client's copy: label, city, colours (when given) and, for
+    POPUP_RULE themes, the rule; coordinates to 1e-6° (~10 cm)."""
+    keep = [c for c in (COLOR, "edge") if c in gdf]
+    if theme in POPUP_RULE and "rule" in gdf:
+        keep.append("rule")
+    gdf = gdf[["label", "city", *keep, "geometry"]].copy()
     gdf["geometry"] = shapely.set_precision(gdf.geometry.values, 1e-6, mode="pointwise")
     return json.dumps(json.loads(gdf.to_json(drop_id=True)), separators=(",", ":"))

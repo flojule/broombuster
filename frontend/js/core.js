@@ -124,7 +124,7 @@ async function loadSchedule(id, store, request, onError) {
     const res = await request();
     if (res.ok) data = await res.json();
     else err = (await res.json().catch(() => ({}))).detail || res.statusText;
-  } catch (e) { err = e.message; }
+  } catch (_) { err = 'Couldn’t reach the server'; }
   if (_loadSeq.get(id) !== n) return null;
   if (err) { loadFailed.add(id); onError?.(err); return null; }
   loadFailed.delete(id);
@@ -179,8 +179,8 @@ function nearestRegion(lat, lon, radius = Infinity) {
 function regionAt(lat, lon) { return nearestRegion(lat, lon, REGION_RADIUS); }
 
 // The one clock for sweeping and trash days: {y, m, d, min} in the region's
-// timezone (the browser's until /cities has loaded).
-function regionNow(regionKey) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz); }
+// timezone (the browser's until /cities has loaded), now or at the Date `when`.
+function regionNow(regionKey, when) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz, when); }
 
 // A city's no-sweep holidays ({dayKey: name}; null: none known), from /cities.
 function sweepSkip(regionKey, city) {
