@@ -88,6 +88,19 @@ function applySelection() {
   if (savedTitle.contentEditable !== 'true') savedTitle.textContent = item ? itemName(item) : 'Saved';
   btnAdd.hidden = !!item;
   btnItemMore.hidden = btnItemBack.hidden = !item;
+  syncCrosshair();
+}
+
+// The centre target hides while a car or home pin sits on it (the pin marks the spot);
+// it shows again once the map moves off, and always while placing (styles.css).
+function syncCrosshair() {
+  if (!map) return;
+  const c = map.project(map.getCenter());
+  const covered = [..._carMarkers.values(), ..._homeMarkers.values()].some(m => {
+    const p = map.project(m.getLngLat());
+    return Math.hypot(p.x - c.x, p.y - c.y) < 20;
+  });
+  _crosshair.classList.toggle('under-pin', covered);
 }
 // Back to the list; focus moves to "+" (the ‹ it was on is gone).
 btnItemBack.addEventListener('click', () => { clearSelection(); btnAdd.focus(); });

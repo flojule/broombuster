@@ -125,9 +125,9 @@ Set up by `deploy/install.sh`.
 GitHub Actions
   ├─ ci.yml       actions/checkout · astral-sh/setup-uv · node (preinstalled on runner)
   │               ruff · pytest · node --check frontend/js/*.js
-  ├─ visual.yml   Playwright WebKit + Chromium · axe-core 4.10.2 (cdn.jsdelivr.net, scripts only)
-  │               screenshots uploaded as run artifacts
   └─ Dependabot   weekly for Python, monthly for Actions
 ```
 
 Local: `uv sync --locked --all-extras`, then `uv run pytest -q`. Frontend tests need `node`.
+Layout check, local only: `uv run --extra visual python scripts/visual_scenarios.py` (Playwright WebKit +
+Chromium, axe-core 4.10.2 from cdn.jsdelivr.net).

@@ -2,7 +2,7 @@
     :root {
       --blue: #2563eb;
       /* Urgency colours (cards, banner, legend); the map paint lives in core.js URGENCY. */
-      --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #2563eb;  /* text and swatches: AA on card tints */
+      --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #3b7a53;  /* text and swatches: AA on card tints; clear is quiet */
       --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
       --card: #ffffff; --text: #1e293b;
       --muted: #526071; --border: #e2e8f0;
@@ -25,7 +25,6 @@
       --inset-b: env(safe-area-inset-bottom, 0px);
       --inset-l: env(safe-area-inset-left, 0px); --inset-r: env(safe-area-inset-right, 0px);  /* a phone on its side */
       --sheet-h: 0px; /* sheet height (phone), set from JS */
-      --street: #15803d;  /* street sweeping days in the calendar */
       --tint-fg: #1d4ed8; /* blue text on a blue-tinted button (AA) */
       --home: #15803d;    /* homes' marks in the calendar (= HOME_COLOR in core.js, lighter in dark) */
 
@@ -44,7 +43,8 @@
        for anything holding text to read (the sheet, menus, the alert). Safari cannot bend
        the light behind (SVG refraction in backdrop-filter is Chromium only), so there is no
        lensing. Where blur is missing, or Reduce Transparency / Increase Contrast is on,
-       they are opaque. Content (lists, the calendar, the street sign) is never glass. */
+       they are opaque. Content (the sheet with its lists and calendar, the street card) is never
+       glass: it is opaque, so the map's lines never run through text. */
     body { --glass: var(--card); --sheet-bg: var(--card); --hairline: var(--border);
            --rim: inset 0 0 0 1px var(--border); --blur: none; }
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
@@ -63,7 +63,7 @@
       body, body.dark { --glass: var(--card); --sheet-bg: var(--card); --hairline: var(--border);
                         --rim: inset 0 0 0 1px var(--border); --blur: none; }
     }
-    :is(#sheet, #map-ctrl, .pop-menu, #confirm-dialog, #place-banner, .area-label, .sc,
+    :is(#map-ctrl, .pop-menu, #confirm-dialog, #place-banner, .area-label,
         .name-popup .maplibregl-popup-content) {
       -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
     }
@@ -141,8 +141,11 @@
     .lyr-check { margin-left: auto; opacity: 0; color: var(--blue); }
     .lyr-key { flex: none; width: 14px; height: 14px; border-radius: 4px; background: var(--k); }
     img.lyr-key { width: 18px; height: 18px; margin: -2px; background: none; }
-    .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 10px; margin-top: 4px;
-                  border-top: 1px solid var(--border); font-size: .72rem; }
+    .lyr-legend-btn { margin-top: 4px; border-top: 1px solid var(--hairline); border-radius: 0 0 calc(var(--r-menu) - 6px) calc(var(--r-menu) - 6px);
+                      color: var(--muted); font-size: .82rem; }
+    .lyr-chev { margin-left: auto; transition: transform .2s; }
+    .lyr-legend-btn[aria-expanded="true"] .lyr-chev { transform: rotate(90deg); }
+    .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 10px; font-size: .72rem; }
     .lyr-legend > b { font-size: .62rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
     .lyr-legend .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-size: .72rem; }
     .lyr-marks { display: grid; grid-template-columns: 1fr; gap: 4px; }
@@ -229,10 +232,10 @@
       --sheet-gap: 8px;
       position: absolute; left: var(--sheet-gap); right: var(--sheet-gap); bottom: var(--sheet-gap); z-index: 25; height: 220px;
       display: flex; flex-direction: column;
-      background: var(--sheet-bg); border-radius: var(--r-sheet);
-      box-shadow: var(--rim), var(--shadow-2);
+      background: var(--card); border-radius: var(--r-sheet);
+      box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-2);
       transition: height .4s var(--sheet-ease);
-      /* Grouped boxes: a fill over the sheet's glass (as iOS lists on a sheet), in both themes. */
+      /* Grouped boxes: a fill over the sheet (as iOS lists on a sheet), in both themes. */
       --group: color-mix(in srgb, var(--text) 6%, transparent);
     }
     #sheet.dragging { transition: none; }
@@ -282,7 +285,14 @@
     /* Saved: the verdict line, then one grouped list of cars and homes (as Find My's
        Items list); an open item hides the rest and shows its own page. */
     #saved-summary .note { margin: 0; font-size: .8rem; }
-    #saved-summary { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .85rem; font-weight: 600; min-height: 28px; }
+    #saved-summary { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; font-weight: 600; }
+    #saved-summary:empty { display: none; }
+    .sum-line { display: flex; align-items: center; gap: 6px; min-height: 28px; }
+    /* Nothing saved: what saving does, and the two ways to start. */
+    .empty-saved { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; font-weight: 400; }
+    .empty-saved .note { margin: 0 2px; font-size: .82rem; }
+    .empty-btns { display: flex; gap: 8px; }
+    .empty-btns .btn { flex: 1; }
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
     .urg-safe { color: var(--urg-safe); } .urg-none { color: var(--muted); }
     /* Legend swatch: line thickness mirrors the map (today thickest). */
@@ -292,7 +302,7 @@
     #item-list:empty { display: none; }
     .car-entry { position: relative; display: flex; flex-direction: column; gap: 8px; }
     /* Separators start at the text, as in iOS lists. */
-    .car-entry + .car-entry::before { content: ''; position: absolute; top: 0; left: 56px; right: 0; border-top: 1px solid var(--hairline); }
+    .car-entry + .car-entry:not(.selected)::before { content: ''; position: absolute; top: 0; left: 56px; right: 0; border-top: 1px solid var(--hairline); }
     .ce-header { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 14px 8px 12px; cursor: pointer; }
     .ce-header:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
     /* Row icon: the pin's look (white on the item's colour). */
@@ -306,6 +316,8 @@
     .ce-addr[contenteditable="true"] { font-size: 16px; white-space: normal; color: var(--text); border-bottom-color: var(--blue); user-select: text; cursor: text; }
     /* The verdict: coloured words with an icon (never colour alone), no tinted row. */
     .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
+    .st-long, .car-entry.selected .st-short { display: none; }
+    .car-entry.selected .st-long { display: inline; }
     .ce-detail { display: flex; flex-direction: column; gap: 6px; }
     .car-entry:not(.selected) .ce-detail { display: none; }
 
@@ -313,11 +325,16 @@
        the one action, then its sections. */
     #cars-panel.item-open #saved-summary, #cars-panel.item-open .car-entry:not(.selected) { display: none; }
     #cars-panel.item-open #item-list { background: none; border-radius: 0; overflow: visible; }
-    .car-entry.selected .ce-header { flex-direction: column-reverse; align-items: flex-start; gap: 2px; min-height: 0; padding: 0 4px 4px; cursor: default; }
-    .car-entry.selected .ce-header:hover { background: none; }
+    /* The status card: the verdict in large words over the address, tinted when the car must move. */
+    .car-entry.selected .ce-header { flex-direction: column-reverse; align-items: flex-start; gap: 4px; min-height: 0; padding: 12px 16px;
+                                     border-radius: var(--r-group); background: var(--group); cursor: default; }
+    .car-entry.selected[data-urg="today"] .ce-header { background: color-mix(in srgb, var(--urg-today) 8%, var(--card)); }
+    .car-entry.selected[data-urg="tomorrow"] .ce-header { background: color-mix(in srgb, var(--urg-tomorrow) 8%, var(--card)); }
     .car-entry.selected :is(.ce-dot, .ce-name) { display: none; }
     .car-entry.selected .ce-text { width: 100%; }
-    .car-entry.selected .ce-status { font-size: .88rem; }
+    .car-entry.selected .ce-status { font-size: 1.05rem; font-weight: 700; white-space: normal; }
+    /* Sweeping on a car's page: the other side of the street, muted. */
+    .ce-other { color: var(--muted); }
     .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
     .ce-loading { color: var(--muted); }
@@ -329,18 +346,19 @@
     .ce-field input.field { width: 8.5em; text-transform: uppercase; }
     .alert-line { flex-basis: 100%; font-weight: 400; display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; font-size: .8rem; line-height: 1.35; }
     .alert-line small { color: var(--muted); }
-    /* Nearby tab: one row per item, its kind as a small capsule. */
-    .nb-row { display: flex; gap: 10px; align-items: flex-start; padding: 3px 0; }
-    .nb-kind { flex: none; min-width: 64px; margin-top: 2px; padding: 2px 6px; text-align: center; font-size: .6rem; font-weight: 700;
-               letter-spacing: .03em; text-transform: uppercase; color: var(--muted); background: var(--fill); border-radius: var(--pill); }
-    .nb-text { display: flex; flex-direction: column; min-width: 0; }
-    .nb-title a, .nb-link { color: var(--tint-fg); }
+    /* Nearby tab: one row per item (by time), the title over its kind, time, place and distance;
+       the list fades out under the tab bar. */
+    #nearby-body { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
+                   mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent); }
+    .nb-row { display: flex; flex-direction: column; min-width: 0; padding: 4px 0; }
+    .nb-row + .nb-row { border-top: 1px solid var(--hairline); padding-top: 7px; }
+    .nb-title { font-weight: 600; }
+    .nb-title a, .nb-link { color: var(--tint-fg); text-decoration: none; }
     .nb-meta { color: var(--muted); font-size: .74rem; }
     .nb-link { display: flex; align-items: center; min-height: var(--tap); text-decoration: none; }
     .nb-link + .nb-link { border-top: 1px solid var(--hairline); }
     /* Rules at a car (permit area, meter, closure): one line each, the source in grey. */
-    .ce-rule { display: flex; flex-direction: column; }
-    .ce-rule small { color: var(--muted); font-size: .7rem; }
+    .ce-rule span { color: var(--muted); }
     .ce-rule.warn { color: var(--urg-tomorrow); }
 
     /* ── Confirmation (as an iOS 26 alert): text to the left, capsule buttons side by side;
@@ -381,14 +399,14 @@
       pointer-events: none;
     }
     .sc { display: flex; flex-direction: column; gap: 5px; width: max-content; max-width: 230px; padding: 8px 10px 9px;
-          border-radius: var(--r-md); background: var(--glass); color: var(--text); box-shadow: var(--rim), var(--shadow-1);
+          border-radius: var(--r-md); background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-1);
           font-size: .7rem; line-height: 1.3; }
     .sc-head { display: flex; align-items: center; gap: 6px; }
     .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: .6rem; font-weight: 800; }
     .sc-street { min-width: 0; font-size: .62rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sc-rule { margin: 1px 0; border: none; border-top: 1px solid var(--border); }
-    .sc-side { margin: 2px 0 -2px; font-size: .58rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .sc-side { display: flex; align-items: center; gap: 6px; margin: 2px 0 -2px; font-size: .58rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
     .sc-mark { flex: none; display: flex; align-items: center; justify-content: center; width: 17px; height: 17px; margin-top: -1px;
                border-radius: 5px; color: #fff; font-style: normal; font-size: .58rem; font-weight: 800; letter-spacing: -.02em; }
@@ -396,7 +414,6 @@
     .sc-text { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
     .sc-detail { font-weight: 400; color: var(--muted); }
     .sc-time { white-space: nowrap; }  /* "7–9AM" never breaks */
-    .sc-row.soon .sc-detail { font-weight: 600; color: var(--text); }
 
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
@@ -411,14 +428,29 @@
       min-width: 0; border-radius: var(--r-sm); font-size: .75rem; line-height: 1.15; color: var(--text);
       font-variant-numeric: tabular-nums; scroll-snap-align: start;
     }
-    /* Street days: light green; red today, orange tomorrow (as on the map). */
-    .cal-alt { background: color-mix(in srgb, var(--text) 5%, transparent); }  /* alternate months */
-    .sw-day { background: color-mix(in srgb, var(--street) 24%, transparent); }
+    /* Days outside the month in the header (#ic-cal data-m, js/calendar.js): muted digits.
+       Street days: a light tint of the clear colour; red today, orange tomorrow (as on the map
+       and the street card's "S"). */
+    #ic-cal:not([data-m="1"]) .cal-m1,
+    #ic-cal:not([data-m="2"]) .cal-m2,
+    #ic-cal:not([data-m="3"]) .cal-m3,
+    #ic-cal:not([data-m="4"]) .cal-m4,
+    #ic-cal:not([data-m="5"]) .cal-m5,
+    #ic-cal:not([data-m="6"]) .cal-m6,
+    #ic-cal:not([data-m="7"]) .cal-m7,
+    #ic-cal:not([data-m="8"]) .cal-m8,
+    #ic-cal:not([data-m="9"]) .cal-m9,
+    #ic-cal:not([data-m="10"]) .cal-m10,
+    #ic-cal:not([data-m="11"]) .cal-m11,
+    #ic-cal:not([data-m="12"]) .cal-m12 { color: var(--muted); }
+    .sw-day  { background: color-mix(in srgb, var(--urg-safe) 16%, transparent); }
+    body.dark .sw-day { background: color-mix(in srgb, var(--urg-safe) 10%, transparent); }  /* muted digits stay AA */
     .sw-now  { background: var(--urg-today-bg);    color: #fff; }
     .sw-next { background: var(--urg-tomorrow-bg); color: #fff; }
-    /* Today: underlined digit. Selected: ring. */
-    .sw-today { font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
-    .cal-sel { box-shadow: inset 0 0 0 2px var(--blue); }
+    /* Today: bold, with "Today" where the month name goes. Selected: a ring. */
+    .sw-today { font-weight: 800; }
+    .cal-sel { box-shadow: inset 0 0 0 2px var(--text); }
+    :is(.sw-now, .sw-next).cal-sel { box-shadow: inset 0 0 0 2px var(--card); }
     /* One dot per car with sweeping that day, in the car's colour. */
     .cal-dots { display: flex; justify-content: center; gap: 2px; height: 5px; margin-top: 1px; }
     .cal-dot { width: 5px; height: 5px; border-radius: 50%; }
@@ -444,9 +476,11 @@
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 40px; gap: 3px; text-align: center; }
     .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .56rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
     .sw-now .cal-mo, .sw-next .cal-mo { color: #fff; }
-    /* The selected day: its date and two lines (more scroll), so the sheet's heights stay put. */
-    .cal-detail { flex: none; height: calc(3 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
-    .cal-key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+    /* The selected day: its date and three lines (more scroll), so the sheet's heights stay put. */
+    .cal-detail { flex: none; height: calc(4 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
+    .cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 2px; }
+    /* The street's "S" in the day details: the street card's mark, at the text's size. */
+    .cal-detail .sc-mark { display: inline-flex; width: 14px; height: 14px; margin-top: 0; border-radius: 4px; font-size: .5rem; vertical-align: -2px; }
     .cal-round { border-radius: 50%; }
     .cal-square { border-radius: 1px; }
     /* ── Map pins (MapLibre HTML markers): the card's icon in white on a disc of the car's
@@ -478,7 +512,7 @@
     body.dark {
       --card: #1e293b; --text: #e2e8f0;
       --muted: #94a3b8; --border: #334155;
-      --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #60a5fa;
+      --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #7cc495;
       --tint-fg: #93b4f8; --home: #4ade80;
     }
 
@@ -510,6 +544,7 @@
       pointer-events: none;
     }
     #center-crosshair.visible { display: block; }
+    #center-crosshair.under-pin:not(.placing) { display: none; }  /* a pin sits on the target (js/markers.js) */
     body.dark #center-crosshair {
       background: rgba(226,232,240,.9); box-shadow: 0 0 0 2px rgba(0,0,0,.6);
     }

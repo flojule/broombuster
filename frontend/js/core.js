@@ -5,8 +5,9 @@ const URGENCY = {
               fill: 'rgba(220,60,60,0.55)',  border: 'rgba(220,60,60,0.90)',  line: 'tomato' },
   tomorrow: { color: 'var(--urg-tomorrow)', short: 'Tomorrow', icon: 'alert',
               fill: 'rgba(230,130,20,0.40)', border: 'rgba(230,130,20,0.80)', line: 'orange' },
+  // Clear is quiet (a muted green): only today and tomorrow should catch the eye.
   safe:     { color: 'var(--urg-safe)',     short: 'Clear', icon: 'check',
-              fill: 'rgba(80,110,180,0.18)', border: 'rgba(80,110,180,0.40)', line: 'cornflowerblue' },
+              fill: 'rgba(63,140,92,0.12)',  border: 'rgba(63,140,92,0.35)',  line: 'rgba(63,140,92,0.6)' },
   // Map only: a street or zone with no sweeping at all (not a car verdict).
   none:     { color: 'var(--muted)',       short: 'No sweeping',
               fill: 'rgba(120,130,150,0.10)', border: 'rgba(120,130,150,0.35)', line: '#94a3b8' },
@@ -90,10 +91,23 @@ async function loadRules(item, kind) {
 // An item page's section of rules: label, what it means, and the source's date.
 function rulesBlockHTML(header, rules) {
   if (!rules?.length) return '';
-  const rows = rules.map(r => `<div class="ce-rule${r.warn ? ' warn' : ''}"><b>${esc(r.label)}</b>`
-    + (r.rule ? `<span>${esc(r.rule)}</span>` : '')
-    + (r.asof ? `<small>Data as of ${esc(r.asof)}</small>` : '') + '</div>').join('');
+  const rows = rules.map(r => {
+    const { text, detail } = ruleText(r);
+    return `<div class="ce-rule${r.warn ? ' warn' : ''}"><b>${esc(text)}</b>${detail ? ` <span>${esc(detail)}</span>` : ''}</div>`;
+  }).join('');
   return `<div class="sec-label">${esc(header)}</div><div class="sec">${rows}</div>`;
+}
+
+// A rule in a few words (the car's page, the street card): its label, and the first clause
+// of its text only when that adds a number (hours, a limit, a rate). Explanations ("permit
+// holders are exempt…", "see the meter") are left out.
+function ruleText(r) {
+  const text = r.theme === 'meters' ? 'Metered' : r.label;
+  let detail = String(r.rule || '').split(/;|\. /)[0].replace(/\.$/, '').replace(/\s*\([^)]*\)/g, '')
+    .replace(/^Metered:\s*(most meters\s*)?/i, '').trim();
+  // "No oversized vehicles" + "No oversized vehicles, M–Su 12am–6am": the hours only.
+  if (detail.toLowerCase().startsWith(text.toLowerCase())) detail = detail.slice(text.length).replace(/^[\s,:–-]+/, '');
+  return { text, detail: /\d/.test(detail) ? detail : '' };
 }
 
 // Schedules for cars and homes: the latest request per id wins (a slow answer for an

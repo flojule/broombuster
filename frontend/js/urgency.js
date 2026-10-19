@@ -246,6 +246,44 @@
     return tomorrow ? 'tomorrow' : 'safe';
   }
 
+  // "9AM", "9:30AM", "12PM"; 0 or 1440 is "midnight".
+  function clockText(min) {
+    var m = min % 1440;
+    if (m === 0) return 'midnight';
+    var h = Math.floor(m / 60), mm = m % 60;
+    return (h % 12 || 12) + (mm ? ':' + pad2(mm) : '') + (h < 12 ? 'AM' : 'PM');
+  }
+
+  // When the car must be gone, by the same rules as checkDaySweeping: the most pressing
+  // of {state: 'running', at: end} (a window is on now), {state: 'by', at: start} (one
+  // starts later today, or within LEAD_MIN tomorrow), {state: 'today'} (untimed today),
+  // {state: 'tomorrow', at: start | null}; null when nothing is due. `at` is a clockText.
+  function sweepDeadline(entries, now, skip) {
+    var yst = addDays(now, -1), tmr = addDays(now, 1), best = null;
+    var rank = { running: 0, by: 1, today: 2, tomorrow: 3 };
+    function take(state, at, soon) {
+      if (!best || rank[state] < rank[best.state] || (rank[state] === rank[best.state] && soon < best.soon)) {
+        best = { state: state, at: at, soon: soon };
+      }
+    }
+    for (var i = 0; i < entries.length; i++) {
+      var code = entries[i].code, w = timeWindow(entries[i].time || '');
+      var overnight = w && w[1] < w[0];
+      if (sweepsOn(code, now.y, now.m, now.d, skip)) {
+        if (!w) take('today', null, 0);
+        else if (now.min < w[0]) take('by', w[0], w[0] - now.min);
+        else if (overnight || now.min <= w[1]) take('running', w[1], 0);
+      }
+      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip)) take('running', w[1], 0);
+      if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip)) {
+        var start = w ? w[0] : 0, lead = 1440 - now.min + start;
+        if (lead <= LEAD_MIN) take('by', start, lead);
+        else take('tomorrow', start || null, lead);
+      }
+    }
+    return best && { state: best.state, at: best.at === null ? null : clockText(best.at) };
+  }
+
   // ── Schedule display (card, hover and center banner) ────────────────────────
   // "Apr 17, 18; May 15" (dates sorted).
   function formatDatesByMonth(dates) {
@@ -406,6 +444,8 @@
     WEEKDAY_CODES: WEEKDAY_CODES,
     NO_SWEEP_CODES: NO_SWEEP_CODES,
     checkDaySweeping: checkDaySweeping,
+    sweepDeadline: sweepDeadline,
+    clockText: clockText,
     sweepsOn: sweepsOn,
     holidaySkip: holidaySkip,
     holidayOn: holidayOn,

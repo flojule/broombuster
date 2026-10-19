@@ -23,13 +23,26 @@ function _nearbyDay(iso, today) {
 
 function _safeUrl(u) { return /^https?:\/\//.test(u || '') ? u : ''; }
 
+// Minutes since midnight of an item's first clock time ("1:15 PM", "9AM–1PM"); -1 when
+// it has none (all day), so those come first.
+function _startMin(time) {
+  const m = /(\d{1,2})(?::(\d\d))?\s*([ap])\.?\s*m/i.exec(time || '');
+  return m ? (Number(m[1]) % 12 + (m[3].toLowerCase() === 'p' ? 12 : 0)) * 60 + Number(m[2] || 0) : -1;
+}
+// A place some feeds send in capitals ("RANDALL MUSEUM"): in title case.
+function _placeText(s) {
+  return s && !/[a-z]/.test(s) && /[A-Z]{4}/.test(s) ? s.toLowerCase().replace(/\b\p{L}/gu, c => c.toUpperCase()) : s;
+}
+
+// A row: the title (a link when it has one), then its kind (unless a plain event), time,
+// place and distance.
 function _nearbyRow(it) {
-  const meta = [it.time, it.place, it.km != null ? `${(it.km / 1.609).toFixed(1)} mi` : ''].filter(Boolean).join(' · ');
+  const meta = [it.kind === 'event' ? '' : NEARBY_KIND[it.kind] || it.kind, it.time, _placeText(it.place),
+                it.km != null ? `${(it.km / 1.609).toFixed(1)} mi` : ''].filter(Boolean).join(' · ');
   const url = _safeUrl(it.url);
   const title = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(it.title)}</a>` : esc(it.title);
-  return `<div class="nb-row"><span class="nb-kind nb-${esc(it.kind)}">${esc(NEARBY_KIND[it.kind] || it.kind)}</span>`
-       + `<span class="nb-text"><span class="nb-title">${title}</span>`
-       + (meta ? `<span class="nb-meta">${esc(meta)}</span>` : '') + '</span></div>';
+  return `<div class="nb-row nb-${esc(it.kind)}"><span class="nb-title">${title}</span>`
+       + `<span class="nb-meta">${esc(meta)}</span></div>`;
 }
 
 function renderNearby(data) {
@@ -39,6 +52,7 @@ function renderNearby(data) {
     if (!byDay.has(it.date)) byDay.set(it.date, []);
     byDay.get(it.date).push(it);
   }
+  for (const items of byDay.values()) items.sort((a, b) => _startMin(a.time) - _startMin(b.time) || (a.km ?? 0) - (b.km ?? 0));
   const days = [...byDay].map(([iso, items]) =>
     `<div class="sec-label">${esc(_nearbyDay(iso, today))}</div><div class="sec">${items.map(_nearbyRow).join('')}</div>`).join('');
   const links = data.links.length
