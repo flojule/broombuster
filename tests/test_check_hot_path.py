@@ -172,22 +172,22 @@ def _synthetic():
     b = LineString([(100, 0), (200, 0)])
     rows = [
         # Same block, one row per weekday (SF shape); orientation reversed once.
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="ME", DESC_EVEN="Mon",
-             TIME_EVEN="8AM-10AM", DAY_ODD=None, geometry=a),
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="WE", DESC_EVEN="Wed",
-             TIME_EVEN="8AM-10AM", DAY_ODD="TE", geometry=LineString([(100, 0), (0, 0)])),
+        {"STREET_KEY": "ELM", "STREET_NAME": "ELM ST", "DAY_EVEN": "ME", "DESC_EVEN": "Mon",
+             "TIME_EVEN": "8AM-10AM", "DAY_ODD": None, "geometry": a},
+        {"STREET_KEY": "ELM", "STREET_NAME": "ELM ST", "DAY_EVEN": "WE", "DESC_EVEN": "Wed",
+             "TIME_EVEN": "8AM-10AM", "DAY_ODD": "TE", "geometry": LineString([(100, 0), (0, 0)])},
         # Whole street as one MultiLineString (Alameda shape) overlapping block a.
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="F13", DESC_EVEN="Fri",
-             TIME_EVEN="", DAY_ODD="F24", geometry=MultiLineString([a.coords, b.coords])),
+        {"STREET_KEY": "ELM", "STREET_NAME": "ELM ST", "DAY_EVEN": "F13", "DESC_EVEN": "Fri",
+             "TIME_EVEN": "", "DAY_ODD": "F24", "geometry": MultiLineString([a.coords, b.coords])},
         # Different street sharing block a's endpoints: never merged.
-        dict(STREET_KEY="OAK", STREET_NAME="OAK ST", DAY_EVEN="SE", geometry=a),
+        {"STREET_KEY": "OAK", "STREET_NAME": "OAK ST", "DAY_EVEN": "SE", "geometry": a},
         # NaN STREET_KEY falls back to the normalised STREET_NAME.
-        dict(STREET_KEY=np.nan, STREET_NAME="Elm Street", DAY_EVEN="THE", geometry=a),
+        {"STREET_KEY": np.nan, "STREET_NAME": "Elm Street", "DAY_EVEN": "THE", "geometry": a},
         # No-sweep code and an empty geometry contribute nothing.
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="NS", geometry=a),
-        dict(STREET_KEY="ELM", STREET_NAME="ELM ST", DAY_EVEN="SUE", geometry=LineString()),
-        dict(STREET_KEY="ZONE", STREET_NAME="ZONE 1", DAY_EVEN="ME",
-             geometry=Polygon([(0, 10), (50, 10), (50, 60), (0, 60)])),
+        {"STREET_KEY": "ELM", "STREET_NAME": "ELM ST", "DAY_EVEN": "NS", "geometry": a},
+        {"STREET_KEY": "ELM", "STREET_NAME": "ELM ST", "DAY_EVEN": "SUE", "geometry": LineString()},
+        {"STREET_KEY": "ZONE", "STREET_NAME": "ZONE 1", "DAY_EVEN": "ME",
+             "geometry": Polygon([(0, 10), (50, 10), (50, 60), (0, 60)])},
     ]
     gdf = geopandas.GeoDataFrame(rows, geometry="geometry", crs="EPSG:3857")
     gdf.index = pd.Index([10 * i + 5 for i in range(len(gdf))])

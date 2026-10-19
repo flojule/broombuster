@@ -133,7 +133,7 @@ def test_nws_keeps_parking_relevant_events(monkeypatch):
     monkeypatch.setattr(feeds, "get_json", lambda url, **p: {"features": [
         {"properties": {"event": "Red Flag Warning", "ends": "2026-10-18T05:00:00-07:00"}},
         {"properties": {"event": "Small Craft Advisory"}}]})
-    monkeypatch.setattr(alerts, "_spare_the_air", lambda: [])
+    monkeypatch.setattr(alerts, "_spare_the_air", list)
     assert [a["title"] for a in alerts.at("bay_area", 37.87, -122.27)] == ["Red Flag Warning"]
 
 

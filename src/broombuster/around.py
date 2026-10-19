@@ -179,7 +179,7 @@ def _url(v) -> str:
     v = str(v or "").strip()
     if v and not v.startswith(("http://", "https://")):
         v = "https://" + v
-    return v if v.startswith("https://") or v.startswith("http://") else ""
+    return v if v.startswith(("https://", "http://")) else ""
 
 
 def around(region_key: str, lat: float, lon: float) -> dict:

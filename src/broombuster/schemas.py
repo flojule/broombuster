@@ -344,7 +344,7 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     rows = list(out.iterrows())
     per_row = [_row_pairs(row) for _, row in rows]
     schedule_year = _infer_chicago_year(
-        (md for pairs in per_row for md in pairs), _dt.date.today().year
+        (md for pairs in per_row for md in pairs), _dt.datetime.now(_dt.UTC).year
     )
 
     def _schedule(pairs):

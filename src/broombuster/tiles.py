@@ -158,7 +158,7 @@ def ward_boundary_features(records):
     for _ward, geoms in sorted(by_ward.items()):
         try:
             polys.append(unary_union(geoms).buffer(0))
-        except Exception:
+        except Exception:  # noqa: S112 (skip a ward whose geometry will not merge)
             continue
 
     tree = STRtree(polys)

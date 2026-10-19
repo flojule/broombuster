@@ -53,7 +53,7 @@ _INVITE_TTL_S = 7 * 86400
 _MAX_MEMBERS = 10  # people per account
 _MAX_PENDING_PASSKEYS = 1000  # sign-ins in progress, all clients together
 _INVITE_PREFIX = "bbi_"
-_TOKEN_PREFIX = "bbc_"  # phone: one car of one account
+_TOKEN_PREFIX = "bbc_"  # noqa: S105 (a prefix, not a password)  # phone: one car of one account
 _CAL_PREFIX = "bbk_"  # calendar feed: one account
 
 
@@ -483,8 +483,11 @@ def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
         db.execute("UPDATE accounts SET prefs = ? WHERE id = ?",
                    (json.dumps(new, separators=(",", ":")), account_id))
         keep = [c["id"] for c in new["cars"]]
-        db.execute(f"DELETE FROM car_tokens WHERE account_id = ? AND car_id NOT IN"
-                   f" ({','.join('?' * len(keep))})", (account_id, *keep))
+        marks = ",".join("?" * len(keep))  # placeholders only; the values are bound
+        db.execute(
+            f"DELETE FROM car_tokens WHERE account_id = ? AND car_id NOT IN ({marks})",  # noqa: S608
+            (account_id, *keep),
+        )
 
 
 @router.delete("/api/me")

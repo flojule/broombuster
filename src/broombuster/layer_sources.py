@@ -54,7 +54,7 @@ def arcgis(layer_url: str, where: str = "1=1",
     """(every feature of an ArcGIS FeatureServer/MapServer layer, its last edit date)."""
     meta = _get(layer_url, f="json").json()
     edited = (meta.get("editingInfo") or {}).get("lastEditDate")
-    asof = datetime.date.fromtimestamp(edited / 1000).isoformat() if edited else ""
+    asof = datetime.datetime.fromtimestamp(edited / 1000, datetime.UTC).date().isoformat() if edited else ""
     page = min(int(meta.get("maxRecordCount") or 1000), 2000)
     feats, offset = [], 0
     while True:
@@ -87,7 +87,7 @@ def socrata(domain: str, dataset: str, where: str | None = None,
     """(rows of a Socrata dataset with a geometry column, its last data update)."""
     meta = _get(f"https://{domain}/api/views/{dataset}.json").json()
     upd = meta.get("rowsUpdatedAt")
-    asof = datetime.date.fromtimestamp(upd).isoformat() if upd else ""
+    asof = datetime.datetime.fromtimestamp(upd, datetime.UTC).date().isoformat() if upd else ""
     params = {"$limit": 200000}
     if where:
         params["$where"] = where

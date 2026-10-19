@@ -236,7 +236,7 @@ def chicago_vehicle(plate: str, state: str = "IL") -> dict | None:
         return {"towed": [], "relocated": []}
 
     def fetch():
-        since = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
+        since = (datetime.datetime.now(datetime.UTC).date() - datetime.timedelta(days=90)).isoformat()
         towed = get_json("https://data.cityofchicago.org/resource/ygr5-vcbg.json",
                       **{"$where": f"plate = '{p}' AND state = '{st}' AND tow_date >= '{since}'",
                          "$order": "tow_date DESC", "$limit": 5})
