@@ -48,5 +48,11 @@ Authorization: Bearer <token>
 {"lat": 37.8044, "lon": -122.2712, "accuracy": 8}
 ```
 
-Reply `{"summary": "Parked at 12 Oak St, Oakland."}`. `accuracy` is optional (metres);
-above 50 the position is refused (422). `401` = token revoked; `404` = car removed.
+Reply `{"summary": "Parked at 12 Oak St, Oakland."}`. Numbers may be sent as text, with
+a decimal comma or a unit (`"35 m"`, `"115 ft"`). `accuracy` is optional (metres unless a
+unit says otherwise); above 50 m the position is refused (422). `401` = token revoked;
+`404` = car removed.
+
+A refused report also answers with a `summary` that says why ("Position too rough (±65 m);
+the car was not moved."), so the notification of step 4 shows it, and the car's page in
+the app shows the last refusal.

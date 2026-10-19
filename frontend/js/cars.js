@@ -350,8 +350,11 @@ function _ago(epochS) {
 // A linked car's page: the phone's status (and the new token, once), as a section.
 function phoneLinkHTML(car) {
   if (!(car.id in phoneLinks)) return '';
-  const lastUsed = phoneLinks[car.id];
-  const status = lastUsed ? `Last reported ${_ago(lastUsed)}.` : 'Has not reported yet.';
+  const { used, moved, error } = phoneLinks[car.id] || {};
+  const status = !used ? 'Has not reported yet.'
+    : !error ? `Last reported ${_ago(moved || used)}.`
+    : `Last report (${_ago(used)}) was refused: ${error}`
+      + (moved ? ` Last position received ${_ago(moved)}.` : ' No position received yet.');
   const token = _phoneLink?.carId === car.id ? _phoneLink.token : null;
   return `<div class="sec-label">Phone</div><div class="sec">
     <div class="note">${esc(status)}</div>
@@ -373,7 +376,7 @@ async function _togglePhoneLink(car) {
     delete phoneLinks[car.id];
     _phoneLink = null;
   } else {
-    phoneLinks[car.id] = null;
+    phoneLinks[car.id] = {};
     _phoneLink = { carId: car.id, token: (await res.json()).token };
   }
   renderCarsPanel();

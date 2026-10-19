@@ -93,6 +93,7 @@ and nothing stale can be served. The page itself is `no-cache`; API paths are `n
 
 - Logs are JSON lines (`journalctl -u broombuster -o cat | jq 'select(.status>=500)'`);
   every response carries `X-Request-ID`, which matches the log's `rid`.
+  A refused phone report (`/api/cars/location`) logs why as `reason`.
 - Rate limits are per client IP (`LIMITS` in `api/web.py`; `/api/check` and `/api/rules`
   60/min, `/api/address`, `/api/locate` and `/api/check-home` 20/min, `/api/vehicle`
   10/min). `BB_RATE_LIMIT=0` turns them off.

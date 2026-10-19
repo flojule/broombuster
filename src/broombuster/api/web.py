@@ -21,7 +21,7 @@ from broombuster.version import app_version
 log = logging.getLogger("broombuster.http")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-_RECORD_FIELDS = ("rid", "method", "path", "status", "ms", "ip")
+_RECORD_FIELDS = ("rid", "method", "path", "status", "ms", "ip", "reason")
 
 
 class JsonFormatter(logging.Formatter):
@@ -209,7 +209,9 @@ async def http_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = rid
     if "cache-control" not in response.headers:
         response.headers["Cache-Control"] = cache_control(path, "v" in request.query_params)
-    log.info("request", extra={
-        "rid": rid, "method": request.method, "path": shown, "status": response.status_code,
-        "ms": round((time.perf_counter() - t0) * 1000), "ip": ip})
+    extra = {"rid": rid, "method": request.method, "path": shown, "status": response.status_code,
+             "ms": round((time.perf_counter() - t0) * 1000), "ip": ip}
+    if reason := getattr(request.state, "log_reason", None):  # why a request was refused
+        extra["reason"] = reason
+    log.info("request", extra=extra)
     return response

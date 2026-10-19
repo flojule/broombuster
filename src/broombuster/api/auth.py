@@ -87,11 +87,17 @@ def init_db() -> None:
                 token_hash TEXT PRIMARY KEY, car_id TEXT NOT NULL,
                 created_at INTEGER NOT NULL, last_used INTEGER,
                 sub TEXT NOT NULL REFERENCES users(sub) ON DELETE CASCADE,
+                last_moved INTEGER, last_error TEXT,
                 UNIQUE (sub, car_id));
             CREATE TABLE IF NOT EXISTS calendar_tokens (
                 token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, last_used INTEGER,
                 sub TEXT NOT NULL UNIQUE REFERENCES users(sub) ON DELETE CASCADE);
         """)
+        # Columns added after the first release.
+        have = {r["name"] for r in db.execute("PRAGMA table_info(car_tokens)")}
+        for col in ("last_moved INTEGER", "last_error TEXT"):
+            if col.split()[0] not in have:
+                db.execute(f"ALTER TABLE car_tokens ADD COLUMN {col}")
 
 
 def _hash(token: str) -> str:
@@ -281,7 +287,9 @@ def _stored_prefs(db: sqlite3.Connection, sub: str) -> dict:
 def me(request: Request, response: Response):
     """Sign-in state and saved prefs; `enabled` is false when sign-in is off.
 
-    `phone_links` maps each car that has a phone token to when it was last used.
+    `phone_links` maps each car that has a phone token to its last report: `used`
+    (any report), `moved` (last accepted one), `error` (why the last one was refused;
+    null when it was accepted), times in epoch seconds.
     """
     response.headers["Cache-Control"] = "no-store"
     if _config() is None:
@@ -290,8 +298,10 @@ def me(request: Request, response: Response):
     if user is None:
         return {"enabled": True, "user": None, "prefs": None}
     with closing(_connect()) as db:
-        links = {r["car_id"]: r["last_used"] for r in db.execute(
-            "SELECT car_id, last_used FROM car_tokens WHERE sub = ?", (user["sub"],))}
+        links = {r["car_id"]: {"used": r["last_used"], "moved": r["last_moved"],
+                               "error": r["last_error"]} for r in db.execute(
+            "SELECT car_id, last_used, last_moved, last_error FROM car_tokens WHERE sub = ?",
+            (user["sub"],))}
         cal = db.execute("SELECT created_at FROM calendar_tokens WHERE sub = ?",
                          (user["sub"],)).fetchone()
     return {"enabled": True, "user": {"email": user["email"]},
@@ -349,7 +359,10 @@ def revoke_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutatio
 
 
 def car_for_token(request: Request) -> sqlite3.Row:
-    """The (sub, car_id) a bearer token belongs to; marks the token used."""
+    """The (sub, car_id) a bearer token belongs to; marks the token used.
+
+    The token's hash goes on request.state.car_token, for record_refusal().
+    """
     _require_config()
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
@@ -362,7 +375,15 @@ def car_for_token(request: Request) -> sqlite3.Row:
                          (token_hash,)).fetchone()
     if row is None:
         raise HTTPException(401, "Unknown or revoked token.")
+    request.state.car_token = token_hash
     return row
+
+
+def record_refusal(token_hash: str, reason: str) -> None:
+    """Note why a phone report was refused, for the car's page."""
+    with closing(_connect()) as db, db:
+        db.execute("UPDATE car_tokens SET last_error = ? WHERE token_hash = ?",
+                   (reason[:300], token_hash))
 
 
 # ── Calendar subscription ─────────────────────────────────────────────────────
@@ -406,7 +427,8 @@ def prefs_for_calendar_token(token: str) -> dict | None:
 
 
 def set_car_location(sub: str, car_id: str, lat: float, lon: float) -> bool:
-    """Move a saved car and bump its position version; False if the car is gone."""
+    """Move a saved car, bump its position version and mark its phone token's report
+    accepted; False if the car is gone."""
     with closing(_connect()) as db, db:
         db.execute("BEGIN IMMEDIATE")
         prefs = _stored_prefs(db, sub)
@@ -416,4 +438,6 @@ def set_car_location(sub: str, car_id: str, lat: float, lon: float) -> bool:
         car.update(lat=lat, lon=lon, loc_rev=car.get("loc_rev", 0) + 1)
         db.execute("UPDATE users SET prefs = ? WHERE sub = ?",
                    (json.dumps(prefs, separators=(",", ":")), sub))
+        db.execute("UPDATE car_tokens SET last_moved = ?, last_error = NULL"
+                   " WHERE sub = ? AND car_id = ?", (int(time.time()), sub, car_id))
     return True
