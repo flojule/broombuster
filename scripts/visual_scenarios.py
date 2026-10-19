@@ -12,10 +12,10 @@ Scenarios = platform x theme x view. Each one is screenshotted and checked:
 
 Run (needs Playwright with WebKit and Chromium; it starts the server itself):
 
-    uv tool run --from playwright python scripts/visual_scenarios.py
-    uv tool run --from playwright python scripts/visual_scenarios.py --only iphone-safari --view month
-    uv tool run --from playwright python scripts/visual_scenarios.py --url http://localhost:8000  # existing server
-    uv tool run --from playwright python scripts/visual_scenarios.py --no-axe  # skip the accessibility check
+    uv run --extra visual python scripts/visual_scenarios.py
+    uv run --extra visual python scripts/visual_scenarios.py --only iphone-safari --view month
+    uv run --extra visual python scripts/visual_scenarios.py --url http://localhost:8000  # existing server
+    uv run --extra visual python scripts/visual_scenarios.py --no-axe  # skip the accessibility check
 
 Output goes to build/visual/ (PNGs, index.html contact sheet, report.txt). Exit code 1 on any FAIL.
 Safari's own toolbars and the iOS status bar cannot be rendered by headless WebKit: Safari scenarios use

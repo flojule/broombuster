@@ -24,7 +24,11 @@ api = [
     "uvicorn[standard]>=0.54",
 ]
 scripts = [
+    "cairosvg>=2.9",
     "pdfplumber>=0.11.10",
+]
+visual = [
+    "playwright>=1.64",
 ]
 dev = [
     "pytest>=9.1",
