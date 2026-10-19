@@ -154,7 +154,10 @@
     .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: .8rem;
       background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
     .lyr-popup .maplibregl-popup-tip { display: none; }
-    .lyr-city { display: block; font-size: .7rem; color: var(--muted); }
+    .lyr-popup span { display: block; }
+    .lyr-name { font-weight: 600; }
+    .lyr-when { font-variant-numeric: tabular-nums; }
+    .lyr-city { font-size: .7rem; color: var(--muted); }
 
     /* ── Map container ── */
     #map-container { height: 100%; position: relative; }
@@ -479,8 +482,6 @@
     /* The selected day: its date and three lines (more scroll), so the sheet's heights stay put. */
     .cal-detail { flex: none; height: calc(4 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
     .cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 2px; }
-    /* The street's "S" in the day details: the street card's mark, at the text's size. */
-    .cal-detail .sc-mark { display: inline-flex; width: 14px; height: 14px; margin-top: 0; border-radius: 4px; font-size: .5rem; vertical-align: -2px; }
     .cal-round { border-radius: 50%; }
     .cal-square { border-radius: 1px; }
     /* ── Map pins (MapLibre HTML markers): the card's icon in white on a disc of the car's

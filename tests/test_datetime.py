@@ -479,3 +479,9 @@ def test_chicago_dates_are_weekdays_in_season(chicago_gdf):
 def test_format_dates_by_month_across_years():
     days = [datetime.date(2026, 12, 30), datetime.date(2026, 12, 31), datetime.date(2027, 1, 4)]
     assert analysis.format_dates_by_month(days) == "Dec 30, 31; Jan 4"
+
+
+@needs_node
+def test_calendar_day_text_for_a_known_side_has_no_side_label():
+    items = [{"side": "even", "time": "9AM-11AM"}]
+    assert js(("dayText", [items, ["West", "East"], True])) == ["9AM–11AM"]

@@ -114,14 +114,14 @@ function locateWith(btn, onFix) {
   const done = () => { btn.disabled = false; btn.classList.remove('busy'); };
   btn.disabled = true; btn.classList.add('busy');
   getGPS(async (lat, lon, acc) => { done(); await onFix(lat, lon, acc); },
-         msg => { done(); showToast(`GPS: ${msg}`, true); });
+         msg => { done(); showToast(msg, true); });
 }
 
 function getGPS(onSuccess, onError) {
-  if (!navigator.geolocation) { onError?.('Geolocation not supported.'); return; }
+  if (!navigator.geolocation) { onError?.('Location isn’t available here.'); return; }
   navigator.geolocation.getCurrentPosition(
     pos => onSuccess(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-    err => onError?.(err.message),
+    err => onError?.(err.code === err.PERMISSION_DENIED ? 'Location is off for BroomBuster.' : 'Couldn’t find your location.'),
     { enableHighAccuracy: true, timeout: 10000 }
   );
 }

@@ -88,7 +88,7 @@ async function setHomeAddress(id, query) {
   if (!h) return;
   let hit;
   try { hit = await geocode(query, regionAt(h.lat, h.lon) || _region); }
-  catch (_) { showToast('Could not look up the address', true); renderHomePanel(); return; }
+  catch (_) { showToast('Couldn’t find the address', true); renderHomePanel(); return; }
   if (!hit) { showToast('Address not found', true); renderHomePanel(); return; }
   Object.assign(h, { lat: hit.lat, lon: hit.lon, address: query });
   homeChanged(h);

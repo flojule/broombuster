@@ -124,7 +124,7 @@ async function loadSchedule(id, store, request, onError) {
     const res = await request();
     if (res.ok) data = await res.json();
     else err = (await res.json().catch(() => ({}))).detail || res.statusText;
-  } catch (e) { err = e.message; }
+  } catch (_) { err = 'Couldn’t reach the server'; }
   if (_loadSeq.get(id) !== n) return null;
   if (err) { loadFailed.add(id); onError?.(err); return null; }
   loadFailed.delete(id);
@@ -179,8 +179,8 @@ function nearestRegion(lat, lon, radius = Infinity) {
 function regionAt(lat, lon) { return nearestRegion(lat, lon, REGION_RADIUS); }
 
 // The one clock for sweeping and trash days: {y, m, d, min} in the region's
-// timezone (the browser's until /cities has loaded).
-function regionNow(regionKey) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz); }
+// timezone (the browser's until /cities has loaded), now or at the Date `when`.
+function regionNow(regionKey, when) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz, when); }
 
 // A city's no-sweep holidays ({dayKey: name}; null: none known), from /cities.
 function sweepSkip(regionKey, city) {
@@ -204,7 +204,7 @@ let _tempPinMarker = null;
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
-const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-outline', 'zones-ward', 'zones-line', 'zones-side-even', 'zones-side-odd'];
+const ZONE_LAYERS  = ['zones-fill', 'zones-here', 'zones-active', 'zones-outline', 'zones-ward', 'zones-line', 'zones-side-even', 'zones-side-odd'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
 // Vector tile source; per-feature urgency arrives via feature-state.
@@ -224,10 +224,10 @@ function _urgCase(prop, key = 'urgency') {
   ];
 }
 // Street line width scales with zoom so it stays thin on city-wide views; it also
-// grows with urgency (today x2, tomorrow x1.5; no sweeping x0.6) so colour is not the only cue.
+// grows with urgency (today x2, tomorrow x1.5; no sweeping a hairline) so colour is not the only cue.
 // One side's line (key 'urgency_even' / 'urgency_odd') is `scale` of that.
 const LINE_W = { 11: 0.8, 14: 1.5, 16: 2.5, 18: 4 };
-const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.6 };
+const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.35 };
 function _lineWidth(key = 'urgency', scale = 1) {
   const stops = Object.entries(LINE_W).flatMap(([z, w]) => [Number(z), [
     'case',
