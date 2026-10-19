@@ -3,7 +3,8 @@
 // (in the source's own words, shortened; one row per side when the sides differ, the
 // side lying higher on screen first, marked in that side's map line colour), then the
 // parking rules from /api/rules (permit area, meter, winter ban, closure), each a short
-// line with its mark. The rules arrive once the map stops (one request per spot).
+// line with its mark. The rules arrive once the map stops (one request per spot); the
+// turned-on map layers' areas at the target (a permit area, a fire zone) show at once.
 const signsEl = document.getElementById('signs');
 let _signsKey = '';
 
@@ -122,7 +123,7 @@ function _evenSideDirection(f) {
 function _rowHTML({ heading, color, mark, text, detail = '', soon = false, said, sweep = false, ...rest }) {
   if (rest.divider) return '<hr class="sc-rule">';
   if (heading) return `<div class="sc-side" aria-hidden="true">${esc(heading)}</div>`;  // each row says its side
-  return `<div class="sc-row${soon ? ' soon' : ''}"><i class="sc-mark${sweep ? ' sc-sweep' : ''}"${color ? ` style="background:${esc(color)}"` : ''} aria-hidden="true">${esc(mark)}</i>`
+  return `<div class="sc-row${soon ? ' soon' : ''}">${markHTML({ color, mark, sweep })}`
        + `<span class="sr-only">${esc(said || `${text} ${detail}`.trim())}</span>`
        + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail${sweep ? ' sc-time' : ''}">${esc(detail)}</span>` : ''}</span></div>`;
 }
@@ -155,14 +156,28 @@ function _whenHTML(secs, now, skip) {
   return `<b class="sc-when" style="background:var(--urg-${u}-bg)"><span class="sr-only">${esc(said)}</span>${esc(URGENCY[u].short)}</b>`;
 }
 
-// The card's marks, also the Layers menu's legend (js/layers.js): sweeping, then the rules.
+// A mark: a letter on a colour (dark on a light one: a city's pale permit colours).
+function markHTML({ color, mark, sweep = false }) {
+  const light = !sweep && _isLight(color);
+  return `<i class="sc-mark${sweep ? ' sc-sweep' : ''}${light ? ' light' : ''}"${color ? ` style="background:${esc(color)}"` : ''}`
+       + ` aria-hidden="true">${esc(mark)}</i>`;
+}
+function _isLight(color) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color || '');
+  return !!m && (0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16)) > 165;
+}
+
+// The card's marks, also the Layers menu's legend (js/layers.js; a mark with a `layer`
+// only where the region has it): sweeping, then the rules, in their map layer's colours
+// (a permit area: its own colour on the map, LAYER_STYLE.key).
 const CARD_MARKS = [
   { key: 'sweep',   mark: 'S', color: URGENCY.safe.line, name: 'Street sweeping' },
-  { key: 'permit',  mark: 'P', color: '#7c3aed', name: 'Permit area' },
-  { key: 'limit',   mark: 'h', color: '#6d28d9', name: 'Time limit' },
-  { key: 'meter',   mark: '$', color: '#0f766e', name: 'Meter' },
-  { key: 'winter',  mark: '*', color: '#0369a1', name: 'Winter ban' },
-  { key: 'ban',     mark: '!', color: '#b91c1c', name: 'Closure, tow-away or ban' },
+  { key: 'permit',  mark: 'P', color: LAYER_STYLE.parking.key, name: 'Permit area, in its colour', layer: 'parking' },
+  { key: 'limit',   mark: 'h', color: '#6d28d9', name: 'Time limit', layer: 'parking' },
+  { key: 'meter',   mark: '$', color: LAYER_STYLE.meters.color, name: 'Meter', layer: 'meters' },
+  { key: 'winter',  mark: '*', color: LAYER_STYLE.winter.color, name: 'Winter ban', layer: 'winter' },
+  { key: 'fire',    mark: 'F', color: LAYER_STYLE.fire.color, name: 'Fire zone', layer: 'fire' },
+  { key: 'ban',     mark: '!', color: LAYER_STYLE.closures.color, name: 'Closure, tow-away or ban' },
 ];
 const _MARK = Object.fromEntries(CARD_MARKS.map(m => [m.key, m]));
 
@@ -172,7 +187,8 @@ function _ruleRow(r) {
   const rule = String(r.rule || '');
   let text = r.label, detail = rule.split(/;|\. /)[0].replace(/\.$/, '').trim();
   const kind = r.theme === 'meters' ? 'meter' : r.theme === 'winter' ? 'winter' : r.theme === 'closures' ? 'ban'
-    : /^Permit (area|zone) /.test(text) ? 'permit' : /\bh limit$/.test(text) ? 'limit' : 'ban';
+    : r.theme === 'fire' ? 'fire'
+    : /^Permit (area|zone) /.test(text) ? 'permit' : /\b(h|min) limit$/.test(text) ? 'limit' : 'ban';
   if (kind === 'meter') {
     text = 'Metered';
     detail = detail.replace(/^Metered:\s*/i, '');
@@ -181,7 +197,7 @@ function _ruleRow(r) {
   // "No oversized vehicles" + "No oversized vehicles, M–Su 12am–6am": the hours only.
   if (detail.toLowerCase().startsWith(text.toLowerCase())) detail = detail.slice(text.length).replace(/^[\s,:–-]+/, '');
   if (/exempt from the posted|follows? the (posted|signs)/i.test(detail)) detail = '';
-  const { mark, color } = _MARK[kind];
+  const { mark } = _MARK[kind], color = kind === 'permit' && r.color || _MARK[kind].color;
   return { mark, color, text, detail, said: rule.startsWith(text) ? rule : `${text}${rule ? ': ' + rule : ''}` };
 }
 
@@ -242,8 +258,10 @@ function renderSigns(f, live = false) {
       if (ev && (Math.abs(ev[1]) >= Math.abs(ev[0]) ? ev[1] > 0 : ev[0] > 0)) secs.reverse();
     }
   }
+  // The server's first (they carry the rule's words), then the map's areas it lacks.
   const seen = new Set();
-  const rules = targetRules(live).filter(r => !seen.has(r.label) && seen.add(r.label)).slice(0, 4);
+  const rules = [...targetRules(live), ...overlayAreasAtTarget()]
+    .filter(r => r.label && !seen.has(r.label) && seen.add(r.label)).slice(0, 4);
   // The rules apply to the whole block: a rule line sets them apart from a side's heading.
   const rows = [...secs.flatMap(s => _sweepRows(s, now, skip)),
                 ...(secs.length && rules.length ? [{ divider: true }] : []), ...rules.map(_ruleRow)];

@@ -1,5 +1,6 @@
 """Extra map layers: the committed files, /api/rules lookups and the map catalogue."""
 
+import itertools
 import json
 from pathlib import Path
 
@@ -27,7 +28,8 @@ def test_every_manifest_layer_has_a_source(city, theme):
                                         if layers.fgb_path(c, t).exists()])
 def test_committed_layer_files_keep_only_the_schema(city, theme):
     gdf = geopandas.read_file(layers.fgb_path(city, theme))
-    assert list(gdf.columns) == [*layer_sources.COLUMNS, "geometry"]
+    extra = [layer_sources.COLOR] if layer_sources.COLOR in gdf else []  # a city's own colours
+    assert list(gdf.columns) == [*layer_sources.COLUMNS, *extra, "geometry"]
     assert len(gdf) and gdf.crs.to_epsg() == 4326
     lat0, lon0, lat1, lon1 = CITIES[city]["bbox"]
     minx, miny, maxx, maxy = gdf.total_bounds
@@ -49,7 +51,9 @@ def test_client_geojson_is_small_and_has_no_rule_text(region):
         assert path.stat().st_size < 3_000_000, path
         fc = json.loads(path.read_text())
         assert fc["features"]
-        assert set(fc["features"][0]["properties"]) == {"label", "city"}, path
+        props = set(fc["features"][0]["properties"])
+        assert props == ({"label", "city", "color", "edge"} if path.stem == "parking"
+                         else {"label", "city"}), path
 
 
 def test_catalogue_lists_hashed_urls_and_live_closures(app_client):
@@ -108,14 +112,65 @@ def test_sf_missing_fields_are_not_nan():
     assert layer_sources._sf_rule(row) == "4 h limit, M–Sa 8am–6pm."
 
 
-def test_permit_areas_fill_the_blocks_between_their_streets():
-    # The map's copy (scripts/build_layers.py): two parallel curb lines of one area, 100 m
-    # apart, become one area covering the block between them; other rules leave the map.
+def _build():
     import importlib.util
     path = _ROOT / "scripts" / "build_layers.py"
     spec = importlib.util.spec_from_file_location("build_layers", path)
     build = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(build)
+    return build
+
+
+def test_permit_area_codes_and_sf_limits():
+    assert layer_sources.permit_area("AREA A") == "A"
+    assert layer_sources.permit_area(" Q ") == "Q"
+    assert layer_sources.permit_area("0") == layer_sources.permit_area(float("nan")) == ""
+    assert layer_sources._limit("0.330000013") == "20 min limit"
+    assert layer_sources._limit("2.0") == "2 h limit"
+    assert layer_sources._limit("0") == ""
+
+
+def test_arcgis_colors_read_the_city_renderer(monkeypatch):
+    meta = {"drawingInfo": {"renderer": {"type": "uniqueValue", "uniqueValueInfos": [
+        {"value": "AREA A", "symbol": {"color": [115, 178, 255, 255]}}]}}}
+
+    class R:
+        def json(self):
+            return meta
+    monkeypatch.setattr(layer_sources, "_get", lambda url, **p: R())
+    assert layer_sources.arcgis_colors("x") == {"AREA A": "#73b2ff"}
+
+
+def test_permit_areas_take_the_city_colour_else_one_their_neighbours_lack():
+    build = _build()
+    sq = [shapely.box(-122.42 + i * 0.002, 37.77, -122.4185 + i * 0.002, 37.7715) for i in range(4)]
+    gdf = geopandas.GeoDataFrame(
+        {"label": [f"Permit area {c}" for c in "ABCD"], "city": ["oakland"] * 4,
+         "color": ["#ffff73", None, None, None]}, geometry=sq, crs="EPSG:4326")
+    out = build.permit_areas(gdf).set_index("label")
+    assert out.loc["Permit area A", "color"] == "#ffff73"
+    assert out.loc["Permit area A", "edge"] == "#999945"  # pale: a darker edge
+    colors = list(out["color"])
+    assert all(a != b for a, b in itertools.pairwise(colors))  # touching areas differ
+    assert set(colors[1:]) <= set(build.AREA_PALETTE)
+
+
+def test_rules_inside_a_permit_area_away_from_its_curbs(app_client, monkeypatch):
+    # Oakland's permit data is curbs: mid-block, the area as drawn on the map still applies.
+    from broombuster import feeds
+    monkeypatch.setattr(feeds, "closures", lambda region, now=None: [])
+    fc = json.loads((_ROOT / "frontend" / "layers" / "bay_area" / "parking.geojson").read_text())
+    f = next(f for f in fc["features"] if f["properties"]["city"] == "oakland")
+    p = shapely.geometry.shape(f["geometry"]).representative_point()
+    rules = app_client.get("/api/rules", params={"lat": p.y, "lon": p.x}).json()["rules"]
+    hit = [r for r in rules if r["label"] == f["properties"]["label"]]
+    assert hit and hit[0]["color"] == f["properties"]["color"] and "exempt" in hit[0]["rule"]
+
+
+def test_permit_areas_fill_the_blocks_between_their_streets():
+    # The map's copy (scripts/build_layers.py): two parallel curb lines of one area, 100 m
+    # apart, become one area covering the block between them; other rules leave the map.
+    build = _build()
     m = 1 / 111_000  # ° of latitude per metre
     lines = [shapely.LineString([(-122.42, 37.77 + y * m), (-122.4185, 37.77 + y * m)])
              for y in (0, 100)]

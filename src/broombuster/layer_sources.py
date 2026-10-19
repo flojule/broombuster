@@ -26,6 +26,8 @@ from broombuster.config import REPO_ROOT
 _TIMEOUT_S = 120
 _UA = {"User-Agent": "BroomBuster layer build (https://github.com/flojule/broombuster)"}
 COLUMNS = ("label", "rule", "asof")
+# Optional: the colour the city's own map gives a feature ("#rrggbb"; permit areas).
+COLOR = "color"
 
 BERKELEY = "https://services1.arcgis.com/IYiCpZoSIq9lAxi8/arcgis/rest/services"
 BERKELEY_GIS = "https://gis.cityofberkeley.info/arcgis/rest/services"
@@ -66,6 +68,18 @@ def arcgis(layer_url: str, where: str = "1=1",
         if not batch:
             break
     return _frame(feats), asof
+
+
+def arcgis_colors(layer_url: str) -> dict[str, str]:
+    """{field value: "#rrggbb"} from a layer's unique-value renderer (the colours of the
+    city's own map); {} when it draws everything alike."""
+    r = (_get(layer_url, f="json").json().get("drawingInfo") or {}).get("renderer") or {}
+    out = {}
+    for v in r.get("uniqueValueInfos") or []:
+        rgb = ((v.get("symbol") or {}).get("color") or [])[:3]
+        if len(rgb) == 3:
+            out[str(v.get("value")).strip()] = "#" + "".join(f"{int(c):02x}" for c in rgb)
+    return out
 
 
 def socrata(domain: str, dataset: str, where: str | None = None,
@@ -121,15 +135,30 @@ _OAKLAND_RPP = ("Permit holders are exempt from the posted time limit; "
                 "everyone else follows the signs.")
 
 
+def permit_area(v) -> str:
+    """A source's permit area code as the app names it ("AREA A" -> "A"); "" for none
+    (blank, or SF's "0")."""
+    if v is None or pd.isna(v):
+        return ""
+    v = re.sub(r"^(AREA|ZONE)\s+", "", str(v).strip(), flags=re.I)
+    return "" if v in ("", "0") else v
+
+
 def berkeley_parking():
-    gdf, asof = arcgis(f"{BERKELEY}/Public_Online_RPP_Map_WFL1/FeatureServer/10", fields="Area")
-    return _out(gdf, lambda r: f"Permit area {str(r['Area']).strip()}", _BERKELEY_RPP, asof)
+    url = f"{BERKELEY}/Public_Online_RPP_Map_WFL1/FeatureServer/10"
+    gdf, asof = arcgis(url, fields="Area")
+    gdf = gdf[gdf["Area"].map(permit_area) != ""]
+    # The city's RPP map colours, by area.
+    colors = {permit_area(k): c for k, c in arcgis_colors(url).items()}
+    gdf = _out(gdf, lambda r: f"Permit area {permit_area(r['Area'])}", _BERKELEY_RPP, asof)
+    gdf[COLOR] = [colors.get(lbl.removeprefix("Permit area ")) for lbl in gdf["label"]]
+    return gdf
 
 
 def oakland_parking():
     gdf, asof = arcgis(f"{OAKLAND}/RPPCurbs0819/FeatureServer/0", fields="RPP_ZONE")
-    gdf = gdf[gdf["RPP_ZONE"].notna() & (gdf["RPP_ZONE"].astype(str).str.strip() != "")]
-    return _out(gdf, lambda r: f"Permit area {str(r['RPP_ZONE']).strip()}", _OAKLAND_RPP, asof)
+    gdf = gdf[gdf["RPP_ZONE"].map(permit_area) != ""]
+    return _out(gdf, lambda r: f"Permit area {permit_area(r['RPP_ZONE'])}", _OAKLAND_RPP, asof)
 
 
 def _txt(r, key: str) -> str:
@@ -143,22 +172,34 @@ def _sf_hours(r) -> str:
     return " ".join(x for x in (days.replace("-", "–"), f"{a}–{b}" if a and b else "") if x)
 
 
+def _limit(hours: str) -> str:
+    """SF's hrlimit as a time limit ("2" -> "2 h limit", "0.330000013" -> "20 min limit");
+    "" for none."""
+    try:
+        h = float(hours)
+    except ValueError:
+        return ""
+    if h <= 0:
+        return ""
+    return f"{round(h * 60)} min limit" if h < 1 else f"{h:g} h limit"
+
+
 def _sf_label(r) -> str:
-    area, limit = _txt(r, "rpparea1"), _txt(r, "hrlimit")
+    area, limit = permit_area(_txt(r, "rpparea1")), _limit(_txt(r, "hrlimit"))
     if area:
         return f"Permit area {area}"
-    if _txt(r, "regulation").lower() == "time limited" and limit not in ("", "0", "0.0"):
-        return f"{limit.rstrip('0').rstrip('.')} h limit"
+    if _txt(r, "regulation").lower() == "time limited" and limit:
+        return limit
     return _txt(r, "regulation") or "Parking rule"
 
 
 def _sf_rule(r) -> str:
     reg = _txt(r, "regulation")
-    limit = _txt(r, "hrlimit")
+    limit = _limit(_txt(r, "hrlimit"))
     hours = _sf_hours(r)
-    area = _txt(r, "rpparea1")
-    if reg.lower() == "time limited" and limit and limit not in ("0", "0.0"):
-        text = f"{limit.rstrip('0').rstrip('.')} h limit" + (f", {hours}" if hours else "")
+    area = permit_area(_txt(r, "rpparea1"))
+    if reg.lower() == "time limited" and limit:
+        text = limit + (f", {hours}" if hours else "")
         return text + (f"; permit area {area} holders exempt." if area else ".")
     if reg.lower().startswith("no overnight"):
         return f"No overnight parking{', ' + hours if hours else ''}."
@@ -390,8 +431,8 @@ ATTRIBUTION = {
 
 
 def dump_json(gdf: geopandas.GeoDataFrame) -> str:
-    """Compact GeoJSON for the client's copy: label and city only (the rule text comes
-    from /api/rules), coordinates to 1e-6° (~10 cm)."""
-    gdf = gdf[["label", "city", "geometry"]].copy()
+    """Compact GeoJSON for the client's copy: label, city and colours (when given) only
+    (the rule text comes from /api/rules), coordinates to 1e-6° (~10 cm)."""
+    gdf = gdf[["label", "city", *(c for c in (COLOR, "edge") if c in gdf), "geometry"]].copy()
     gdf["geometry"] = shapely.set_precision(gdf.geometry.values, 1e-6, mode="pointwise")
     return json.dumps(json.loads(gdf.to_json(drop_id=True)), separators=(",", ":"))

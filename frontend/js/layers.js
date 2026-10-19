@@ -2,11 +2,16 @@
 // Each region lists its layers in /cities (id, name, a content-versioned GeoJSON url,
 // scripts/build_layers.py). Turned on, a layer is drawn under the street colours (points
 // above them), so sweeping stays the first thing the map says. Which layers are on is
-// remembered on this device. A tap on a layer's feature names it.
-// icon: the glyph of a point layer's marker (a 24 px SVG path, white on the colour);
-// fill: the glyph is filled, else stroked. minzoom: hidden zoomed out (meters are many).
+// remembered on this device. A tap on a layer's feature names it; an area the target is
+// in shows on the street card (overlayAreasAtTarget).
+// color: the layer's colour; a feature's own `color` (each permit area its own: the
+// city's, else one its neighbours lack; scripts/build_layers.py) wins, edged in its
+// `edge` when it is pale. key: the Layers
+// menu swatch when features differ. icon: the glyph of a point layer's marker (a 24 px
+// SVG path, white on the colour); fill: the glyph is filled, else stroked.
+// minzoom: hidden zoomed out (meters are many).
 const LAYER_STYLE = {
-  parking: { color: '#7c3aed' },
+  parking: { color: '#7c3aed', key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #db2777 0 75%, #a16207 0)' },
   meters:  { color: '#0f766e', minzoom: 15 },
   winter:  { color: '#0369a1' },
   ev:      { color: '#16a34a', minzoom: 12, fill: true, icon: 'M13.5 3 6 13.5h5L10 21l8-11h-5.2l.7-7z' },
@@ -68,7 +73,8 @@ function _removeOverlay(id) {
 
 let _iconListener = false;
 function _addOverlay(layer) {
-  const src = LAYER_PREFIX + layer.id, st = LAYER_STYLE[layer.id] || {}, color = st.color || '#475569';
+  const src = LAYER_PREFIX + layer.id, st = LAYER_STYLE[layer.id] || {};
+  const color = ['coalesce', ['get', 'color'], st.color || '#475569'];
   if (!map.getSource(src)) map.addSource(src, { type: 'geojson', data: layer.url });
   const [fill, edge, line, pt] = _ids(layer.id);
   const below = map.getLayer('zones-fill') ? 'zones-fill' : undefined;  // under the street colours
@@ -76,11 +82,12 @@ function _addOverlay(layer) {
   const is = (...types) => ['in', ['geometry-type'], ['literal', types]];
   const poly = is('Polygon', 'MultiPolygon');
   const meters = layer.id === 'meters';
-  // Areas: a tint and a fine edge (the edge tells neighbouring areas apart).
+  // Areas: a tint and an edge in their colour, like Chicago's sweeping zones (the edge
+  // tells neighbouring areas apart).
   if (!map.getLayer(fill)) map.addLayer({ id: fill, type: 'fill', source: src, filter: poly, ...zoom,
-    paint: { 'fill-color': color, 'fill-opacity': meters ? 0.1 : 0.14 } }, below);
+    paint: { 'fill-color': color, 'fill-opacity': meters ? 0.1 : 0.2 } }, below);
   if (!meters && !map.getLayer(edge)) map.addLayer({ id: edge, type: 'line', source: src, filter: poly, ...zoom,
-    paint: { 'line-color': color, 'line-opacity': 0.55, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 16, 1.2] } }, below);
+    paint: { 'line-color': ['coalesce', ['get', 'edge'], color], 'line-opacity': 0.85, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 16, 2] } }, below);
   if (!map.getLayer(line)) map.addLayer({ id: line, type: 'line', source: src, ...zoom,
     filter: is('LineString', 'MultiLineString'),
     paint: { 'line-color': color, 'line-opacity': 0.8, 'line-dasharray': [2, 1.5],
@@ -110,8 +117,10 @@ function _addOverlay(layer) {
 }
 
 // Put the region's turned-on layers on the map (after a region or basemap change).
+// Called once the style is ready (whenStyleReady): right after the tiles' source is
+// added isStyleLoaded() is false again, which must not keep the layers off.
 function syncOverlays() {
-  if (!map || !map.isStyleLoaded()) return;
+  if (!map) return;
   const region = _tilesRegion || _region;
   if (_layersRegion && _layersRegion !== region) {
     for (const l of regions[_layersRegion]?.layers || []) _removeOverlay(l.id);
@@ -127,11 +136,14 @@ function syncOverlays() {
 function _legendHTML() {
   const colors = [['today', 'Today', 3], ['tomorrow', 'Tomorrow', 2], ['safe', 'Clear', 1], ['none', 'No sweeping', 0]]
     .map(([u, name, w]) => `<span class="urg-${u}"><i class="lg lg-${w}"></i>${name}</span>`).join('');
-  const marks = CARD_MARKS.map(m => `<span><i class="sc-mark${m.key === 'sweep' ? ' sc-sweep' : ''}"`
-    + ` style="background:${esc(m.color)}">${esc(m.mark)}</i>${esc(m.name)}</span>`).join('');
+  const have = new Set(_regionLayers().map(l => l.id));
+  const marks = CARD_MARKS.filter(m => !m.layer || have.has(m.layer)).map(m => `<span>${markHTML({ ...m, sweep: m.key === 'sweep' })}${esc(m.name)}</span>`).join('');
   return `<div class="lyr-legend" role="none"><b>Sweeping</b><div class="legend">${colors}</div>`
        + `<b>Street card</b><div class="lyr-marks">${marks}</div></div>`;
 }
+
+// A layer's swatch: its colours (permit areas: several), else its colour.
+function _layerKey(id) { return LAYER_STYLE[id]?.key || LAYER_STYLE[id]?.color || '#475569'; }
 
 function _renderLayersMenu() {
   const list = _regionLayers();
@@ -139,7 +151,7 @@ function _renderLayersMenu() {
     ? list.map(l => `<button class="ctx-item lyr-item" role="menuitemcheckbox" data-layer="${esc(l.id)}"`
         + ` aria-checked="${_layersOn.has(l.id)}">` + (LAYER_STYLE[l.id]?.icon
           ? `<img class="lyr-key" alt="" src="${esc(_iconCanvas(l.id).toDataURL())}">`
-          : `<i class="lyr-key" style="--k:${esc(LAYER_STYLE[l.id]?.color || '#475569')}"></i>`)
+          : `<i class="lyr-key" style="--k:${esc(_layerKey(l.id))}"></i>`)
         + `${esc(l.name)}<svg class="ic lyr-check" aria-hidden="true"><use href="#i-check"/></svg></button>`).join('')
     : '<p class="lyr-note">No extra layers here.</p><button class="ctx-item" role="menuitem" data-layer="">Close</button>')
     + _legendHTML();
@@ -167,8 +179,28 @@ function overlayClick(e) {
   _layerPopup?.remove();
   _layerPopup = null;
   if (!f) return;
-  const el = document.createElement('div');
+  const el = document.createElement('div'), city = _regionCities() > 1 ? cityName(f.properties.city) : '';
   el.textContent = f.properties.label || f.properties.title || '';  // closures: a title
+  if (city) {  // "Permit area A" is in Berkeley and in Oakland
+    const c = el.appendChild(document.createElement('span'));
+    c.className = 'lyr-city';
+    c.textContent = city;
+  }
   _layerPopup = new maplibregl.Popup({ closeButton: false, className: 'lyr-popup', offset: 8 })
     .setLngLat(e.lngLat).setDOMContent(el).addTo(map);
+}
+
+function _regionCities() { return Object.keys(regions[_tilesRegion || _region]?.cities || {}).length; }
+
+// The turned-on layers' areas the target is in, as /api/rules gives rules ({theme, label,
+// city, color}; no rule text): the street card shows them at once, and those the server
+// does not know (fire zones are a home's, not a car's).
+function overlayAreasAtTarget() {
+  if (!map) return [];
+  const ids = _regionLayers().map(l => _ids(l.id)[0]).filter(id => map.getLayer(id));
+  if (!ids.length) return [];
+  let feats;
+  try { feats = map.queryRenderedFeatures(map.project(map.getCenter()), { layers: ids }); } catch (_) { return []; }
+  return feats.map(f => ({ theme: f.layer.id.slice(LAYER_PREFIX.length, -'-fill'.length), label: f.properties.label,
+                           city: f.properties.city, color: f.properties.color, rule: '' }));
 }
