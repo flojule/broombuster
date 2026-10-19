@@ -356,9 +356,8 @@ function phoneLinkHTML(car) {
   return `<div class="sec-label">Phone</div><div class="sec">
     <div class="note">${esc(status)}</div>
     ${token ? `
-    <div class="note">Copy this token into your phone automation now; it is shown only once.
-      The automation posts {"lat", "lon"} to <b>${esc(location.origin)}/api/cars/location</b>
-      with the header <b>Authorization: Bearer &lt;token&gt;</b>.</div>
+    <div class="note">Shown once. POST {"lat", "lon"} to <b>${esc(location.origin)}/api/cars/location</b>
+      with <b>Authorization: Bearer &lt;token&gt;</b>.</div>
     <input class="field ce-token" readonly value="${esc(token)}" aria-label="Phone token">
     <button class="btn btn-tinted ce-btn-copy">Copy token</button>` : ''}
   </div>`;
@@ -480,7 +479,7 @@ function updateSavedSummary() {
   savedSummary.innerHTML = today.length ? `<span class="urg-today">${icon('alert')}</span> Move ${esc(today.join(', '))} today`
     : tomorrow.length ? `<span class="urg-tomorrow">${icon('alert')}</span> Move ${esc(tomorrow.join(', '))} tomorrow`
     : cars.length && cars.every(c => carSchedules[c.id]) ? `<span class="urg-safe">${icon('check')}</span> All clear`
-    : cars.length || homes.length ? '' : '<span class="note">Add your car with + to see when to move it, or your home for trash day.</span>';
+    : cars.length || homes.length ? '' : '<span class="note">Add a car or home with +</span>';
   savedSummary.insertAdjacentHTML('beforeend', _alertsHTML());
   tabbar.querySelector('.tab-badge').hidden = !today.length;
 }

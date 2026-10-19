@@ -132,21 +132,31 @@ def oakland_parking():
     return _out(gdf, lambda r: f"Permit area {str(r['RPP_ZONE']).strip()}", _OAKLAND_RPP, asof)
 
 
+def _txt(r, key: str) -> str:
+    """A source field as text; "" for a missing value (None or NaN, which str() makes "nan")."""
+    v = r.get(key)
+    return "" if v is None or pd.isna(v) else str(v).strip()
+
+
 def _sf_hours(r) -> str:
-    days, a, b = (str(r.get(k) or "").strip() for k in ("days", "from_time", "to_time"))
+    days, a, b = (_txt(r, k) for k in ("days", "from_time", "to_time"))
     return " ".join(x for x in (days.replace("-", "–"), f"{a}–{b}" if a and b else "") if x)
 
 
 def _sf_label(r) -> str:
-    area = str(r.get("rpparea1") or "").strip()
-    return f"Permit area {area}" if area else str(r.get("regulation") or "Parking rule").strip()
+    area, limit = _txt(r, "rpparea1"), _txt(r, "hrlimit")
+    if area:
+        return f"Permit area {area}"
+    if _txt(r, "regulation").lower() == "time limited" and limit not in ("", "0", "0.0"):
+        return f"{limit.rstrip('0').rstrip('.')} h limit"
+    return _txt(r, "regulation") or "Parking rule"
 
 
 def _sf_rule(r) -> str:
-    reg = str(r.get("regulation") or "").strip()
-    limit = str(r.get("hrlimit") or "").strip()
+    reg = _txt(r, "regulation")
+    limit = _txt(r, "hrlimit")
     hours = _sf_hours(r)
-    area = str(r.get("rpparea1") or "").strip()
+    area = _txt(r, "rpparea1")
     if reg.lower() == "time limited" and limit and limit not in ("0", "0.0"):
         text = f"{limit.rstrip('0').rstrip('.')} h limit" + (f", {hours}" if hours else "")
         return text + (f"; permit area {area} holders exempt." if area else ".")
@@ -194,7 +204,7 @@ def sf_meters():
     gdf, asof = socrata("data.sf.gov", "27b3-yjjx")
     def label(r):
         street = re.sub(r"(\d)(St|Nd|Rd|Th)\b", lambda m: m[1] + m[2].lower(),
-                        str(r.get("street_name") or "").title())
+                        _txt(r, "street_name").title())
         return f"Metered block, {street}" if street else "Metered block"
 
     return _out(gdf, label, "Metered: pay at the meter or app; hours and rate are on the meter.",

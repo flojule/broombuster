@@ -33,6 +33,8 @@ function openMenu(menu, anchor, at = null) {
   menu.hidden = false;
   anchor?.setAttribute('aria-expanded', 'true');
   sheet.inert = true;
+  // A long menu (Layers and its legend) scrolls rather than covering its button.
+  menu.style.maxHeight = anchor && !at ? Math.max(200, window.innerHeight - anchor.getBoundingClientRect().bottom - 14) + 'px' : '';
   const h = menu.offsetHeight, w = menu.offsetWidth, W = window.innerWidth, H = window.innerHeight;
   let left, top, ox, oy;
   if (at) {

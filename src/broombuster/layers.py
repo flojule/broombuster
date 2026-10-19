@@ -17,7 +17,7 @@ from broombuster.config import REPO_ROOT
 # near_m: how close a car must be for the feature to apply (0: inside a polygon);
 # applies_to: "car" rules, "home" facts, or "map" only.
 THEMES = {
-    "parking": {"name": "Permit areas and limits", "map": True, "near_m": 12, "applies_to": "car"},
+    "parking": {"name": "Permit areas", "map": True, "near_m": 12, "applies_to": "car"},
     "meters":  {"name": "Meters", "map": True, "near_m": 20, "applies_to": "car"},
     "winter":  {"name": "Winter parking bans", "map": True, "near_m": 15, "applies_to": "car"},
     "ev":      {"name": "EV charging", "map": True, "near_m": 0, "applies_to": "map"},

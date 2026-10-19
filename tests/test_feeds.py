@@ -104,13 +104,24 @@ def test_chicago_permit_zone(monkeypatch):
     monkeypatch.setattr(feeds, "_zones", pd.DataFrame([
         {"street": "NORTH WOLCOTT", "low": 1600, "high": 1688, "side": "E", "zone": "154"},
         {"street": "NORTH WOLCOTT", "low": 1601, "high": 1699, "side": "O", "zone": "155"}]))
-    monkeypatch.setattr(gps, "address_parts",
-                        lambda lat, lon: {"house_number": "1640", "road": "North Wolcott Avenue"})
+    addr = {"house_number": "1640", "road": "North Wolcott Avenue"}
+    monkeypatch.setattr(gps, "address_parts", lambda lat, lon, network=True: addr)
     (rule,) = feeds.chicago_permit_zone(41.9, -87.67)
     assert rule["label"] == "Permit zone 154"
-    monkeypatch.setattr(gps, "address_parts", lambda lat, lon: None)
+    monkeypatch.setattr(gps, "address_parts", lambda lat, lon, network=True: None)
     assert feeds.chicago_permit_zone(41.9, -87.67) == []
 
+
+
+def test_rules_without_geocode_never_ask_nominatim(app_client, monkeypatch):
+    # The map's street card asks at every stop: no new address lookups (Nominatim's policy).
+    asked = []
+    monkeypatch.setattr(gps, "_nominatim", lambda *a: asked.append(a))
+    params = {"lat": 41.9123, "lon": -87.6789}
+    assert app_client.get("/api/rules", params={**params, "geocode": "false"}).status_code == 200
+    assert not asked
+    app_client.get("/api/rules", params=params)  # a car's rules still look its address up
+    assert asked
 
 def test_spare_the_air_parse():
     assert alerts.parse_spare_the_air("<p>There is no Spare the Air Alert in effect.</p>") is False

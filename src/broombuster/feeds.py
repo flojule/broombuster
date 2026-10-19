@@ -275,9 +275,10 @@ def _permit_zones() -> pd.DataFrame:
     return _zones
 
 
-def chicago_permit_zone(lat: float, lon: float) -> list[dict]:
-    """The permit zone at a Chicago point, by its address (Nominatim, cached), as rules."""
-    addr = gps.address_parts(lat, lon)
+def chicago_permit_zone(lat: float, lon: float, network: bool = True) -> list[dict]:
+    """The permit zone at a Chicago point, by its address (Nominatim, cached), as rules.
+    network=False: only when the address is already cached."""
+    addr = gps.address_parts(lat, lon, network)
     if not addr or not addr.get("house_number") or not addr.get("road"):
         return []
     number = normalize.house_number(addr["house_number"])

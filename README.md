@@ -10,12 +10,14 @@ Street-sweeping map for Oakland, San Francisco, Berkeley, Alameda and Chicago.
 2. Add more cars, and a home (+ > *Home*) for trash pickup days: looked up by address in Oakland,
    elsewhere pick the collection day on the home's page; city holidays move it as the city does.
 3. **Calendar** shows the sweeping days of your cars and of the street under the centre dot: one week and
-   the selected day when the sheet is small, unfolding into the month as you pull it up. The sign at the top
-   left shows that street's schedule as published, one section per side. Zoomed in, each side of a street has its own line, coloured by
-   its own urgency, and the sign outlines each side in that colour. City holidays without sweeping (Oakland,
+   the selected day when the sheet is small, unfolding into the month as you pull it up (on a desktop, a
+   six-week panel). The card at the top left shows what applies on that street: its sweeping as published
+   (per side when the sides differ), then its permit area, time limit, meter, winter ban or closure. Zoomed in,
+   each side of a street has its own line, coloured by its own urgency. City holidays without sweeping (Oakland,
    SF) are struck through, and the map does not ask you to move on them. Homes' pickup days are the square dots.
-4. The layers button (top right) adds permit areas and time limits, meters, EV charging, fire zones, farmers
-   markets and, in the Bay Area, street closures for the next two weeks. A car's page lists what applies where it
+4. The layers button (top right) adds permit areas, meters, EV charging, fire zones, farmers markets and, in
+   the Bay Area, street closures for the next two weeks; under them is the legend (street colours and the
+   card's marks). A car's page lists what applies where it
    is ("Also here"), with a warning for a closure on its block; in Chicago it can check whether the car was towed
    or relocated. Weather and air alerts (Red Flag, snow, Spare the Air) show under the Saved summary.
 5. **Nearby** lists this week's farmers markets, events, street fairs and council meetings around the centre target.
@@ -46,7 +48,7 @@ Headless WebKit cannot draw Safari's toolbars, the Dynamic Island or the glass b
 an iPhone, in a Safari tab and in the home-screen app: the map reaches the screen edges (the Safari tab stops at
 the status bar), the tab bar clears the address bar and home indicator, dragging the sheet snaps to its two
 heights (from the grabber, a header, or a list scrolled to its top) with the calendar unfolding smoothly and
-the centre dot staying in view, the sign clears the status bar, the locate button shows the blue
+the centre dot staying in view, the street card clears the status bar, the locate button shows the blue
 dot, a long press on the map offers "Add car here", text on the glass (sheet, menus, labels) stays readable over a
 busy map, and the map stays in view with the sheet at its tallest. If something looks wrong, Safari's Web Inspector over USB shows the live page.
 

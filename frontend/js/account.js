@@ -137,7 +137,7 @@ function _calendarItems() {
     items.push(a, _menuItem('Copy link', async () => {
       try { await navigator.clipboard.writeText(_calendarUrl.url); showToast('Link copied'); }
       catch (_) { showToast(_calendarUrl.url, false, 10000); }
-    }), _note('Shown once: anyone with the link can see your cars’ sweeping days.'));
+    }), _note('Shown once. Anyone with the link sees your cars’ days.'));
   } else {
     items.push(_menuItem(calendarOn ? 'New calendar link' : 'Add sweeping and trash days to your calendar',
                          _makeCalendarLink));
@@ -159,7 +159,7 @@ function renderAccountSection() {
     ? _section('Account', [_menuItem(account.email),
         _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' })))])
     : _section('Account', [_menuItem('Sign in with Google', () => { location.href = '/auth/login'; }),
-        _note('Keeps your cars and homes on all your devices, and puts their days in your calendar.')]));
+        _note('Sync your cars and homes, and add their days to your calendar.')]));
   fill('set-calendar', account ? _section('Calendar', _calendarItems()) : []);
   fill('set-danger', account ? _section('', [_deleteAccountItem()]) : []);
 }
