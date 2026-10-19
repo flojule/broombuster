@@ -5,6 +5,7 @@ Integration tests use the bundled / already-downloaded data files.
 Unit tests use synthetic GeoDataFrames so they never hit the network.
 """
 import datetime
+import functools
 import re
 
 import geopandas
@@ -60,27 +61,31 @@ def _assert_codes_parse(gdf, city):
     assert not bad, f"{city}: unparseable day codes {bad[:10]}"
 
 
+# Each city file is read once; the tests below only read the frames.
+_city = functools.cache(data_loader.load_city_data)
+
+
 class TestLoadCityDataIntegration:
     """Load real bundled / cached data files and validate the schema contract."""
 
     def test_oakland_schema(self):
-        gdf = data_loader.load_city_data("oakland")
+        gdf = _city("oakland")
         _assert_schema(gdf, "oakland")
 
     def test_oakland_street_names_not_empty(self):
-        gdf = data_loader.load_city_data("oakland")
+        gdf = _city("oakland")
         non_empty = gdf["STREET_NAME"].str.strip().str.len() > 0
         assert non_empty.any(), "Oakland: expected at least some non-empty STREET_NAME values"
 
     def test_oakland_day_codes_parseable(self):
-        _assert_codes_parse(data_loader.load_city_data("oakland"), "oakland")
+        _assert_codes_parse(_city("oakland"), "oakland")
 
     def test_san_francisco_schema(self):
-        gdf = data_loader.load_city_data("san_francisco")
+        gdf = _city("san_francisco")
         _assert_schema(gdf, "san_francisco")
 
     def test_san_francisco_side_split(self):
-        gdf = data_loader.load_city_data("san_francisco")
+        gdf = _city("san_francisco")
         # EVEN rows should have DAY_EVEN set; ODD rows should have DAY_ODD set
         even_rows = gdf[gdf["DAY_EVEN"].notna() & gdf["DAY_ODD"].isna()]
         odd_rows  = gdf[gdf["DAY_ODD"].notna()  & gdf["DAY_EVEN"].isna()]
@@ -88,27 +93,27 @@ class TestLoadCityDataIntegration:
         assert len(even_rows) + len(odd_rows) + len(both_rows) > 0
 
     def test_san_francisco_day_codes_parseable(self):
-        _assert_codes_parse(data_loader.load_city_data("san_francisco"), "san_francisco")
+        _assert_codes_parse(_city("san_francisco"), "san_francisco")
 
     def test_berkeley_schema(self):
-        gdf = data_loader.load_city_data("berkeley")
+        gdf = _city("berkeley")
         _assert_schema(gdf, "berkeley")
 
     def test_alameda_schema(self):
-        gdf = data_loader.load_city_data("alameda")
+        gdf = _city("alameda")
         _assert_schema(gdf, "alameda")
 
     def test_chicago_schema(self):
-        gdf = data_loader.load_city_data("chicago_all")
+        gdf = _city("chicago_all")
         _assert_schema(gdf, "chicago_all")
 
     def test_chicago_street_name_format(self):
-        gdf = data_loader.load_city_data("chicago_all").head(20)
+        gdf = _city("chicago_all").head(20)
         assert all(s.startswith("WARD ") for s in gdf["STREET_NAME"])
         assert all(s.startswith("Ward ") for s in gdf["STREET_DISPLAY"])
 
     def test_chicago_day_codes_parseable(self):
-        gdf = data_loader.load_city_data("chicago_all")
+        gdf = _city("chicago_all")
         codes = gdf["DAY_EVEN"].dropna().unique()
         for code in codes[:10]:
             result = _dates(str(code))
@@ -116,34 +121,29 @@ class TestLoadCityDataIntegration:
 
     def test_chicago_even_odd_identical(self):
         """Chicago zones apply the same schedule to every address, so DAY_EVEN == DAY_ODD."""
-        gdf = data_loader.load_city_data("chicago_all")
+        gdf = _city("chicago_all")
         rows_with_data = gdf[gdf["DAY_EVEN"].notna()]
         assert (rows_with_data["DAY_EVEN"] == rows_with_data["DAY_ODD"]).all()
 
 
 class TestLoadRegionData:
-    def test_bay_area_schema(self):
-        gdf = data_loader.load_region_data("bay_area")
-        _assert_schema(gdf, "bay_area region")
+    def test_bay_area_schema(self, bay_area_gdf):
+        _assert_schema(bay_area_gdf, "bay_area region")
 
-    def test_bay_area_city_column(self):
-        gdf = data_loader.load_region_data("bay_area")
-        assert "_city" in gdf.columns
-        assert set(gdf["_city"].unique()) >= {"oakland"}
+    def test_bay_area_city_column(self, bay_area_gdf):
+        assert "_city" in bay_area_gdf.columns
+        assert set(bay_area_gdf["_city"].unique()) >= {"oakland"}
 
-    def test_bay_area_crs(self):
-        gdf = data_loader.load_region_data("bay_area")
-        assert gdf.crs is not None
-        assert gdf.crs.to_epsg() == 4326
+    def test_bay_area_crs(self, bay_area_gdf):
+        assert bay_area_gdf.crs is not None
+        assert bay_area_gdf.crs.to_epsg() == 4326
 
-    def test_chicago_region_schema(self):
-        gdf = data_loader.load_region_data("chicago")
-        _assert_schema(gdf, "chicago region")
+    def test_chicago_region_schema(self, chicago_gdf):
+        _assert_schema(chicago_gdf, "chicago region")
 
-    def test_chicago_region_city_column(self):
-        gdf = data_loader.load_region_data("chicago")
-        assert "_city" in gdf.columns
-        assert "chicago_all" in gdf["_city"].unique()
+    def test_chicago_region_city_column(self, chicago_gdf):
+        assert "_city" in chicago_gdf.columns
+        assert "chicago_all" in chicago_gdf["_city"].unique()
 
 
 # ---------------------------------------------------------------------------

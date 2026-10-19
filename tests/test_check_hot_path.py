@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 
-from broombuster import analysis, data_loader, gps, normalize, resolve
+from broombuster import analysis, gps, normalize, resolve
 
 # ---------------------------------------------------------------------------
 # Reference implementations (plain row-by-row scans)
@@ -27,12 +27,12 @@ def _ref_table(gdf):
     """Per-row (street key, endpoints, even, odd) for the reference scan."""
     if id(gdf) not in _REF_TABLES:
         table = []
-        for _, row in gdf.iterrows():
+        for row in gdf.to_dict("records"):  # dicts: .get() like a row Series, but fast
             k = row.get("STREET_KEY")
             if not normalize.is_text(k):
                 n = row.get("STREET_NAME")
                 k = normalize.street_name(n) if normalize.is_text(n) else None
-            g = row.geometry
+            g = row["geometry"]
             if k is None or g is None or g.is_empty or \
                     g.geom_type not in ("LineString", "MultiLineString"):
                 continue
@@ -142,8 +142,8 @@ def test_resolver_matches_row_scan_on_bay_area(bay_area_3857, sample_points, cit
         assert got.distance_m == pytest.approx(dist, abs=1e-9)
 
 
-def test_resolver_matches_row_scan_on_chicago_zones():
-    gdf = data_loader.load_region_data("chicago").to_crs("EPSG:3857")
+def test_resolver_matches_row_scan_on_chicago_zones(chicago_3857):
+    gdf = chicago_3857
     rng = random.Random(3)
     hits = 0
     for _ in range(80):
