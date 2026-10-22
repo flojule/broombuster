@@ -55,15 +55,21 @@ def setup_logging() -> None:
 def client_ip(request: Request) -> str:
     """The visitor behind Cloudflare (the app only listens on localhost).
 
-    Only Cloudflare's tunnel may reach the app, so CF-Connecting-IP is trusted,
-    but only when it parses as an IP address: anything else (a spoofed or
-    garbage value) falls back to the socket peer.
+    The tunnel connects from loopback, so CF-Connecting-IP is trusted only from a
+    loopback peer, and only when it parses as an IP address: anything else (a
+    spoofed or garbage value) falls back to the socket peer.
     """
+    peer = request.client.host if request.client else "-"
+    try:
+        if not ipaddress.ip_address(peer).is_loopback:
+            return peer
+    except ValueError:
+        return peer
     raw = request.headers.get("cf-connecting-ip", "")
     try:
         return str(ipaddress.ip_address(raw.strip()))
     except ValueError:
-        return request.client.host if request.client else "-"
+        return peer
 
 
 # ── Rate limits ───────────────────────────────────────────────────────────────
@@ -83,6 +89,7 @@ LIMITS = (
     ("/api/check", 60),
     ("/api/me", 30),
     ("/api/cars", 30),
+    ("/auth/passkey/register", 5),  # each success adds an account
     ("/auth/", 30),
 )
 _WINDOW_S = 60
@@ -115,6 +122,32 @@ RATE_LIMIT = config.rate_limit_enabled()  # tests turn it off
 
 def _limit_for(path: str) -> tuple[str, int] | None:
     return next(((p, n) for p, n in LIMITS if path.startswith(p)), None)
+
+
+# ── Request size ──────────────────────────────────────────────────────────────
+MAX_BODY_BYTES = 64 * 1024  # the largest body is a passkey credential or the saved prefs
+
+
+class BodyLimit:
+    """ASGI middleware: refuses a request declaring a body over MAX_BODY_BYTES (413) or
+    sending one chunked, without a length (411)."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http":
+            h = dict(scope["headers"])
+            if b"transfer-encoding" in h:
+                refusal = (411, "Send a Content-Length.")
+            elif int(h.get(b"content-length", b"0") or 0) > MAX_BODY_BYTES:
+                refusal = (413, "Request too large.")
+            else:
+                refusal = None
+            if refusal:
+                await JSONResponse({"detail": refusal[1]}, refusal[0])(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 # ── Cache headers ─────────────────────────────────────────────────────────────
@@ -202,8 +235,7 @@ def service_worker_response() -> Response:
 
 
 # ── Middleware ────────────────────────────────────────────────────────────────
-# Report-only until BB_CSP=enforce: the map's third-party requests are listed
-# from reading the code, so check the browser console for violations first.
+# Enforced; BB_CSP=report-only turns it into a console-only report for debugging.
 # No inline or remote scripts. Inline style attributes are allowed (the UI sets
 # colours that way). OpenFreeMap serves the basemap style, tiles, glyphs and
 # sprites; address searches go through our own /api/geocode.
