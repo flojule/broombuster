@@ -151,7 +151,8 @@ def test_rate_limit_blocks_bursts(client, monkeypatch):
     monkeypatch.setattr(web, "RATE_LIMIT", True)
     monkeypatch.setattr(web, "_limiter", web.RateLimiter())
     hdr = {"cf-connecting-ip": "9.9.9.9", "cf-iplatitude": "37.8", "cf-iplongitude": "-122.3"}
-    codes = [client.get("/api/locate", headers=hdr).status_code for _ in range(22)]
+    tunnel = type(client)(client.app, client=("127.0.0.1", 50000))  # the tunnel's loopback peer
+    codes = [tunnel.get("/api/locate", headers=hdr).status_code for _ in range(22)]
     assert codes[-1] == 429 and 429 not in codes[:20]
     assert client.get("/health", headers={"cf-connecting-ip": "9.9.9.9"}).status_code == 200
 
@@ -166,6 +167,24 @@ def test_client_ip_ignores_garbage_header():
     assert web.client_ip(req({"cf-connecting-ip": "evil/../x"})) == "127.0.0.1"
 
 
+def test_client_ip_trusts_header_only_from_loopback():
+    from types import SimpleNamespace
+
+    from broombuster.api import web
+
+    req = SimpleNamespace(
+        headers={"cf-connecting-ip": "9.9.9.9"}, client=SimpleNamespace(host="8.8.8.8")
+    )
+    assert web.client_ip(req) == "8.8.8.8"
+
+
+def test_body_limit(client):
+    big = {"cars": [], "homes": [], "pad": "x" * 70_000}
+    assert client.put("/api/me/prefs", json=big).status_code == 413
+    chunked = client.post("/api/check", content=iter([b"{}"]))
+    assert chunked.status_code == 411
+
+
 def test_service_worker_is_templated(client):
     r = client.get("/sw.js")
     assert "__VERSION__" not in r.text and "__API_PATHS__" not in r.text
@@ -174,8 +193,8 @@ def test_service_worker_is_templated(client):
 
 def test_csp_forbids_inline_and_remote_scripts(client):
     h = client.get("/").headers
-    assert "content-security-policy-report-only" in h  # default; BB_CSP=enforce switches
-    csp = h["content-security-policy-report-only"]
+    assert "content-security-policy-report-only" not in h  # enforced by default
+    csp = h["content-security-policy"]
     assert "script-src 'self'" in csp and "unsafe-inline" not in csp.split("style-src")[0]
     html = client.get("/").text
     assert "<script>" not in html and "onclick=" not in html

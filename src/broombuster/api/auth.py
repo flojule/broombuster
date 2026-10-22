@@ -51,6 +51,7 @@ _SESSION_TTL_S = 30 * 86400
 _PASSKEY_TTL_S = 300
 _INVITE_TTL_S = 7 * 86400
 _MAX_MEMBERS = 10  # people per account
+_MAX_ACCOUNTS = 10_000  # all accounts together, so the database cannot grow without bound
 _MAX_PENDING_PASSKEYS = 1000  # sign-ins in progress, all clients together
 _INVITE_PREFIX = "bbi_"
 _TOKEN_PREFIX = "bbc_"  # noqa: S105 (a prefix, not a password)  # phone: one car of one account
@@ -209,6 +210,8 @@ def _add_member(db: sqlite3.Connection, member_id: str, account_id: str | None, 
     """A new member, in `account_id` if given, else in a new account."""
     now = int(time.time())
     if account_id is None:
+        if db.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] >= _MAX_ACCOUNTS:
+            raise HTTPException(503, "Sign-up is closed for now.")
         account_id = secrets.token_urlsafe(16)
         db.execute(
             "INSERT INTO accounts (id, prefs, created_at) VALUES (?, NULL, ?)", (account_id, now)
@@ -451,8 +454,11 @@ def create_invite(user: sqlite3.Row = Depends(_signed_in_mutation)):
 
 
 # ── Account data ──────────────────────────────────────────────────────────────
+_ID = r"^[\w-]+$"  # ids reach URLs, selectors and the calendar feed
+
+
 class Car(BaseModel):
-    id: str = Field(max_length=64)
+    id: str = Field(max_length=64, pattern=_ID)
     name: str = Field(max_length=200)
     lat: float = Field(ge=-90.0, le=90.0)
     lon: float = Field(ge=-180.0, le=180.0)
@@ -467,7 +473,7 @@ class Car(BaseModel):
 
 
 class Home(BaseModel):
-    id: str = Field(max_length=64)
+    id: str = Field(max_length=64, pattern=_ID)
     lat: float = Field(ge=-90.0, le=90.0)
     lon: float = Field(ge=-180.0, le=180.0)
     address: str = Field("", max_length=500)

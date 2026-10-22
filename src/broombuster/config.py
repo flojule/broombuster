@@ -6,7 +6,7 @@ environment can change them. Variables:
   BB_BASE_URL                                          public site URL; turns passkey sign-in on
   BB_DB                                                SQLite user database path
   BB_RATE_LIMIT                                        "0" turns rate limits off
-  BB_CSP                                               "enforce" enforces the CSP (else report-only)
+  BB_CSP                                               "report-only" relaxes the enforced CSP
   BB_NREL_API_KEY                                      EV stations (layer build; DEMO_KEY if unset)
   BB_511_API_KEY                                       511 SF Bay work zones (off if unset)
 """
@@ -31,7 +31,7 @@ def rate_limit_enabled() -> bool:
 
 
 def csp_enforced() -> bool:
-    return os.environ.get("BB_CSP", "report-only") == "enforce"
+    return os.environ.get("BB_CSP", "enforce") != "report-only"
 
 
 def nrel_api_key() -> str:

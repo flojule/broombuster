@@ -53,6 +53,7 @@ app = FastAPI(
 
 app.middleware("http")(web.http_middleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(web.BodyLimit)  # outermost: refuses before anything reads the body
 api = APIRouter(prefix="/api")  # everything the frontend fetches, except /auth and /health
 app.include_router(auth.router)
 

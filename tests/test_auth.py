@@ -85,6 +85,8 @@ def test_prefs_need_session_and_same_origin(env, client, monkeypatch):
         {"cars": [{"id": "c", "name": "n", "lat": 91, "lon": 0}], "homes": []},
         {"cars": [{"id": "c", "name": "n", "lat": 0, "lon": 0}] * 51, "homes": []},
         {"cars": []},
+        {"cars": [{"id": "c\r\nATTACH:x", "name": "n", "lat": 0, "lon": 0}], "homes": []},
+        {"cars": [], "homes": [{"id": "h\nx", "lat": 0, "lon": 0}]},
     ],
 )
 def test_prefs_validation(env, client, monkeypatch, bad):
