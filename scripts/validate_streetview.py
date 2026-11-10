@@ -262,6 +262,35 @@ def _sample_chicago(a, rng, region: str, out: Path) -> None:
     print(f"{n} samples -> {out / 'samples.jsonl'}")
 
 
+def cmd_expect(a) -> None:
+    """Ask the current app again at every sample's points (after a fix); samples stay put."""
+    from fastapi.testclient import TestClient
+
+    from broombuster.api.app import app
+
+    logging.disable(logging.INFO)
+    region = next(rk for rk, r in REGIONS.items() if a.city in r["cities"])
+    f = _work(a.city, a.layer) / "samples.jsonl"
+    recs = [json.loads(x) for x in f.read_text().splitlines()]
+    changed = 0
+    with TestClient(app) as client:
+        for rec in recs:
+            if a.city == "chicago_all":
+                continue
+            # the views' points: OFFSET_M either side of the sample point
+            lat, lon, b = rec["lat"], rec["lon"], rec["bearing"]
+            pts = {"L": _move(lat, lon, b - 90, OFFSET_M), "R": _move(lat, lon, b + 90, OFFSET_M)}
+            exp = {v: _expect(client, region, *pts[v]) for v in "LR"}
+            if exp != rec["expected"]:
+                changed += 1
+            rec["expected"] = exp
+            if rec["target"]:
+                sched = _expected_rules(exp[rec["target"]]["sweeping"])
+                rec["group"] = "scheduled" if sched else "unscheduled"
+    f.write_text("".join(json.dumps(r) + "\n" for r in recs))
+    print(f"{changed} of {len(recs)} samples changed")
+
+
 # ---------- imagery ----------
 
 
@@ -738,6 +767,9 @@ def main() -> None:
     ap_.add_argument("image")
     ap_.add_argument("u", type=float)
     ap_.add_argument("--width", type=float, default=30.0, help="field of view, degrees")
+    ex = sub.add_parser("expect")
+    ex.add_argument("city", choices=sorted(CITIES))
+    ex.add_argument("layer", choices=LAYERS)
     wk = sub.add_parser("walk")
     wk.add_argument("city", choices=sorted(CITIES))
     wk.add_argument("layer", choices=LAYERS)
@@ -753,6 +785,7 @@ def main() -> None:
         "zoom": cmd_zoom,
         "approach": cmd_approach,
         "walk": cmd_walk,
+        "expect": cmd_expect,
         "score": cmd_score,
     }[a.cmd](a)
 
