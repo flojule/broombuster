@@ -574,7 +574,15 @@ def _verdict_sweeping(rec, meta, reading) -> tuple[str, str]:
     sweep = [s for s in signs if s["kind"] == "sweeping"]
     read = [s for s in sweep if s.get("days") and _minutes(s.get("start")) is not None]
     read = [s for s in read if _minutes(s.get("end")) is not None]
-    exp = _expected_rules(rec["expected"][view]["sweeping"])
+    entries = rec["expected"][view]["sweeping"] or []
+    exp = _expected_rules(entries)
+    undated = [schedule.time_window(t) for c, _, t in entries if c in analysis.UNDATED_CODES]
+    if read and undated and not exp:  # the app gives the hours and sends the driver to the sign
+        got = {(_minutes(s.get("start")), _minutes(s.get("end")) % 1440) for s in read}
+        want = {(w[0], w[1] % 1440) for w in undated if w}
+        if got == want:
+            return "match", "app gives hours, day as posted"
+        return "mismatch", f"time: sign {sorted(got)}; app {sorted(want)}"
     if read:
         if not exp:
             return "mismatch", f"sign {sorted(_sign_rules(read))}; app: no sweeping"
@@ -640,8 +648,8 @@ def _verdict_parking(rec, meta, reading) -> tuple[str, str]:
         for s in signs:
             if s["kind"] not in ("time_limit", "permit"):
                 continue
-            if s.get("permit"):
-                found.add(str(s["permit"]).upper())
+            if s.get("permit"):  # a plate may name several areas ("F/N", "A or C")
+                found |= set(re.findall(r"\b([A-Z]{1,2}|\d+)\b", str(s["permit"]).upper())) - {"OR"}
             if s.get("limit_h"):
                 st, en = _minutes(s.get("start")), _minutes(s.get("end"))
                 read.append((float(s["limit_h"]), frozenset(s.get("days") or []), st, en))
