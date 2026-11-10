@@ -45,6 +45,11 @@ NO_SWEEP_CODES = frozenset(
 )
 
 
+# Codes for sides that are swept on a day no source gives (Oakland's S / SU): no dates are
+# computed; the description and hours are shown so the driver reads the posted sign.
+UNDATED_CODES = frozenset({"POSTED"})
+
+
 def is_no_sweep_code(code) -> bool:
     """True if the given DAY_* code is one of the explicit no-sweep markers."""
     return isinstance(code, str) and code.strip().upper() in NO_SWEEP_CODES

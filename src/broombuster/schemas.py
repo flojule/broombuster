@@ -50,8 +50,10 @@ _OAKLAND_DAY_DESC = {
     "EESSH": "Everyday except Saturday, Sunday & Holidays",
     "MF": "Every Mon to Fri",
     "FW": "1st Wed",
-    "S": "Every Sat",
-    "SU": "Every Sun",
+    # The domain says Sat / Sun, but the signs on these blocks give weekdays (Street View
+    # 2025: 36th Ave 800 "2nd & 4th Mon" / "2nd & 4th Tue"; another block "Every Fri").
+    "S": "Day as posted on the signs",
+    "SU": "Day as posted on the signs",
     "MWF": "Every Mon, Wed, Fri",
     "TTHS": "Every Tues, Thurs, Sat",
     "TTH": "Every Tues and Thurs",
@@ -75,7 +77,14 @@ _OAKLAND_DAY_DESC = {
 }
 # Source codes the sweep-code grammar reads differently (or not at all) -> grammar code.
 # Holidays are suspended for every code (data/holidays/oakland.yaml).
-_OAKLAND_DAY_CODE = {"MF": "MTWTHF", "EESSH": "MTWTHF", "EEH": "E", "FW": "W1"}
+_OAKLAND_DAY_CODE = {
+    "MF": "MTWTHF",
+    "EESSH": "MTWTHF",
+    "EEH": "E",
+    "FW": "W1",
+    "S": "POSTED",  # swept, day unknown: no dates, the description and hours shown
+    "SU": "POSTED",
+}
 _OAKLAND_DAY_NAME = {"M": "Mon", "T": "Tues", "W": "Wed", "TH": "Thurs", "F": "Fri"}
 _OAKLAND_ORDINAL = {"1": "1st", "2": "2nd", "3": "3rd", "4": "4th", "5": "5th"}
 # TIME_* code -> posted window.

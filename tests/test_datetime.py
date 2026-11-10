@@ -102,7 +102,13 @@ def all_rows(bay_area_gdf, chicago_gdf):
 @pytest.fixture(scope="module")
 def data_codes(all_rows):
     codes = pd.concat([all_rows["DAY_EVEN"], all_rows["DAY_ODD"]]).dropna().unique()
-    return sorted(c for c in codes if normalize.is_text(c) and not analysis.is_no_sweep_code(c))
+    return sorted(
+        c
+        for c in codes
+        if normalize.is_text(c)
+        and not analysis.is_no_sweep_code(c)
+        and c not in analysis.UNDATED_CODES
+    )
 
 
 @pytest.fixture(scope="module")
@@ -292,6 +298,11 @@ def test_display_names_every_sweep_day_of_every_code(data_codes):
 
 
 DISPLAY_CASES = [
+    # Undated (Oakland S / SU): the description and hours, no dates.
+    (
+        [["POSTED", "Day as posted on the signs", "9AM-12PM"]],
+        ["Day as posted on the signs · 9AM–12PM"],
+    ),
     ([["MWF", "Every Mon, Wed, Fri", "9:00AM-12:00PM"]], ["Mon, Wed, Fri · 9AM–12PM"]),
     ([["MTWTHF", "", "8AM-10AM"]], ["Mon–Fri · 8AM–10AM"]),
     ([["E", "Everyday", "9:00AM-12:00PM"]], ["Every day · 9AM–12PM"]),

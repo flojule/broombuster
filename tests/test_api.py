@@ -256,6 +256,14 @@ def test_schedule_matches_signs_on_the_street(client, lat, lon, code, time, side
     assert (code, time) in found
 
 
+def test_undated_oakland_codes_send_drivers_to_the_sign(client):
+    """36th Ave 800 block, Oakland: coded S / SU ("Sat" / "Sun"); signs (Street View 2025)
+    read 2nd & 4th Mon and 2nd & 4th Tue, 9 AM-12 noon. No day is claimed, hours are."""
+    data = _check(client, {"lat": 37.7724, "lon": -122.2243, "region": "bay_area"})
+    for side in ("even", "odd"):
+        assert [(e[0], e[2]) for e in data[f"schedule_{side}"]] == [("POSTED", "9AM–12PM")]
+
+
 @pytest.mark.parametrize(
     ("lat", "lon", "side", "code"),
     [(37.807788, -122.281132, "odd", "TTHS"), (37.807737, -122.281018, "even", "MWF")],
