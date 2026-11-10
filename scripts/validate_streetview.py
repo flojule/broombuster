@@ -381,8 +381,67 @@ def cmd_zoom(a) -> None:
     x = lambda u: view["x0"] + u * (view["x1"] - view["x0"])  # noqa: E731
     y = lambda v: min(max(view["y0"] + v * (view["y1"] - view["y0"]), 0), 1)  # noqa: E731
     out = img.parent / f"{img.stem}_z_{a.u0:.3f}_{a.v0:.3f}.jpg"
-    crop(p["id"], 5, x(a.u0), x(a.u1), y(a.v0), y(a.v1), WORK / "tiles").save(out, quality=90)
+    for z in (5, 4):  # some panoramas stop at zoom 4: their zoom 5 crops come back black
+        img = crop(p["id"], z, x(a.u0), x(a.u1), y(a.v0), y(a.v1), WORK / "tiles")
+        if img.getbbox():
+            break
+    img.save(out, quality=90)
     print(out)
+
+
+def _move(lat: float, lon: float, bearing: float, m: float) -> tuple[float, float]:
+    k = 111_320.0
+    b = math.radians(bearing)
+    return lat + m * math.cos(b) / k, lon + m * math.sin(b) / (k * math.cos(math.radians(lat)))
+
+
+def _bearing(a, b) -> float:
+    k = math.cos(math.radians(a[0]))
+    return math.degrees(math.atan2((b[1] - a[1]) * k, b[0] - a[0])) % 360
+
+
+KERB_M = 5.0  # assumed distance from a panorama (in a traffic lane) to a sign post
+
+
+def cmd_approach(a) -> None:
+    """Look at a far sign from the panorama nearest to it. U, V: the sign in a captured view.
+    The sign is taken to stand KERB_M to the side of the camera's path; its distance along
+    the street follows from the angle it is seen at."""
+    img = Path(a.image).resolve()
+    meta = json.loads((img.parent / "meta.json").read_text())
+    p, view = next(
+        (p, p[v]) for p in meta["panos"] for v in "LR" if v in p and p[v]["file"] == img.name
+    )
+    samples = img.parent.parent.parent / "samples.jsonl"
+    rec = next(
+        r for x in samples.read_text().splitlines() if (r := json.loads(x))["id"] == meta["id"]
+    )
+    x = view["x0"] + a.u * (view["x1"] - view["x0"])
+    h = (p["heading"] + (x - 0.5) * 360) % 360  # direction of the sign from the camera
+    fwd = (
+        rec["bearing"] if math.cos(math.radians(h - rec["bearing"])) >= 0 else rec["bearing"] + 180
+    )
+    off = (h - fwd + 180) % 360 - 180  # degrees off the street axis, + to the right
+    if abs(off) < 3:
+        sys.exit("approach: the sign is straight along the street; pick one off to the side")
+    along = min(KERB_M / math.tan(math.radians(abs(off))), 80.0)
+    sign = _move(*_move(p["lat"], p["lon"], fwd, along), fwd + math.copysign(90, off), KERB_M)
+    near = pano(*_move(*sign, fwd, -8.0), radius=12)
+    if not near or near["id"] == p["id"]:
+        sys.exit(f"approach: no closer panorama (sign ~{along:.0f} m along the street)")
+    hb = _bearing((near["lat"], near["lon"]), sign)
+    c = (hb - near["heading"]) / 360 + 0.5
+    half = a.width / 720
+    out = img.parent / f"{img.stem}_a_{a.u:.3f}.jpg"
+    for z in (5, 4):
+        im = crop(near["id"], z, c - half, c + half, 0.4, 0.6, WORK / "tiles")
+        if im.getbbox():
+            break
+    im.save(out, quality=90)
+    print(
+        f"{out}  (from a panorama ~{_metres(sign, (near['lat'], near['lon'])):.0f} m from the "
+        f"sign, imagery {near['date']}; sign estimated {along:.0f} m along the street)"
+    )
 
 
 # ---------- scoring ----------
@@ -442,7 +501,7 @@ def _verdict_sweeping(rec, meta, reading) -> tuple[str, str]:
         return ("no_imagery" if not meta["panos"] else "stale"), ""
     signs, good, unread = _view_signs(meta, reading, view)
     sweep = [s for s in signs if s["kind"] == "sweeping"]
-    unreadable = any(s["kind"] == "sweeping" for s in unread)
+    unreadable = any(s["kind"] != "other" for s in unread)
     exp = _expected_rules(rec["expected"][view]["sweeping"])
     if sweep:
         got = _sign_rules(sweep)
@@ -477,7 +536,7 @@ def _verdict_parking(rec, meta, reading) -> tuple[str, str]:
     for view in "LR":
         signs, g, u = _view_signs(meta, reading, view)
         good += g
-        unreadable |= any(s["kind"] in ("time_limit", "permit") for s in u)
+        unreadable |= any(s["kind"] != "other" for s in u)
         for s in signs:
             if s["kind"] not in ("time_limit", "permit"):
                 continue
@@ -588,11 +647,21 @@ def main() -> None:
     z.add_argument("image")
     for k in ("u0", "u1", "v0", "v1"):
         z.add_argument(k, type=float)
+    ap_ = sub.add_parser("approach")
+    ap_.add_argument("image")
+    ap_.add_argument("u", type=float)
+    ap_.add_argument("--width", type=float, default=30.0, help="field of view, degrees")
     r = sub.add_parser("score")
     r.add_argument("city", choices=sorted(CITIES))
     r.add_argument("layer", choices=LAYERS)
     a = ap.parse_args()
-    {"sample": cmd_sample, "capture": cmd_capture, "zoom": cmd_zoom, "score": cmd_score}[a.cmd](a)
+    {
+        "sample": cmd_sample,
+        "capture": cmd_capture,
+        "zoom": cmd_zoom,
+        "approach": cmd_approach,
+        "score": cmd_score,
+    }[a.cmd](a)
 
 
 if __name__ == "__main__":
