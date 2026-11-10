@@ -256,6 +256,17 @@ def test_schedule_matches_signs_on_the_street(client, lat, lon, code, time, side
     assert (code, time) in found
 
 
+@pytest.mark.parametrize(
+    ("lat", "lon", "side", "code"),
+    [(37.807788, -122.281132, "odd", "TTHS"), (37.807737, -122.281018, "even", "MWF")],
+)
+def test_two_line_street_side_follows_its_kerb_line(client, lat, lon, side, code):
+    """Market St 1300 block, Oakland: one line per kerb, the other side coded MS."""
+    data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
+    assert data["car_side"] == side
+    assert [e[0] for e in data[f"schedule_{side}"]] == [code]
+
+
 def test_no_sweeping_where_nobody_can_park(client):
     """Broadway at 14th, Oakland: bus lanes and red curb (Street View 2025-02)."""
     data = _check(client, {"lat": 37.8048, "lon": -122.2709, "region": "bay_area"})

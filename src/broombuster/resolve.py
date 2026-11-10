@@ -137,7 +137,7 @@ def resolve_car_segment(
     proj_pt = geom.interpolate(proj_dist)
     px, py = float(proj_pt.x), float(proj_pt.y)
 
-    side = _determine_side(geom, car_pt, proj_pt, row)
+    side = _one_side_line(row) or _determine_side(geom, car_pt, proj_pt, row)
 
     return ResolvedCar(
         segment=row,
@@ -175,6 +175,17 @@ def locate(gdf_3857, lat: float, lon: float, region_key: str):
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _one_side_line(row) -> str | None:
+    """The side a kerb line stands for: Oakland draws major streets as one line per kerb, the
+    other side coded MS ("major street uses 2 lines"). A car nearest that line is on its side."""
+    codes = {s: str(row.get(f"DAY_{s.upper()}") or "").strip().upper() for s in ("even", "odd")}
+    if codes["even"] == "MS" and codes["odd"] not in ("", "MS"):
+        return "odd"
+    if codes["odd"] == "MS" and codes["even"] not in ("", "MS"):
+        return "even"
+    return None
 
 
 def _determine_side(geom, car_pt, proj_pt, row) -> str | None:

@@ -373,9 +373,17 @@ def cmd_zoom(a) -> None:
     """Crop a captured view at zoom 5; U/V are fractions of the view image."""
     img = Path(a.image).resolve()
     meta = json.loads((img.parent / "meta.json").read_text())
-    p, view = next(
-        (p, p[v]) for p in meta["panos"] for v in "LR" if v in p and p[v]["file"] == img.name
-    )
+    found = [(p, p[v]) for p in meta["panos"] for v in "LR" if v in p and p[v]["file"] == img.name]
+    if not found:  # an approach image: already full resolution, enlarge the crop
+        im = Image.open(img)
+        w, h = im.size
+        box = (int(a.u0 * w), int(max(a.v0, 0) * h), int(a.u1 * w), int(min(a.v1, 1) * h))
+        out = img.parent / f"{img.stem}_z_{a.u0:.3f}_{a.v0:.3f}.jpg"
+        part = im.crop(box)
+        part.resize((part.width * 3, part.height * 3), Image.LANCZOS).save(out, quality=90)
+        print(out)
+        return
+    p, view = found[0]
     if not (0 <= a.u0 < a.u1 <= 1 and -1 <= a.v0 < a.v1 <= 2):
         sys.exit("zoom: need 0 <= U0 < U1 <= 1 and -1 <= V0 < V1 <= 2 (V < 0: above the view)")
     x = lambda u: view["x0"] + u * (view["x1"] - view["x0"])  # noqa: E731
@@ -444,6 +452,31 @@ def cmd_approach(a) -> None:
     )
 
 
+def cmd_walk(a) -> None:
+    """Review of a sample: one side's kerb from panoramas every ~15 % of the block, ends
+    included (90 deg views toward the kerb). Writes images/<id>/walk_<view>_<t>.jpg."""
+    work = _work(a.city, a.layer)
+    rec = next(
+        r
+        for x in (work / "samples.jsonl").read_text().splitlines()
+        if (r := json.loads(x))["id"] == a.id
+    )
+    (la0, lo0), (la1, lo1) = rec["shots"]  # at 30 % and 70 % of the block
+    d = work / "images" / a.id
+    off = -90 if a.view == "L" else 90
+    seen = set()
+    for t in (0.02, 0.15, 0.3, 0.45, 0.6, 0.75, 0.88, 0.98):
+        f = (t - 0.3) / 0.4
+        p = pano(la0 + f * (la1 - la0), lo0 + f * (lo1 - lo0), radius=12)
+        if not p or p["id"] in seen:
+            continue
+        seen.add(p["id"])
+        c = ((rec["bearing"] + off - p["heading"]) / 360 + 0.5) % 1
+        out = d / f"walk_{a.view}_{t:.2f}.jpg"
+        crop(p["id"], 4, c - 0.125, c + 0.125, 0.4, 0.58, WORK / "tiles").save(out, quality=85)
+        print(out, p["date"])
+
+
 # ---------- scoring ----------
 
 _HM = re.compile(r"(\d{1,2}):(\d{2})")
@@ -468,19 +501,30 @@ def _expected_rules(entries) -> set:
     return out
 
 
-def _sign_rules(signs) -> set:
+def _clean(sign: dict) -> dict:
+    """A sign with only the fields read for sure: values marked '?' dropped."""
+    return {k: v for k, v in sign.items() if "?" not in json.dumps(v) or k == "text"}
+
+
+def _sign_rules(signs, weeks: bool = True) -> set:
+    """{(weekday, week|0, start, end)}; weeks=False: {(weekday, start, end)}."""
     out = set()
     for s in signs:
         start, end = _minutes(s.get("start")), _minutes(s.get("end"))
+        end = end % 1440 if end is not None else None
         for d in s.get("days") or []:
-            for k in s.get("weeks") or [0]:
-                out.add((_DAYS.index(d), int(k), start, end % 1440 if end is not None else None))
+            if d not in _DAYS:
+                continue
+            for k in (s.get("weeks") or [0]) if weeks else [None]:
+                out.add(
+                    (_DAYS.index(d), int(k), start, end) if weeks else (_DAYS.index(d), start, end)
+                )
     return out
 
 
 def _view_signs(meta: dict, reading: dict, view: str, recent_only: bool = True):
-    """Signs of one side, all panoramas: (read signs, readable views, signs not read)."""
-    signs, good, unreadable = [], 0, []
+    """Near-kerb signs of one side from recent panoramas, read fields only; readable views."""
+    signs, good = [], 0
     dates = {p["n"]: p.get("date") for p in meta["panos"]}
     for v in reading.get("views", []):
         if v["view"] != view:
@@ -489,30 +533,35 @@ def _view_signs(meta: dict, reading: dict, view: str, recent_only: bool = True):
             continue
         if v.get("coverage") in ("good", "partial"):
             good += 1
-        near = [s for s in v.get("signs", []) if s.get("near_kerb", True)]
-        signs += [s for s in near if s.get("confidence") == "high"]
-        unreadable += [s for s in near if s.get("confidence") != "high"]
-    return signs, good, unreadable
+        signs += [_clean(s) for s in v.get("signs", []) if s.get("near_kerb", True)]
+    return signs, good
 
 
 def _verdict_sweeping(rec, meta, reading) -> tuple[str, str]:
     view = rec["target"]
     if not any(tuple(p.get("date") or (0, 0)) >= STALE_BEFORE for p in meta["panos"]):
         return ("no_imagery" if not meta["panos"] else "stale"), ""
-    signs, good, unread = _view_signs(meta, reading, view)
+    signs, good = _view_signs(meta, reading, view)
     sweep = [s for s in signs if s["kind"] == "sweeping"]
-    unreadable = any(s["kind"] != "other" for s in unread)
+    read = [s for s in sweep if s.get("days") and _minutes(s.get("start")) is not None]
+    read = [s for s in read if _minutes(s.get("end")) is not None]
     exp = _expected_rules(rec["expected"][view]["sweeping"])
-    if sweep:
-        got = _sign_rules(sweep)
+    if read:
         if not exp:
-            return "mismatch", f"sign {sorted(got)}; app: no sweeping"
-        if got == exp:
+            return "mismatch", f"sign {sorted(_sign_rules(read))}; app: no sweeping"
+        full = [s for s in read if "weeks" in s]
+        got3, exp3 = _sign_rules(read, weeks=False), {(r[0], r[2], r[3]) for r in exp}
+        if got3 != exp3:
+            same_days = {r[0] for r in got3} == {r[0] for r in exp3}
+            what = "time" if same_days else "days"
+            return "mismatch", f"{what}: sign {sorted(got3)}; app {sorted(exp3)}"
+        if full:
+            got = _sign_rules(full)
+            if not got <= exp or {r[0] for r in got} != {r[0] for r in exp}:
+                return "mismatch", f"weeks: sign {sorted(got)}; app {sorted(exp)}"
             return "match", ""
-        same_days = {r[:2] for r in got} == {r[:2] for r in exp}
-        what = "time" if same_days else "days"
-        return "mismatch", f"{what}: sign {sorted(got)}; app {sorted(exp)}"
-    if unreadable:
+        return "match", "weeks of month not read"
+    if any(s["kind"] != "other" for s in signs):
         return "unreadable", ""
     if not good:
         return "no_view", ""
@@ -520,43 +569,78 @@ def _verdict_sweeping(rec, meta, reading) -> tuple[str, str]:
 
 
 _AREA = re.compile(r"(?:area|zone)\s+([A-Z]{1,2}|\d+)", re.I)
-_SF_RULE = re.compile(r"(\d+) h limit, (\S+) (\d+)(am|pm)–(\d+)(am|pm)", re.I)
+_SF_RULE = re.compile(
+    r"(\d+) (h|min) limit, (M–F|M–Sa|M–Su) (\d+)(?::(\d+))?(am|pm)–(\d+)(?::(\d+))?(am|pm)", re.I
+)
+_SF_DAYS = {"M–F": 5, "M–SA": 6, "M–SU": 7}
+_IN_SCOPE = re.compile(r"permit (area|zone)|\bh limit|min limit", re.I)
 
 
 def _areas(rules) -> set:
     return {m[1].upper() for r in rules if (m := _AREA.search(r["label"]))}
 
 
+def _clock(h, m, ap) -> int:
+    return (int(h) % 12 + (12 if ap.lower() == "pm" else 0)) * 60 + int(m or 0)
+
+
+def _limits(rules) -> set:
+    """{(limit_h, days, start, end)} of SF time-limit curbs."""
+    out = set()
+    for r in rules:
+        if m := _SF_RULE.search(r["rule"]):
+            h = int(m[1]) / (60 if m[2].lower() == "min" else 1)
+            days = frozenset(_DAYS[: _SF_DAYS[m[3].upper()]])
+            out.add((h, days, _clock(m[4], m[5], m[6]), _clock(m[7], m[8], m[9])))
+    return out
+
+
 def _verdict_parking(rec, meta, reading) -> tuple[str, str]:
+    exp = rec["expected"]["L"]["parking"] + rec["expected"]["R"]["parking"]
+    if exp and not any(_IN_SCOPE.search(r["label"] + " " + r["rule"]) for r in exp):
+        return "out_of_scope", "curb rule other than a time limit or permit"
     if not any(tuple(p.get("date") or (0, 0)) >= STALE_BEFORE for p in meta["panos"]):
         return ("no_imagery" if not meta["panos"] else "stale"), ""
-    exp = rec["expected"]["L"]["parking"] + rec["expected"]["R"]["parking"]
-    want = _areas(exp)
-    found, notes, good, unreadable = set(), [], 0, False
+    want, limits = _areas(exp), _limits(exp)
+    found, read, banned, good, unreadable = set(), [], False, 0, False
     for view in "LR":
-        signs, g, u = _view_signs(meta, reading, view)
+        signs, g = _view_signs(meta, reading, view)
         good += g
-        unreadable |= any(s["kind"] != "other" for s in u)
+        unreadable |= any(s["kind"] != "other" for s in signs)
+        banned |= any(s["kind"] == "no_parking" and s.get("confidence") == "high" for s in signs)
         for s in signs:
             if s["kind"] not in ("time_limit", "permit"):
                 continue
             if s.get("permit"):
                 found.add(str(s["permit"]).upper())
-            for r in exp:  # SF curbs give the limit and hours
-                m = _SF_RULE.search(r["rule"])
-                if m and s.get("limit_h") and int(m[1]) != int(s["limit_h"]):
-                    notes.append(f"limit {s['limit_h']} h vs {m[1]} h")
-    if found:
-        if not want:
-            return "mismatch", f"sign area {sorted(found)}; app: none"
-        if not found & want:
-            return "mismatch", f"sign area {sorted(found)}; app {sorted(want)}"
-        return ("mismatch", "; ".join(notes)) if notes else ("match", "")
-    if unreadable:
-        return "unreadable", ""
-    if not good:
-        return "no_view", ""
-    return ("match", "no sign, none expected") if not want else ("absent", "expected a sign")
+            if s.get("limit_h"):
+                st, en = _minutes(s.get("start")), _minutes(s.get("end"))
+                read.append((float(s["limit_h"]), frozenset(s.get("days") or []), st, en))
+    if not found and not read:
+        if unreadable:
+            return "unreadable", ""
+        if not good:
+            return "no_view", ""
+        if not want and not limits:
+            return "match", "no sign, none expected"
+        return ("mismatch", "signs ban parking") if banned else ("absent", "expected a sign")
+    if found and not found & want:
+        return "mismatch", f"sign area {sorted(found)}; app {sorted(want) or 'none'}"
+    if limits and read:
+        ok = any(
+            r[0] == e[0]
+            and (not r[1] or r[1] == e[1])
+            and r[2] in (None, e[2])
+            and r[3] in (None, e[3])
+            for r in read
+            for e in limits
+        )
+        if not ok:
+            got = [(r[0], sorted(r[1], key=_DAYS.index), r[2], r[3]) for r in read]
+            return "mismatch", f"limit/hours: sign {got}; app {sorted(limits, key=str)}"
+    if want and not found and not limits:
+        return "unreadable", "time limit read, permit area not"
+    return "match", ""
 
 
 def upper_bound(k: int, n: int, conf: float = 0.95) -> float:
@@ -622,6 +706,9 @@ def cmd_score(a) -> None:
         ub = upper_bound(k, n)
         state = "PASS" if ub <= BOUND else ("FAIL" if k > 3 else "CONTINUE")
         print(f"  {group}: readable n={n}, mismatches k={k}, 95% upper bound {ub:.3f} -> {state}")
+        gone = sum(r["verdict"] == "absent" for r in main)
+        if gone:
+            print(f"    expected a sign, none seen: {gone} of {n + gone}")
     counts = {}
     for r in rows:
         key = (r["group"], r["stratum"], r["verdict"])
@@ -651,6 +738,11 @@ def main() -> None:
     ap_.add_argument("image")
     ap_.add_argument("u", type=float)
     ap_.add_argument("--width", type=float, default=30.0, help="field of view, degrees")
+    wk = sub.add_parser("walk")
+    wk.add_argument("city", choices=sorted(CITIES))
+    wk.add_argument("layer", choices=LAYERS)
+    wk.add_argument("id")
+    wk.add_argument("view", choices=("L", "R"))
     r = sub.add_parser("score")
     r.add_argument("city", choices=sorted(CITIES))
     r.add_argument("layer", choices=LAYERS)
@@ -660,6 +752,7 @@ def main() -> None:
         "capture": cmd_capture,
         "zoom": cmd_zoom,
         "approach": cmd_approach,
+        "walk": cmd_walk,
         "score": cmd_score,
     }[a.cmd](a)
 
