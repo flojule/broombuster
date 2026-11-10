@@ -1,10 +1,23 @@
-# SFMTA holiday enforcement: street cleaning is not enforced on these days (night
-# cleaning, 12am-6am, still is on Veterans Day, which is therefore not listed).
+# SFMTA holiday enforcement: `sweeping` = no street cleaning is enforced; `sweeping_day` =
+# daytime cleaning is not enforced but night cleaning (12am-6am) is. Dates as published;
+# the three full holidays are added for late 2027, which the page does not reach yet.
+# Trash (Recology, https://www.recology.com/recology-san-francisco/holiday-calendar/): in
+# 2026 only New Year's Day moved pickups (that day and the rest of the week one day
+# later); Christmas 2026 and 2027 are not published yet.
 source: https://www.sfmta.com/getting-around/drive-park/holiday-enforcement-schedule
-last_verified: 2026-10-17
+last_verified: 2026-11-10
 holidays:
-  - {date: 2026-01-01, name: New Year's Day, suspends: [sweeping]}
+  - {date: 2026-01-01, name: New Year's Day, suspends: [sweeping, trash]}
+  - {date: 2026-01-19, name: Martin Luther King Jr. Day, suspends: [sweeping_day]}
+  - {date: 2026-02-16, name: Presidents' Day, suspends: [sweeping_day]}
+  - {date: 2026-05-25, name: Memorial Day, suspends: [sweeping_day]}
+  - {date: 2026-06-19, name: Juneteenth, suspends: [sweeping_day]}
+  - {date: 2026-07-03, name: Independence Day (observed), suspends: [sweeping_day]}
+  - {date: 2026-09-07, name: Labor Day, suspends: [sweeping_day]}
+  - {date: 2026-10-12, name: Indigenous Peoples Day, suspends: [sweeping_day]}
+  - {date: 2026-11-11, name: Veterans Day, suspends: [sweeping_day]}
   - {date: 2026-11-26, name: Thanksgiving Day, suspends: [sweeping]}
+  - {date: 2026-11-27, name: Day after Thanksgiving, suspends: [sweeping_day]}
   - {date: 2026-12-25, name: Christmas Day, suspends: [sweeping]}
   - {date: 2027-01-01, name: New Year's Day, suspends: [sweeping]}
   - {date: 2027-11-25, name: Thanksgiving Day, suspends: [sweeping]}

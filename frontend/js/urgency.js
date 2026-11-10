@@ -121,23 +121,38 @@
   // `service` ('sweeping', 'trash') is suspended: {dayKey: holiday name}. The functions
   // below take this as an optional `skip` (no sweeping on those days).
   var _skipCache = typeof WeakMap === 'function' ? new WeakMap() : null;
+  // Sweeps starting at or after this minute are "daytime" (holidays.DAYTIME_FROM).
+  var DAYTIME_FROM = 6 * 60;
   function holidaySkip(cityHolidays, service) {
     if (!cityHolidays) return null;
     var byService = _skipCache && _skipCache.get(cityHolidays);
     if (byService && byService[service]) return byService[service];
-    var out = {};
+    var out = {}, day = {};
     Object.keys(cityHolidays).forEach(function (iso) {
       var h = cityHolidays[iso], m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-      if (m && h && (h.suspends || []).indexOf(service) >= 0) out[dayKey(+m[1], +m[2], +m[3])] = h.name;
+      if (!m || !h) return;
+      var k = dayKey(+m[1], +m[2], +m[3]), on = h.suspends || [];
+      if (on.indexOf(service) >= 0) out[k] = h.name;
+      else if (on.indexOf(service + '_day') >= 0) day[k] = h.name;
     });
+    // Days only daytime sweeps are off ('sweeping_day'), kept out of the day list itself.
+    Object.defineProperty(out, 'daytime', { value: day });
     if (_skipCache) { byService = byService || {}; byService[service] = out; _skipCache.set(cityHolidays, byService); }
     return out;
   }
   // The holiday's name when `skip` suspends day p, else ''.
   function holidayOn(skip, p) { return (skip && skip[dayKey(p.y, p.m, p.d)]) || ''; }
 
-  function sweepsOn(code, y, m, d, skip) {
-    if (skip && skip[dayKey(y, m, d)]) return false;
+  // `time`: the sweep's window text, which decides a daytime-only holiday.
+  function sweepsOn(code, y, m, d, skip, time) {
+    if (skip) {
+      var k = dayKey(y, m, d);
+      if (skip[k]) return false;
+      if (skip.daytime && skip.daytime[k]) {
+        var w = timeWindow(time);
+        if (w && w[0] >= DAYTIME_FROM && w[0] < w[1]) return false;
+      }
+    }
     var r = codeRule(code);
     if (!r) return false;
     if (r.dates) return r.keys[dayKey(y, m, d)] === 1;
@@ -146,10 +161,10 @@
   }
 
   // Sweep dates of `code` in [start, end] inclusive ({y,m,d} objects).
-  function datesInRange(code, start, end, skip) {
+  function datesInRange(code, start, end, skip, time) {
     var out = [], cur = start, endK = dayKey(end.y, end.m, end.d);
     while (dayKey(cur.y, cur.m, cur.d) <= endK) {
-      if (sweepsOn(code, cur.y, cur.m, cur.d, skip)) out.push(cur);
+      if (sweepsOn(code, cur.y, cur.m, cur.d, skip, time)) out.push(cur);
       cur = addDays(cur, 1);
     }
     return out;
@@ -162,7 +177,7 @@
     [['even', even || []], ['odd', odd || []]].forEach(function (so) {
       so[1].forEach(function (e) {
         var time = (typeof e[2] === 'string' && e[2].trim()) ? e[2] : '';
-        datesInRange(e[0], start, end, skip).forEach(function (d) {
+        datesInRange(e[0], start, end, skip, time).forEach(function (d) {
           var k = dayKey(d.y, d.m, d.d);
           var day = byKey[k] || (byKey[k] = { y: d.y, m: d.m, d: d.d, items: [] });
           var dup = day.items.some(function (it) { return it.side === so[0] && it.time === time; });
@@ -234,11 +249,11 @@
   function checkDaySweeping(entries, now, skip) {
     var yst = addDays(now, -1), tmr = addDays(now, 1), tomorrow = false;
     for (var i = 0; i < entries.length; i++) {
-      var code = entries[i].code, w = timeWindow(entries[i].time || '');
+      var code = entries[i].code, t = entries[i].time || '', w = timeWindow(t);
       var overnight = w && w[1] < w[0];
-      if (sweepsOn(code, now.y, now.m, now.d, skip) && (!w || overnight || now.min <= w[1])) return 'today';
-      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip)) return 'today';
-      if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip)) {
+      if (sweepsOn(code, now.y, now.m, now.d, skip, t) && (!w || overnight || now.min <= w[1])) return 'today';
+      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip, t)) return 'today';
+      if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip, t)) {
         if (1440 - now.min + (w ? w[0] : 0) <= LEAD_MIN) return 'today';
         tomorrow = true;
       }
@@ -267,15 +282,15 @@
       }
     }
     for (var i = 0; i < entries.length; i++) {
-      var code = entries[i].code, w = timeWindow(entries[i].time || '');
+      var code = entries[i].code, t = entries[i].time || '', w = timeWindow(t);
       var overnight = w && w[1] < w[0];
-      if (sweepsOn(code, now.y, now.m, now.d, skip)) {
+      if (sweepsOn(code, now.y, now.m, now.d, skip, t)) {
         if (!w) take('today', null, 0);
         else if (now.min < w[0]) take('by', w[0], w[0] - now.min);
         else if (overnight || now.min <= w[1]) take('running', w[1], 0);
       }
-      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip)) take('running', w[1], 0);
-      if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip)) {
+      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip, t)) take('running', w[1], 0);
+      if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip, t)) {
         var start = w ? w[0] : 0, lead = 1440 - now.min + start;
         if (lead <= LEAD_MIN) take('by', start, lead);
         else take('tomorrow', start || null, lead);

@@ -43,28 +43,105 @@ def _add_key_and_display(out: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     return out
 
 
+# The city layer's coded values (its ArcGIS domains): DAY_* code -> description.
+_OAKLAND_DAY_DESC = {
+    "E": "Everyday",
+    "EEH": "Everyday except Holidays",
+    "EESSH": "Everyday except Saturday, Sunday & Holidays",
+    "MF": "Every Mon to Fri",
+    "FW": "1st Wed",
+    # The domain says Sat / Sun, but the signs on these blocks give weekdays (Street View
+    # 2025: 36th Ave 800 "2nd & 4th Mon" / "2nd & 4th Tue"; another block "Every Fri").
+    "S": "Day as posted on the signs",
+    "SU": "Day as posted on the signs",
+    "MWF": "Every Mon, Wed, Fri",
+    "TTHS": "Every Tues, Thurs, Sat",
+    "TTH": "Every Tues and Thurs",
+    "TTHE": "Every Tues and Thurs",
+    "TFE": "Every Tues and Fri",
+    "MTHE": "Every Mon and Thurs",
+    "THFE": "Every Thurs and Fri",
+    "MFE": "Every Mon and Fri",
+    "N": "No Sweeping (Exempt)",
+    "NS": "No Sweeping (Within City Of Oakland Limit)",
+    "N-S": "No Signage",
+    "N-O": "No Odd Addresses",
+    "N-E": "No Even Addresses",
+    "NS-UC": "No Sweeping (Uncontrol Condition)",
+    "NS-H": "No Sweeping (HYW)",
+    "NS-O": "No Sweeping (Outside Of The City Limit)",
+    "NS-A": "No Sweeping (Alleyways)",
+    "O": "There is no this side of the street",
+    "DM": "It is shown in the different map.",
+    "MS": "Major street uses 2 lines, not center line.",
+}
+# Source codes the sweep-code grammar reads differently (or not at all) -> grammar code.
+# Holidays are suspended for every code (data/holidays/oakland.yaml).
+_OAKLAND_DAY_CODE = {
+    "MF": "MTWTHF",
+    "EESSH": "MTWTHF",
+    "EEH": "E",
+    "FW": "W1",
+    "S": "POSTED",  # swept, day unknown: no dates, the description and hours shown
+    "SU": "POSTED",
+}
+_OAKLAND_DAY_NAME = {"M": "Mon", "T": "Tues", "W": "Wed", "TH": "Thurs", "F": "Fri"}
+_OAKLAND_ORDINAL = {"1": "1st", "2": "2nd", "3": "3rd", "4": "4th", "5": "5th"}
+# TIME_* code -> posted window.
+_OAKLAND_TIME = {
+    "M1": "12AM–3AM",
+    "M2": "3AM–6AM",
+    "M23": "2AM–3AM",
+    "M68": "6AM–8AM",
+    "M3": "9AM–12PM",
+    "A1": "12:30PM–3:30PM",
+}
+
+
+def _oakland_desc(code) -> str | None:
+    """ "1st and 3rd Mon" for "M13", the domain's text for the other codes."""
+    if not isinstance(code, str) or not code.strip():
+        return None
+    c = code.strip().upper()
+    if c in _OAKLAND_DAY_DESC:
+        return _OAKLAND_DAY_DESC[c]
+    day = c.rstrip("E12345")
+    tail = c[len(day) :]
+    if day not in _OAKLAND_DAY_NAME:
+        return None
+    if tail in ("", "E"):
+        return f"Every {_OAKLAND_DAY_NAME[day]}"
+    return " and ".join(_OAKLAND_ORDINAL[n] for n in tail) + f" {_OAKLAND_DAY_NAME[day]}"
+
+
 def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-    """
-    Oakland shapefile already uses Oakland codes for DAY_EVEN / DAY_ODD.
-    We only need to build STREET_NAME and create the DESC_* / TIME_* aliases.
-    """
+    """Oakland's street sweeping layer (the one behind the city's map): DAY_* are the
+    city's codes, close to the sweep-code grammar; TIME_* are window codes."""
     out = gdf.copy()
+
+    def text(col):
+        if col not in out:
+            return pd.Series("", index=out.index)
+        return out[col].fillna("").astype(str).str.strip()
+
+    parts = [text(c) for c in ("PREFIX", "NAME", "TYPE", "SUFFIX")]
     out["STREET_NAME"] = (
-        (out["NAME"].fillna("").str.strip() + " " + out["TYPE"].fillna("").str.strip())
-        .str.strip()
+        (parts[0] + " " + parts[1] + " " + parts[2] + " " + parts[3])
+        .str.split()
+        .str.join(" ")
         .str.upper()
     )
-    # Add canonical key and readable short display form so downstream code
-    # doesn't need to re-normalise on every access.
     _add_key_and_display(out)
-    out["DESC_EVEN"] = out.get("DescDayEve")
-    out["DESC_ODD"] = out.get("DescDayOdd")
-    out["TIME_EVEN"] = out.get("DescTimeEv")
-    out["TIME_ODD"] = out.get("DescTimeOd")
-    # The source codes "Every Mon to Fri" as MF, which reads as Mon and Fri only.
     for s in ("EVEN", "ODD"):
-        out.loc[out[f"DESC_{s}"].eq("Every Mon to Fri"), f"DAY_{s}"] = "MTWTHF"
-    # L_F_ADD, L_T_ADD, R_F_ADD, R_T_ADD already correct.
+        raw = text(f"DAY_{s}").str.upper()
+        out[f"DAY_{s}"] = raw.replace(_OAKLAND_DAY_CODE).where(raw != "", other=None)
+        out[f"DESC_{s}"] = raw.map(_oakland_desc)
+        swept = out[f"DAY_{s}"].map(
+            lambda c: normalize.is_text(c) and not analysis.is_no_sweep_code(c)
+        )
+        out[f"TIME_{s}"] = text(f"TIME_{s}").str.upper().map(_OAKLAND_TIME).where(swept, other=None)
+    for col in ADDR_COLS:
+        out[col] = pd.to_numeric(out.get(col), errors="coerce")
     return out
 
 

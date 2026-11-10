@@ -4,7 +4,8 @@
     python scripts/rebuild_city_data.py [city ...]   # default: every city
     python scripts/build_pmtiles.py                  # then rebuild the map tiles
 
-source: local_path (raw input), url (downloaded to local_path), files (extra
+source: local_path (raw input), url (downloaded to local_path), arcgis ({file:
+layer URL | {url, where}}, saved as GeoJSON next to local_path), files (extra
 inputs; URLs are downloaded next to local_path), build (script producing
 local_path), notes (how to get inputs by hand).
 """
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import requests
 
-from broombuster import data_loader
+from broombuster import data_loader, layer_sources
 from broombuster.cities import CITIES
 from broombuster.config import REPO_ROOT
 
@@ -37,6 +38,14 @@ def rebuild(city_key: str) -> None:
     print(f"{city['name']}")
     if src.get("url"):
         _download(src["url"], local)
+    for name, layer in (src.get("arcgis") or {}).items():
+        layer = layer if isinstance(layer, dict) else {"url": layer}
+        print(f"    GET {layer['url']}")
+        gdf, asof = layer_sources.arcgis(layer["url"], where=layer.get("where", "1=1"))
+        if gdf.empty:
+            sys.exit(f"{layer['url']}: no features")
+        gdf.to_file(local.parent / name, driver="GeoJSON")
+        print(f"    {name}: {len(gdf):,} features, edited {asof or 'unknown'}")
     for f in src.get("files", []):
         if f.startswith(("http://", "https://")):
             _download(f, local.parent / f.rsplit("/", 1)[-1])

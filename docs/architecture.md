@@ -86,7 +86,7 @@ raw inputs (manifest source:)┴─▶ scripts/rebuild_city_data.py ──▶ <f
                                                                    ▼
                                                     frontend/tiles/<region>.pmtiles
 
-data/holidays/<city>.yaml ──────▶ holidays.py  (sweeping and trash suspended per day)
+data/holidays/<city>.yaml ──────▶ holidays.py  (sweeping, daytime sweeping, trash suspended per day)
 data/places/markets.yaml ───┐
 layer_sources.py (ArcGIS,   ┴─▶ scripts/build_layers.py ──┬─▶ <city dir>/<theme>.fgb ──▶ /api/rules
 Socrata, NREL EV API)           (--theme parking …)       └─▶ frontend/layers/<region>/<theme>.geojson ──▶ map

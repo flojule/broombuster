@@ -7,7 +7,9 @@ trash: {kind: recollect, area: OaklandCA, service_id: 608}   # oaklandrecycles.c
 holidays: data/holidays/oakland.yaml
 layers: [parking, meters, ev, fire, evac, markets]   # scripts/build_layers.py (layer_sources.py)
 source:
-  local_path: data/oakland/StreetSweeping.shp
+  local_path: data/oakland/StreetSweeping.geojson
+  arcgis:
+    StreetSweeping.geojson: https://services.arcgis.com/9tC74aDHuml0x5Yz/arcgis/rest/services/StreetSweeping/FeatureServer/0
   notes: |
-    Download the "street sweeping" shapefile from https://data.oaklandca.gov
-    and unpack its .shp/.dbf/.shx/.prj/.cpg into data/oakland/.
+    The layer behind the city's "Map Your Street's Sweeping" page
+    (https://www.oaklandca.gov/Public-Safety-Streets/Streets/Street-Sweeping).

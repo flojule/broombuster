@@ -9,8 +9,13 @@ layers: [ev, markets]   # scripts/build_layers.py (layer_sources.py)
 source:
   local_path: data/alameda/StreetSweeping.geojson
   build: scripts/build_alameda_geojson.py
-  files: [data/alameda/street-sweeping-schedule.pdf]
+  arcgis:
+    # The city's sweeping map (day, posted time, signed or not per block); no geometry served.
+    schedule.geojson: https://mobile.alamedaca.gov/arcgis/rest/services/Streets_Sweeping/MapServer/0
+    # Alameda County street centerlines: the same blocks, with geometry.
+    centerlines.geojson:
+      url: https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0
+      where: "MUNL='AA' OR MUNR='AA'"
   notes: |
-    Download the PDF from
-    https://www.alamedaca.gov/Residents/Transportation-and-Streets/Street-Sweeping-Schedule
-    to data/alameda/street-sweeping-schedule.pdf.
+    The map is embedded in
+    https://www.alamedaca.gov/Departments/Public-Works-Department/Street-Sweeping-Program

@@ -115,7 +115,7 @@ def test_expired_session_is_ignored(env, client, monkeypatch):
 
 
 # ── Phone position updates ────────────────────────────────────────────────────
-OAKLAND = {"lat": 37.8044, "lon": -122.2712}
+OAKLAND = {"lat": 37.821326, "lon": -122.280705}  # Chestnut St: swept
 ORIGIN = {"Origin": BASE}
 
 

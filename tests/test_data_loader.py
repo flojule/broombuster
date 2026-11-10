@@ -61,12 +61,14 @@ _CODE_RE = re.compile(rf"(?:TH|SU|M|T|W|F|S)+(?:E|[1-5]+)?|E|DATES:{_DATE}(?:,{_
 
 
 def _assert_codes_parse(gdf, city):
-    """Every real DAY_* code is a sweep rule or an explicit no-sweep marker."""
+    """Every real DAY_* code is a sweep rule, a no-sweep marker or an undated marker."""
     codes = set(gdf["DAY_EVEN"].dropna()) | set(gdf["DAY_ODD"].dropna())
     bad = sorted(
         c
         for c in codes
-        if not analysis.is_no_sweep_code(c) and not _CODE_RE.fullmatch(c.strip().upper())
+        if not analysis.is_no_sweep_code(c)
+        and c not in analysis.UNDATED_CODES
+        and not _CODE_RE.fullmatch(c.strip().upper())
     )
     assert not bad, f"{city}: unparseable day codes {bad[:10]}"
 
