@@ -27,3 +27,6 @@ data/**/*.cpg
 data/users.sqlite*
 
 .deploy-bad
+
+# Street View validation work files (scripts/validate_streetview.py)
+.validation/
