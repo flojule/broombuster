@@ -90,7 +90,7 @@ Failure: a source that fails answers "nothing known" (failures cached 5 min), ne
 ```
 
 Build-time only, never reached by the server: NLR/NREL EV API (`developer.nlr.gov`, `BB_NREL_API_KEY`),
-Overpass (`scripts/pdf_city.py`), and the portals above via `scripts/rebuild_city_data.py` and `scripts/build_layers.py`.
+the cities' ArcGIS layers (manifest `source.arcgis`), and the portals above via `scripts/rebuild_city_data.py` and `scripts/build_layers.py`.
 
 ## 5. Build tools
 

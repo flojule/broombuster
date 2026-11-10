@@ -230,3 +230,34 @@ def test_geocode_outage_is_503(client, monkeypatch):
 
     monkeypatch.setattr(gps, "_nominatim_search", _down)
     assert client.get("/api/geocode", params={"q": "1 Main St"}).status_code == 503
+
+
+# Street-sweeping signs read on Google Street View (imagery date): the car parked under
+# the sign must get the sign's day and hours. Re-read a sign before changing a row.
+_SIGNS = [
+    # Ford St, Oakland (2025-05): "9:00 AM to 12:00 noon, 2nd and 4th Mondays"
+    (37.77242, -122.23263, "M24", "9AM–12PM", None),
+    # Taft Ave, Oakland (2022-05): "12:30 PM to 3:30 PM, 2nd Mondays"
+    (37.84270, -122.24902, "M2", "12:30PM–3:30PM", None),
+    # West St, Berkeley, east side (2022-08): "9 AM to 12 noon, 2nd Monday each month"
+    (37.86440, -122.28508, "M2", "9AM–12PM", "odd"),
+    # Berkeley Way, south side (2024-07): "12:30 PM to 3:30 PM, 2nd Tuesday"
+    (37.87215, -122.27504, "T2", "12:30PM–3:30PM", "even"),
+]
+
+
+@pytest.mark.parametrize(("lat", "lon", "code", "time", "side"), _SIGNS)
+def test_schedule_matches_signs_on_the_street(client, lat, lon, code, time, side):
+    data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
+    sides = [side] if side else ["even", "odd"]
+    if side:
+        assert data["car_side"] == side
+    found = [(e[0], e[2]) for s in sides for e in data[f"schedule_{s}"]]
+    assert (code, time) in found
+
+
+def test_no_sweeping_where_nobody_can_park(client):
+    """Broadway at 14th, Oakland: bus lanes and red curb (Street View 2025-02)."""
+    data = _check(client, {"lat": 37.8048, "lon": -122.2709, "region": "bay_area"})
+    assert data["address"] == "Broadway, Oakland"
+    assert not data["schedule_even"] and not data["schedule_odd"]

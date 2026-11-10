@@ -9,10 +9,12 @@ layers: [parking, meters, ev, fire, evac, markets]   # scripts/build_layers.py (
 source:
   local_path: data/berkeley/StreetSweeping.geojson
   build: scripts/build_berkeley_geojson.py
+  arcgis:   # blocks, address ranges and which blocks are enforced (the city's sweeping map)
+    centerlines.geojson: https://services1.arcgis.com/IYiCpZoSIq9lAxi8/arcgis/rest/services/Street_Sweeping_Map_WFL1/FeatureServer/1
   files:
     - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNamesA-G.pdf
     - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNamesH-Z.pdf
     - https://berkeleyca.gov/sites/default/files/2022-03/StreetSweepingSchedule_StNumbered.pdf
   notes: |
-    Streets are placed with OpenStreetMap (Overpass). Newer PDFs:
+    Day and AM/PM per address range come from the PDFs linked on
     https://berkeleyca.gov/city-services/streets-sidewalks-sewers-and-utilities/street-sweeping

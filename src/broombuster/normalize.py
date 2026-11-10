@@ -162,8 +162,11 @@ def street_display(raw: str) -> str:
     if not toks:
         return ""
 
-    # Leading spelled-out directional -> abbreviation ("NORTHWEST" -> "NW").
+    # Leading spelled-out directional -> abbreviation ("NORTHWEST" -> "NW"), unless it
+    # is the whole name ("West St").
     dir_token = _DIR_ABBR.get(toks[0].upper())
+    if dir_token and all(t.upper().rstrip(".") in _SUFFIX_ABBR for t in toks[1:]):
+        dir_token = None
     rest = toks[1:] if dir_token else toks
 
     # Trailing suffix?

@@ -12,12 +12,29 @@ python scripts/build_layers.py [city ...] [--theme parking ...]   # extra layers
 ```
 
 Commit the `.fgb` and `frontend/tiles/*.pmtiles` outputs. A new city needs a manifest, and a normaliser in
-`schemas.SCHEMA_PROFILES` if its source format is new.
+`schemas.SCHEMA_PROFILES` if its source format is new. A rebuild with no `git diff` means the committed data
+equals the source.
+
+## Sources
+
+| City | Schedule | Blocks and sides | Enforced where |
+|---|---|---|---|
+| Oakland | city sweeping layer (ArcGIS; behind the city's map) | same layer | codes other than no-sweep |
+| San Francisco | DataSF `yhqp-riqs` | same dataset | every row |
+| Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced` |
+| Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS) | signed sides only |
+| Chicago | Data Portal zones, one dataset per year | same dataset | every zone |
+
+Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
+read on the street.
 
 ## Manifest keys
 
-- `holidays:` → `holidays/<city>.yaml`: published holidays and what each suspends: `sweeping` (Oakland, SF only)
-  or `trash` (moved by `trash.holiday_rule`: `shift_week` or `next_day`).
+- `source:` → raw inputs: `url` (download), `arcgis` (`{file: layer URL | {url, where}}`), `files`, `build`
+  (script producing `local_path`).
+- `holidays:` → `holidays/<city>.yaml`: published holidays and what each suspends: `sweeping` (Oakland, SF),
+  `sweeping_day` (SF: only sweeps starting at 6 AM or later; night cleaning stays enforced) or `trash` (moved by
+  `trash.holiday_rule`: `shift_week` or `next_day`).
 - `trash:` → `{kind: recollect, area, service_id}` (pickups looked up by address, Oakland) or `{kind: weekly}`
   (the user picks the home's day).
 - `layers:` → extra map layers. Permit areas never overlap: within a city the first by label keeps a shared
@@ -44,4 +61,5 @@ ORDINALS := week-of-month digits 1..5
 ```
 
 `ME` = every Monday, `M13` = 1st and 3rd Monday, `TTH` = Tuesdays and Thursdays, `E` = every day.
-Codes in `analysis.NO_SWEEP_CODES` (`N`, `NS`, `MS`, …) mean no sweeping.
+Codes in `analysis.NO_SWEEP_CODES` (`N`, `NS`, `MS`, …) mean no sweeping, or sweeping nobody is ticketed for
+(Alameda's unsigned sides, Berkeley's opted-out blocks).

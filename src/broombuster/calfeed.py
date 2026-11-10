@@ -188,20 +188,24 @@ def build(
         today = now.astimezone(ZoneInfo(REGIONS[region]["tz"])).date()
         for day, h in sorted(holidays.for_city(city).items()):
             last = today + datetime.timedelta(days=DAYS)
-            if "sweeping" in h["suspends"] and today <= day <= last:
+            kind = next((k for k in _NO_SWEEP if k in h["suspends"]), None)
+            if kind and today <= day <= last:
                 lines += [
                     "BEGIN:VEVENT",
                     f"UID:holiday-{city}-{day:%Y%m%d}@broombuster",
                     f"DTSTAMP:{stamp}",
                     f"DTSTART;VALUE=DATE:{day:%Y%m%d}",
                     f"DTEND;VALUE=DATE:{day + datetime.timedelta(days=1):%Y%m%d}",
-                    f"SUMMARY:{_esc('No street sweeping: ' + h['name'])}",
+                    f"SUMMARY:{_esc(_NO_SWEEP[kind] + h['name'])}",
                     "TRANSP:TRANSPARENT",
                     "END:VEVENT",
                 ]
 
     lines.append("END:VCALENDAR")
     return "\r\n".join(_fold(x) for x in lines) + "\r\n"
+
+
+_NO_SWEEP = {"sweeping": "No street sweeping: ", "sweeping_day": "No daytime street sweeping: "}
 
 
 def _region_of(item: dict) -> str | None:

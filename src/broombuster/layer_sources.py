@@ -62,6 +62,8 @@ def arcgis(
         else ""
     )
     page = min(int(meta.get("maxRecordCount") or 1000), 2000)
+    if "geojson" not in (meta.get("supportedQueryFormats") or "").lower():
+        return _arcgis_esri_json(layer_url, where, fields, page), asof
     feats, offset = [], 0
     while True:
         data = _get(
@@ -81,6 +83,40 @@ def arcgis(
         if not batch:
             break
     return _frame(feats), asof
+
+
+def _arcgis_esri_json(layer_url: str, where: str, fields: str, page: int):
+    """Every feature of an old ArcGIS Server layer (no GeoJSON, no paging): object ids
+    first, then Esri JSON by id batch. Lines and polygons; a layer that hides its
+    geometry gives rows without one."""
+    ids = sorted(
+        _get(f"{layer_url}/query", where=where, returnIdsOnly="true", f="json")
+        .json()
+        .get("objectIds")
+        or []
+    )
+    feats = []
+    for i in range(0, len(ids), min(page, 200)):  # ids travel in the URL
+        data = _get(
+            f"{layer_url}/query",
+            objectIds=",".join(map(str, ids[i : i + min(page, 200)])),
+            outFields=fields,
+            returnGeometry="true",
+            outSR=4326,
+            f="json",
+        ).json()
+        if "error" in data:
+            raise ValueError(f"{layer_url}: {data['error']}")
+        for f in data.get("features") or []:
+            g = f.get("geometry") or {}
+            if g.get("paths"):
+                geom = {"type": "MultiLineString", "coordinates": g["paths"]}
+            elif g.get("rings"):
+                geom = {"type": "Polygon", "coordinates": g["rings"]}
+            else:
+                geom = None
+            feats.append({"type": "Feature", "geometry": geom, "properties": f["attributes"]})
+    return _frame(feats)
 
 
 def arcgis_colors(layer_url: str) -> dict[str, str]:

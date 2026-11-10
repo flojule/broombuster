@@ -492,6 +492,10 @@ class TestStreetDisplayAbbreviations:
     def test_directional_abbrev(self):
         assert normalize.street_display("East 12th Street") == "E 12th St"
 
+    def test_direction_as_the_whole_name(self):
+        assert normalize.street_display("WEST ST") == "West St"
+        assert normalize.street_display("WEST GRAND AVE") == "W Grand Ave"
+
 
 class TestFGBSchemaAndKeys:
     @pytest.mark.parametrize(

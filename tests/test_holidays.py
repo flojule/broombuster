@@ -117,6 +117,25 @@ def test_holiday_skip_in_js():
     assert dates == [ymd(datetime.date(2026, 11, 4)), ymd(datetime.date(2026, 11, 18))]
 
 
+@needs_node
+def test_daytime_only_holiday_in_js():
+    """A 'sweeping_day' holiday (San Francisco) drops daytime sweeps, not night ones."""
+    hol = {"2026-11-11": {"name": "Veterans Day", "suspends": ["sweeping_day"]}}
+    skip = {"daytime": {"20261111": "Veterans Day"}}
+    tue_9pm = {"y": 2026, "m": 11, "d": 10, "min": 21 * 60}
+    nov11 = ymd(datetime.date(2026, 11, 11))
+    listed, day, night, untimed, days = js(
+        ("holidaySkip", [hol, "sweeping"]),
+        ("checkDaySweeping", [[{"code": "W", "time": "8AM–10AM"}], tue_9pm, skip]),
+        ("checkDaySweeping", [[{"code": "W", "time": "2AM–6AM"}], tue_9pm, skip]),
+        ("checkDaySweeping", [[{"code": "W", "time": ""}], tue_9pm, skip]),
+        ("sweepDays", [[["W", "", "8AM–10AM"], ["W", "", "12AM–6AM"]], [], nov11, nov11, skip]),
+    )
+    assert listed == {}  # not a no-sweep day on the calendar
+    assert (day, night, untimed) == ("safe", "today", "today")  # untimed: assumed on
+    assert [it["time"] for it in days[0]["items"]] == ["12AM–6AM"]
+
+
 def test_sweep_days_skip_city_holidays():
     entries = {"even": [["W", "", "8AM-10AM"]], "odd": []}
     nov4, nov18 = datetime.date(2026, 11, 4), datetime.date(2026, 11, 18)

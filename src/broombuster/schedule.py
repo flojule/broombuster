@@ -78,14 +78,16 @@ def sweep_days(entries, city_key: str | None, start: datetime.date, end: datetim
     out = []
     day = start
     while day <= end:
-        if not (city_key and holidays.suspended(city_key, "sweeping", day)):
-            items = []
-            for side in ("even", "odd"):
-                for code, _desc, time in entries.get(side, []):
-                    if sweeps_on(code, day) and (side, time or "") not in items:
-                        items.append((side, time or ""))
-            if items:
-                out.append((day, items))
+        items = []
+        for side in ("even", "odd"):
+            for code, _desc, time in entries.get(side, []):
+                if not sweeps_on(code, day) or (side, time or "") in items:
+                    continue
+                if city_key and holidays.sweep_suspended(city_key, day, time_window(time)):
+                    continue
+                items.append((side, time or ""))
+        if items:
+            out.append((day, items))
         day += datetime.timedelta(days=1)
     return out
 
