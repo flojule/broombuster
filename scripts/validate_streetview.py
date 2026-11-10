@@ -513,7 +513,10 @@ _HM = re.compile(r"(\d{1,2}):(\d{2})")
 
 def _minutes(s) -> int | None:
     m = _HM.fullmatch(str(s or "").strip())
-    return int(m[1]) * 60 + int(m[2]) if m else None
+    if not m:
+        return None
+    t = int(m[1]) * 60 + int(m[2])
+    return 0 if t == 1 else t  # SF plates say 12:01 AM where the data says 12 AM
 
 
 def _expected_rules(entries) -> set:
