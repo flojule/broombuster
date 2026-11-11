@@ -275,6 +275,18 @@ def test_two_line_street_side_follows_its_kerb_line(client, lat, lon, side, code
     assert [e[0] for e in data[f"schedule_{side}"]] == [code]
 
 
+@pytest.mark.parametrize(
+    ("lat", "lon", "side", "code"),
+    [(37.852277, -122.267489, "odd", "T3"), (37.852171, -122.267467, "even", "M3")],
+)
+def test_border_street_takes_the_city_that_sweeps_it(client, lat, lon, side, code):
+    """Woolsey St 2000 block, the Oakland | Berkeley border: Oakland draws it unswept, Berkeley
+    sweeps both kerbs; the north kerb's plate reads 3rd Tue 9-12 (Street View)."""
+    data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
+    assert data["car_side"] == side
+    assert [e[0] for e in data[f"schedule_{side}"]] == [code]
+
+
 def test_no_sweeping_where_nobody_can_park(client):
     """Broadway at 14th, Oakland: bus lanes and red curb (Street View 2025-02)."""
     data = _check(client, {"lat": 37.8048, "lon": -122.2709, "region": "bay_area"})

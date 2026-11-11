@@ -134,6 +134,8 @@ def _expect(client, region: str, lat: float, lon: float, geocode: bool = False) 
         "/api/rules",
         params={"lat": lat, "lon": lon, "region": region, "geocode": str(geocode).lower()},
     ).json()
+    if "rules" not in r:
+        raise SystemExit(f"/api/rules failed at {lat:.6f},{lon:.6f}: {r}")
     side = c.get("car_side")
     return {
         "address": c.get("address"),
