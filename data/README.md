@@ -35,6 +35,8 @@ read on the street.
 - `holidays:` → `holidays/<city>.yaml`: published holidays and what each suspends: `sweeping` (Oakland, SF),
   `sweeping_day` (SF: only sweeps starting at 6 AM or later; night cleaning stays enforced) or `trash` (moved by
   `trash.holiday_rule`: `shift_week` or `next_day`).
+- `corrections:` → `<city>/corrections.yaml`: raw-row edits where posted signs (Street View) contradict the
+  source; each entry's `set` applies to rows equal to its `match`; a match on no row stops the build.
 - `trash:` → `{kind: recollect, area, service_id}` (pickups looked up by address, Oakland) or `{kind: weekly}`
   (the user picks the home's day).
 - `layers:` → extra map layers. Permit areas never overlap: within a city the first by label keeps a shared

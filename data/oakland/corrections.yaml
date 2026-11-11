@@ -1,0 +1,29 @@
+# Raw-row edits where posted signs (Street View) contradict the city layer: rows equal to `match` get `set`.
+# TIME codes: M2 3AM-6AM, M3 9AM-12PM, A1 12:30PM-3:30PM. DAY "S" = day as posted (data/README.md).
+- match: {GLOBALID: f4d54ee7-fe23-4a30-bba4-bdd9d54a65e4}   # MacArthur Blvd 8801-8899
+  set: {TIME_ODD: M2}
+  sign: "oak-sw-0007, 2025-04: odd kerb NO PARKING 3:00 AM TO 6:00 AM TUE THUR SAT"
+- match: {GLOBALID: 7117d2c3-648e-46c8-a6a0-a2f6ddb3cc40}   # International Blvd 300-399
+  set: {DAY_EVEN: S, TIME_EVEN: M2, DAY_ODD: S, TIME_ODD: M2}
+  sign: "oak-sw-0010, 2025-02: both kerbs NO PARKING 3:00 AM TO 6:00 AM, days illegible"
+- match: {GLOBALID: 2320f8cd-2100-403d-a1cb-9e000c7eebc9}   # E 14th St 300-399, same line
+  set: {DAY_EVEN: S, TIME_EVEN: M2, DAY_ODD: S, TIME_ODD: M2}
+  sign: "oak-sw-0010, as above"
+- match: {GLOBALID: dbec0636-1b98-411e-bd07-0e21c251267f}   # Alice St 1400-1698
+  set: {DAY_EVEN: F13}
+  sign: "oak-sw-0075, 2025-02: even kerb 12:30 PM TO 3:30 PM 1ST AND 3RD FRIDAYS"
+- match: {GLOBALID: eaf9d102-2214-4ebe-b487-049a0708eb0d}   # E 25th St 1300-1398
+  set: {DAY_EVEN: T24, TIME_EVEN: M3}
+  sign: "oak-sw-0131, 2025-05: even kerb 9:00 AM TO 12:00 NOON 2ND AND 4TH TUESDAYS"
+- match: {GLOBALID: 7dbd835d-b209-43ac-a63f-6e54273c01b7}   # Ridgeway Ave 267-299
+  set: {DAY_EVEN: T24, DAY_ODD: M24}
+  sign: "oak-sw-0158, 2025-03: odd kerb 2ND AND 4TH MONDAYS (2 plates); even kerb inferred"
+- match: {GLOBALID: 15513f18-5849-4ce1-b6f2-52c8c15d8967}   # MacArthur Blvd 233-399
+  set: {DAY_ODD: M24, TIME_ODD: M3}
+  sign: "oak-sw-0224, 2025-04: odd kerb 9:00 AM TO 12:00 NOON 2ND AND 4TH MONDAYS"
+- match: {GLOBALID: 1764b826-7815-4bdf-8281-b4398dc31458}   # Stone St 834-898
+  set: {DAY_EVEN: M24, TIME_EVEN: A1}
+  sign: "oak-sw-0225, 2025-05: even kerb 12:30 PM TO 3:30 PM 2ND AND 4TH MONDAYS (2 panoramas)"
+- match: {GLOBALID: 6088cf28-48bc-4bdd-85ae-26c29f583f7e}   # 10th Ave 1100-1199
+  set: {DAY_EVEN: THE, DAY_ODD: FE}
+  sign: "oak-sw-0318, 2025-02: even kerb THURSDAYS 12:30-3:30 (2 panoramas); odd kerb inferred"

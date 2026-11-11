@@ -1,0 +1,7 @@
+# Raw-row edits where posted signs (Street View) contradict DataSF: rows equal to `match` get `set`.
+- match: {cnn: "9053000"}   # Minnesota St, Mariposa St - 18th St
+  set: {fromhour: 2}
+  sign: "san-sw-0021, 2026-09: both kerbs NO PARKING 2AM TO 6AM (Mon / Wed)"
+- match: {cnn: "7039001", cnnrightleft: L}   # Howard St, 4th St - 5th St, SE kerb
+  set: {fromhour: 0, tohour: 6}
+  sign: "san-sw-0062, 2025-09: NO PARKING 12:01 AM TO 6 AM TUE THUR"

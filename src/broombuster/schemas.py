@@ -297,6 +297,13 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
             on_flags[n] = out[wc].astype(str).str.strip().isin(["1", "1.0", "true", "True"])
         else:
             on_flags[n] = False
+    # One side's weekday split over rows (1st & 3rd + 2nd & 4th): union their weeks.
+    key_cols = [k for k in (col("cnn"), col("cnnrightleft"), day_col, fh_col, th_col) if k]
+    dup = pd.Series(False, index=out.index)
+    if col("cnn") and day_col:
+        key = out[key_cols].astype(str).agg("|".join, axis=1)
+        on_flags = on_flags.groupby(key).transform("max")
+        dup = key.duplicated()
 
     # Build suffix: "E" if no flags or all 4 set; else sorted digit string
     def _suffix(row_flags):
@@ -378,7 +385,7 @@ def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     out["TIME_EVEN"] = time_series.where(is_even | is_both, other=None)
     out["TIME_ODD"] = time_series.where(is_odd | is_both, other=None)
 
-    return out
+    return out[~dup]
 
 
 # ---------------------------------------------------------------------------
