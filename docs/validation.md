@@ -30,7 +30,7 @@ Not counted: `stale` (newest panorama before 2023-11), `no_imagery`, `no_view`, 
 
 ## Reading signs
 
-The reader sees only `images/<id>/` (never `samples.jsonl`, the data or the app). Per sample: `p<k>_<L|R>.jpg`,
+The reader sees only `images/<id>/` (never `samples.jsonl`, the data or the app); for sweeping, only the scored side's views. Per sample: `p<k>_<L|R>.jpg`,
 a 180° view of one side of the street from panorama k; the kerb of that side runs across the image, the road
 at both edges. `zoom IMAGE U0 U1 V0 V1` crops it at 4x (U, V: fractions of the view's width and height).
 Output `readings/<id>.json`:
