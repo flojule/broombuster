@@ -4,6 +4,7 @@ schema: sf
 bbox: [37.70, -122.53, 37.84, -122.35]
 fgb_path: data/san_francisco/StreetSweeping.fgb
 holidays: data/holidays/san_francisco.yaml
+corrections: data/san_francisco/corrections.yaml
 trash: {kind: weekly, holiday_rule: shift_week}   # Recology: no lookup, the user picks the day
 layers: [parking, meters, ev, markets]   # scripts/build_layers.py (layer_sources.py)
 source:

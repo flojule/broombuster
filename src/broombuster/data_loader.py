@@ -4,6 +4,7 @@ import os
 
 import geopandas
 import pandas as pd
+import yaml
 from shapely.geometry import box as _shapely_box
 
 from broombuster.cities import CITIES, REGIONS
@@ -26,6 +27,22 @@ def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
     )
 
 
+def apply_corrections(gdf: geopandas.GeoDataFrame, path: str) -> geopandas.GeoDataFrame:
+    """Edit raw rows per a corrections file: each entry's `set` on the rows equal to its `match`."""
+    with open(os.path.join(_ROOT, path), encoding="utf-8") as fh:
+        entries = yaml.safe_load(fh) or []
+    gdf = gdf.copy()
+    for e in entries:
+        hit = pd.Series(True, index=gdf.index)
+        for col, val in e["match"].items():
+            hit &= gdf[col].astype(str).str.strip() == str(val)
+        if not hit.any():
+            raise ValueError(f"{path}: no raw row matches {e['match']}; the source changed")
+        for col, val in e["set"].items():
+            gdf.loc[hit, col] = str(val)
+    return gdf
+
+
 def build_city_fgb(city_key: str) -> geopandas.GeoDataFrame:
     """Normalise a city's raw input (`source.local_path`) and write its FGB.
 
@@ -43,6 +60,9 @@ def build_city_fgb(city_key: str) -> geopandas.GeoDataFrame:
         clip = _shapely_box(lon_min, lat_min, lon_max, lat_max)
         gdf_4326 = gdf.to_crs("EPSG:4326") if gdf.crs and not gdf.crs.equals("EPSG:4326") else gdf
         gdf = gdf[gdf_4326.geometry.intersects(clip)].copy()
+
+    if city.get("corrections"):
+        gdf = apply_corrections(gdf, city["corrections"])
 
     fn = SCHEMA_PROFILES.get(city["schema"])
     if fn is None:

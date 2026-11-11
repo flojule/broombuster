@@ -1,9 +1,11 @@
 """HTTP API end to end on the real data (no network: Nominatim is never hit)."""
 
+import geopandas
 import pandas as pd
 import pytest
+from shapely.geometry import Point
 
-from broombuster import analysis, gps, resolve
+from broombuster import analysis, data_loader, gps, resolve
 
 _OAKLAND = {"lat": 37.821326, "lon": -122.280705, "region": "bay_area"}  # Chestnut St
 _CHICAGO = {"lat": 41.8781, "lon": -87.6298, "region": "chicago"}
@@ -285,6 +287,31 @@ def test_border_street_takes_the_city_that_sweeps_it(client, lat, lon, side, cod
     data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
     assert data["car_side"] == side
     assert [e[0] for e in data[f"schedule_{side}"]] == [code]
+
+
+@pytest.mark.parametrize(
+    ("lat", "lon", "side", "codes"),
+    [
+        (37.829584, -122.254701, "odd", ["M24"]),  # Ridgeway Ave 267-299: 2nd & 4th Mon
+        (37.791017, -122.251134, "even", ["THE"]),  # 10th Ave 1100-1198: Thursdays
+        (37.780899, -122.432291, "even", ["FE", "ME", "SE", "WE"]),  # Fillmore St: every week
+    ],
+)
+def test_signs_override_the_source(client, lat, lon, side, codes):
+    """Kerbs whose plates (Street View) contradict the source: Oakland's swapped sides
+    (data/oakland/corrections.yaml), DataSF's weeks 1-4 split over two rows."""
+    data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
+    assert data["car_side"] == side
+    assert sorted(e[0] for e in data[f"schedule_{side}"]) == codes
+
+
+def test_stale_correction_fails(tmp_path):
+    """A correction whose row the source no longer has stops the build."""
+    gdf = geopandas.GeoDataFrame({"ID": ["a"]}, geometry=[Point(0, 0)], crs="EPSG:4326")
+    f = tmp_path / "c.yaml"
+    f.write_text("- match: {ID: b}\n  set: {ID: c}\n")
+    with pytest.raises(ValueError, match="no raw row matches"):
+        data_loader.apply_corrections(gdf, str(f))
 
 
 def test_no_sweeping_where_nobody_can_park(client):
