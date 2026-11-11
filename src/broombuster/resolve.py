@@ -23,13 +23,17 @@ import pyproj
 import shapely
 from shapely.geometry import Point
 
-from broombuster import normalize
+from broombuster import analysis, normalize
 from broombuster.cities import CITIES, city_for_point
 
 _TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
 # Max car-to-centerline distance for the car and home flows.
 CAR_MAX_DISTANCE_M = 50.0
+
+# A border street drawn by two cities: how much farther (EPSG:3857 m) the other city's swept
+# line may be than an unswept nearest line and still win (Woolsey St, Oakland | Berkeley).
+BORDER_EXTRA_M = 10.0
 
 
 class NoSegmentNearby(Exception):
@@ -121,7 +125,7 @@ def resolve_car_segment(
     best_line_dist = float("inf")
     if len(lines):
         dists = shapely.distance(car_pt, geoms[lines])
-        j = int(np.argmin(dists))
+        j = _swept_border_twin(gdf_3857, cand[lines], dists, int(np.argmin(dists)), car_pt)
         best_line_idx, best_line_dist = int(cand[lines[j]]), float(dists[j])
 
     if best_line_idx is None or best_line_dist > max_distance_m:
@@ -175,6 +179,30 @@ def locate(gdf_3857, lat: float, lon: float, region_key: str):
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _unswept(row) -> bool:
+    return all(analysis.is_no_sweep_code(row.get(f"DAY_{s}")) for s in ("EVEN", "ODD"))
+
+
+def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt) -> int:
+    """Position in idx of the line for the car: the nearest (j), unless it is unswept and another
+    city draws the same street alongside, with a schedule, within BORDER_EXTRA_M farther."""
+    best = gdf_3857.iloc[int(idx[j])]
+    if "_city" not in gdf_3857 or not _unswept(best):
+        return j
+    for k in np.argsort(dists, kind="stable"):
+        if dists[k] > dists[j] + BORDER_EXTRA_M:
+            break
+        row = gdf_3857.iloc[int(idx[k])]
+        if (
+            row.get("_city") != best.get("_city")
+            and row.get("STREET_KEY") == best.get("STREET_KEY")
+            and not _unswept(row)
+            and 0 < row.geometry.project(car_pt) < row.geometry.length  # alongside, not end to end
+        ):
+            return int(k)
+    return j
 
 
 def _one_side_line(row) -> str | None:

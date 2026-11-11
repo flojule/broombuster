@@ -84,7 +84,7 @@ def _ref_resolve(gdf, lat, lon, city_key=None, max_distance_m=40.0):
     """(row position, is_polygon, distance) a per-row resolver loop picks."""
     x, y = resolve._TRANSFORMER_4326_TO_3857.transform(lon, lat)
     pt = Point(x, y)
-    best, best_d = None, float("inf")
+    best, best_d, lines = None, float("inf"), []
     for i in gdf.sindex.query(pt.buffer(max(max_distance_m * 3.0, 100.0))):
         row = gdf.iloc[i]
         if city_key:
@@ -99,11 +99,30 @@ def _ref_resolve(gdf, lat, lon, city_key=None, max_distance_m=40.0):
                 return int(i), True, 0.0
             continue
         d = pt.distance(g)
+        lines.append((d, int(i)))
         if d < best_d:
             best, best_d = int(i), d
+    if best is not None and _unswept(gdf.iloc[best]):  # border street: the city that sweeps it
+        b = gdf.iloc[best]
+        for d, i in sorted(lines, key=lambda x: x[0]):
+            r = gdf.iloc[i]
+            if d > best_d + resolve.BORDER_EXTRA_M:
+                break
+            alongside = 0 < r.geometry.project(pt) < r.geometry.length
+            same = r.get("STREET_KEY") == b.get("STREET_KEY")
+            if r.get("_city") != b.get("_city") and same and not _unswept(r) and alongside:
+                best, best_d = i, d
+                break
     if best is None or best_d > max_distance_m:
         return None
     return best, False, best_d
+
+
+def _unswept(row):
+    return all(
+        str(row.get(f"DAY_{s}") or "").strip().upper() in analysis.NO_SWEEP_CODES
+        for s in ("EVEN", "ODD")
+    )
 
 
 def _position(gdf, row):
