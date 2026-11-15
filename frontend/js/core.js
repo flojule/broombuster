@@ -1,16 +1,17 @@
 // Every urgency surface reads this one table: card colour (CSS vars in
 // styles.css), labels, and the map paint (MapLibre needs literal colours).
+// band: a zone's inner edge band (js/map.js), opaque; its opacity is set there.
 const URGENCY = {
   today:    { color: 'var(--urg-today)',    short: 'Today', icon: 'alert',
-              fill: 'rgba(220,60,60,0.55)',  border: 'rgba(220,60,60,0.90)',  line: 'tomato' },
+              fill: 'rgba(220,60,60,0.55)',  band: '#d33a3a', line: 'tomato' },
   tomorrow: { color: 'var(--urg-tomorrow)', short: 'Tomorrow', icon: 'alert',
-              fill: 'rgba(230,130,20,0.40)', border: 'rgba(230,130,20,0.80)', line: 'orange' },
+              fill: 'rgba(230,130,20,0.40)', band: '#d97706', line: 'orange' },
   // Clear is quiet (a muted green): only today and tomorrow should catch the eye.
   safe:     { color: 'var(--urg-safe)',     short: 'Clear', icon: 'check',
-              fill: 'rgba(63,140,92,0.12)',  border: 'rgba(63,140,92,0.35)',  line: 'rgba(63,140,92,0.6)' },
+              fill: 'rgba(63,140,92,0.12)',  band: '#3f8c5c', line: 'rgba(63,140,92,0.6)' },
   // Map only: a street or zone with no sweeping at all (not a car verdict).
   none:     { color: 'var(--muted)',       short: 'No sweeping',
-              fill: 'rgba(120,130,150,0.10)', border: 'rgba(120,130,150,0.35)', line: '#94a3b8' },
+              fill: 'rgba(120,130,150,0.10)', band: '#64748b', line: '#94a3b8' },
 };
 
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
@@ -204,7 +205,8 @@ let _tempPinMarker = null;
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
-const ZONE_LAYERS  = ['zones-fill', 'zones-here', 'zones-active', 'zones-outline', 'zones-ward', 'zones-line', 'zones-side-even', 'zones-side-odd'];
+const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-band', 'zones-ward', 'zones-line', 'zones-side-even',
+                      'zones-side-odd', 'zones-edge', 'zones-here-halo', 'zones-here', 'zones-label'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
 // Vector tile source; per-feature urgency arrives via feature-state.

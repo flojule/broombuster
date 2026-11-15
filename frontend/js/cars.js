@@ -269,6 +269,23 @@ function deadlineText(sched) {
   return { short: d.at ? `Tomorrow ${d.at}` : 'Tomorrow', long: d.at ? `tomorrow by ${d.at}` : 'tomorrow' };
 }
 
+// Nothing due: until when the car's side stays clear, from its next sweep within 60 days
+// ("Clear until Thu 9AM"; a week or more away, with the date); null when none.
+function clearUntilText(sched) {
+  if (!sched) return null;
+  const now = schedNow(sched), todayK = BroomUrgency.dayKey(now);
+  const even = sched.car_side === 'odd' ? [] : sched.schedule_even, odd = sched.car_side === 'even' ? [] : sched.schedule_odd;
+  const day = BroomUrgency.sweepDays(even, odd, now, BroomUrgency.addDays(now, 60), schedSkip(sched))
+    .find(d => BroomUrgency.dayKey(d) > todayK);
+  if (!day) return null;
+  const starts = day.items.map(it => BroomUrgency.timeWindow(it.time)?.[0]).filter(m => m != null);
+  const far = Date.UTC(day.y, day.m - 1, day.d) - Date.UTC(now.y, now.m - 1, now.d) >= 7 * 864e5;
+  const wd = far ? BroomUrgency.dayLabel(day) : BroomUrgency.WEEKDAYS[BroomUrgency.weekday(day)];
+  const at = starts.length ? ` ${BroomUrgency.clockText(Math.min(...starts))}` : '';
+  const short = far ? BroomUrgency.dayLabel(day).replace(/^\S+ /, '') : wd;  // "Nov 22" a week or more away
+  return { short: `Clear until ${short}`, long: `Clear until ${wd}${at}` };
+}
+
 // Verdict: icon + words (never colour alone); the row shows the short form, the item's
 // page the long one (CSS). `words`: {short, long}, else the verdict's name.
 function _statusHTML(u, words) {
@@ -282,7 +299,8 @@ function _statusHTML(u, words) {
 // the error with Retry.
 function schedBlockHTML(id, header, lines) {
   const body = lines ? lines.slice(0, 6).map(l => typeof l === 'string' ? { text: l } : l)
-    .map(l => `<div class="ce-sched-item ${l.cls || ''}">${esc(l.text)}</div>`).join('')
+    .map(l => `<div class="ce-sched-item ${l.cls || ''}">${esc(l.text)}`
+      + (l.tag ? ` <span class="ce-tag urg-${l.tag}">${l.tag === 'today' ? 'Today' : 'Tomorrow'}</span>` : '') + '</div>').join('')
     : loadFailed.has(id) ? '<div class="ce-error">Couldn’t load the schedule <button class="btn btn-tinted ce-btn-retry">Retry</button></div>'
     : '<div class="ce-loading">Loading…</div>';
   return `<div class="sec-label">${esc(header)}</div><div class="sec">${body}</div>`;
@@ -404,13 +422,20 @@ async function _togglePhoneLink(car) {
   document.querySelector('.ce-token')?.scrollIntoView({ block: 'nearest' });  // it is below the schedule
 }
 
-// A car's sweeping lines, its side first (formatBothSides); the other side's are muted.
+// A car's sweeping lines, its side first (formatBothSides) as "Your side (North): …",
+// then "Other side (South): …", muted unless swept today or tomorrow (then tagged so:
+// a car parked one side off, or a GPS fix across the street, makes it the line that matters).
 function carSchedLines(sched) {
   const labels = sched.side_labels || ['Even', 'Odd'];
   const lines = BroomUrgency.formatBothSides(sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, labels);
   if (!sched.car_side) return lines;
-  const other = `${labels[sched.car_side === 'odd' ? 0 : 1]}: `;
-  return lines.map(text => text.startsWith(other) ? { cls: 'ce-other', text } : text);
+  const mineI = sched.car_side === 'odd' ? 1 : 0, mine = `${labels[mineI]}: `, other = `${labels[1 - mineI]}: `;
+  const otherEntries = (mineI ? sched.schedule_even : sched.schedule_odd).map(e => ({ code: e[0], time: e[2] || '' }));
+  const u = BroomUrgency.checkDaySweeping(otherEntries, schedNow(sched), schedSkip(sched));
+  const tag = u === 'today' || u === 'tomorrow' ? u : null;
+  return lines.map(text => text.startsWith(other)
+    ? { cls: tag ? '' : 'ce-other', tag, text: `Other side (${labels[1 - mineI]}): ${text.slice(other.length)}` }
+    : text.startsWith(mine) ? `Your side (${labels[mineI]}): ${text.slice(mine.length)}` : text);
 }
 
 // The car rows (before the homes) and, on a car's page, its one visible action: Parked
@@ -422,10 +447,10 @@ function renderCarsPanel() {
   for (const car of cars) {
     const sched = carSchedules[car.id];
     const addrText = sched?.address || '';
-    const lines = sched && carSchedLines(sched), dl = deadlineText(sched);
+    const lines = sched && carSchedLines(sched), dl = deadlineText(sched), cl = !dl && clearUntilText(sched);
     const entry = itemCard({
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
-      urgency: sched && sweepUrgency(sched), words: dl && { short: dl.short, long: `Move ${dl.long}` }, addr: addrText,
+      urgency: sched && sweepUrgency(sched), words: dl ? { short: dl.short, long: `Move ${dl.long}` } : cl || null, addr: addrText,
       detail: `
         <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
         ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}

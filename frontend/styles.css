@@ -139,6 +139,7 @@
     /* Layers menu: one switch row per layer, its map colour as the key. */
     .lyr-item[aria-checked="true"] .lyr-check { opacity: 1; }
     .lyr-check { margin-left: auto; opacity: 0; color: var(--blue); }
+    .lyr-label small { display: block; font-size: .66rem; color: var(--muted); }
     .lyr-key { flex: none; width: 14px; height: 14px; border-radius: 4px; background: var(--k); }
     img.lyr-key { width: 18px; height: 18px; margin: -2px; background: none; }
     .lyr-legend-btn { margin-top: 4px; border-top: 1px solid var(--hairline); border-radius: 0 0 calc(var(--r-menu) - 6px) calc(var(--r-menu) - 6px);
@@ -338,6 +339,8 @@
     .car-entry.selected .ce-status { font-size: 1.05rem; font-weight: 700; white-space: normal; }
     /* Sweeping on a car's page: the other side of the street, muted. */
     .ce-other { color: var(--muted); }
+    .ce-tag, .cal-tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: .68rem; font-weight: 700;
+                        background: color-mix(in srgb, currentColor 12%, transparent); }
     .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
     .ce-loading { color: var(--muted); }
@@ -401,18 +404,18 @@
       position: absolute; z-index: 21; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
       pointer-events: none;
     }
-    .sc { display: flex; flex-direction: column; gap: 5px; width: max-content; max-width: 230px; padding: 8px 10px 9px;
+    .sc { display: flex; flex-direction: column; gap: 5px; width: max-content; max-width: 260px; padding: 8px 10px 9px;
           border-radius: var(--r-md); background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-1);
-          font-size: .7rem; line-height: 1.3; }
+          font-size: .8rem; line-height: 1.3; }  /* read walking to the car: rows 12.8 px, labels from 10.6 px */
     .sc-head { display: flex; align-items: center; gap: 6px; }
-    .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: .6rem; font-weight: 800; }
-    .sc-street { min-width: 0; font-size: .62rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+    .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: .66rem; font-weight: 800; }
+    .sc-street { min-width: 0; font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sc-rule { margin: 1px 0; border: none; border-top: 1px solid var(--border); }
-    .sc-side { display: flex; align-items: center; gap: 6px; margin: 2px 0 -2px; font-size: .58rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .sc-side { display: flex; align-items: center; gap: 6px; margin: 2px 0 -2px; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
-    .sc-mark { flex: none; display: flex; align-items: center; justify-content: center; width: 17px; height: 17px; margin-top: -1px;
-               border-radius: 5px; color: #fff; font-style: normal; font-size: .58rem; font-weight: 800; letter-spacing: -.02em; }
+    .sc-mark { flex: none; display: flex; align-items: center; justify-content: center; width: 19px; height: 19px; margin-top: -1px;
+               border-radius: 5px; color: #fff; font-style: normal; font-size: .64rem; font-weight: 800; letter-spacing: -.02em; }
     .sc-sweep, .sc-mark.light { color: rgba(0,0,0,.72); }  /* a letter on a light colour */
     .sc-text { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
     .sc-detail { font-weight: 400; color: var(--muted); }
@@ -462,6 +465,9 @@
     /* A no-sweep holiday: struck through, so a weekly street day reads as cancelled. */
     .cal-hol { text-decoration: line-through; text-decoration-color: var(--muted); }
     .cal-hol-line { color: var(--muted); }
+    .cal-past { opacity: .4; }  /* days gone by: not counted as ahead */
+    .cal-areas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .cal-area { min-height: 30px; padding: 2px 10px; font-size: .74rem; }
 
     .cal-nav { width: var(--tap); height: var(--tap); font-size: 1.15rem; }
     .cal-nav:hover { color: var(--text); }
@@ -540,18 +546,18 @@
     #center-crosshair {
       position: absolute; transform: translate(-50%, -50%); transition: top .4s var(--sheet-ease);
       top: calc((100% - var(--pad-b, 0px)) / 2); left: calc(var(--pad-l, 0px) + (100% - var(--pad-l, 0px)) / 2);
-      z-index: 15; display: none; width: 5px; height: 5px; border-radius: 50%;
-      background: rgba(15,23,42,.75); box-shadow: 0 0 0 1.5px rgba(255,255,255,.85);
+      z-index: 15; display: none; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%;
+      --t-ink: rgba(15,23,42,.85); --t-halo: rgba(255,255,255,.9);  /* a ring and centre dot on a halo */
+      border: 2px solid var(--t-ink); background: radial-gradient(circle, var(--t-ink) 0 2px, transparent 2.5px);
+      box-shadow: 0 0 0 1.5px var(--t-halo), inset 0 0 0 1.5px var(--t-halo);
       pointer-events: none;
     }
     #center-crosshair.visible { display: block; }
     #center-crosshair.under-pin:not(.placing) { display: none; }  /* a pin sits on the target (js/markers.js) */
-    body.dark #center-crosshair {
-      background: rgba(226,232,240,.9); box-shadow: 0 0 0 2px rgba(0,0,0,.6);
-    }
+    body.dark #center-crosshair { --t-ink: rgba(226,232,240,.95); --t-halo: rgba(0,0,0,.7); }
     /* Placement: emphasize the target so it reads as the spot being set. */
     #center-crosshair.placing {
-      width: 16px; height: 16px; background: transparent;
+      width: 22px; height: 22px; background: transparent;
       border: 2px solid var(--blue);
       box-shadow: 0 0 0 2px rgba(255,255,255,.9), 0 0 0 3.5px var(--blue);
     }
