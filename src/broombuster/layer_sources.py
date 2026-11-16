@@ -26,7 +26,7 @@ from broombuster.config import REPO_ROOT
 _TIMEOUT_S = 120
 _UA = {"User-Agent": "BroomBuster layer build (https://github.com/flojule/broombuster)"}
 COLUMNS = ("label", "rule", "asof")
-# Optional: the colour the city's own map gives a feature ("#rrggbb"; permit areas).
+# Optional: the color the city's own map gives a feature ("#rrggbb"; permit areas).
 COLOR = "color"
 
 BERKELEY = "https://services1.arcgis.com/IYiCpZoSIq9lAxi8/arcgis/rest/services"
@@ -120,7 +120,7 @@ def _arcgis_esri_json(layer_url: str, where: str, fields: str, page: int):
 
 
 def arcgis_colors(layer_url: str) -> dict[str, str]:
-    """{field value: "#rrggbb"} from a layer's unique-value renderer (the colours of the
+    """{field value: "#rrggbb"} from a layer's unique-value renderer (the colors of the
     city's own map); {} when it draws everything alike."""
     r = (_get(layer_url, f="json").json().get("drawingInfo") or {}).get("renderer") or {}
     out = {}
@@ -198,15 +198,22 @@ def permit_area(v) -> str:
     return "" if v in ("", "0") else v
 
 
+def permit_label(codes) -> str:
+    """The label of a curb or area that takes any of these permits ("Permit area G or K")."""
+    codes = sorted({c for c in codes if c})
+    return f"Permit area {' or '.join(codes)}" if codes else ""
+
+
 _BERKELEY_RPP_MAP = f"{BERKELEY}/Public_Online_RPP_Map_WFL1/FeatureServer"
 
 
 def berkeley_parking():
-    # The streets with RPP restrictions (one shape per street and area; "AB": either).
+    # The streets with RPP restrictions (one shape per street and area; "AB": A or B, as
+    # Berkeley's areas are single letters).
     url = f"{_BERKELEY_RPP_MAP}/10"
     gdf, asof = arcgis(url, fields="Area")
     gdf = gdf[gdf["Area"].map(permit_area) != ""]
-    return _out(gdf, lambda r: f"Permit area {permit_area(r['Area'])}", _BERKELEY_RPP, asof)
+    return _out(gdf, lambda r: permit_label(permit_area(r["Area"])), _BERKELEY_RPP, asof)
 
 
 def oakland_parking():
@@ -253,7 +260,7 @@ def _areas(
 def berkeley_areas():
     gdf, asof = arcgis(f"{_BERKELEY_RPP_MAP}/6", fields="Area")
     out = _areas(gdf, "Area", asof)
-    # The city's RPP map colours, by area (the streets layer carries the renderer).
+    # The city's RPP map colors, by area (the streets layer carries the renderer).
     colors = {permit_area(k): c for k, c in arcgis_colors(f"{_BERKELEY_RPP_MAP}/10").items()}
     out[COLOR] = [colors.get(lbl.removeprefix("Permit area ")) for lbl in out["label"]]
     return out
@@ -297,10 +304,17 @@ def _limit(hours: str) -> str:
     return f"{round(h * 60)} min limit" if h < 1 else f"{h:g} h limit"
 
 
+def _sf_areas(r) -> list[str]:
+    """The permit areas whose holders a SF curb exempts, sorted (up to three: "G", "K")."""
+    return sorted(
+        {a for k in ("rpparea1", "rpparea2", "rpparea3") if (a := permit_area(_txt(r, k)))}
+    )
+
+
 def _sf_label(r) -> str:
-    area, limit = permit_area(_txt(r, "rpparea1")), _limit(_txt(r, "hrlimit"))
-    if area:
-        return f"Permit area {area}"
+    label, limit = permit_label(_sf_areas(r)), _limit(_txt(r, "hrlimit"))
+    if label:
+        return label
     if _txt(r, "regulation").lower() == "time limited" and limit:
         return limit
     return _txt(r, "regulation") or "Parking rule"
@@ -310,7 +324,7 @@ def _sf_rule(r) -> str:
     reg = _txt(r, "regulation")
     limit = _limit(_txt(r, "hrlimit"))
     hours = _sf_hours(r)
-    area = permit_area(_txt(r, "rpparea1"))
+    area = " or ".join(_sf_areas(r))
     if reg.lower() == "time limited" and limit:
         text = limit + (f", {hours}" if hours else "")
         return text + (f"; permit area {area} holders exempt." if area else ".")
@@ -624,11 +638,14 @@ POPUP_RULE = ("markets", "ev")
 
 
 def dump_json(gdf: geopandas.GeoDataFrame, theme: str = "") -> str:
-    """Compact GeoJSON for the client's copy: label, city, colours (when given) and, for
+    """Compact GeoJSON for the client's copy: label, city, colors (when given) and, for
     POPUP_RULE themes, the rule; coordinates to 1e-6° (~10 cm)."""
-    keep = [c for c in (COLOR, "edge") if c in gdf]
+    keep = [c for c in (COLOR, "edge", "color2", "kind") if c in gdf]
     if theme in POPUP_RULE and "rule" in gdf:
         keep.append("rule")
     gdf = gdf[["label", "city", *keep, "geometry"]].copy()
     gdf["geometry"] = shapely.set_precision(gdf.geometry.values, 1e-6, mode="pointwise")
-    return json.dumps(json.loads(gdf.to_json(drop_id=True)), separators=(",", ":"))
+    fc = json.loads(gdf.to_json(drop_id=True))
+    for f in fc["features"]:  # a property a feature lacks is left out, not null
+        f["properties"] = {k: v for k, v in f["properties"].items() if v is not None}
+    return json.dumps(fc, separators=(",", ":"))

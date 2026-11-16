@@ -34,7 +34,7 @@ browser: car's lat/lon ──POST /api/check──▶ resolve.py     nearest str
                                           analysis.py      sweep code per side + holidays.py
                                                 │
                                                 ▼
-browser: js/urgency.js colours it, calendar.js draws it ◀── JSON schedule
+browser: js/urgency.js colors it, calendar.js draws it ◀── JSON schedule
 ```
 
 ### Phone reports a parked car

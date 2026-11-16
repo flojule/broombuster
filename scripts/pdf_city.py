@@ -1,6 +1,6 @@
 """Shared steps of the city build scripts (scripts/build_*_geojson.py): PDF text
 lines, street-name clean-up, and writing the standard-schema GeoJSON that
-data_loader.build_city_fgb normalises."""
+data_loader.build_city_fgb normalizes."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ _TYPE_FIX |= {"CR": "CRES", "CS": "CRES", "CI": "CIR"}
 
 
 def street_label(name: str) -> str:
-    """Upper-case name with its type abbreviation normalised: "DWIGHT WY" -> "DWIGHT WAY"."""
+    """Upper-case name with its type abbreviation normalized: "DWIGHT WY" -> "DWIGHT WAY"."""
     toks = name.upper().split()
     if len(toks) > 1:
         toks[-1] = _TYPE_FIX.get(toks[-1], toks[-1])

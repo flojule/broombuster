@@ -419,7 +419,7 @@
     return lines.filter(function (ln, k) { return lines.indexOf(ln) === k; });
   }
 
-  // Both sides' lines, unlabelled when identical,
+  // Both sides' lines, unlabeled when identical,
   // else "<label>: <line>" with the car's side first. labels = [even, odd].
   function formatBothSides(even, odd, now, carSide, labels) {
     labels = labels || ['Even', 'Odd'];

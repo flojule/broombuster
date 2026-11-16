@@ -1,5 +1,5 @@
 // ── Nearby tab: farmers markets, events, street events and council meetings this week
-// near the centre target (/api/around), and links to the calendars without a feed.
+// near the center target (/api/around), and links to the calendars without a feed.
 // Fetched when the tab opens; "Here" refreshes it once the map has moved away.
 const nearbyBody = document.getElementById('nearby-body');
 const btnNearbyHere = document.getElementById('btn-nearby-here');
@@ -81,7 +81,7 @@ async function loadNearby() {
   }
 }
 
-// The tab opened: load for the map centre, or offer "Here" once the map has moved away.
+// The tab opened: load for the map center, or offer "Here" once the map has moved away.
 function nearbyShown() {
   if (!map) { setTimeout(nearbyShown, 500); return; }
   if (!_nearbyAt) { loadNearby(); return; }

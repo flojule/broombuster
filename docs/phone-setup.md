@@ -39,7 +39,7 @@ Authorization: Bearer <token>
 
 Reply: `{"summary": "Parked at 12 Oak St, Oakland."}`.
 
-- `accuracy` is optional, in metres. Above 50 m the report is refused (422).
+- `accuracy` is optional, in meters. Above 50 m the report is refused (422).
 - A refusal also answers with a `summary` saying why ("Position too rough (±65 m); the car was not moved."). The app shows the last refusal on the car's page.
 - Numbers may be text, with a decimal comma or a unit (`"35 m"`, `"115 ft"`).
 - `401`: token revoked. `404`: car removed.

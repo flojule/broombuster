@@ -1,16 +1,16 @@
 // ── Map layers: permit areas, meters, EV charging, … (the Layers button) ─────
 // Each region lists its layers in /cities (id, name, a content-versioned GeoJSON url,
-// scripts/build_layers.py). Turned on, a layer is drawn under the street colours (points
+// scripts/build_layers.py). Turned on, a layer is drawn under the street colors (points
 // above them, and an area's thin rim), so sweeping stays the first thing the map says.
 // The parking rules start on, places (EV charging, markets: the Nearby tab lists them)
 // off; what is switched is remembered on this device. A tap on a layer's feature names
 // it (and a market's days, a closure's dates); an area the target is in shows on the
 // street card (overlayAreasAtTarget).
-// color: the layer's colour; a feature's own `color` (each permit area its own: the
-// city's, else one its neighbours lack; scripts/build_layers.py) wins, edged in its
+// color: the layer's color; a feature's own `color` (each permit area its own: the
+// city's, else one its neighbors lack; scripts/build_layers.py) wins, edged in its
 // `edge` when it is pale. key: the Layers
 // menu swatch when features differ. icon: the glyph of a point layer's marker (a 24 px
-// SVG path, white on the colour); fill: the glyph is filled, else stroked; line: more of
+// SVG path, white on the color); fill: the glyph is filled, else stroked; line: more of
 // the glyph, stroked (a carrot's leaves).
 // minzoom: hidden zoomed out (meters are many). tint: an area's fill opacity; only permit
 // areas are shaded (where a car may park), other areas are their edge, to keep the map
@@ -40,7 +40,7 @@ function _saveLayersOff() {
   _store('bb_layers_off', JSON.stringify([..._layersOff]));  // "[]" too: all on is a choice
 }
 
-// A point layer's marker: a disc in its colour with a white rim and glyph (2x pixels).
+// A point layer's marker: a disc in its color with a white rim and glyph (2x pixels).
 const _ICON_PX = 44;
 const _iconCanvases = {};
 function _iconCanvas(id) {
@@ -69,8 +69,12 @@ function _ensureIcon(id) {
 }
 
 // Style layer ids of an overlay: [area fill, area band, line, point, area rim, the area
-// at the target's halo and outline, the wash outside it].
-const _ids = id => ['fill', 'band', 'line', 'pt', 'rim', 'halo', 'here', 'wash'].map(k => `${LAYER_PREFIX}${id}-${k}`);
+// at the target's halo and outline, the wash outside it, a curb's second permit].
+const _ids = id => ['fill', 'band', 'line', 'pt', 'rim', 'halo', 'here', 'wash', 'curb2'].map(k => `${LAYER_PREFIX}${id}-${k}`);
+// Permit areas zoomed in to CURB_ZOOM: the permit curbs in their area's color (a second
+// permit striped over it), the area a tint without its edge, outline or wash.
+const CURB_ZOOM = 15;
+const _fadeIn = (a, b) => ['interpolate', ['linear'], ['zoom'], CURB_ZOOM - 0.5, a, CURB_ZOOM + 0.5, b];
 const _spotSrc = id => `${LAYER_PREFIX}${id}-spot`;  // the wash: the world less the area at the target
 // The layers a tap names a feature of.
 function overlayLayerIds() {
@@ -89,36 +93,48 @@ function _addOverlay(layer) {
   const src = LAYER_PREFIX + layer.id, st = LAYER_STYLE[layer.id] || {};
   const color = ['coalesce', ['get', 'color'], st.color || '#475569'];
   if (!map.getSource(src)) map.addSource(src, { type: 'geojson', data: layer.url, generateId: true });
-  const [fill, band, line, pt, rim, halo, here, wash] = _ids(layer.id);
-  const below = map.getLayer('zones-fill') ? 'zones-fill' : undefined;  // under the street colours
+  const [fill, band, line, pt, rim, halo, here, wash, curb2] = _ids(layer.id);
+  const below = map.getLayer('zones-fill') ? 'zones-fill' : undefined;  // under the street colors
   const over = firstLabelLayer();  // over them, under the basemap's names
   const zoom = st.minzoom ? { minzoom: st.minzoom } : {};
   const is = (...types) => ['in', ['geometry-type'], ['literal', types]];
-  const poly = is('Polygon', 'MultiPolygon');
-  const meters = layer.id === 'meters';
+  const lines = is('LineString', 'MultiLineString');
+  const curb = ['==', ['get', 'kind'], 'curb'];
+  const poly = ['all', is('Polygon', 'MultiPolygon'), ['!', curb]];
+  const meters = layer.id === 'meters', curbs = layer.id === 'parking';
+  const edgeOpacity = a => curbs ? _fadeIn(a, 0) : a;
   const add = (def, before) => { if (!map.getLayer(def.id)) map.addLayer({ source: src, ...zoom, ...def }, before); };
   // Areas: shaded when the style has a tint; the fill stays even when clear (a tap or the
   // target finds the area). The edge as the tiles' zones have it (js/map.js): a band of the
-  // area's colour inside it (where two areas meet, both show) and a thin rim over the streets.
-  add({ id: fill, type: 'fill', filter: poly, paint: { 'fill-color': color, 'fill-opacity': st.tint || 0 } }, below);
+  // area's color inside it (where two areas meet, both show) and a thin rim over the streets.
+  add({ id: fill, type: 'fill', filter: poly, paint: { 'fill-color': color, 'fill-opacity': curbs ? _fadeIn(st.tint, st.tint / 2) : st.tint || 0 } }, below);
   if (!meters) {
     add({ id: band, type: 'line', filter: poly, layout: { 'line-join': 'round' },
-          paint: { 'line-color': color, 'line-opacity': st.tint ? 0.6 : 0.45,
+          paint: { 'line-color': color, 'line-opacity': edgeOpacity(st.tint ? 0.6 : 0.45),
                    'line-width': bandWidth(), 'line-offset': bandOffset() } }, below);
-    add({ id: rim, type: 'line', filter: poly, ...themed('rim', { 'line-width': RIM_W }) }, over);
+    add({ id: rim, type: 'line', filter: poly, ...themed('rim', { 'line-width': RIM_W, 'line-opacity': edgeOpacity(1) }) }, over);
   }
-  // A shaded area the target is in (markOverlayAtTarget): outlined in its edge colour on a
+  // A shaded area the target is in (markOverlayAtTarget): outlined in its edge color on a
   // halo, and the map outside it washed out (the streets stay over the wash).
   if (st.tint) {
     if (!map.getSource(_spotSrc(layer.id))) map.addSource(_spotSrc(layer.id), { type: 'geojson', data: _EMPTY });
-    add({ id: wash, source: _spotSrc(layer.id), type: 'fill', ...themed('wash') }, below);
+    add({ id: wash, source: _spotSrc(layer.id), type: 'fill', ...themed('wash', { 'fill-opacity': edgeOpacity(1) }) }, below);
     add({ id: halo, type: 'line', filter: poly, layout: { 'line-join': 'round' },
-          ...themed('halo', { 'line-width': HALO_W, 'line-opacity': focusOn('here') }) }, over);
+          ...themed('halo', { 'line-width': HALO_W, 'line-opacity': edgeOpacity(focusOn('here')) }) }, over);
     add({ id: here, type: 'line', filter: poly, layout: { 'line-join': 'round' },
-          paint: { 'line-color': ['coalesce', ['get', 'edge'], color], 'line-width': FOCUS_W, 'line-opacity': focusOn('here') } }, over);
+          paint: { 'line-color': ['coalesce', ['get', 'edge'], color], 'line-width': FOCUS_W,
+                   'line-opacity': edgeOpacity(focusOn('here')) } }, over);
+  }
+  if (curbs) {
+    const width = ['interpolate', ['linear'], ['zoom'], CURB_ZOOM, 2.5, 18, 6];
+    add({ id: line, type: 'line', filter: ['all', lines, curb], minzoom: CURB_ZOOM - 0.5,
+          paint: { 'line-color': color, 'line-width': width, 'line-opacity': _fadeIn(0, 0.9) } }, below);
+    add({ id: curb2, type: 'line', filter: ['all', lines, curb, ['has', 'color2']], minzoom: CURB_ZOOM - 0.5,
+          paint: { 'line-color': ['get', 'color2'], 'line-width': width, 'line-opacity': _fadeIn(0, 0.9),
+                   'line-dasharray': [1.5, 1.5] } }, below);
   }
   if (!map.getLayer(line)) map.addLayer({ id: line, type: 'line', source: src, ...zoom,
-    filter: is('LineString', 'MultiLineString'),
+    filter: lines,
     paint: { 'line-color': color, 'line-opacity': 0.8, 'line-dasharray': [2, 1.5],
              'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 16, 2.5] } }, below);
   if (map.getLayer(pt)) return;
@@ -160,7 +176,7 @@ function syncOverlays() {
   }
 }
 
-// Under the layers, the legend: the streets' colours, then the marks the street card and
+// Under the layers, the legend: the streets' colors, then the marks the street card and
 // the calendar use (CARD_MARKS, js/signs.js; a car's dot, a home's square).
 function _legendHTML() {
   const colors = [['today', 'Today', 3], ['tomorrow', 'Tomorrow', 2], ['safe', 'Clear', 1], ['none', 'No sweeping', 0]]
@@ -180,7 +196,7 @@ let _legendOpen = _read('bb_legend') !== '0';
 // A turned-on layer the map's zoom hides (minzoom).
 const _hiddenHere = id => _isOn(id) && map && map.getZoom() < (LAYER_STYLE[id]?.minzoom || 0);
 
-// A layer's swatch: its colours (permit areas: several), else its colour.
+// A layer's swatch: its colors (permit areas: several), else its color.
 function _layerKey(id) { return LAYER_STYLE[id]?.key || LAYER_STYLE[id]?.color || '#475569'; }
 
 function _renderLayersMenu() {

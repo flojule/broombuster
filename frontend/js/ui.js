@@ -101,7 +101,7 @@ function askConfirm(title, message, action) {
 // Switch UI chrome AND basemap together.
 function _applyDark(on) {
   document.body.classList.toggle('dark', on);
-  // Browser bars (older Safari, Chrome) take the map's own colour, as html's background does.
+  // Browser bars (older Safari, Chrome) take the map's own color, as html's background does.
   document.querySelector('meta[name="theme-color"]').content = on ? '#121212' : '#ecefea';
   const style = on ? DARK_STYLE : LIGHT_STYLE;
   const styleChanged = _mapStyle !== style;
@@ -142,12 +142,12 @@ document.getElementById('theme-seg').addEventListener('click', e => {
 });
 
 // ── Center target ─────────────────────────────────────────────────────────────
-// The signs and calendar report the street under the map's centre (the
+// The signs and calendar report the street under the map's center (the
 // mobile-friendly equivalent of hovering); the crosshair marks that point.
 const _crosshair  = document.getElementById('center-crosshair');
 
-// Query the feature under the map's centre (small pixel box so thin street lines
-// are forgiving on touch): the street nearest the centre (the box can hold a cross
+// Query the feature under the map's center (small pixel box so thin street lines
+// are forgiving on touch): the street nearest the center (the box can hold a cross
 // street), else the zone there, else null.
 function _centerFeature() {
   if (!map) return null;

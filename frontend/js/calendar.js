@@ -1,6 +1,6 @@
 // ── Calendar tab: one sweep calendar ──────────────────────────────────────────
 // Layers: the street under the target (day tint), every car with a schedule (dot in
-// the car's colour), every home's trash days (dot in the home colour) and the no-sweep
+// the car's color), every home's trash days (dot in the home color) and the no-sweep
 // holidays of those streets' cities. Days are {y, m, d}; arithmetic and weekday come
 // from urgency.js.
 const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, dayLabel: _dayLabel, WEEKDAYS } = BroomUrgency;
@@ -86,7 +86,7 @@ function _dotsHTML(layers, k) {
 }
 
 // What happens that day, each with its mark as in the legend (js/layers.js) and saying
-// what it is: each car with sweeping (a dot in its colour; "Civic · sweeping 9AM–11AM")
+// what it is: each car with sweeping (a dot in its color; "Civic · sweeping 9AM–11AM")
 // and each home with a pickup (a square; "Home · trash, recycling pickup"): [{mark, text}].
 const _lower = t => t.charAt(0).toLowerCase() + t.slice(1);  // "West side …" mid-line
 function _dayLines(layers, k) {
@@ -211,7 +211,7 @@ function _schedId(s) {
 }
 
 const _scroller = () => icCal.querySelector('.cal-scroll');
-// Distance between neighbouring week rows, in px.
+// Distance between neighboring week rows, in px.
 function _pitch(el) {
   const kids = el.firstElementChild.children;
   return kids.length > 8 ? kids[7].offsetTop - kids[0].offsetTop : 0;

@@ -98,7 +98,7 @@ btnConfirmPlace.addEventListener('click', confirmPlacementAtCenter);
 btnCancelPlace.addEventListener('click', stopPlacing);
 
 // ── "+": what to add (as the "+" on Find My's lists): a car or a home, placed with
-// the centre target. Anchored menus (this and an item's "…") share the code below.
+// the center target. Anchored menus (this and an item's "…") share the code below.
 const addMenu = document.getElementById('add-menu');
 menuButton(btnAdd, addMenu);
 addMenu.addEventListener('click', e => {
@@ -252,7 +252,7 @@ function _sweepEntries(sched) {
   return side.map(e => ({ code: e[0], time: e[2] || '' }));
 }
 // Sweeping urgency from the raw schedules against the live clock — the same rules as
-// the map colour, so cards roll over when a window closes.
+// the map color, so cards roll over when a window closes.
 function sweepUrgency(sched) {
   if (!sched) return 'safe';
   return BroomUrgency.checkDaySweeping(_sweepEntries(sched), schedNow(sched), schedSkip(sched));
@@ -286,7 +286,7 @@ function clearUntilText(sched) {
   return { short: `Clear until ${short}`, long: `Clear until ${wd}${at}` };
 }
 
-// Verdict: icon + words (never colour alone); the row shows the short form, the item's
+// Verdict: icon + words (never color alone); the row shows the short form, the item's
 // page the long one (CSS). `words`: {short, long}, else the verdict's name.
 function _statusHTML(u, words) {
   const ic = URGENCY[u].icon, short = words?.short || URGENCY[u].short, long = words?.long || short;

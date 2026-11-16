@@ -167,7 +167,7 @@ async function _passkeyCeremony(create, optionsUrl, body, verifyUrl) {
   if (!done.ok) throw new Error(await _errorText(done, 'Couldn’t verify the passkey'));
 }
 
-// Cancelled: nothing to say. The browser's own errors (DOMException) are not for people.
+// Canceled: nothing to say. The browser's own errors (DOMException) are not for people.
 function _passkeyFailed(e) {
   if (e?.name === 'NotAllowedError') return;
   showToast(e instanceof DOMException || !e?.message ? 'Couldn’t use the passkey' : e.message, true);

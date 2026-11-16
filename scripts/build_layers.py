@@ -108,9 +108,9 @@ def build_tables(city_key: str) -> list[str]:
     return failed
 
 
-# Colours for permit areas whose city publishes none: distinct hues that read on both
-# basemaps and stay clear of the sweeping colours (red, orange, blue: core.js URGENCY);
-# neighbouring areas never share one (_area_colors).
+# Colors for permit areas whose city publishes none: distinct hues that read on both
+# basemaps and stay clear of the sweeping colors (red, orange, blue: core.js URGENCY);
+# neighboring areas never share one (_area_colors).
 AREA_PALETTE = (
     "#7c3aed",
     "#0d9488",
@@ -126,9 +126,9 @@ AREA_PALETTE = (
 
 
 def _area_colors(g: geopandas.GeoDataFrame) -> list[str]:
-    """Each area's colour: the city's own when it publishes one, else the least used
-    palette colour no touching area (within 150 m) has, taking the areas biggest first.
-    Stable for a given input, so a rebuild keeps the map's colours."""
+    """Each area's color: the city's own when it publishes one, else the least used
+    palette color no touching area (within 150 m) has, taking the areas biggest first.
+    Stable for a given input, so a rebuild keeps the map's colors."""
     color = layer_sources.COLOR
     have = g[color] if color in g else pd.Series([None] * len(g), index=g.index)
     out = {i: c for i, c in have.items() if isinstance(c, str) and c}
@@ -144,18 +144,73 @@ def _area_colors(g: geopandas.GeoDataFrame) -> list[str]:
 
 
 def _edge(color: str) -> str | None:
-    """A darker edge for a light colour (a city's pale yellow vanishes on the light
-    basemap); None when the colour itself reads."""
+    """A darker edge for a light color (a city's pale yellow vanishes on the light
+    basemap); None when the color itself reads."""
     r, g, b = (int(color[i : i + 2], 16) for i in (1, 3, 5))
     if 0.299 * r + 0.587 * g + 0.114 * b <= 165:
         return None
     return "#" + "".join(f"{int(c * 0.6):02x}" for c in (r, g, b))
 
 
+def snap_to_blocks(areas: geopandas.GeoDataFrame, streets) -> geopandas.GeoDataFrame:
+    """Permit areas (EPSG:3857) by street block: each block between the city's swept
+    streets goes whole to the area covering most of it. Where no area covers most of a
+    block, each area keeps its own shape there, less strips under 30 m wide."""
+    lines = [g for g in streets if g is not None and "LineString" in g.geom_type]
+    blocks = list(shapely.polygonize([shapely.union_all(lines)]).geoms)
+    owned: dict[int, list] = {i: [] for i in areas.index}
+    sidx = areas.sindex
+    for b in blocks:
+        cover = {i: areas.geometry[i].intersection(b).area for i in areas.index[sidx.query(b)]}
+        best = max(cover, key=cover.get, default=None)
+        if best is not None and cover[best] > 0.5 * b.area:
+            owned[best].append(b)
+    taken = shapely.union_all([b for bs in owned.values() for b in bs])
+    out = areas.copy()
+    for i, g in areas.geometry.items():
+        rest = g.difference(taken).buffer(-15, join_style="mitre").buffer(15, join_style="mitre")
+        merged = shapely.union_all([*owned[i], rest]).buffer(0.5).buffer(-0.5)
+        out.at[i, "geometry"] = layer_sources._clean(merged.simplify(2), 2000)
+    return out[~out.geometry.is_empty]
+
+
+def _city_streets(city_key: str):
+    """The city's swept street centerlines (EPSG:3857)."""
+    g = geopandas.read_file(_ROOT / CITIES[city_key]["fgb_path"], columns=[])
+    return g.to_crs(3857).geometry
+
+
+def permit_curbs(city_key: str) -> geopandas.GeoDataFrame:
+    """The city's permit curbs (EPSG:4326, label, ~1 m detail): street shapes (Berkeley) as
+    their edges."""
+    g = geopandas.read_file(layers.fgb_path(city_key, "parking"))
+    g = g[g["label"].str.startswith("Permit area ")][["label", "geometry"]].copy()
+    poly = g.geometry.geom_type.isin(("Polygon", "MultiPolygon", "GeometryCollection"))
+    g.loc[poly, "geometry"] = g.geometry[poly].make_valid().boundary
+    g["geometry"] = g.geometry.simplify(1e-5)
+    return g[~g.geometry.is_empty]
+
+
+def _with_curbs(areas: geopandas.GeoDataFrame, curbs: geopandas.GeoDataFrame):
+    """Areas, then the curbs (kind "curb") in their areas' colors: color for the first
+    permit, color2 for a second one (the map stripes it)."""
+    code = areas["label"].str.removeprefix("Permit area ")
+    by = dict(zip(zip(areas["city"], code, strict=True), areas[layer_sources.COLOR], strict=True))
+    c = curbs.copy()
+    codes = c["label"].str.removeprefix("Permit area ").str.split(" or ")
+    for n, col in enumerate((layer_sources.COLOR, "color2")):
+        c[col] = [
+            by.get((ck, ks[n])) if len(ks) > n else None
+            for ck, ks in zip(c["city"], codes, strict=True)
+        ]
+    c["kind"] = "curb"
+    return geopandas.GeoDataFrame(pd.concat([areas, c], ignore_index=True), crs="EPSG:4326")
+
+
 def permit_areas(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """The map's copy of the region's permit areas (each city's permit_areas.fgb): where
     two cities' areas overlap (their borders, drawn by each), the newer source keeps the
-    overlap; each area in its own colour (_area_colors), edged darker when that is pale."""
+    overlap; each area in its own color (_area_colors), edged darker when that is pale."""
     g = gdf.to_crs(3857).sort_values(["asof", "city"], ascending=False)
     taken = {}
     for i, row in g.iterrows():
@@ -174,12 +229,15 @@ def build_region_geojson(region_key: str) -> None:
     out_dir = _ROOT / "frontend" / "layers" / region_key
     out_dir.mkdir(parents=True, exist_ok=True)
     for theme in layers.THEMES:
-        parts = []
+        parts, curbs = [], []
         for ck in REGIONS[region_key]["cities"]:
-            # The map draws the permit areas, not the curbs (layers.AREAS).
+            # Parking: the permit areas by street block, and the permit curbs.
             p = layers.fgb_path(ck, layers.AREAS if theme == "parking" else theme)
             if p.exists():
                 g = geopandas.read_file(p)
+                if theme == "parking":
+                    g = snap_to_blocks(g.to_crs(3857), _city_streets(ck)).to_crs(4326)
+                    curbs.append(permit_curbs(ck).assign(city=ck))
                 g["city"] = ck
                 parts.append(g)
         target = out_dir / f"{theme}.geojson"
@@ -188,7 +246,7 @@ def build_region_geojson(region_key: str) -> None:
             continue
         gdf = geopandas.GeoDataFrame(pd.concat(parts, ignore_index=True), crs="EPSG:4326")
         if theme == "parking":
-            gdf = permit_areas(gdf)
+            gdf = _with_curbs(permit_areas(gdf), pd.concat(curbs, ignore_index=True))
         target.write_text(layer_sources.dump_json(gdf, theme))
         print(
             f"  {region_key}/{theme}.geojson: {len(gdf):,} features, "

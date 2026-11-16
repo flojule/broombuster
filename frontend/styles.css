@@ -1,7 +1,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --blue: #2563eb;
-      /* Urgency colours (cards, banner, legend); the map paint lives in core.js URGENCY. */
+      /* Urgency colors (cards, banner, legend); the map paint lives in core.js URGENCY. */
       --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #3b7a53;  /* text and swatches: AA on card tints; clear is quiet */
       --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
       --card: #ffffff; --text: #1e293b;
@@ -111,7 +111,7 @@
        --app-h is the screen height in an iPhone home-screen app (js/core.js), where the
        viewport units can come up short. In a browser it is the visible height (dvh):
        Safari clips fixed content at its floating address bar, so a 100vh app would put
-       the cards under it. The page behind is map-coloured, which Safari also uses to
+       the cards under it. The page behind is map-colored, which Safari also uses to
        tint its bars, so nothing white can show at an edge. */
     html { background: #ecefea; } html:has(body.dark) { background: #121212; }
     #app-screen { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h, 100vh); }
@@ -136,7 +136,7 @@
     }
     .zoom-btn { display: none; }
     .map-btn + .map-btn::before { content: ''; position: absolute; top: 0; left: 10px; right: 10px; border-top: 1px solid var(--hairline); }
-    /* Layers menu: one switch row per layer, its map colour as the key. */
+    /* Layers menu: one switch row per layer, its map color as the key. */
     .lyr-item[aria-checked="true"] .lyr-check { opacity: 1; }
     .lyr-check { margin-left: auto; opacity: 0; color: var(--blue); }
     .lyr-label small { display: block; font-size: .66rem; color: var(--muted); }
@@ -209,13 +209,13 @@
                  color: var(--text); font-size: .88rem; font-weight: 500; text-decoration: none; overflow-wrap: anywhere; }
     .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
     :is(button, a).menu-item:hover { background: var(--fill); }
-    :is(button, a).menu-item { color: var(--tint-fg); }  /* an action; a plain row keeps the text colour */
+    :is(button, a).menu-item { color: var(--tint-fg); }  /* an action; a plain row keeps the text color */
     .note { margin: 0 14px; font-size: .74rem; color: var(--muted); line-height: 1.4; font-weight: 400; }
     .sec .note { margin: 0; }
     .rows .note { padding: 6px 16px 8px; }
     .about { font-size: .7rem; line-height: 1.45; }
     .about a { color: inherit; }
-    /* Destructive actions; after the row styles so it wins over their colour. */
+    /* Destructive actions; after the row styles so it wins over their color. */
     .danger, .menu-item.danger { color: var(--urg-today); }
 
     /* ── Settings tab ── */
@@ -309,7 +309,7 @@
     .car-entry + .car-entry:not(.selected)::before { content: ''; position: absolute; top: 0; left: 56px; right: 0; border-top: 1px solid var(--hairline); }
     .ce-header { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 14px 8px 12px; cursor: pointer; }
     .ce-header:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
-    /* Row icon: the pin's look (white on the item's colour). */
+    /* Row icon: the pin's look (white on the item's color). */
     .ce-dot { width: 32px; height: 32px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%;
               background: var(--car-color); color: #fff; --icon-hole: var(--car-color); font-size: 18px; }
     .ce-dot svg.ic { width: 1em; height: 1em; }
@@ -318,7 +318,7 @@
     .ce-addr { font-size: .76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
                outline: none; border-bottom: 1px solid transparent; user-select: none; }
     .ce-addr[contenteditable="true"] { font-size: 16px; white-space: normal; color: var(--text); border-bottom-color: var(--blue); user-select: text; cursor: text; }
-    /* The verdict: coloured words with an icon (never colour alone), no tinted row. */
+    /* The verdict: colored words with an icon (never color alone), no tinted row. */
     .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
     .st-long, .car-entry.selected .st-short { display: none; }
     .car-entry.selected .st-long { display: inline; }
@@ -398,7 +398,7 @@
     .cal-muted { font-size: .72rem; color: var(--muted); }
 
     /* ── Street card: what applies on the street at the target (js/signs.js), one row
-       each: a mark in its colour (a sweeping side's: its map line colour), the text, and a
+       each: a mark in its color (a sweeping side's: its map line color), the text, and a
        muted detail. Top left, under the status bar. ── */
     #signs {
       position: absolute; z-index: 21; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
@@ -416,7 +416,7 @@
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
     .sc-mark { flex: none; display: flex; align-items: center; justify-content: center; width: 19px; height: 19px; margin-top: -1px;
                border-radius: 5px; color: #fff; font-style: normal; font-size: .64rem; font-weight: 800; letter-spacing: -.02em; }
-    .sc-sweep, .sc-mark.light { color: rgba(0,0,0,.72); }  /* a letter on a light colour */
+    .sc-sweep, .sc-mark.light { color: rgba(0,0,0,.72); }  /* a letter on a light color */
     .sc-text { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
     .sc-detail { font-weight: 400; color: var(--muted); }
     .sc-time { white-space: nowrap; }  /* "7–9AM" never breaks */
@@ -435,7 +435,7 @@
       font-variant-numeric: tabular-nums; scroll-snap-align: start;
     }
     /* Days outside the month in the header (#ic-cal data-m, js/calendar.js): muted digits.
-       Street days: a light tint of the clear colour; red today, orange tomorrow (as on the map
+       Street days: a light tint of the clear color; red today, orange tomorrow (as on the map
        and the street card's "S"). */
     #ic-cal:not([data-m="1"]) .cal-m1,
     #ic-cal:not([data-m="2"]) .cal-m2,
@@ -457,12 +457,12 @@
     .sw-today { font-weight: 800; }
     .cal-sel { box-shadow: inset 0 0 0 2px var(--text); }
     :is(.sw-now, .sw-next).cal-sel { box-shadow: inset 0 0 0 2px var(--card); }
-    /* One dot per car with sweeping that day, in the car's colour. */
+    /* One dot per car with sweeping that day, in the car's color. */
     .cal-dots { display: flex; justify-content: center; gap: 2px; height: 5px; margin-top: 1px; }
     .cal-dot { width: 5px; height: 5px; border-radius: 50%; }
     .cal-dot-home { border-radius: 1px; }  /* a home's pickup: a square, as its key below */
     :is(.sw-now, .sw-next) .cal-dot { box-shadow: 0 0 0 1px rgba(255,255,255,.9); }  /* apart from the red / orange */
-    /* A no-sweep holiday: struck through, so a weekly street day reads as cancelled. */
+    /* A no-sweep holiday: struck through, so a weekly street day reads as canceled. */
     .cal-hol { text-decoration: line-through; text-decoration-color: var(--muted); }
     .cal-hol-line { color: var(--muted); }
     .cal-past { opacity: .4; }  /* days gone by: not counted as ahead */
@@ -491,8 +491,8 @@
     .cal-round { border-radius: 50%; }
     .cal-square { border-radius: 1px; }
     /* ── Map pins (MapLibre HTML markers): the card's icon in white on a disc of the car's
-       colour (--pin, set from JS) or the home green, ringed in white (as in Apple Maps).
-       Selected: larger, with a halo in its colour. ── */
+       color (--pin, set from JS) or the home green, ringed in white (as in Apple Maps).
+       Selected: larger, with a halo in its color. ── */
     .pin {
       display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
       background: var(--pin); color: #fff; --icon-hole: var(--pin); font-size: 17px;
@@ -542,12 +542,12 @@
     @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
 
     /* ── Center target (tiny always-on dot marking the point the signs read) ──
-       At the centre of the map area the sheet leaves free (--pad-*: the map's padding, from JS). */
+       At the center of the map area the sheet leaves free (--pad-*: the map's padding, from JS). */
     #center-crosshair {
       position: absolute; transform: translate(-50%, -50%); transition: top .4s var(--sheet-ease);
       top: calc((100% - var(--pad-b, 0px)) / 2); left: calc(var(--pad-l, 0px) + (100% - var(--pad-l, 0px)) / 2);
       z-index: 15; display: none; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%;
-      --t-ink: rgba(15,23,42,.85); --t-halo: rgba(255,255,255,.9);  /* a ring and centre dot on a halo */
+      --t-ink: rgba(15,23,42,.85); --t-halo: rgba(255,255,255,.9);  /* a ring and center dot on a halo */
       border: 2px solid var(--t-ink); background: radial-gradient(circle, var(--t-ink) 0 2px, transparent 2.5px);
       box-shadow: 0 0 0 1.5px var(--t-halo), inset 0 0 0 1.5px var(--t-halo);
       pointer-events: none;
@@ -584,7 +584,7 @@
       #map-ctrl, #signs { top: var(--edge); }
       #signs { left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
       .zoom-btn { display: flex; }
-      /* Centred in the map area right of the panel. */
+      /* Centered in the map area right of the panel. */
       #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--inset-l) + var(--panel-w) + var(--edge)) / 2); }
       #toast-container { bottom: 24px; left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
     }

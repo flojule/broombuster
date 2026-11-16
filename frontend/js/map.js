@@ -10,7 +10,7 @@ function initMap(center) {
   });
   map.dragRotate.disable();
   map.touchZoomRotate.disableRotation();
-  applyMapInsets(false);  // the sheet's padding: the target at the centre of the free area
+  applyMapInsets(false);  // the sheet's padding: the target at the center of the free area
   _crosshair.classList.add('visible');
   map.on('load', () => {
     map.resize();
@@ -21,7 +21,7 @@ function initMap(center) {
 }
 
 let _mapListenersAttached = false;
-let _tapTimer = null;  // deferred single-tap (cancelled by a double-tap zoom)
+let _tapTimer = null;  // deferred single-tap (canceled by a double-tap zoom)
 
 
 function attachMapListeners() {
@@ -54,12 +54,12 @@ function attachMapListeners() {
   map.on('moveend', () => renderTargetInfo());
   map.on('idle', () => renderTargetInfo());
 
-  // Follow the map center to its region (mounts its tiles) and recolour newly
+  // Follow the map center to its region (mounts its tiles) and recolor newly
   // loaded tile features once the map settles.
   map.on('moveend', syncRegion);
-  map.on('zoom', () => { if (_here) updateHereMarker(); });  // the accuracy halo is in metres
+  map.on('zoom', () => { if (_here) updateHereMarker(); });  // the accuracy halo is in meters
   map.on('idle', scheduleUrgencyUpdate);
-  // Colour tiles as they arrive, not only once the whole map is idle: until then
+  // Color tiles as they arrive, not only once the whole map is idle: until then
   // their streets are transparent (see _urgCase).
   map.on('sourcedata', (e) => { if (e.sourceId === TILES_SOURCE && e.tile) scheduleUrgencyUpdate(); });
   syncRegion();
@@ -114,8 +114,8 @@ function themePaint(kind) {
 const themed = (kind, paint = {}) => ({ metadata: { bbTheme: kind }, paint: { ...paint, ...themePaint(kind) } });
 
 // A zone's edge, drawn the same for the tiles' zones and the map layers' areas (js/layers.js):
-// a band of the zone's colour just inside its edge, under the streets (where two zones meet,
-// both colours show side by side), and a thin rim on the edge itself, over the streets.
+// a band of the zone's color just inside its edge, under the streets (where two zones meet,
+// both colors show side by side), and a thin rim on the edge itself, over the streets.
 // A positive offset is inside for both sources: the tiles (tippecanoe orders their rings)
 // and the layers' GeoJSON (MapLibre orders its rings as it tiles them).
 const BAND_W = { 11: 3, 14: 6, 16: 10, 18: 14 };
@@ -128,7 +128,7 @@ const FOCUS_W = ['interpolate', ['linear'], ['zoom'], 11, 2, 16, 4, 18, 5.5];
 const HALO_W  = ['interpolate', ['linear'], ['zoom'], 11, 4, 16, 8, 18, 11];
 
 // Zoomed in this far, a line whose sides differ (tile property even_left) is drawn as
-// two, one per side, each in its own urgency colour; the single line hides.
+// two, one per side, each in its own urgency color; the single line hides.
 const SIDE_ZOOM = 15;
 const _isSplit = ['==', ['get', 'even_left'], true];  // even side left of the drawing direction
 // Offset (px) of one side's line: left of the drawing direction is negative.
@@ -139,7 +139,7 @@ function _sideOffset(side) {
 }
 
 // Where the basemap's labels start: the layer after its last road, area or building (some
-// styles put a water label among those). Street colours go there: over the roads, under
+// styles put a water label among those). Street colors go there: over the roads, under
 // the names, so the names stay readable. Our own layers are skipped (point markers sit on top).
 function firstLabelLayer(layers = map.getStyle().layers) {
   const base = layers.filter(l => !ZONE_LAYERS.includes(l.id) && !l.id.startsWith(LAYER_PREFIX));
@@ -147,7 +147,7 @@ function firstLabelLayer(layers = map.getStyle().layers) {
 }
 
 // The dark basemap's street and place names are dim grey on black: brighter, with a dark
-// halo (they sit over the street colours). Paint for `layers` (a style being loaded), else
+// halo (they sit over the street colors). Paint for `layers` (a style being loaded), else
 // set on the live map.
 const DARK_LABEL = { 'text-color': '#b8c0cc', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.5 };
 function _darkLabel(l) { return l.type === 'symbol' && /^(highway_name|place_)/.test(l.id); }
@@ -164,7 +164,7 @@ function addTilePaintLayers() {
   const addLayer = def => map.addLayer({ source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER, ...def }, below);
   const zone = ['==', ['get', 'render_type'], 'polygon'];
   addLayer({ id: 'zones-fill', type: 'fill', filter: zone, paint: { 'fill-color': _urgCase('fill') } });
-  // The street at the target: a soft blue glow under its colour. Every street has the
+  // The street at the target: a soft blue glow under its color. Every street has the
   // layer; feature-state `active` shows one (setActiveFeature).
   addLayer({
     id: 'zones-active', type: 'line', filter: ['!', zone],
@@ -172,7 +172,7 @@ function addTilePaintLayers() {
     paint: { 'line-color': 'rgba(59,130,246,0.35)', 'line-blur': 2, 'line-opacity': focusOn('active'),
              'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 14, 18, 20] },
   });
-  // A zone's edge (bandWidth): its band in its urgency colour, fainter with no sweeping.
+  // A zone's edge (bandWidth): its band in its urgency color, fainter with no sweeping.
   addLayer({
     id: 'zones-band', type: 'line', filter: zone, layout: { 'line-join': 'round' },
     paint: { 'line-color': _urgCase('band'), 'line-width': bandWidth(), 'line-offset': bandOffset(),
@@ -294,7 +294,7 @@ function ensureTiles() {
 }
 
 // Throttled, not debounced: a stream of tile loads must not keep postponing the
-// pass (applyUrgencyStates skips features it already coloured this minute).
+// pass (applyUrgencyStates skips features it already colored this minute).
 function scheduleUrgencyUpdate() {
   if (_urgencyTimer) return;
   _urgencyTimer = setTimeout(() => { _urgencyTimer = null; applyUrgencyStates(); }, 50);
@@ -345,7 +345,7 @@ function tileEntries(props) {
 
 // Canonical schedule lines for a tile feature (days merged per time: "Tue, Thu · 3AM–5AM",
 // Mon->Sun order, merged next-cluster dates), as on the car card. Used by the
-// calendar and the map colours.
+// calendar and the map colors.
 function tileSchedLines(props) {
   const sched = tileEntries(props);
   const now = regionNow(_tilesRegion);

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Build per-region PMTiles vector-tile archives from the normalised city data.
+Build per-region PMTiles vector-tile archives from the normalized city data.
 
 Each region's combined GeoDataFrame is merged to one feature per physical
 segment/zone (tiles.merge_segment_rows), written as newline-delimited GeoJSON,
 and handed to tippecanoe. Tile features carry RAW schedule codes only — the
-frontend (urgency.js) colours them against the current date, so archives stay
+frontend (urgency.js) colors them against the current date, so archives stay
 date-independent and only need rebuilding when the source data refreshes.
 
 Usage (from repo root):

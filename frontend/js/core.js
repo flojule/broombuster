@@ -1,5 +1,5 @@
-// Every urgency surface reads this one table: card colour (CSS vars in
-// styles.css), labels, and the map paint (MapLibre needs literal colours).
+// Every urgency surface reads this one table: card color (CSS vars in
+// styles.css), labels, and the map paint (MapLibre needs literal colors).
 // band: a zone's inner edge band (js/map.js), opaque; its opacity is set there.
 const URGENCY = {
   today:    { color: 'var(--urg-today)',    short: 'Today', icon: 'alert',
@@ -17,7 +17,7 @@ const URGENCY = {
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
 const HOME_COLOR = '#15803d';
-// A car keeps the colour it was given (saved with it), so removing one never repaints the others.
+// A car keeps the color it was given (saved with it), so removing one never repaints the others.
 function carColor(car) { return car.color || CAR_COLORS[0]; }
 function nextCarColor() {
   const used = new Set(cars.map(c => c.color));
@@ -32,7 +32,7 @@ const _stored = (key, allowed, fallback) => { const v = _read(key); return allow
 const _store = (key, v) => {
   try { if (v === null) localStorage.removeItem(key); else localStorage.setItem(key, v); } catch (_) {}
 };
-// Inline SVG icon from the sprite in index.html (stroke follows text colour).
+// Inline SVG icon from the sprite in index.html (stroke follows text color).
 function icon(name) { return `<svg class="ic"><use href="#i-${name}"/></svg>`; }
 
 function esc(s) {
@@ -213,7 +213,7 @@ const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 const TILES_SOURCE     = 'zones-tiles';
 const TILES_SRC_LAYER  = 'zones';
 function _urgCase(prop, key = 'urgency') {
-  // MapLibre expression: pick colour from feature-state `key` ('urgency', or one side's
+  // MapLibre expression: pick color from feature-state `key` ('urgency', or one side's
   // 'urgency_even' / 'urgency_odd'). A feature whose urgency is not computed yet stays
   // transparent rather than flashing "Clear" blue.
   return [
@@ -226,7 +226,7 @@ function _urgCase(prop, key = 'urgency') {
   ];
 }
 // Street line width scales with zoom so it stays thin on city-wide views; it also
-// grows with urgency (today x2, tomorrow x1.5; no sweeping a hairline) so colour is not the only cue.
+// grows with urgency (today x2, tomorrow x1.5; no sweeping a hairline) so color is not the only cue.
 // One side's line (key 'urgency_even' / 'urgency_odd') is `scale` of that.
 const LINE_W = { 11: 0.8, 14: 1.5, 16: 2.5, 18: 4 };
 const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.35 };

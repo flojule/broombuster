@@ -1,5 +1,5 @@
 """Extra map layers per city (data/<city>/<theme>.fgb, built by scripts/build_layers.py
-from layer_sources.py): what applies at a point, for /api/rules, and the catalogue the
+from layer_sources.py): what applies at a point, for /api/rules, and the catalog the
 map's Layers menu lists (/api/cities)."""
 
 import hashlib
@@ -78,6 +78,8 @@ def _permit_areas(region_key: str):
     if not facts or not path.exists():
         return None
     g = geopandas.read_file(path).to_crs(3857)
+    if "kind" in g:  # the map's curbs: the server reads them from data/<city>/parking.fgb
+        g = g[g["kind"] != "curb"].reset_index(drop=True)
     facts = pd.concat(facts).set_index(["city", "label"])
     keys = list(zip(g["city"], g["label"], strict=True))
     g["rule"] = [facts["rule"].get(k, "") for k in keys]
@@ -86,7 +88,7 @@ def _permit_areas(region_key: str):
     return g
 
 
-def catalogue(region_key: str) -> list[dict]:
+def catalog(region_key: str) -> list[dict]:
     """[{id, name, url}] of the region's map layers; url carries a content hash (cache)."""
     out = []
     for theme, meta in THEMES.items():
@@ -113,8 +115,9 @@ def catalogue(region_key: str) -> list[dict]:
 
 def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[dict]:
     """[{theme, label, rule, asof, city}] of the features that apply at a point, nearest
-    first per theme, one per (theme, label). A permit area applies anywhere inside the
-    area as drawn on the map, not only by its curbs, and carries its map colour (color)."""
+    first per theme, one per (theme, label). A permit area applies by its curbs; away
+    from any curb, anywhere inside the area as drawn on the map. It carries its map
+    color (color)."""
     pt = shapely.Point(*_to_3857(lon, lat))
     out = []
     for theme, gdf in _loaded.get(region_key, {}).items():
@@ -129,7 +132,7 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
         hits = hits[hits["_d"] <= is_poly.map({True: 4, False: meta["near_m"]})].sort_values("_d")
         rows = [r for _, r in hits.iterrows()]
         areas = _areas.get(region_key) if theme == "parking" else None
-        if areas is not None:  # after the curbs: a curb's own rule is the more precise
+        if areas is not None and not rows:  # a curb's own rule is the more precise
             rows += [areas.iloc[i] for i in areas.sindex.query(pt, predicate="intersects")]
         seen = set()
         for r in rows:
@@ -150,8 +153,10 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
 
 
 def _area_color(areas, city: str, label: str):
+    """The map color of a permit area, or of a curb's first permit ("Permit area G or K": G)."""
     if areas is None:
         return None
+    label = label.split(" or ")[0]
     m = areas[(areas["city"] == city) & (areas["label"] == label)]
     return m["color"].iat[0] if len(m) else None
 

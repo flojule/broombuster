@@ -1,4 +1,4 @@
-"""Dates and times end to end: source normalisers, the committed data, and the
+"""Dates and times end to end: source normalizers, the committed data, and the
 frontend's evaluation and display (frontend/js/urgency.js, run under node).
 
 The JS is checked against independent Python oracles (datetime / zoneinfo)
@@ -370,7 +370,7 @@ def test_frontend_uses_region_clock():
     assert not bad, "\n".join(bad)
 
 
-# ── Source normalisers ───────────────────────────────────────────────────────
+# ── Source normalizers ───────────────────────────────────────────────────────
 
 
 def _sf(**kw):
@@ -386,7 +386,7 @@ def _sf(**kw):
     gdf = geopandas.GeoDataFrame(
         [row], geometry=[shapely.geometry.LineString([(0, 0), (1, 0)])], crs="EPSG:4326"
     )
-    return schemas._normalise_sf(gdf).iloc[0]
+    return schemas._normalize_sf(gdf).iloc[0]
 
 
 @pytest.mark.parametrize(
@@ -431,7 +431,7 @@ def _oakland(code, desc):
         geometry=[shapely.geometry.LineString([(0, 0), (1, 0)])],
         crs="EPSG:4326",
     )
-    return schemas._normalise_oakland(gdf).iloc[0]
+    return schemas._normalize_oakland(gdf).iloc[0]
 
 
 def test_oakland_mon_to_fri_code():

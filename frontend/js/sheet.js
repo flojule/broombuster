@@ -4,7 +4,7 @@
 // (Saved, Nearby, Settings) are medium or large (nearly the whole screen). Each kind
 // keeps its own. It floats clear of the screen's edges, as iOS 26 sheets do. Drag the
 // grabber, a tab's header or its content, or tap the grabber to switch. The map is
-// padded by the sheet (up to medium) so the centre target sits in the middle of the
+// padded by the sheet (up to medium) so the center target sits in the middle of the
 // map area left free.
 // Desktop: a panel on the left, as tall as a month of the calendar; no detents.
 const tabbar  = document.getElementById('tabbar');
@@ -67,7 +67,7 @@ function applySheet() {
   applyMapInsets();
 }
 
-// The map's padding for the sheet and its gap, so its centre, which the target marks, is
+// The map's padding for the sheet and its gap, so its center, which the target marks, is
 // the middle of what shows.
 function mapPadding() {
   const desk = isDesktop(), h = !desk && detentHeights();

@@ -270,8 +270,8 @@ def test_undated_oakland_codes_send_drivers_to_the_sign(client):
     ("lat", "lon", "side", "code"),
     [(37.807788, -122.281132, "odd", "TTHS"), (37.807737, -122.281018, "even", "MWF")],
 )
-def test_two_line_street_side_follows_its_kerb_line(client, lat, lon, side, code):
-    """Market St 1300 block, Oakland: one line per kerb, the other side coded MS."""
+def test_two_line_street_side_follows_its_curb_line(client, lat, lon, side, code):
+    """Market St 1300 block, Oakland: one line per curb, the other side coded MS."""
     data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
     assert data["car_side"] == side
     assert [e[0] for e in data[f"schedule_{side}"]] == [code]
@@ -283,7 +283,7 @@ def test_two_line_street_side_follows_its_kerb_line(client, lat, lon, side, code
 )
 def test_border_street_takes_the_city_that_sweeps_it(client, lat, lon, side, code):
     """Woolsey St 2000 block, the Oakland | Berkeley border: Oakland draws it unswept, Berkeley
-    sweeps both kerbs; the north kerb's plate reads 3rd Tue 9-12 (Street View)."""
+    sweeps both curbs; the north curb's plate reads 3rd Tue 9-12 (Street View)."""
     data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
     assert data["car_side"] == side
     assert [e[0] for e in data[f"schedule_{side}"]] == [code]
@@ -298,7 +298,7 @@ def test_border_street_takes_the_city_that_sweeps_it(client, lat, lon, side, cod
     ],
 )
 def test_signs_override_the_source(client, lat, lon, side, codes):
-    """Kerbs whose plates (Street View) contradict the source: Oakland's swapped sides
+    """Curbs whose plates (Street View) contradict the source: Oakland's swapped sides
     (data/oakland/corrections.yaml), DataSF's weeks 1-4 split over two rows."""
     data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
     assert data["car_side"] == side

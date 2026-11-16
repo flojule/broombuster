@@ -11,7 +11,7 @@ python scripts/build_pmtiles.py                  # map tiles; needs tippecanoe
 python scripts/build_layers.py [city ...] [--theme parking ...]   # extra layers
 ```
 
-Commit the `.fgb` and `frontend/tiles/*.pmtiles` outputs. A new city needs a manifest, and a normaliser in
+Commit the `.fgb` and `frontend/tiles/*.pmtiles` outputs. A new city needs a manifest, and a normalizer in
 `schemas.SCHEMA_PROFILES` if its source format is new. A rebuild with no `git diff` means the committed data
 equals the source.
 
