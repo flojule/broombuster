@@ -64,20 +64,7 @@ function _joinDays(days) {
 // Screen direction [dx, dy] in which the street at the target is drawn, at its point
 // nearest the target; null for a zone.
 function _streetDirection(f) {
-  const g = f.geometry;
-  const parts = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
-  const c = map.project(map.getCenter());
-  let best = null, bestD = Infinity;
-  for (const part of parts) {
-    const pts = part.map(p => map.project(p));
-    for (let i = 0; i + 1 < pts.length; i++) {
-      const a = pts[i], b = pts[i + 1], dx = b.x - a.x, dy = b.y - a.y;
-      const t = Math.max(0, Math.min(1, ((c.x - a.x) * dx + (c.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
-      const d = Math.hypot(a.x + t * dx - c.x, a.y + t * dy - c.y);
-      if (d < bestD) { bestD = d; best = [dx, dy]; }
-    }
-  }
-  return best;
+  return nearestSegment(f, map.project(map.getCenter()))?.dir || null;
 }
 
 // Compass side label ("North", "Southwest", ...) -> screen direction (the map never rotates).
@@ -125,8 +112,11 @@ function _rowHTML({ heading, when, color, mark, text, detail = '', said, sweep =
   if (heading) return `<div class="sc-side" aria-hidden="true">${esc(heading)}${when ? _whenBadge(when) : ''}</div>`;  // each row says its side
   return `<div class="sc-row">${markHTML({ color, mark, sweep })}`
        + `<span class="sr-only">${esc(said || `${text} ${detail}`.trim())}</span>`
-       + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail${sweep ? ' sc-time' : ''}">${esc(detail)}</span>` : ''}</span></div>`;
+       + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail${sweep ? ' sc-time' : ''}">${_keepTimes(esc(detail))}</span>` : ''}</span></div>`;
 }
+// Escaped text with each time range ("8am–9pm", "7 - 9AM") kept on one line.
+const _TIME_RANGE = /\d{1,2}(?::\d\d)?\s*(?:[ap]\.?m\.?)?\s*[-–]\s*\d{1,2}(?::\d\d)?\s*[ap]\.?m\.?/gi;
+const _keepTimes = html => html.replace(_TIME_RANGE, t => `<span class="sc-time">${t}</span>`);
 
 // A side's verdict: today, tomorrow, safe or none.
 function _sideUrgency({ entries }, now, skip) {

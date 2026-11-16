@@ -43,10 +43,13 @@ function attachMapListeners() {
   });
   map.on('dblclick', () => { if (_tapTimer) { clearTimeout(_tapTimer); _tapTimer = null; } });
 
-  // Signs and calendar: live-read the street under the target while the map pans
-  // (the sign only; not while zooming, when every frame brings other streets under it),
-  // and in full once it stops and after tiles finish streaming in (idle).
-  map.on('move', () => { if (!map.isZooming()) renderTargetInfo(undefined, true); });
+  // Signs and calendar: live-read the street under the target while the map pans (the
+  // sign and the glow; zooming, the glow only, as every frame brings other streets under
+  // it), and in full once it stops and after tiles finish streaming in (idle).
+  map.on('move', () => {
+    if (map.isZooming()) setActiveFeature(_centerFeature()?.id ?? null);
+    else renderTargetInfo(undefined, true);
+  });
   map.on('move', syncCrosshair);
   map.on('moveend', () => renderTargetInfo());
   map.on('idle', () => renderTargetInfo());
@@ -93,12 +96,36 @@ function removeTileLayers() {
   if (map.getSource(TILES_SOURCE)) map.removeSource(TILES_SOURCE);
 }
 
-// Ward outline colour: light on the dark basemap, dark on the light basemap.
-function _wardLineColor() {
-  return document.body.classList.contains('dark')
-    ? 'rgba(245,248,252,0.75)'
-    : 'rgba(20,28,46,0.7)';
+// Paint that follows the theme, by the layer's metadata.bbTheme (also js/layers.js; the
+// basemap switch re-applies it, js/ui.js): ward lines; a zone's thin edge (rim); the halo
+// and outline of the zone at the target (focus); the wash outside it; edge labels.
+function themePaint(kind) {
+  const dark = document.body.classList.contains('dark');
+  const halo = dark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
+  return {
+    ward:  { 'line-color': dark ? 'rgba(245,248,252,0.75)' : 'rgba(20,28,46,0.7)' },
+    rim:   { 'line-color': dark ? 'rgba(255,255,255,0.6)' : 'rgba(30,41,59,0.7)' },
+    halo:  { 'line-color': halo },
+    focus: { 'line-color': dark ? '#e2e8f0' : '#0f172a' },
+    wash:  { 'fill-color': dark ? 'rgba(0,0,0,0.5)' : 'rgba(236,239,234,0.7)' },
+    label: { 'text-color': dark ? '#e2e8f0' : '#334155', 'text-halo-color': dark ? '#111827' : '#ffffff' },
+  }[kind];
 }
+const themed = (kind, paint = {}) => ({ metadata: { bbTheme: kind }, paint: { ...paint, ...themePaint(kind) } });
+
+// A zone's edge, drawn the same for the tiles' zones and the map layers' areas (js/layers.js):
+// a band of the zone's colour just inside its edge, under the streets (where two zones meet,
+// both colours show side by side), and a thin rim on the edge itself, over the streets.
+// A positive offset is inside for both sources: the tiles (tippecanoe orders their rings)
+// and the layers' GeoJSON (MapLibre orders its rings as it tiles them).
+const BAND_W = { 11: 3, 14: 6, 16: 10, 18: 14 };
+const bandWidth = () => ['interpolate', ['linear'], ['zoom'], ...Object.entries(BAND_W).flatMap(([z, w]) => [Number(z), w])];
+const bandOffset = () => ['interpolate', ['linear'], ['zoom'], ...Object.entries(BAND_W).flatMap(([z, w]) => [Number(z), w / 2])];
+const RIM_W = ['interpolate', ['linear'], ['zoom'], 11, 0.6, 16, 1.2];
+// The zone at the target: a bold outline on a halo, shown by feature-state `key`.
+const focusOn = key => ['case', ['boolean', ['feature-state', key], false], 1, 0];
+const FOCUS_W = ['interpolate', ['linear'], ['zoom'], 11, 2, 16, 4, 18, 5.5];
+const HALO_W  = ['interpolate', ['linear'], ['zoom'], 11, 4, 16, 8, 18, 11];
 
 // Zoomed in this far, a line whose sides differ (tile property even_left) is drawn as
 // two, one per side, each in its own urgency colour; the single line hides.
@@ -113,9 +140,10 @@ function _sideOffset(side) {
 
 // Where the basemap's labels start: the layer after its last road, area or building (some
 // styles put a water label among those). Street colours go there: over the roads, under
-// the names, so the names stay readable.
+// the names, so the names stay readable. Our own layers are skipped (point markers sit on top).
 function firstLabelLayer(layers = map.getStyle().layers) {
-  return layers[layers.findLastIndex(l => l.type !== 'symbol') + 1]?.id;
+  const base = layers.filter(l => !ZONE_LAYERS.includes(l.id) && !l.id.startsWith(LAYER_PREFIX));
+  return base[base.findLastIndex(l => l.type !== 'symbol') + 1]?.id;
 }
 
 // The dark basemap's street and place names are dim grey on black: brighter, with a dark
@@ -133,45 +161,31 @@ function tuneBasemapLabels(layers) {
 
 function addTilePaintLayers() {
   const below = firstLabelLayer();
-  const addLayer = def => map.addLayer(def, below);
+  const addLayer = def => map.addLayer({ source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER, ...def }, below);
+  const zone = ['==', ['get', 'render_type'], 'polygon'];
+  addLayer({ id: 'zones-fill', type: 'fill', filter: zone, paint: { 'fill-color': _urgCase('fill') } });
+  // The street at the target: a soft blue glow under its colour. Every street has the
+  // layer; feature-state `active` shows one (setActiveFeature).
   addLayer({
-    id: 'zones-fill', type: 'fill', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
-    filter: ['==', ['get', 'render_type'], 'polygon'],
-    paint: { 'fill-color': _urgCase('fill') },
-  });
-  // The zone at the target: its colour again, so it is shaded deeper (setActiveFeature).
-  addLayer({
-    id: 'zones-here', type: 'fill', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
-    filter: ['==', ['id'], -1], paint: { 'fill-color': _urgCase('fill') },
-  });
-  // The street at the target: a soft blue glow under its colour.
-  addLayer({
-    id: 'zones-active', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
-    filter: ['==', ['id'], -1],
+    id: 'zones-active', type: 'line', filter: ['!', zone],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': 'rgba(59,130,246,0.35)', 'line-blur': 2,
+    paint: { 'line-color': 'rgba(59,130,246,0.35)', 'line-blur': 2, 'line-opacity': focusOn('active'),
              'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 14, 18, 20] },
   });
+  // A zone's edge (bandWidth): its band in its urgency colour, fainter with no sweeping.
   addLayer({
-    id: 'zones-outline', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
-    filter: ['==', ['get', 'render_type'], 'polygon'],
-    paint: { 'line-color': _urgCase('border'), 'line-width': 1.5 },
+    id: 'zones-band', type: 'line', filter: zone, layout: { 'line-join': 'round' },
+    paint: { 'line-color': _urgCase('band'), 'line-width': bandWidth(), 'line-offset': bandOffset(),
+             'line-opacity': ['match', ['coalesce', ['feature-state', 'urgency'], ''], 'none', 0.3, 0.6] },
   });
-  // Dissolved ward outlines: a clear neutral line over the urgency fills, kept
-  // distinct from (and heavier than) the per-section outlines above. Colour is
-  // theme-aware (light line on the dark basemap, dark line on the light one) so
-  // it stays visible in both; recomputed when the basemap switches.
+  // Dissolved ward outlines: a heavy neutral line, over the zones' bands.
   addLayer({
-    id: 'zones-ward', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
-    filter: ['==', ['get', 'render_type'], 'ward_boundary'],
+    id: 'zones-ward', type: 'line', filter: ['==', ['get', 'render_type'], 'ward_boundary'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: {
-      'line-color': _wardLineColor(),
-      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.0, 13, 2.0, 16, 3.2, 18, 4.5],
-    },
+    ...themed('ward', { 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.0, 13, 2.0, 16, 3.2, 18, 4.5] }),
   });
   addLayer({
-    id: 'zones-line', type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+    id: 'zones-line', type: 'line',
     filter: ['==', ['get', 'render_type'], 'line'],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': _urgCase('line'), 'line-width': _lineWidth(),
@@ -179,26 +193,51 @@ function addTilePaintLayers() {
   });
   for (const side of ['even', 'odd']) {
     addLayer({
-      id: `zones-side-${side}`, type: 'line', source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER,
+      id: `zones-side-${side}`, type: 'line',
       minzoom: SIDE_ZOOM, filter: ['all', ['==', ['get', 'render_type'], 'line'], ['has', 'even_left']],
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
       paint: { 'line-color': _urgCase('line', `urgency_${side}`), 'line-width': _lineWidth(`urgency_${side}`, 0.6),
                'line-offset': _sideOffset(side) },
     });
   }
+  // Over the streets: each zone's rim, then the zone at the target outlined (feature-state
+  // `active`), and the zones' names along the inside of their edges (Chicago's sections
+  // have no other name on the map).
+  addLayer({ id: 'zones-edge', type: 'line', filter: zone, ...themed('rim', { 'line-width': RIM_W }) });
+  addLayer({ id: 'zones-here-halo', type: 'line', filter: zone, layout: { 'line-join': 'round' },
+             ...themed('halo', { 'line-width': HALO_W, 'line-opacity': focusOn('active') }) });
+  addLayer({ id: 'zones-here', type: 'line', filter: zone, layout: { 'line-join': 'round' },
+             ...themed('focus', { 'line-width': FOCUS_W, 'line-opacity': focusOn('active') }) });
+  addLayer({
+    id: 'zones-label', type: 'symbol', filter: zone, minzoom: 14,
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 260, 'text-field': ['upcase', ['coalesce', ['get', 'street'], '']],
+              'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-offset': [0, 1.3], 'text-letter-spacing': 0.04 },
+    ...themed('label', { 'text-halo-width': 1.8 }),
+  });
   _activeId = null;
 }
 
 // Mark the feature at the target (id from the tiles; null: none): a street glows, a zone is
-// shaded deeper, and so is a permit area there (markOverlayAtTarget, js/layers.js).
+// outlined, and so is a permit area there (markOverlayAtTarget, js/layers.js). Feature-state,
+// not a filter: a filter change re-parses the source's tiles in a worker, which lagged
+// the glow several frames behind a pan across many streets.
 let _activeId = null;
 function setActiveFeature(id) {
   markOverlayAtTarget();
-  if (id === _activeId || !map?.getLayer('zones-active')) return;
+  if (id === _activeId || !map?.getSource(TILES_SOURCE)) return;
+  const at = fid => ({ source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: fid });
+  if (_activeId != null) map.setFeatureState(at(_activeId), { active: false });
+  if (id != null) map.setFeatureState(at(id), { active: true });
   _activeId = id;
-  const is = ['==', ['id'], id ?? -1], zone = ['==', ['get', 'render_type'], 'polygon'];
-  map.setFilter('zones-here', ['all', is, zone]);
-  map.setFilter('zones-active', ['all', is, ['!', zone]]);
+}
+// The basemap switched (js/ui.js): feature-state may be gone or kept; mark the target afresh.
+function remarkTarget() {
+  if (_activeId != null && map.getSource(TILES_SOURCE)) {
+    map.setFeatureState({ source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: _activeId }, { active: false });
+  }
+  _activeId = null;
+  resetOverlayMarks();
+  renderTargetInfo();
 }
 
 // ── Areas ─────────────────────────────────────────────────────────────────────
@@ -212,12 +251,14 @@ function _ensureAreaLabels() {
     const el = document.createElement('button');
     el.className = 'area-label';
     el.textContent = r.name;
-    el.addEventListener('click', e => {
-      e.stopPropagation();
-      map.flyTo({ center: [r.center.lon, r.center.lat], zoom: r.zoom || 11 });
-    });
+    el.addEventListener('click', e => { e.stopPropagation(); flyToRegion(key); });
     _areaMarkers.set(key, new maplibregl.Marker({ element: el }).setLngLat([r.center.lon, r.center.lat]).addTo(map));
   }
+}
+
+function flyToRegion(key) {
+  const r = regions[key];
+  map.flyTo({ center: [r.center.lon, r.center.lat], zoom: r.zoom || 11 });
 }
 
 function syncRegion() {

@@ -108,8 +108,9 @@ function _applyDark(on) {
   _mapStyle = style;
   if (map && styleChanged) {
     // Carry the street source and layers into the new basemap so they never blink
-    // out (the ward outline takes the new theme's colour). Their urgency is
-    // re-applied once it settles, in case the swap dropped feature-state.
+    // out (layers with a theme paint take the new theme's, themePaint). Their urgency
+    // and the target's marks are re-applied once it settles, in case the swap dropped
+    // feature-state.
     // The map layers that are on (js/layers.js, sources "lyr-…") come along too.
     // Lines and areas go under the new basemap's labels, point markers over them.
     map.setStyle(_mapStyle, { transformStyle: (prev, next) => {
@@ -117,14 +118,14 @@ function _applyDark(on) {
       if (!prev?.sources?.[TILES_SOURCE]) return { ...next, layers: base };
       const overlay = id => id.startsWith(LAYER_PREFIX);
       const ours = prev.layers.filter(l => ZONE_LAYERS.includes(l.id) || overlay(l.source || ''))
-        .map(l => l.id === 'zones-ward' ? { ...l, paint: { ...l.paint, 'line-color': _wardLineColor() } } : l);
+        .map(l => l.metadata?.bbTheme ? { ...l, paint: { ...l.paint, ...themePaint(l.metadata.bbTheme) } } : l);
       const under = ours.filter(l => l.type !== 'symbol' && l.type !== 'circle'), over = ours.filter(l => !under.includes(l));
       const at = base.findIndex(l => l.id === firstLabelLayer(base));
       const layers = at < 0 ? [...base, ...under, ...over] : [...base.slice(0, at), ...under, ...base.slice(at), ...over];
       const srcs = Object.fromEntries(Object.entries(prev.sources).filter(([k]) => k === TILES_SOURCE || overlay(k)));
       return { ...next, sources: { ...next.sources, ...srcs }, layers };
     } });
-    map.once('idle', scheduleUrgencyUpdate);
+    map.once('idle', () => { scheduleUrgencyUpdate(); remarkTarget(); });
   }
 }
 // Menu choice (auto / light / dark); auto also reacts to the system changing.
@@ -146,7 +147,8 @@ document.getElementById('theme-seg').addEventListener('click', e => {
 const _crosshair  = document.getElementById('center-crosshair');
 
 // Query the feature under the map's centre (small pixel box so thin street lines
-// are forgiving on touch). Returns the topmost hit or null.
+// are forgiving on touch): the street nearest the centre (the box can hold a cross
+// street), else the zone there, else null.
 function _centerFeature() {
   if (!map) return null;
   const layers = HOVER_LAYERS.filter(l => !!map.getLayer(l));
@@ -157,7 +159,30 @@ function _centerFeature() {
     feats = map.queryRenderedFeatures(
       [[c.x - pad, c.y - pad], [c.x + pad, c.y + pad]], { layers });
   } catch (_) { return null; }
-  return feats.length ? feats[0] : null;
+  let best = null, bestD = Infinity;
+  for (const f of feats) {
+    const d = nearestSegment(f, c)?.d ?? Infinity;
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  return best || feats[0] || null;
+}
+
+// The segment of a street (line feature) nearest the screen point c: {d: distance (px),
+// dir: [dx, dy] its drawing direction on screen}; null for a zone.
+function nearestSegment(f, c) {
+  const g = f.geometry;
+  const parts = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+  let best = null;
+  for (const part of parts) {
+    const pts = part.map(p => map.project(p));
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1], dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((c.x - a.x) * dx + (c.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      const d = Math.hypot(a.x + t * dx - c.x, a.y + t * dy - c.y);
+      if (!best || d < best.d) best = { d, dir: [dx, dy] };
+    }
+  }
+  return best;
 }
 
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────

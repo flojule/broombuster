@@ -126,11 +126,43 @@ function _dayIdx(range, p) {
   return Math.round((Date.UTC(p.y, p.m - 1, p.d) - Date.UTC(range.start.y, range.start.m - 1, range.start.d)) / 864e5);
 }
 
-// The day details under the grid: a no-sweep holiday, then what happens that day.
+// The day details under the grid: a no-sweep holiday, then what happens that day; on a
+// day without the street's sweeping, its next sweep (the small sheet shows one week, so
+// Monday's sweep is out of view on a Sunday). With no street at the target, how to get one.
 function _detailHTML(layers, sel) {
   const hol = layers.hol.has(sel) ? `<div class="cal-hol-line">No sweeping: ${esc(layers.hol.get(sel))}</div>` : '';
-  return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + (_dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('')
-    || (layers.ptr.has(sel) ? `<div>Sweeping ${esc(_lower(layers.ptr.get(sel)))}</div>` : hol ? '' : '<div class="cal-muted">No sweeping</div>'));
+  const lines = _dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('');
+  if (!_ptrStreet && !lines && !hol) return `<b>${_dayLabel(_keyDay(sel))}</b>` + _noStreetHTML();
+  const street = layers.ptr.has(sel) ? `<div>Sweeping ${esc(_lower(layers.ptr.get(sel)))}</div>`
+    : (lines || hol ? '' : '<div class="cal-muted">No sweeping</div>') + _nextSweepHTML(layers, sel);
+  return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + lines + street;
+}
+
+// "Next: Mon Nov 16 · North side 9AM–11AM", tagged Today / Tomorrow when it is.
+function _nextSweepHTML(layers, sel) {
+  const today = calNow(), todayK = _ymdKey(today), tmrK = _ymdKey(_ymdAdd(today, 1));
+  for (const [k, text] of layers.ptr) {
+    if (k <= sel || k < todayK) continue;
+    const tag = k === todayK ? ['today', 'Today'] : k === tmrK ? ['tomorrow', 'Tomorrow'] : null;
+    const what = text === 'time n/a' ? '' : ` · ${esc(_lower(text))}`;  // Chicago's days have no times
+    return `<div>Next: ${_dayLabel(_keyDay(k))}${what}`
+         + (tag ? ` <span class="cal-tag urg-${tag[0]}">${tag[1]}</span>` : '') + '</div>';
+  }
+  return '';
+}
+
+// No street at the target: in an area, put the target on one; elsewhere, the areas
+// covered (a tap flies there) and the device's position. The state names the areas
+// known, so the details follow /cities loading.
+function _noStreetState() {
+  const c = map?.getCenter();
+  return c && map.getZoom() >= AREA_ZOOM && regionAt(c.lat, c.lng) ? 'in' : `off:${Object.keys(regions)}`;
+}
+function _noStreetHTML() {
+  if (_noStreetState() === 'in') return '<div class="cal-muted">Move the map to put the target on a street.</div>';
+  const areas = Object.entries(regions).map(([k, r]) => `<button class="btn btn-plain cal-area" data-area="${esc(k)}">${esc(r.name)}</button>`);
+  return '<div class="cal-muted">No street covered here. Go to an area:</div>'
+       + `<div class="cal-areas">${areas.join('')}<button class="btn btn-plain cal-area" data-locate>${icon('locate')} My location</button></div>`;
 }
 
 // Weeks in a column (scrolls vertically); `sel` is the selected day key. The first of
@@ -141,7 +173,7 @@ function calendarHTML(layers, range, sel, today) {
   for (let i = 0; i < CAL_WEEKS * 7; i++) {
     const p = _ymdAdd(range.start, i), k = _ymdKey(p);
     const cls = ['cal-day', `cal-m${p.m}`, _streetCls(layers, k, today), layers.hol.has(k) ? 'cal-hol' : '',
-                 k === todayK ? 'sw-today' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
+                 k === todayK ? 'sw-today' : k < todayK ? 'cal-past' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
     cells += `<button class="${cls}" data-cal-day="${k}" aria-label="${esc(_dayAria(layers, k, p, today))}"`
            + ` aria-pressed="${k === sel}">`
            + (p.d === 1 ? `<i class="cal-mo">${_MONTHS[p.m - 1].slice(0, 3)}</i>`
@@ -167,6 +199,7 @@ const icCal  = document.getElementById('ic-cal');
 let _cal = { expanded: null, sel: null, anchor: null, pending: false };
 let _calKey = '';       // last rendered state, to skip no-op re-renders
 let _ptrSched = null;   // street schedule under the target (null: none)
+let _ptrStreet = false; // a street or zone is under the target (with sweeping or not)
 let _calRange0 = null;  // the window rendered last
 let _calLayers0 = null; // and its layers (for the day details)
 const _schedIds = new WeakMap();
@@ -289,9 +322,10 @@ function renderTargetInfo(f, live = false) {
   const today = calNow(), todayK = _ymdKey(today);
   if (_cal.sel == null) _cal.sel = todayK;
   _ptrSched = props && lines.length ? pointerSched(f) : null;
+  _ptrStreet = !!props;
   const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
   const homeSig = homes.map(h => `${h.id}:${itemName(h)}:${homeSchedules[h.id] ? _schedId(homeSchedules[h.id]) : 0}`).join(',');
-  const key = [_ptrSched ? `${props.city}:${props.sched}:${_ptrSched.side_labels}` : '', carSig, homeSig, todayK].join('|');
+  const key = [_ptrSched ? `${props.city}:${props.sched}:${_ptrSched.side_labels}` : props ? 'street' : _noStreetState(), carSig, homeSig, todayK].join('|');
   if (key === _calKey) return;
   _calKey = key;
 
@@ -377,6 +411,9 @@ tabCal.addEventListener('click', e => {
   const nav = e.target.closest('[data-cal-nav]');
   if (nav) { calStep(Number(nav.dataset.calNav)); return; }
   if (e.target.closest('[data-cal-today]')) { calToday(); return; }
+  const area = e.target.closest('[data-area]');
+  if (area) { flyToRegion(area.dataset.area); return; }
+  if (e.target.closest('[data-locate]')) { btnLocate.click(); return; }
   const day = e.target.closest('[data-cal-day]');
   if (!day) return;
   selectCalDay(Number(day.dataset.calDay));

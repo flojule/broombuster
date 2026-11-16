@@ -18,12 +18,17 @@ async function initApp() {
     return;
   }
   // No cars: device position if already allowed, else the area nearest the IP,
-  // else the area labels.
+  // else every area's label in view.
   const gps = await getPermittedGPS();
   if (gps) { map.jumpTo({ center: [gps.lon, gps.lat], zoom: 15 }); return; }
   const ip = await getIPLocation();
   const rk = ip && (ip.region in regions ? ip.region : nearestRegion(ip.lat, ip.lon));
-  if (rk) map.jumpTo({ center: [regions[rk].center.lon, regions[rk].center.lat], zoom: regions[rk].zoom || 11 });
+  if (rk) { map.jumpTo({ center: [regions[rk].center.lon, regions[rk].center.lat], zoom: regions[rk].zoom || 11 }); return; }
+  const cs = Object.values(regions).map(r => [r.center.lon, r.center.lat]);
+  if (cs.length) {
+    const lo = [0, 1].map(i => Math.min(...cs.map(c => c[i]))), hi = [0, 1].map(i => Math.max(...cs.map(c => c[i])));
+    map.fitBounds([lo, hi], { padding: 70, maxZoom: AREA_ZOOM - 1, animate: false });
+  }
 }
 initApp();
 

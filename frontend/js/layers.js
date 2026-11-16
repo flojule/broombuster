@@ -1,8 +1,9 @@
 // ── Map layers: permit areas, meters, EV charging, … (the Layers button) ─────
 // Each region lists its layers in /cities (id, name, a content-versioned GeoJSON url,
 // scripts/build_layers.py). Turned on, a layer is drawn under the street colours (points
-// above them), so sweeping stays the first thing the map says. Every layer starts on;
-// the ones turned off are remembered on this device. A tap on a layer's feature names
+// above them, and an area's thin rim), so sweeping stays the first thing the map says.
+// The parking rules start on, places (EV charging, markets: the Nearby tab lists them)
+// off; what is switched is remembered on this device. A tap on a layer's feature names
 // it (and a market's days, a closure's dates); an area the target is in shows on the
 // street card (overlayAreasAtTarget).
 // color: the layer's colour; a feature's own `color` (each permit area its own: the
@@ -12,9 +13,10 @@
 // SVG path, white on the colour); fill: the glyph is filled, else stroked; line: more of
 // the glyph, stroked (a carrot's leaves).
 // minzoom: hidden zoomed out (meters are many). tint: an area's fill opacity; only permit
-// areas are shaded (where a car may park), other areas are an outline, to keep the map light.
+// areas are shaded (where a car may park), other areas are their edge, to keep the map
+// light. A shaded area the target is in is outlined and the map outside it washed out.
 const LAYER_STYLE = {
-  parking: { color: '#7c3aed', tint: 0.1, key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #db2777 0 75%, #a16207 0)' },
+  parking: { color: '#7c3aed', tint: 0.08, key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #db2777 0 75%, #a16207 0)' },
   meters:  { color: '#0f766e', minzoom: 17 },
   winter:  { color: '#0369a1' },
   ev:      { color: '#16a34a', minzoom: 12, fill: true, icon: 'M13.5 3 6 13.5h5L10 21l8-11h-5.2l.7-7z' },
@@ -25,8 +27,9 @@ const LAYER_STYLE = {
 const LAYER_PREFIX = 'lyr-';
 const layersMenu = document.getElementById('layers-menu');
 const btnLayers = document.getElementById('btn-layers');
-let _layersOff = new Set();
-try { _layersOff = new Set(JSON.parse(_read('bb_layers_off') || '[]')); } catch (_) {}
+const LAYERS_OFF_DEFAULT = ['ev', 'markets'];
+let _layersOff = new Set(LAYERS_OFF_DEFAULT);
+try { const s = _read('bb_layers_off'); if (s) _layersOff = new Set(JSON.parse(s)); } catch (_) {}
 const _isOn = id => !_layersOff.has(id);
 let _layersRegion = null;  // region whose overlays are on the map
 let _layerPopup = null;
@@ -34,7 +37,7 @@ let _layerPopup = null;
 function _regionLayers() { return regions[_tilesRegion || _region]?.layers || []; }
 
 function _saveLayersOff() {
-  _store('bb_layers_off', _layersOff.size ? JSON.stringify([..._layersOff]) : null);
+  _store('bb_layers_off', JSON.stringify([..._layersOff]));  // "[]" too: all on is a choice
 }
 
 // A point layer's marker: a disc in its colour with a white rim and glyph (2x pixels).
@@ -65,15 +68,20 @@ function _ensureIcon(id) {
   map.addImage(name, c.getContext('2d').getImageData(0, 0, c.width, c.height), { pixelRatio: 2 });
 }
 
-// Style layer ids of an overlay: [area fill, area edge, line, point, the area at the target].
-const _ids = id => ['fill', 'edge', 'line', 'pt', 'here'].map(k => `${LAYER_PREFIX}${id}-${k}`);
+// Style layer ids of an overlay: [area fill, area band, line, point, area rim, the area
+// at the target's halo and outline, the wash outside it].
+const _ids = id => ['fill', 'band', 'line', 'pt', 'rim', 'halo', 'here', 'wash'].map(k => `${LAYER_PREFIX}${id}-${k}`);
+const _spotSrc = id => `${LAYER_PREFIX}${id}-spot`;  // the wash: the world less the area at the target
+// The layers a tap names a feature of.
 function overlayLayerIds() {
-  return _regionLayers().flatMap(l => _ids(l.id)).filter(id => map?.getLayer(id));
+  return _regionLayers().flatMap(l => { const [fill, , line, pt] = _ids(l.id); return [fill, line, pt]; })
+    .filter(id => map?.getLayer(id));
 }
 
 function _removeOverlay(id) {
   for (const lid of _ids(id)) if (map.getLayer(lid)) map.removeLayer(lid);
-  if (map.getSource(LAYER_PREFIX + id)) map.removeSource(LAYER_PREFIX + id);
+  for (const sid of [LAYER_PREFIX + id, _spotSrc(id)]) if (map.getSource(sid)) map.removeSource(sid);
+  delete _hereId[id];
 }
 
 let _iconListener = false;
@@ -81,23 +89,34 @@ function _addOverlay(layer) {
   const src = LAYER_PREFIX + layer.id, st = LAYER_STYLE[layer.id] || {};
   const color = ['coalesce', ['get', 'color'], st.color || '#475569'];
   if (!map.getSource(src)) map.addSource(src, { type: 'geojson', data: layer.url, generateId: true });
-  const [fill, edge, line, pt, here] = _ids(layer.id);
+  const [fill, band, line, pt, rim, halo, here, wash] = _ids(layer.id);
   const below = map.getLayer('zones-fill') ? 'zones-fill' : undefined;  // under the street colours
+  const over = firstLabelLayer();  // over them, under the basemap's names
   const zoom = st.minzoom ? { minzoom: st.minzoom } : {};
   const is = (...types) => ['in', ['geometry-type'], ['literal', types]];
   const poly = is('Polygon', 'MultiPolygon');
   const meters = layer.id === 'meters';
-  // Areas: an edge in their colour (it tells neighbouring areas apart), shaded when the
-  // style has a tint. The fill stays even when clear: a tap or the target finds the area.
-  if (!map.getLayer(fill)) map.addLayer({ id: fill, type: 'fill', source: src, filter: poly, ...zoom,
-    paint: { 'fill-color': color, 'fill-opacity': st.tint || 0 } }, below);
-  if (!meters && !map.getLayer(edge)) map.addLayer({ id: edge, type: 'line', source: src, filter: poly, ...zoom,
-    paint: { 'line-color': ['coalesce', ['get', 'edge'], color], 'line-opacity': st.tint ? 0.85 : 0.6,
-             'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 16, st.tint ? 2 : 1.4] } }, below);
-  // The shaded area the target is in is shaded deeper (markOverlayAtTarget), like the
-  // Chicago zone there (zones-here, js/map.js).
-  if (st.tint && !map.getLayer(here)) map.addLayer({ id: here, type: 'fill', source: src, filter: ['==', ['id'], -1], ...zoom,
-    paint: { 'fill-color': color, 'fill-opacity': 0.25 } }, below);
+  const add = (def, before) => { if (!map.getLayer(def.id)) map.addLayer({ source: src, ...zoom, ...def }, before); };
+  // Areas: shaded when the style has a tint; the fill stays even when clear (a tap or the
+  // target finds the area). The edge as the tiles' zones have it (js/map.js): a band of the
+  // area's colour inside it (where two areas meet, both show) and a thin rim over the streets.
+  add({ id: fill, type: 'fill', filter: poly, paint: { 'fill-color': color, 'fill-opacity': st.tint || 0 } }, below);
+  if (!meters) {
+    add({ id: band, type: 'line', filter: poly, layout: { 'line-join': 'round' },
+          paint: { 'line-color': color, 'line-opacity': st.tint ? 0.6 : 0.45,
+                   'line-width': bandWidth(), 'line-offset': bandOffset() } }, below);
+    add({ id: rim, type: 'line', filter: poly, ...themed('rim', { 'line-width': RIM_W }) }, over);
+  }
+  // A shaded area the target is in (markOverlayAtTarget): outlined in its edge colour on a
+  // halo, and the map outside it washed out (the streets stay over the wash).
+  if (st.tint) {
+    if (!map.getSource(_spotSrc(layer.id))) map.addSource(_spotSrc(layer.id), { type: 'geojson', data: _EMPTY });
+    add({ id: wash, source: _spotSrc(layer.id), type: 'fill', ...themed('wash') }, below);
+    add({ id: halo, type: 'line', filter: poly, layout: { 'line-join': 'round' },
+          ...themed('halo', { 'line-width': HALO_W, 'line-opacity': focusOn('here') }) }, over);
+    add({ id: here, type: 'line', filter: poly, layout: { 'line-join': 'round' },
+          paint: { 'line-color': ['coalesce', ['get', 'edge'], color], 'line-width': FOCUS_W, 'line-opacity': focusOn('here') } }, over);
+  }
   if (!map.getLayer(line)) map.addLayer({ id: line, type: 'line', source: src, ...zoom,
     filter: is('LineString', 'MultiLineString'),
     paint: { 'line-color': color, 'line-opacity': 0.8, 'line-dasharray': [2, 1.5],
@@ -155,8 +174,11 @@ function _legendHTML() {
        + `<div class="lyr-legend" id="lyr-legend" role="none"${_legendOpen ? '' : ' hidden'}><b>Sweeping</b><div class="legend">${colors}</div>`
        + `<b>Marks</b><div class="lyr-marks">${marks}${cal}</div></div>`;
 }
-// The legend folds under its own row (open or not is remembered on this device).
-let _legendOpen = _read('bb_legend') === '1';
+// The legend folds under its own row: open until folded (remembered on this device).
+let _legendOpen = _read('bb_legend') !== '0';
+
+// A turned-on layer the map's zoom hides (minzoom).
+const _hiddenHere = id => _isOn(id) && map && map.getZoom() < (LAYER_STYLE[id]?.minzoom || 0);
 
 // A layer's swatch: its colours (permit areas: several), else its colour.
 function _layerKey(id) { return LAYER_STYLE[id]?.key || LAYER_STYLE[id]?.color || '#475569'; }
@@ -168,7 +190,8 @@ function _renderLayersMenu() {
         + ` aria-checked="${_isOn(l.id)}">` + (LAYER_STYLE[l.id]?.icon
           ? `<img class="lyr-key" alt="" src="${esc(_iconCanvas(l.id).toDataURL())}">`
           : `<i class="lyr-key" style="--k:${esc(_layerKey(l.id))}"></i>`)
-        + `${esc(l.name)}<svg class="ic lyr-check" aria-hidden="true"><use href="#i-check"/></svg></button>`).join('')
+        + `<span class="lyr-label">${esc(l.name)}${_hiddenHere(l.id) ? '<small>Zoom in to see</small>' : ''}</span>`
+        + `<svg class="ic lyr-check" aria-hidden="true"><use href="#i-check"/></svg></button>`).join('')
     : '<p class="lyr-note">No extra layers here.</p><button class="ctx-item" role="menuitem" data-layer="">Close</button>')
     + _legendHTML();
 }
@@ -179,7 +202,7 @@ layersMenu.addEventListener('click', e => {
   if (lg) {
     e.stopPropagation();
     _legendOpen = !_legendOpen;
-    _store('bb_legend', _legendOpen ? '1' : null);
+    _store('bb_legend', _legendOpen ? null : '0');
     lg.setAttribute('aria-expanded', String(_legendOpen));
     document.getElementById('lyr-legend').hidden = !_legendOpen;
     return;
@@ -192,6 +215,8 @@ layersMenu.addEventListener('click', e => {
   if (_layersOff.has(id)) _layersOff.delete(id); else _layersOff.add(id);
   b.setAttribute('aria-checked', String(_isOn(id)));
   _saveLayersOff();
+  _renderLayersMenu();  // the "Zoom in to see" note follows the switch
+  layersMenu.querySelector(`[data-layer="${CSS.escape(id)}"]`)?.focus();
   whenStyleReady(syncOverlays);
 });
 
@@ -237,20 +262,58 @@ function overlayClick(e) {
 
 function _regionCities() { return Object.keys(regions[_tilesRegion || _region]?.cities || {}).length; }
 
-// The turned-on layers' areas the target is in, as /api/rules gives rules ({theme, label,
-// city, color}; no rule text): the street card shows them at once, and those the server
-// does not know (fire zones are a home's, not a car's).
+// The shaded areas the target is in: outlined (feature-state `here`, no filter: see
+// setActiveFeature, js/map.js) and the map outside them washed out (_spotlight).
+const _EMPTY = { type: 'FeatureCollection', features: [] };
+const _hereId = {};  // layer id -> feature id of the area at the target (null: none)
 function markOverlayAtTarget() {
   if (!map) return;
+  const c = map.project(map.getCenter());
   for (const l of _regionLayers()) {
-    const [fill, , , , here] = _ids(l.id);
+    const [fill, , , , , , here] = _ids(l.id);
     if (!map.getLayer(here)) continue;
     let f;
-    try { [f] = map.queryRenderedFeatures(map.project(map.getCenter()), { layers: [fill] }); } catch (_) {}
-    map.setFilter(here, ['==', ['id'], f?.id ?? -1]);
+    try { [f] = map.queryRenderedFeatures(c, { layers: [fill] }); } catch (_) {}
+    const id = f?.id ?? null, at = fid => ({ source: LAYER_PREFIX + l.id, id: fid });
+    if (id === (_hereId[l.id] ?? null)) continue;
+    if (_hereId[l.id] != null) map.setFeatureState(at(_hereId[l.id]), { here: false });
+    if (id != null) map.setFeatureState(at(id), { here: true });
+    _hereId[l.id] = id;
+    _spotlight(l, id);
+  }
+}
+// The basemap switched: clear the marks so markOverlayAtTarget sets them afresh.
+function resetOverlayMarks() {
+  for (const [lid, id] of Object.entries(_hereId)) {
+    if (id != null && map.getSource(LAYER_PREFIX + lid)) map.setFeatureState({ source: LAYER_PREFIX + lid, id }, { here: false });
+    delete _hereId[lid];
   }
 }
 
+// The wash: the world with the area (feature `id`, the source's index: generateId) cut
+// out, from the layer's whole GeoJSON (the tiles' copy of an area is clipped to each tile).
+const _layerData = {};  // url -> Promise of the parsed GeoJSON
+const _WORLD = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
+function _spotlight(l, id) {
+  const src = () => map.getSource(_spotSrc(l.id));
+  if (id == null) { src()?.setData(_EMPTY); return; }
+  _layerData[l.url] ||= fetch(l.url).then(r => {
+    if (!r.ok) throw new Error(`${l.url}: HTTP ${r.status}`);
+    return r.json();
+  });
+  _layerData[l.url].then(fc => {
+    if (_hereId[l.id] !== id) return;  // the target moved on meanwhile
+    const g = fc.features[id]?.geometry;
+    const polys = g?.type === 'Polygon' ? [g.coordinates] : g?.type === 'MultiPolygon' ? g.coordinates : [];
+    // Each part's outer ring a hole in the world; its own holes washed too.
+    const coordinates = [[_WORLD, ...polys.map(p => p[0])], ...polys.flatMap(p => p.slice(1).map(h => [h]))];
+    src()?.setData(polys.length ? { type: 'Feature', properties: {}, geometry: { type: 'MultiPolygon', coordinates } } : _EMPTY);
+  }).catch(e => { delete _layerData[l.url]; console.error('spotlight', e); });
+}
+
+// The turned-on layers' areas the target is in, as /api/rules gives rules ({theme, label,
+// city, color}; no rule text): the street card shows them at once, and those the server
+// does not know (fire zones are a home's, not a car's).
 function overlayAreasAtTarget() {
   if (!map) return [];
   const ids = _regionLayers().map(l => _ids(l.id)[0]).filter(id => map.getLayer(id));
