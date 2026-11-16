@@ -137,7 +137,7 @@ def schedules_for_all_matching_rows(gdf_3857, resolved):
 
 
 def line_key(coords) -> frozenset:
-    """Orientation-free endpoint key of a line (~1 m: 0 decimals in metres, 5 in degrees)."""
+    """Orientation-free endpoint key of a line (~1 m: 0 decimals in meters, 5 in degrees)."""
     decimals = 0 if abs(coords[0][0]) > 180 else 5
     a = (round(coords[0][0], decimals), round(coords[0][1], decimals))
     b = (round(coords[-1][0], decimals), round(coords[-1][1], decimals))
@@ -176,7 +176,7 @@ _segment_index_lock = threading.Lock()
 def segment_index(gdf) -> SegmentIndex:
     """Cached SegmentIndex for `gdf` (built once; ~1 s for the Bay Area on a Pi).
 
-    Keys: STREET_KEY when it is text, else the normalised STREET_NAME; one
+    Keys: STREET_KEY when it is text, else the normalized STREET_NAME; one
     entry per non-empty LineString part with at least two coordinates.
     """
     gdf_id = id(gdf)
@@ -217,14 +217,14 @@ def _build_segment_index(gdf) -> SegmentIndex:
     xy = np.column_stack(
         [shapely.get_x(first), shapely.get_y(first), shapely.get_x(last), shapely.get_y(last)]
     )
-    # line_key, vectorised for metres (the served frames): np.round to 0 decimals
+    # line_key, vectorised for meters (the served frames): np.round to 0 decimals
     # is round()'s half-to-even. Degrees still go through line_key itself.
-    metres = np.abs(xy[:, 0]) > 180
-    xy[metres] = np.round(xy[metres])
+    meters = np.abs(xy[:, 0]) > 180
+    xy[meters] = np.round(xy[meters])
 
     by_key: dict = {}
     for pos, m, (x0, y0, x1, y1) in zip(
-        part_row.tolist(), metres.tolist(), xy.tolist(), strict=True
+        part_row.tolist(), meters.tolist(), xy.tolist(), strict=True
     ):
         sk = street_keys[pos]
         if not sk:
@@ -242,7 +242,7 @@ def side_entry(code, desc, time):
     """(code, desc, time) for one side, or None for a missing / no-sweep code.
 
     Placeholder desc / time ("N/A", NaN, …) become "". No-sweep rows still drive
-    the map colour, but have no schedule to render.
+    the map color, but have no schedule to render.
     """
     if not normalize.is_text(code) or is_no_sweep_code(code):
         return None

@@ -467,7 +467,7 @@ class Car(BaseModel):
     loc_rev: int = Field(0, ge=0, le=2**31)
     # Chosen when the car is added, so removing another car never repaints it.
     color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
-    # Licence plate, for Chicago's towed / relocated vehicle lookups (optional).
+    # License plate, for Chicago's towed / relocated vehicle lookups (optional).
     plate: str | None = Field(None, max_length=10, pattern=r"^[A-Za-z0-9 -]*$")
     plate_state: str | None = Field(None, pattern=r"^[A-Z]{2}$")
 

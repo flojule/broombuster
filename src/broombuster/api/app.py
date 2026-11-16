@@ -105,7 +105,7 @@ def cities():
             "zoom": rv["zoom"],
             "holidays": holidays.for_region(rk),
             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
-            "layers": layers.catalogue(rk),
+            "layers": layers.catalog(rk),
         }
         for rk, rv in REGIONS.items()
     }
@@ -310,7 +310,7 @@ def calendar_feed(token: str):
 # Shortcuts' measurements) or a decimal comma ("37,8044"). A comma before exactly three
 # digits is a thousands separator ("1,234 ft"), never read as a decimal.
 _NUMBER = re.compile(r"[±~]?\s*([-+]?\d+(?:[.,]\d+)?)\s*([a-z°]*)\.?", re.I)
-_METRES = {"": 1.0, "m": 1.0, "km": 1000.0, "ft": 0.3048, "yd": 0.9144, "mi": 1609.344}
+_METERS = {"": 1.0, "m": 1.0, "km": 1000.0, "ft": 0.3048, "yd": 0.9144, "mi": 1609.344}
 _DEGREES = {"": 1.0, "°": 1.0}
 
 
@@ -330,8 +330,8 @@ def _number(units: dict):
 class CarLocation(BaseModel):
     lat: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-90.0, le=90.0)]
     lon: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-180.0, le=180.0)]
-    # Metres (or with a unit), as the phone reports it.
-    accuracy: Annotated[float | None, BeforeValidator(_number(_METRES)), Field(ge=0.0, le=1e6)] = (
+    # Meters (or with a unit), as the phone reports it.
+    accuracy: Annotated[float | None, BeforeValidator(_number(_METERS)), Field(ge=0.0, le=1e6)] = (
         None
     )
 
@@ -351,7 +351,7 @@ async def _phone_refusal(
 
 
 def _unreadable(errors: list[dict]) -> str:
-    """Why a phone's body was not understood, e.g. "Could not read accuracy ('65 metres')"."""
+    """Why a phone's body was not understood, e.g. "Could not read accuracy ('65 meters')"."""
     parts = []
     for e in errors:
         loc = [str(p) for p in e.get("loc", ()) if p != "body"]

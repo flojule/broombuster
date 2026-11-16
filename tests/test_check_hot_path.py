@@ -238,7 +238,7 @@ def _synthetic():
         },
         # Different street sharing block a's endpoints: never merged.
         {"STREET_KEY": "OAK", "STREET_NAME": "OAK ST", "DAY_EVEN": "SE", "geometry": a},
-        # NaN STREET_KEY falls back to the normalised STREET_NAME.
+        # NaN STREET_KEY falls back to the normalized STREET_NAME.
         {"STREET_KEY": np.nan, "STREET_NAME": "Elm Street", "DAY_EVEN": "THE", "geometry": a},
         # No-sweep code and an empty geometry contribute nothing.
         {"STREET_KEY": "ELM", "STREET_NAME": "ELM ST", "DAY_EVEN": "NS", "geometry": a},

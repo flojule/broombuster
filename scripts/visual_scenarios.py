@@ -4,9 +4,9 @@
 Scenarios = platform x theme x view. Each one is screenshotted and checked:
 
   * the app fills the visible height (or the whole screen in a home-screen app);
-  * the centre target is not covered by the sheet, street signs or map buttons;
+  * the center target is not covered by the sheet, street signs or map buttons;
   * those three never overlap one another;
-  * the street layer is drawn and every street has a colour (no blue flash);
+  * the street layer is drawn and every street has a color (no blue flash);
   * no serious or critical WCAG 2.2 AA violation (axe-core);
   * no uncaught page errors.
 
@@ -114,7 +114,7 @@ VIEWS = {
     "home": lambda pg: pg.evaluate("openItem('h1')"),
     "add": lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),
     "settings": lambda pg: (pg.click("#tb-settings"), pg.evaluate("setDetent('medium')")),
-    # Nearby: markets, events and meetings near the centre target.
+    # Nearby: markets, events and meetings near the center target.
     "nearby": lambda pg: (
         pg.click("#tb-nearby"),
         pg.evaluate("setDetent('medium')"),
@@ -125,7 +125,7 @@ VIEWS = {
     "place": lambda pg: pg.evaluate("startPlacing()"),
     # You-are-here dot with a 40 m accuracy halo, near the first car.
     "here": lambda pg: pg.evaluate("_setHere(37.7752, -122.4189, 40)"),
-    # The "Add here" menu (right-click / long press), up and left of the centre (clear of the car there).
+    # The "Add here" menu (right-click / long press), up and left of the center (clear of the car there).
     "menu": lambda pg: pg.evaluate(
         "(() => { const r = mapDiv.getBoundingClientRect(), x = r.width / 2 - 150, y = r.height / 2 - 110;"
         " openCtxMenu(map.unproject([x, y]), r.left + x, r.top + y); })()"
@@ -184,18 +184,18 @@ def check(m, expect_h):
     if not m["streets"]:
         bad.append("no streets drawn")
     elif m["unset"]:
-        bad.append(f"{m['unset']} of {m['streets']} streets have no colour")
+        bad.append(f"{m['unset']} of {m['streets']} streets have no color")
     boxes = {k: v for k, v in m["boxes"].items() if v}
     if m["crosshair"] is None:
-        return [*bad, "centre target not visible"]
+        return [*bad, "center target not visible"]
     cx, cy = m["center"]
     if max(abs(cx - m["mapCenter"][0]), abs(cy - m["mapCenter"][1])) > 2:
         bad.append(
-            f"centre target at {cx:.0f},{cy:.0f} but the map centre is at {m['mapCenter'][0]:.0f},{m['mapCenter'][1]:.0f}"
+            f"center target at {cx:.0f},{cy:.0f} but the map center is at {m['mapCenter'][0]:.0f},{m['mapCenter'][1]:.0f}"
         )
     for k, (x0, y0, x1, y1) in boxes.items():
         if x0 - 12 <= cx <= x1 + 12 and y0 - 12 <= cy <= y1 + 12:
-            bad.append(f"{k} covers the centre target")
+            bad.append(f"{k} covers the center target")
     names = list(boxes)
     for i, a in enumerate(names):
         for b in names[i + 1 :]:

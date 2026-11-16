@@ -42,7 +42,7 @@ OUT = ROOT / "data" / "validation"
 LAYERS = ("sweeping", "parking")
 STALE_BEFORE = (2023, 11)  # imagery older than 3 years is not evidence of today's signs
 BOUND = 0.05
-OFFSET_M = 6.0  # a parked car's distance from the centre line
+OFFSET_M = 6.0  # a parked car's distance from the center line
 PANO_MAX_M = 20.0
 SUPPLEMENT = 15  # minimum samples per small sweeping stratum
 _GROUPS = {"sweeping": ("scheduled", "unscheduled"), "parking": ("parking",)}
@@ -84,7 +84,7 @@ def _pps_order(weights: np.ndarray, rng) -> np.ndarray:
 
 
 def _frame(city: str, layer: str):
-    """Units to draw: (geometry in metres, weight, attributes)."""
+    """Units to draw: (geometry in meters, weight, attributes)."""
     g = geopandas.read_file(ROOT / CITIES[city]["fgb_path"])
     g = g[g.geometry.notna() & ~g.geometry.is_empty]
     g = g[g.geometry.geom_type.isin(("LineString", "MultiLineString"))].copy()
@@ -180,7 +180,7 @@ def cmd_sample(a) -> None:
                 target = hits[0] if len(hits) == 1 else str(rng.choice(["L", "R"]))
                 group = "scheduled" if _expected_rules(exp[target]["sweeping"]) else "unscheduled"
                 if group == "unscheduled" and exp[target]["side"] is None:
-                    continue  # freeways and ramps: no kerb parking
+                    continue  # freeways and ramps: no curb parking
             else:
                 group = "parking"
             main = groups.get(group, 0) < a.n
@@ -307,7 +307,7 @@ def _get(url: str, params: dict) -> requests.Response:
 
 
 def pano(lat: float, lon: float, radius: int = 25) -> dict | None:
-    """Nearest panorama: id, position, heading of its centre column, capture [year, month]."""
+    """Nearest panorama: id, position, heading of its center column, capture [year, month]."""
     pb = (
         f"!1m4!1smaps_sv.tactile!11m2!2m1!1b1!2m4!1m2!3d{lat}!4d{lon}!2d{radius}"
         "!3m10!2m2!1sen!2sUS!9m1!1e2!11m4!1m3!1e2!2b1!3e2!4m10!1e1!1e2!1e3!1e4!1e8!1e6"
@@ -363,12 +363,12 @@ def crop(pid: str, z: int, x0: float, x1: float, y0: float, y1: float, cache: Pa
     )
 
 
-def _metres(a, b) -> float:
+def _meters(a, b) -> float:
     k = 111_320.0
     return math.hypot((a[0] - b[0]) * k, (a[1] - b[1]) * k * math.cos(math.radians(a[0])))
 
 
-VIEW_Y = (0.36, 0.6)  # vertical band: kerb to sign height
+VIEW_Y = (0.36, 0.6)  # vertical band: curb to sign height
 
 
 def cmd_capture(a) -> None:
@@ -384,7 +384,7 @@ def cmd_capture(a) -> None:
         panos, seen = [], set()
         for k, shot in enumerate(rec["shots"]):
             p = pano(*shot)
-            if not p or p["id"] in seen or _metres(shot, (p["lat"], p["lon"])) > PANO_MAX_M:
+            if not p or p["id"] in seen or _meters(shot, (p["lat"], p["lon"])) > PANO_MAX_M:
                 continue
             seen.add(p["id"])
             p["n"] = k
@@ -439,12 +439,12 @@ def _bearing(a, b) -> float:
     return math.degrees(math.atan2((b[1] - a[1]) * k, b[0] - a[0])) % 360
 
 
-KERB_M = 5.0  # assumed distance from a panorama (in a traffic lane) to a sign post
+CURB_M = 5.0  # assumed distance from a panorama (in a traffic lane) to a sign post
 
 
 def cmd_approach(a) -> None:
     """Look at a far sign from the panorama nearest to it. U, V: the sign in a captured view.
-    The sign is taken to stand KERB_M to the side of the camera's path; its distance along
+    The sign is taken to stand CURB_M to the side of the camera's path; its distance along
     the street follows from the angle it is seen at."""
     img = Path(a.image).resolve()
     meta = json.loads((img.parent / "meta.json").read_text())
@@ -463,8 +463,8 @@ def cmd_approach(a) -> None:
     off = (h - fwd + 180) % 360 - 180  # degrees off the street axis, + to the right
     if abs(off) < 3:
         sys.exit("approach: the sign is straight along the street; pick one off to the side")
-    along = min(KERB_M / math.tan(math.radians(abs(off))), 80.0)
-    sign = _move(*_move(p["lat"], p["lon"], fwd, along), fwd + math.copysign(90, off), KERB_M)
+    along = min(CURB_M / math.tan(math.radians(abs(off))), 80.0)
+    sign = _move(*_move(p["lat"], p["lon"], fwd, along), fwd + math.copysign(90, off), CURB_M)
     near = pano(*_move(*sign, fwd, -8.0), radius=12)
     if not near or near["id"] == p["id"]:
         sys.exit(f"approach: no closer panorama (sign ~{along:.0f} m along the street)")
@@ -478,14 +478,14 @@ def cmd_approach(a) -> None:
             break
     im.save(out, quality=90)
     print(
-        f"{out}  (from a panorama ~{_metres(sign, (near['lat'], near['lon'])):.0f} m from the "
+        f"{out}  (from a panorama ~{_meters(sign, (near['lat'], near['lon'])):.0f} m from the "
         f"sign, imagery {near['date']}; sign estimated {along:.0f} m along the street)"
     )
 
 
 def cmd_walk(a) -> None:
-    """Review of a sample: one side's kerb from panoramas every ~15 % of the block, ends
-    included (90 deg views toward the kerb). Writes images/<id>/walk_<view>_<t>.jpg."""
+    """Review of a sample: one side's curb from panoramas every ~15 % of the block, ends
+    included (90 deg views toward the curb). Writes images/<id>/walk_<view>_<t>.jpg."""
     work = _work(a.city, a.layer)
     rec = next(
         r
@@ -557,7 +557,7 @@ def _sign_rules(signs, weeks: bool = True) -> set:
 
 
 def _view_signs(meta: dict, reading: dict, view: str, recent_only: bool = True):
-    """Near-kerb signs of one side from recent panoramas, read fields only; readable views."""
+    """Near-curb signs of one side from recent panoramas, read fields only; readable views."""
     signs, good = [], 0
     dates = {p["n"]: p.get("date") for p in meta["panos"]}
     for v in reading.get("views", []):
@@ -567,7 +567,7 @@ def _view_signs(meta: dict, reading: dict, view: str, recent_only: bool = True):
             continue
         if v.get("coverage") in ("good", "partial"):
             good += 1
-        signs += [_clean(s) for s in v.get("signs", []) if s.get("near_kerb", True)]
+        signs += [_clean(s) for s in v.get("signs", []) if s.get("near_curb", True)]
     return signs, good
 
 

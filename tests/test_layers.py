@@ -1,4 +1,4 @@
-"""Extra map layers: the committed files, /api/rules lookups and the map catalogue."""
+"""Extra map layers: the committed files, /api/rules lookups and the map catalog."""
 
 import itertools
 import json
@@ -29,7 +29,7 @@ def test_every_manifest_layer_has_a_source(city, theme):
 )
 def test_committed_layer_files_keep_only_the_schema(city, theme):
     gdf = geopandas.read_file(layers.fgb_path(city, theme))
-    extra = [layer_sources.COLOR] if layer_sources.COLOR in gdf else []  # a city's own colours
+    extra = [layer_sources.COLOR] if layer_sources.COLOR in gdf else []  # a city's own colors
     assert list(gdf.columns) == [*layer_sources.COLUMNS, *extra, "geometry"]
     assert len(gdf) and gdf.crs.to_epsg() == 4326
     lat0, lon0, lat1, lon1 = CITIES[city]["bbox"]
@@ -57,9 +57,9 @@ def test_client_geojson_is_small_and_has_rule_text_only_for_popups(region):
         assert path.stat().st_size < 3_000_000, path
         fc = json.loads(path.read_text())
         assert fc["features"]
-        props = set(fc["features"][0]["properties"])
+        props = set().union(*(f["properties"] for f in fc["features"]))
         assert props == (
-            {"label", "city", "color", "edge"}
+            {"label", "city", "color", "edge", "color2", "kind"}
             if path.stem == "parking"
             else {"label", "city", "rule"}
             if path.stem in layer_sources.POPUP_RULE
@@ -72,7 +72,7 @@ def test_markets_one_point_per_place_with_days_and_hours():
     assert sf["Ferry Plaza Farmers Market"] == "Tue, Thu 10 AM–2 PM · Sat 8 AM–2 PM"
 
 
-def test_catalogue_lists_hashed_urls_and_live_closures(app_client):
+def test_catalog_lists_hashed_urls_and_live_closures(app_client):
     regions = app_client.get("/api/cities").json()
     bay = {lyr["id"]: lyr for lyr in regions["bay_area"]["layers"]}
     assert {"parking", "meters", "fire", "markets", "closures"} <= set(bay)
@@ -125,6 +125,21 @@ def test_sf_rule_text():
     assert layer_sources._sf_rule(row) == "2 h limit, M–F 9am–6pm; permit area N holders exempt."
     assert layer_sources._sf_label(row) == "Permit area N"
     assert layer_sources._sf_label({"regulation": "No overnight parking"}) == "No overnight parking"
+    # A curb may take a second or third area's permit.
+    row |= {"rpparea1": "K", "rpparea2": "G"}
+    assert layer_sources._sf_label(row) == "Permit area G or K"
+    assert layer_sources._sf_rule(row).endswith("; permit area G or K holders exempt.")
+
+
+def test_rules_at_a_dual_permit_curb_name_the_curb_not_the_area(app_client, monkeypatch):
+    from broombuster import feeds
+
+    monkeypatch.setattr(feeds, "closures", lambda region, now=None: [])
+    lat, lon, label = _inside("san_francisco", "parking", "Permit area G or K")
+    rules = app_client.get("/api/rules", params={"lat": lat, "lon": lon}).json()["rules"]
+    hit = [r for r in rules if r["theme"] == "parking"]
+    assert hit[0]["label"] == label and hit[0]["color"]
+    assert all(" or " in r["label"] or "limit" in r["label"] for r in hit)  # curbs only
 
 
 def test_sf_missing_fields_are_not_nan():
@@ -180,7 +195,7 @@ def test_arcgis_colors_read_the_city_renderer(monkeypatch):
     assert layer_sources.arcgis_colors("x") == {"AREA A": "#73b2ff"}
 
 
-def test_permit_areas_take_the_city_colour_else_one_their_neighbours_lack():
+def test_permit_areas_take_the_city_color_else_one_their_neighbors_lack():
     build = _build()
     sq = [shapely.box(-122.42 + i * 0.002, 37.77, -122.4185 + i * 0.002, 37.7715) for i in range(4)]
     gdf = geopandas.GeoDataFrame(
@@ -235,7 +250,7 @@ def test_map_permit_areas_do_not_overlap_across_cities():
 
 
 def _square(x0, y0, size_m):
-    m = 1 / 111_000  # ° per metre, near enough for a test
+    m = 1 / 111_000  # ° per meter, near enough for a test
     return shapely.box(
         -122.42 + x0 * m, 37.77 + y0 * m, -122.42 + (x0 + size_m) * m, 37.77 + (y0 + size_m) * m
     )
@@ -252,6 +267,27 @@ def test_areas_close_over_streets_and_never_overlap():
     assert a.contains(_square(100, 40, 30).centroid)
     assert b.intersection(a).area < 1e-12 and not b.is_empty
     assert set(out["rule"]) == {layer_sources.AREA_RULE} and set(out["asof"]) == {"2024-01-15"}
+
+
+def test_areas_snap_to_whole_blocks_and_keep_their_shape_elsewhere():
+    # Three 100 m blocks; A covers block 0 and 60 % of block 1, B the rest; C lies
+    # outside the swept streets.
+    build = _build()
+    streets = geopandas.GeoSeries(
+        [shapely.LineString([(0, y), (300, y)]) for y in (0, 100)]
+        + [shapely.LineString([(x, 0), (x, 100)]) for x in (0, 100, 200, 300)],
+        crs=3857,
+    )
+    boxes = [
+        shapely.box(0, 0, 160, 100),
+        shapely.box(160, 0, 300, 100),
+        shapely.box(400, 0, 500, 100),
+    ]
+    areas = geopandas.GeoDataFrame({"label": list("ABC")}, geometry=boxes, crs=3857)
+    out = build.snap_to_blocks(areas, streets).set_index("label").area
+    assert out["A"] == pytest.approx(20_000, rel=1e-3)
+    assert out["B"] == pytest.approx(10_000, rel=1e-3)
+    assert out["C"] == pytest.approx(10_000, rel=1e-3)
 
 
 def test_map_areas_give_a_cross_city_overlap_to_the_newer_source():

@@ -13,7 +13,7 @@ from broombuster.schemas import SCHEMA_COLS, SCHEMA_PROFILES
 
 
 def load_city_data(city_key: str) -> geopandas.GeoDataFrame:
-    """A city's normalised GeoDataFrame (EPSG:4326), tagged with `_city`."""
+    """A city's normalized GeoDataFrame (EPSG:4326), tagged with `_city`."""
     gdf = geopandas.read_file(os.path.join(_ROOT, CITIES[city_key]["fgb_path"]))
     gdf["_city"] = city_key
     return gdf
@@ -44,7 +44,7 @@ def apply_corrections(gdf: geopandas.GeoDataFrame, path: str) -> geopandas.GeoDa
 
 
 def build_city_fgb(city_key: str) -> geopandas.GeoDataFrame:
-    """Normalise a city's raw input (`source.local_path`) and write its FGB.
+    """Normalize a city's raw input (`source.local_path`) and write its FGB.
 
     The existing FGB is replaced only after the new one is written.
     """
@@ -69,7 +69,7 @@ def build_city_fgb(city_key: str) -> geopandas.GeoDataFrame:
         raise ValueError(f"Unknown schema {city['schema']!r}; known: {sorted(SCHEMA_PROFILES)}")
     gdf = fn(gdf)
     if gdf.empty:
-        raise ValueError(f"{city['name']}: normalised data is empty; keeping existing files")
+        raise ValueError(f"{city['name']}: normalized data is empty; keeping existing files")
 
     fgb_path = os.path.join(_ROOT, city["fgb_path"])
     out = gdf[[c for c in SCHEMA_COLS if c in gdf.columns] + ["geometry"]]

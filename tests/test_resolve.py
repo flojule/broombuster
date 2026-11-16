@@ -217,7 +217,7 @@ def test_one_side_range_infers_other_side():
 
 
 # ---------------------------------------------------------------------------
-# Out-of-range and polygon behaviour
+# Out-of-range and polygon behavior
 # ---------------------------------------------------------------------------
 
 

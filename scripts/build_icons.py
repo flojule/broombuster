@@ -14,7 +14,7 @@ import cairosvg
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 SVG = (FRONTEND / "icon.svg").read_text()
 
-# name -> (pixels, artwork scale about the centre)
+# name -> (pixels, artwork scale about the center)
 OUTPUTS = {
     "favicon-32.png": (32, 1.15),
     "apple-touch-icon.png": (180, 1.0),

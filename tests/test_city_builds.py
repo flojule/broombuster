@@ -1,4 +1,4 @@
-"""The city build scripts (scripts/build_*_geojson.py) and the Oakland normaliser, on
+"""The city build scripts (scripts/build_*_geojson.py) and the Oakland normalizer, on
 synthetic rows: how a published schedule row lands on a block and a side."""
 
 import sys
@@ -157,7 +157,7 @@ def _oakland(**row):
             "L_T_ADD": "499", "R_F_ADD": " ", "R_T_ADD": " ", "DAY_EVEN": "M24",
             "TIME_EVEN": "M3", "DAY_ODD": "NS", "TIME_ODD": "NA"}  # fmt: skip
     gdf = geopandas.GeoDataFrame([{**base, **row}], geometry=[_LINE], crs="EPSG:4326")
-    return schemas._normalise_oakland(gdf).iloc[0]
+    return schemas._normalize_oakland(gdf).iloc[0]
 
 
 def test_oakland_layer_codes_become_grammar_codes_and_windows():

@@ -1,6 +1,6 @@
-"""Per-city source-format normalisers; each returns the standard schema
+"""Per-city source-format normalizers; each returns the standard schema
 documented in data/README.md. SCHEMA_PROFILES maps a manifest `schema` name
-to its normaliser."""
+to its normalizer."""
 
 import math
 
@@ -114,7 +114,7 @@ def _oakland_desc(code) -> str | None:
     return " and ".join(_OAKLAND_ORDINAL[n] for n in tail) + f" {_OAKLAND_DAY_NAME[day]}"
 
 
-def _normalise_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+def _normalize_oakland(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """Oakland's street sweeping layer (the one behind the city's map): DAY_* are the
     city's codes, close to the sweep-code grammar; TIME_* are window codes."""
     out = gdf.copy()
@@ -255,7 +255,7 @@ def _side_label(compass):
     return compass[0] + compass[1:].lower() if isinstance(compass, str) else None
 
 
-def _normalise_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+def _normalize_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
     out = gdf.copy()
 
@@ -406,7 +406,7 @@ _CHICAGO_MONTHS = {
 
 # A year whose sweep days exceed this share on weekends is rejected by year
 # inference. Chicago sweeps Mon-Fri by ordinance; the correct year sits far
-# below this (~0.3% observed), a mislabelled year far above (~20%).
+# below this (~0.3% observed), a mislabeled year far above (~20%).
 _CHICAGO_MAX_WEEKEND_RATIO = 0.10
 
 
@@ -452,9 +452,9 @@ def _infer_chicago_year(month_day_pairs, ref_year: int) -> int:
     return best_year
 
 
-def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+def _normalize_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
-    Chicago normaliser for the zones schema (e.g. dataset 2r7q-emq3).
+    Chicago normalizer for the zones schema (e.g. dataset 2r7q-emq3).
 
     The zones GeoJSON embeds the sweeping schedule directly as month columns
     (april, may, …, november), each holding comma-separated day-of-month
@@ -462,13 +462,13 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
     The numbers carry no year, so the calendar year is inferred from the data
     by weekday alignment (see _infer_chicago_year) rather than assumed to be the
-    current year — a lagging dataset must not be mislabelled. Chicago publishes
+    current year — a lagging dataset must not be mislabeled. Chicago publishes
     a new dataset each spring; update the id in data/manifests/chicago_all.yaml
     when that happens.
     """
     import datetime as _dt
 
-    # Normalise column names to lowercase for consistent access.
+    # Normalize column names to lowercase for consistent access.
     out = gdf.copy()
     out.columns = [c.lower() for c in out.columns]
 
@@ -535,9 +535,9 @@ def _normalise_chicago(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 # ---------------------------------------------------------------------------
 
 
-def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
+def _normalize_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """
-    Normaliser for cities whose GeoJSON is pre-built by a build script
+    Normalizer for cities whose GeoJSON is pre-built by a build script
     (e.g. scripts/build_berkeley_geojson.py, scripts/build_alameda_geojson.py).
     All standard columns are already present; this just ensures nothing is missing.
     """
@@ -558,15 +558,15 @@ def _normalise_prebuilt(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Schema profiles — named normalisers selected by a city manifest's `schema`.
+# Schema profiles — named normalizers selected by a city manifest's `schema`.
 # Each keeps its source format distinct; manifests never remap columns.
 # Add an entry here when a new city introduces a novel source format.
 # ---------------------------------------------------------------------------
 
 SCHEMA_PROFILES = {
-    "oakland": _normalise_oakland,
-    "sf": _normalise_sf,
-    "chicago": _normalise_chicago,
-    "berkeley": _normalise_prebuilt,
-    "alameda": _normalise_prebuilt,
+    "oakland": _normalize_oakland,
+    "sf": _normalize_sf,
+    "chicago": _normalize_chicago,
+    "berkeley": _normalize_prebuilt,
+    "alameda": _normalize_prebuilt,
 }

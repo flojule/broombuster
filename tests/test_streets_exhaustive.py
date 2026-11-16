@@ -2,7 +2,7 @@
 
 These tests sample the most-common street names in each city's prebuilt
 FlatGeobuf and verify:
-  - every common name normalises to a STREET_KEY present in the data
+  - every common name normalizes to a STREET_KEY present in the data
   - the nearest segment for that street has schedule information
   - if address ranges exist, at least one segment covers a sample house number
 

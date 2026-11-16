@@ -1,7 +1,7 @@
 // ── Street card: what applies on the street at the target ─────────────────────
 // Top left: the street's name, then one row per thing that applies there: its sweeping
 // (in the source's own words, shortened; one row per side when the sides differ, the
-// side lying higher on screen first, marked in that side's map line colour), then the
+// side lying higher on screen first, marked in that side's map line color), then the
 // parking rules from /api/rules (permit area, meter, winter ban, closure), each a short
 // line with its mark. The rules arrive once the map stops (one request per spot); the
 // turned-on map layers' areas at the target (a permit area, a fire zone) show at once.
@@ -105,8 +105,8 @@ function _evenSideDirection(f) {
   return p.side_even ? _compassDirection(p.side_even) : null;
 }
 
-// A row: a mark (its colour, a letter), what applies, and a detail; `said` for screen readers.
-// A row without a colour continues the one above (another time window of that side).
+// A row: a mark (its color, a letter), what applies, and a detail; `said` for screen readers.
+// A row without a color continues the one above (another time window of that side).
 function _rowHTML({ heading, when, color, mark, text, detail = '', said, sweep = false, ...rest }) {
   if (rest.divider) return '<hr class="sc-rule">';
   if (heading) return `<div class="sc-side" aria-hidden="true">${esc(heading)}${when ? _whenBadge(when) : ''}</div>`;  // each row says its side
@@ -123,7 +123,7 @@ function _sideUrgency({ entries }, now, skip) {
   return entries.length ? BroomUrgency.checkDaySweeping(entries, now, skip) : 'none';
 }
 
-// A side's sweeping rows (one per time window): "S" once, in its map line colour; when
+// A side's sweeping rows (one per time window): "S" once, in its map line color; when
 // the sides differ, under the side's heading ("NORTH SIDE"), which carries "Today" /
 // "Tomorrow" when that side is swept then.
 function _sweepRows(sec, now, skip) {
@@ -148,7 +148,7 @@ function _whenBadge(u) {
   return `<b class="sc-when" style="background:var(--urg-${u}-bg)">${esc(URGENCY[u].short)}</b>`;
 }
 
-// A mark: a letter on a colour (dark on a light one: a city's pale permit colours).
+// A mark: a letter on a color (dark on a light one: a city's pale permit colors).
 function markHTML({ color, mark, sweep = false }) {
   const light = !sweep && _isLight(color);
   return `<i class="sc-mark${sweep ? ' sc-sweep' : ''}${light ? ' light' : ''}"${color ? ` style="background:${esc(color)}"` : ''}`
@@ -160,8 +160,8 @@ function _isLight(color) {
 }
 
 // The card's marks, also the Layers menu's legend (js/layers.js; a mark with a `layer`
-// only where the region has it): sweeping, then the rules, in their map layer's colours
-// (a permit area: its own colour on the map, LAYER_STYLE.key).
+// only where the region has it): sweeping, then the rules, in their map layer's colors
+// (a permit area: its own color on the map, LAYER_STYLE.key).
 const CARD_MARKS = [
   { key: 'sweep',   mark: 'S', color: URGENCY.safe.line, name: 'Street sweeping' },
   { key: 'permit',  mark: 'P', color: LAYER_STYLE.parking.key, name: 'Permit area', layer: 'parking' },
@@ -240,9 +240,10 @@ function renderSigns(f, live = false) {
       if (ev && (Math.abs(ev[1]) >= Math.abs(ev[0]) ? ev[1] > 0 : ev[0] > 0)) secs.reverse();
     }
   }
-  // The server's first (they carry the rule's words), then the map's areas it lacks.
-  const seen = new Set();
-  const rules = [...targetRules(live), ...overlayAreasAtTarget()]
+  // The server's first (they carry the rule's words; a permit curb's area wins over the
+  // area drawn around it), then the map's areas of the themes it lacks.
+  const seen = new Set(), server = targetRules(live), themes = new Set(server.map(r => r.theme));
+  const rules = [...server, ...overlayAreasAtTarget().filter(r => !themes.has(r.theme))]
     .filter(r => r.label && !seen.has(r.label) && seen.add(r.label)).slice(0, 4);
   // The rules apply to the whole block: a rule line sets them apart from a side's heading.
   const rows = [...secs.flatMap(s => _sweepRows(s, now, skip)),

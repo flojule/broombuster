@@ -8,7 +8,7 @@ function placeMarker(marker, at, makeEl) {
     .setLngLat([at.lon, at.lat]).addTo(map);
 }
 
-// A car or home pin: the card's icon, white on a disc of the item's colour (as in
+// A car or home pin: the card's icon, white on a disc of the item's color (as in
 // Apple Maps); a tap opens the item in the sheet. Its label is the item's name (set by the caller).
 function _pinEl(kind, id) {
   const el = document.createElement('button');
@@ -91,7 +91,7 @@ function applySelection() {
   syncCrosshair();
 }
 
-// The centre target hides while a car or home pin sits on it (the pin marks the spot);
+// The center target hides while a car or home pin sits on it (the pin marks the spot);
 // it shows again once the map moves off, and always while placing (styles.css).
 function syncCrosshair() {
   if (!map) return;
@@ -114,7 +114,7 @@ function clearSelection() {
   if (_selectedId) selectItem(null);
 }
 
-// Select a car or home and centre the target on it, so the signs and calendar read its
+// Select a car or home and center the target on it, so the signs and calendar read its
 // street. The padding rides along: one animation, which a sheet change can't cut short.
 function focusItem(id) {
   selectItem(id);
@@ -123,7 +123,7 @@ function focusItem(id) {
 }
 
 // Show an item's page from anywhere (its pin, or once it is added or moved): the
-// Saved tab, the sheet at least half open, the map centred on it.
+// Saved tab, the sheet at least half open, the map centered on it.
 function openItem(id) {
   showTab('saved');
   focusItem(id);
@@ -155,7 +155,7 @@ function updateHereMarker() {
     return el;
   });
   if (!_here || !map) return;
-  // Halo diameter in px: the accuracy radius over the map's metres per pixel (512 px tiles).
+  // Halo diameter in px: the accuracy radius over the map's meters per pixel (512 px tiles).
   const mPerPx = 40075016.686 * Math.cos(_here.lat * Math.PI / 180) / (512 * 2 ** map.getZoom());
   _hereMarker.getElement().style.setProperty('--halo', Math.min(600, 2 * _here.acc / mPerPx) + 'px');
 }

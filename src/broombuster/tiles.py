@@ -1,6 +1,6 @@
 """PMTiles feature model: one record per physical feature with raw schedule codes.
 
-Tiles carry no urgency or dates; the client colours them against its clock, so
+Tiles carry no urgency or dates; the client colors them against its clock, so
 they only need rebuilding when the data changes.
 """
 

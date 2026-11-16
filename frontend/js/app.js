@@ -32,7 +32,7 @@ async function initApp() {
 }
 initApp();
 
-// Clock tick: map colours, the calendar and the cards follow the clock (a window
+// Clock tick: map colors, the calendar and the cards follow the clock (a window
 // starts or closes, a day starts). Cards re-render only when some urgency, a car's
 // deadline ("Move by 9AM" -> "Sweeping now") or a region-local date changed.
 let _liveUrgencySig = '';
@@ -62,7 +62,7 @@ document.addEventListener('visibilitychange', () => {
   resumeHere();
 });
 
-// ── Locate button: centre on the device and show the "you are here" dot ─────
+// ── Locate button: center on the device and show the "you are here" dot ─────
 btnLocate.addEventListener('click', () => locateWith(btnLocate, (lat, lon, acc) => {
   if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
   _setHere(lat, lon, acc);

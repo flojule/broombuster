@@ -237,7 +237,7 @@ def service_worker_response() -> Response:
 # ── Middleware ────────────────────────────────────────────────────────────────
 # Enforced; BB_CSP=report-only turns it into a console-only report for debugging.
 # No inline or remote scripts. Inline style attributes are allowed (the UI sets
-# colours that way). OpenFreeMap serves the basemap style, tiles, glyphs and
+# colors that way). OpenFreeMap serves the basemap style, tiles, glyphs and
 # sprites; address searches go through our own /api/geocode.
 CSP = "; ".join(
     (

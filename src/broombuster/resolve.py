@@ -46,7 +46,7 @@ class ResolvedCar:
     street_name: str  # Canonical upper-case name from the segment
     street_display: str  # Short display form (STREET_DISPLAY or derived)
     side: str | None  # "even" | "odd" | None (None when unknown)
-    distance_m: float  # Point-to-line distance in metres
+    distance_m: float  # Point-to-line distance in meters
     projected_point: tuple[float, float]  # Nearest point on centerline (EPSG:3857)
     is_polygon: bool  # True when the segment is a polygon (zone-based data)
 
@@ -206,7 +206,7 @@ def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt) -> int:
 
 
 def _one_side_line(row) -> str | None:
-    """The side a kerb line stands for: Oakland draws major streets as one line per kerb, the
+    """The side a curb line stands for: Oakland draws major streets as one line per curb, the
     other side coded MS ("major street uses 2 lines"). A car nearest that line is on its side."""
     codes = {s: str(row.get(f"DAY_{s.upper()}") or "").strip().upper() for s in ("even", "odd")}
     if codes["even"] == "MS" and codes["odd"] not in ("", "MS"):
