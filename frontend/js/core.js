@@ -18,9 +18,15 @@ const URGENCY = {
               fill: 'rgba(120,130,150,0.10)', band: '#64748b', line: '#94a3b8' },
 };
 
+// Today and tomorrow: the urgencies that get a tag ("Today" in its urgency color, .tag).
+const isSoon = u => u === 'today' || u === 'tomorrow';
+const tagHTML = u => isSoon(u) ? `<span class="tag urg-${u}">${URGENCY[u].short}</span>` : '';
+
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
-const HOME_COLOR = '#15803d';
+const HOME_COLOR = '#15803d';  // styles.css --home in light mode: white glyphs on it
+// A color token's light-mode value (styles.css :root), for what the map paints.
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const CAR_NAME_MAX = 32;  // characters in a car name (the name box and Rename)
 // A car keeps the color it was given (saved with it), so removing one never repaints the others.
 function carColor(car) { return car.color || CAR_COLORS[0]; }
@@ -302,13 +308,10 @@ if (navigator.standalone && /iPhone/.test(navigator.userAgent)) {
   setAppH();
   _landscape.addEventListener('change', setAppH);
   // The screen's corner radius (pt) by its size, so the sheet and tab bar keep an even gap
-  // to the screen's rounded corners (styles.css .concentric). Community-measured values
-  // (iOS's private _displayCornerRadius; Apple publishes none); other screens keep the defaults.
+  // to the screen's rounded corners (styles.css #sheet). Community-measured values
+  // (iOS's private _displayCornerRadius; Apple publishes none); other screens keep the default.
   const SCREEN_CORNER = { '402x874': 62, '440x956': 62, '393x852': 55, '430x932': 55,
                           '428x926': 53.33, '390x844': 47.33 };
   const r = SCREEN_CORNER[[screen.width, screen.height].sort((a, b) => a - b).join('x')];
-  if (r) {
-    document.documentElement.style.setProperty('--screen-r', r + 'px');
-    document.documentElement.classList.add('concentric');
-  }
+  if (r) document.documentElement.style.setProperty('--screen-r', r + 'px');
 }

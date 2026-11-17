@@ -39,7 +39,7 @@ function pickupDayMap(sched, start, end) {
   const out = new Map(), lo = _ymdKey(start), hi = _ymdKey(end);
   for (const [stream, dates] of Object.entries(sched?.pickups || {})) {
     for (const iso of dates) {
-      const [y, m, d] = iso.split('-').map(Number), k = _ymdKey({ y, m, d });
+      const k = _ymdKey(BroomUrgency.parseIso(iso));
       if (k >= lo && k <= hi) out.set(k, out.has(k) ? `${out.get(k)}, ${stream}` : stream);
     }
   }
@@ -90,9 +90,9 @@ function calLayers(ptrSched, start, end) {
 
 function _dotsHTML(layers, k) {
   const dots = layers.cars.filter(l => l.days.has(k))
-    .map(l => `<span class="cal-dot" style="background:${esc(l.color)}"></span>`)
+    .map(l => `<span class="cal-dot cal-round" style="background:${esc(l.color)}"></span>`)
     .concat(layers.homes.filter(l => l.days.has(k))
-      .map(() => `<span class="cal-dot cal-dot-home" style="background:var(--home)"></span>`)).join('');
+      .map(() => `<span class="cal-dot cal-square" style="background:var(--home)"></span>`)).join('');
   return `<span class="cal-dots">${dots}</span>`;
 }
 
@@ -139,22 +139,22 @@ function _calRange(today) {
   return { start, end: _ymdAdd(start, CAL_WEEKS * 7 - 1) };
 }
 function _dayIdx(range, p) {
-  return Math.round((Date.UTC(p.y, p.m - 1, p.d) - Date.UTC(range.start.y, range.start.m - 1, range.start.d)) / 864e5);
+  return BroomUrgency.diffDays(range.start, p);
 }
 
 // The day details under the grid: a no-sweep holiday, then what happens that day; on a
 // day without the street's sweeping, its next sweep (the small sheet shows one week, so
 // Monday's sweep is out of view on a Sunday). With no street at the target, how to get one.
 function _detailHTML(layers, sel) {
-  const hol = layers.hol.has(sel) ? `<div class="cal-hol-line">No sweeping: ${esc(layers.hol.get(sel))}</div>` : '';
-  const line = (html, ended) => ended ? `<div class="cal-ended">${html} · ended</div>` : `<div>${html}</div>`;
+  const hol = layers.hol.has(sel) ? `<div class="muted">No sweeping: ${esc(layers.hol.get(sel))}</div>` : '';
+  const line = (html, ended) => ended ? `<div class="muted">${html} · ended</div>` : `<div>${html}</div>`;
   const lines = _dayLines(layers, sel).map(l => line(`${l.mark} ${esc(l.text)}`, l.ended)).join('');
   if (!_ptrStreet && !lines && !hol) return `<b>${_dayLabel(_keyDay(sel))}</b>` + _noStreetHTML();
   const ended = sel === _ymdKey(calNow()) && _ptrUrg !== 'today';
   const carSays = layers.cars.some(l => layers.onStreet.includes(l.car) && l.days.has(sel));
   const street = layers.ptr.has(sel) ? (carSays ? '' : line(`Sweeping ${esc(_lower(layers.ptr.get(sel)))}`.trim(), ended))
     : _ptrUnknown ? `<div>${esc(_ptrUnknown)}</div>`
-    : (lines || hol ? '' : '<div class="cal-muted">No sweeping</div>') + _nextSweepHTML(layers, sel);
+    : (lines || hol ? '' : '<div class="muted">No sweeping</div>') + _nextSweepHTML(layers, sel);
   return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + lines + street;
 }
 
@@ -163,10 +163,10 @@ function _nextSweepHTML(layers, sel) {
   const today = calNow(), todayK = _ymdKey(today), tmrK = _ymdKey(_ymdAdd(today, 1));
   for (const [k, text] of layers.ptr) {
     if (k <= sel || k < todayK) continue;
-    const tag = k === todayK ? ['today', 'Today'] : k === tmrK ? ['tomorrow', 'Tomorrow'] : null;
+    const tag = k === todayK ? 'today' : k === tmrK ? 'tomorrow' : null;
     const what = text ? ` · ${esc(_lower(text))}` : '';  // Chicago's days have no times
     return `<div>Next: ${_dayLabel(_keyDay(k))}${what}`
-         + (tag ? ` <span class="cal-tag urg-${tag[0]}">${tag[1]}</span>` : '') + '</div>';
+         + (tag ? ` ${tagHTML(tag)}` : '') + '</div>';
   }
   return '';
 }
@@ -182,12 +182,12 @@ function _noStreetState() {
   return b && (c.lng < b[0] || c.lat < b[1] || c.lng > b[2] || c.lat > b[3]) ? 'nodata' : 'in';
 }
 function _noStreetHTML() {
-  if (streetsLoading()) return '<div class="cal-muted">Loading streets…</div>';
+  if (streetsLoading()) return '<div class="muted">Loading streets…</div>';
   const state = _noStreetState();
-  if (state === 'nodata') return '<div class="cal-muted">No street data here.</div>';
-  if (state === 'in') return '<div class="cal-muted">Move the map to put the target on a street.</div>';
+  if (state === 'nodata') return '<div class="muted">No street data here.</div>';
+  if (state === 'in') return '<div class="muted">Move the map to put the target on a street.</div>';
   const areas = Object.entries(regions).map(([k, r]) => `<button class="btn btn-plain cal-area" data-area="${esc(k)}">${esc(r.name)}</button>`);
-  return '<div class="cal-muted">No street covered here. Go to an area:</div>'
+  return '<div class="muted">No street covered here. Go to an area:</div>'
        + `<div class="cal-areas">${areas.join('')}<button class="btn btn-plain cal-area" data-locate>${icon('locate')} My location</button></div>`;
 }
 
@@ -202,9 +202,8 @@ function calendarHTML(layers, range, sel, today) {
                  k === todayK ? 'sw-today' : k < todayK ? 'cal-past' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
     cells += `<button class="${cls}" data-cal-day="${k}" aria-label="${esc(_dayAria(layers, k, p, today))}"`
            + ` aria-pressed="${k === sel}" tabindex="${k === sel ? 0 : -1}">`
-           + (p.d === 1 ? `<i class="cal-mo">${_MONTHS[p.m - 1].slice(0, 3)}</i>`
-              : k === todayK ? '<i class="cal-mo" aria-hidden="true">Today</i>' : '')
-           + `${p.d}${_dotsHTML(layers, k)}</button>`;
+           + (p.d === 1 ? `<i class="cal-mo">${_MONTHS[p.m - 1].slice(0, 3)}</i>` : '')
+           + `<span class="cal-n">${p.d}</span>${_dotsHTML(layers, k)}</button>`;
   }
   return `<div class="cal-wds" aria-hidden="true">${_WD1.map(w => `<span>${w}</span>`).join('')}</div>`
        + `<div class="cal-scroll"><div class="cal-grid">${cells}</div></div>`
@@ -337,7 +336,7 @@ function renderTargetInfo(f, live = false) {
   const why = props ? tileEntries(props).map(e => BroomUrgency.unknownReason(e.code, today)).find(Boolean) || '' : '';
   _ptrSched = props && (lines.length || why) ? pointerSched(f) : null;
   _ptrStreet = !!props;
-  const ptrEntries = _ptrSched ? [..._ptrSched.schedule_even, ..._ptrSched.schedule_odd].map(e => ({ code: e[0], time: e[2] })) : [];
+  const ptrEntries = _ptrSched ? BroomUrgency.entries([..._ptrSched.schedule_even, ..._ptrSched.schedule_odd]) : [];
   _ptrUrg = _ptrSched ? BroomUrgency.checkDaySweeping(ptrEntries, today, schedSkip(_ptrSched)) : null;
   _ptrUnknown = why === 'sign' ? 'Sweeping day: check the sign' : why ? `No ${today.y} dates yet` : '';
   const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSide(c) || ''}:${sweepUrgency(c)}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');

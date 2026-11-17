@@ -20,13 +20,13 @@ let _compact = false;  // placing a car or home: the sheet is small whatever the
 // 60% so the map stays in view), both whole weeks (calFit; before the calendar has been
 // laid out, estimates).
 const MEDIUM_MAX = 0.6;
-const SHEET_PEEK = 200;  // px above the tab bar at small, until the calendar is measured
+const SHEET_PEEK = 280;  // px at small, until the calendar is measured
+const TABBAR_H = 56;     // px: hidden, the sheet is the tab bar's capsule (styles.css)
 function detentHeights() {
   const H = document.getElementById('app-screen').clientHeight;
   const fit = typeof calFit === 'function' ? calFit() : null;
-  const tb = getComputedStyle(tabbar);
-  const hidden = tabbar.offsetHeight + 2 * parseFloat(tb.marginBottom);  // the bar, as far from the top as the bottom
-  const small = fit ? fit.small : hidden + SHEET_PEEK;
+  const hidden = TABBAR_H;
+  const small = fit ? fit.small : SHEET_PEEK;
   const round = h => fit ? fit.round(h) : Math.round(h);
   const medium = Math.max(small, round(Math.min(H * MEDIUM_MAX, Math.max(H * 0.5, fit ? fit.weeks(4) : 0))));
   return { hidden, small, medium };
@@ -45,12 +45,22 @@ function setCompact(on) {
   applySheet();
 }
 
-// Its gap to the screen's edges (styles.css).
-const sheetGap = () => parseFloat(getComputedStyle(sheet).getPropertyValue('--sheet-gap')) || 0;
+// Its gap to the screen's edges, open or hidden (styles.css #sheet-probe).
+const sheetProbe = document.getElementById('sheet-probe');
+const sheetGap = (hidden = _shown() === 'hidden') => {
+  const r = sheetProbe.getBoundingClientRect();
+  return hidden ? r.height : r.width;
+};
+// --m: 0 open, 1 hidden, in between while dragged; styles.css draws the sheet and the tab
+// bar from it, concentric with the screen's corners at every step.
+function _setMorph(m) {
+  sheet.style.setProperty('--m', m);
+  sheet.classList.toggle('retracted', m > 0.99);
+}
 
 function applySheet() {
   const desk = isDesktop();
-  sheet.classList.toggle('retracted', !desk && _shown() === 'hidden');
+  _setMorph(!desk && _shown() === 'hidden' ? 1 : 0);
   sheet.style.height = desk ? '' : detentHeights()[_shown()] + 'px';
   grabber.setAttribute('aria-label', _detent === 'medium' ? 'Shrink the sheet' : 'Enlarge the sheet');
   // The calendar shows the month view whenever it has the room: medium.
@@ -63,7 +73,7 @@ function applySheet() {
 function mapPadding() {
   const desk = isDesktop(), h = !desk && detentHeights();
   return { top: 0, right: 0, left: desk ? sheet.offsetLeft + sheet.offsetWidth : 0,
-           bottom: desk ? 0 : Math.min(h[_shown()], h.medium) + sheetGap() };
+           bottom: desk ? 0 : Math.min(h[_shown()], h.medium) + sheetGap(!desk && _shown() === 'hidden') };
 }
 function applyMapInsets(animate = true) {
   const pad = mapPadding();
@@ -90,7 +100,7 @@ function _dragTo(y, t) {
   if (!_drag.moved) { _drag.moved = true; sheet.classList.add('dragging'); }
   const h = detentHeights(), height = Math.max(h.hidden, Math.min(h.medium * 1.04, _drag.h0 + _drag.y0 - y));
   sheet.style.height = height + 'px';
-  sheet.classList.toggle('retracted', height < h.hidden + 8);
+  _setMorph(Math.min(1, Math.max(0, (h.small - height) / (h.small - h.hidden))));
   const dt = t - _drag.t;
   if (dt > 0) _drag.v = (_drag.y - y) / dt;  // px per ms, up is positive
   _drag.y = y; _drag.t = t;
@@ -201,12 +211,6 @@ sheet.addEventListener('touchmove', e => e.stopPropagation(), { passive: true })
 new ResizeObserver(() => requestAnimationFrame(() => {
   document.documentElement.style.setProperty('--sheet-h', (isDesktop() ? 0 : sheet.offsetHeight + sheetGap()) + 'px');
 })).observe(sheet);
-// The detents follow the screen and the tab bar's height (not mid-drag).
+// The detents follow the screen.
 window.addEventListener('resize', () => applySheet());
-let _tabbarH = 0;
-new ResizeObserver(() => requestAnimationFrame(() => {
-  if (tabbar.offsetHeight === _tabbarH) return;
-  _tabbarH = tabbar.offsetHeight;
-  if (!_drag?.moved) applySheet();
-})).observe(tabbar);
 showTab(_tab);

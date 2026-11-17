@@ -29,12 +29,11 @@ function _collectionDayHTML(h) {
 
 function homeScheduleHTML(h, sched) {
   const id = h.id;
-  const fmt = iso => { const [y, m, d] = iso.split('-').map(Number); return BroomUrgency.dayLabel({ y, m, d }); };
+  const fmt = iso => BroomUrgency.dayLabel(BroomUrgency.parseIso(iso));
   const lines = sched && _nextPickups(sched).map(([stream, iso]) => `${stream}: ${fmt(iso)}`);
   if (sched?.trash_kind === 'weekly') {  // one row: the day picker, then the next pickups
     const note = h.collection_day != null && sched.city === 'berkeley' ? 'On sweeping days, carts go on the parking strip.' : '';
-    return schedBlockHTML(id, '', lines?.length ? lines : [])
-      .replace('<div class="sec">', `<div class="sec">${_collectionDayHTML(h)}`)
+    return schedBlockHTML(id, '', lines?.length ? lines : [], _collectionDayHTML(h))
       + (note ? `<p class="note">${esc(note)}</p>` : '');
   }
   if (sched && !lines.length) return schedBlockHTML(id, 'Trash day', ['No collection info for this address.']);

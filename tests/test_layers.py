@@ -260,7 +260,8 @@ def test_rules_inside_a_permit_area_away_from_its_curbs(app_client, monkeypatch)
     p = shapely.geometry.shape(f["geometry"]).representative_point()
     rules = app_client.get("/api/rules", params={"lat": p.y, "lon": p.x}).json()["rules"]
     hit = [r for r in rules if r["label"] == f["properties"]["label"]]
-    assert hit and hit[0]["color"] == f["properties"]["color"] and "exempt" in hit[0]["rule"]
+    card = f["properties"].get("edge") or f["properties"]["color"]  # a pale area: its edge
+    assert hit and hit[0]["color"] == card and "exempt" in hit[0]["rule"]
     assert hit[0]["asof"]
 
 
@@ -379,6 +380,25 @@ def test_areas_fill_small_holes_no_other_area_took():
     areas = geopandas.GeoDataFrame({"label": ["A"]}, geometry=[ring], crs=3857)
     out = build.snap_to_blocks(areas, streets).geometry.iloc[0]
     assert out.symmetric_difference(shapely.box(0, 0, 300, 300)).area < 5  # corners: 0.5 m close
+
+
+def test_meters_become_their_own_block_not_the_cross_street():
+    # A main street (y = 0) and a cross street (x = 0); a row of meters on the main street's
+    # north curb, the first nearer the cross street's centerline (7 m) than its own (9 m).
+    build = _build()
+    streets = geopandas.GeoSeries(
+        [shapely.LineString([(-100, 0), (200, 0)]), shapely.LineString([(0, -100), (0, 100)])],
+        crs=32610,
+    )
+    meters = geopandas.GeoDataFrame(
+        {"label": ["Meter"] * 4, "rule": ["Metered."] * 4, "asof": [""] * 4},
+        geometry=[shapely.Point(x, y) for x, y in ((7, 9), (25, 9), (45, 9), (150, 60))],
+        crs=32610,
+    )
+    out = build.meter_blocks(meters, streets)
+    assert list(out.geom_type) == ["LineString", "Point"]  # the far meter stays a point
+    assert out.geometry[0].equals(shapely.LineString([(0, 0), (200, 0)]))
+    assert out.loc[0, ["label", "rule"]].tolist() == ["Meter", "Metered."]
 
 
 def test_map_areas_give_a_cross_city_overlap_to_the_newer_source():

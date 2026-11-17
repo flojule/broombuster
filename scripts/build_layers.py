@@ -66,6 +66,9 @@ def build_city(city_key: str, themes: list[str] | None) -> list[str]:
             failed.append(theme)
             continue
         gdf = _clip(gdf, city_key)
+        if theme == "meters":
+            utm = gdf.estimate_utm_crs()
+            gdf = meter_blocks(gdf.to_crs(utm), _city_streets(city_key, utm)).to_crs(4326)
         _write_fgb(gdf, layers.fgb_path(city_key, theme))
         print(f"    {theme}: {len(gdf):,} features")
         if theme == "parking" and city_key in layer_sources.AREAS:
@@ -233,10 +236,53 @@ def _fill_holes(g, max_area: float):
     return shapely.union_all(parts)
 
 
-def _city_streets(city_key: str):
-    """The city's swept street centerlines (EPSG:3857)."""
+def _city_streets(city_key: str, crs=3857):
+    """The city's swept street centerlines (EPSG:3857 by default)."""
     g = geopandas.read_file(_ROOT / CITIES[city_key]["fgb_path"], columns=[])
-    return g.to_crs(3857).geometry
+    return g.to_crs(crs).geometry
+
+
+# A meter stands at its own block's curb: 8-9 m (median), 13-16 m (95th percentile) and up
+# to 22 m (Adeline St) from the swept centerline in Oakland and Berkeley.
+METER_REACH_M = 25
+# A meter within this of being as near to another block (a corner) goes to the block most
+# other meters are nearest to: meters stand in rows along their own block.
+METER_TIE_M = 5
+
+
+def street_blocks(streets):
+    """The street lines between junctions: split where they cross, joined where two meet."""
+    lines = [g for g in streets if g is not None and "LineString" in g.geom_type]
+    return shapely.get_parts(shapely.line_merge(shapely.union_all(lines)))
+
+
+def meter_blocks(meters: geopandas.GeoDataFrame, streets) -> geopandas.GeoDataFrame:
+    """Meter points (metric CRS) as the street blocks (street_blocks) they stand on, within
+    METER_REACH_M: the nearest block, or at a corner (METER_TIE_M) the one with the most
+    other meters. One line per block and (label, rule, asof); points farther from every
+    block, and other shapes, stay as they are."""
+    is_pt = (meters.geom_type == "Point").to_numpy()
+    if not is_pt.any():
+        return meters
+    pts, cols = meters[is_pt], [c for c in meters.columns if c != "geometry"]
+    blocks = street_blocks(streets)
+    i, j = shapely.STRtree(blocks).query(
+        pts.geometry.values, predicate="dwithin", distance=METER_REACH_M
+    )
+    c = pd.DataFrame({"i": i, "j": j, "d": shapely.distance(pts.geometry.values[i], blocks[j])})
+    c["d1"] = c.groupby("i")["d"].transform("min")
+    own = c[c["d"] == c["d1"]].drop_duplicates("i").set_index("i")["j"]
+    c = c[c["d"] <= c["d1"] + METER_TIE_M]
+    c["votes"] = c["j"].map(own.value_counts()).fillna(0) - (c["j"] == c["i"].map(own))
+    pick = c.sort_values(["votes", "d"], ascending=[False, True], kind="stable")
+    pick = pick.drop_duplicates("i")
+    hit = pts.iloc[pick["i"]].assign(_block=pick["j"].to_numpy())
+    hit = hit.drop_duplicates(["_block", *cols])
+    hit["geometry"] = geopandas.GeoSeries(blocks[hit["_block"]], index=hit.index)
+    rest = pd.concat([meters[~is_pt], pts[~pd.RangeIndex(len(pts)).isin(pick["i"])]])
+    out = pd.concat([hit.drop(columns="_block"), rest], ignore_index=True)
+    out["geometry"] = shapely.force_2d(out.geometry.values)  # FlatGeobuf: no mixed 2D/3D
+    return geopandas.GeoDataFrame(out, geometry="geometry", crs=meters.crs)
 
 
 def permit_curbs(city_key: str) -> geopandas.GeoDataFrame:

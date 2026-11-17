@@ -21,37 +21,36 @@ function _pinEl(kind, id) {
   return el;
 }
 
-function updateCarMarkers() {
-  for (const [id, marker] of _carMarkers) {
-    if (!cars.find(c => c.id === id)) { marker.remove(); _carMarkers.delete(id); }
+// Keep `markers` (id -> marker) in step with `items`: one pin each, in its color, named;
+// offset: its x shift (px).
+function _syncPins(markers, items, kind, color, name, offset = () => 0) {
+  for (const [id, marker] of markers) {
+    if (!items.some(i => i.id === id)) { marker.remove(); markers.delete(id); }
   }
+  for (const item of items) {
+    const marker = placeMarker(markers.get(item.id), item, () => _pinEl(kind, item.id));
+    marker.setOffset([offset(item), 0]);
+    marker.getElement().style.setProperty('--pin', color(item));
+    marker.getElement().setAttribute('aria-label', name(item));
+    markers.set(item.id, marker);
+  }
+  applySelection();
+}
+
+function updateCarMarkers() {
   // Cars at one spot (within ~1 m) sit side by side, 18 px apart, so each pin shows.
   const spot = c => `${c.lat.toFixed(5)},${c.lon.toFixed(5)}`, at = new Map();
   for (const c of cars) at.set(spot(c), [...(at.get(spot(c)) || []), c.id]);
-  for (const car of cars) {
-    const marker = placeMarker(_carMarkers.get(car.id), car, () => _pinEl('car', car.id));
-    const same = at.get(spot(car));
-    marker.setOffset([(same.indexOf(car.id) - (same.length - 1) / 2) * 18, 0]);
-    marker.getElement().style.setProperty('--pin', carColor(car));
-    marker.getElement().setAttribute('aria-label', car.name);
-    _carMarkers.set(car.id, marker);
-  }
-  applySelection();
+  _syncPins(_carMarkers, cars, 'car', carColor, c => c.name, c => {
+    const same = at.get(spot(c));
+    return (same.indexOf(c.id) - (same.length - 1) / 2) * 18;
+  });
   renderCarsPanel();
 }
 
 function updateHomeMarkers() {
   if (!map) return;
-  for (const [id, marker] of _homeMarkers) {
-    if (!homes.find(h => h.id === id)) { marker.remove(); _homeMarkers.delete(id); }
-  }
-  for (const h of homes) {
-    const marker = placeMarker(_homeMarkers.get(h.id), h, () => _pinEl('home', h.id));
-    marker.getElement().style.setProperty('--pin', 'var(--home)');  // HOME_COLOR, lighter in dark mode
-    marker.getElement().setAttribute('aria-label', itemName(h));
-    _homeMarkers.set(h.id, marker);
-  }
-  applySelection();
+  _syncPins(_homeMarkers, homes, 'home', () => 'var(--home)', itemName);  // lighter in dark mode
 }
 
 // Under the name box while a new car is being named: its pin to be, faded.
@@ -134,6 +133,7 @@ function focusItem(id) {
 // Saved tab, the sheet at least half open, the map centered on it.
 function openItem(id) {
   showTab('saved');
+  if (_detent !== 'medium') setDetent('medium');
   focusItem(id);
   carsPanel.scrollTop = 0;
 }

@@ -277,9 +277,8 @@ function carSide(car) {
 // The car's side's schedule entries (both sides' while it is not picked).
 function _sweepEntries(car) {
   const sched = carSchedules[car.id], side = carSide(car);
-  const es = side === 'even' ? sched.schedule_even : side === 'odd' ? sched.schedule_odd
-    : [...sched.schedule_even, ...sched.schedule_odd];
-  return es.map(e => ({ code: e[0], time: e[2] || '' }));
+  return BroomUrgency.entries(side === 'even' ? sched.schedule_even : side === 'odd' ? sched.schedule_odd
+    : [...sched.schedule_even, ...sched.schedule_odd]);
 }
 // The car's verdict from the raw schedules against the live clock (the same rules as the
 // map color, so cards roll over when a window closes): 'today', 'tomorrow', 'check' (no
@@ -328,7 +327,7 @@ function clearUntilText(car) {
   const starts = day.items.map(it => BroomUrgency.timeWindow(it.time)?.[0]).filter(m => m != null);
   let at = starts.length ? ` ${BroomUrgency.clockText(Math.min(...starts))}` : '';
   if (at === ' midnight') day = BroomUrgency.addDays(day, -1);
-  const far = Date.UTC(day.y, day.m - 1, day.d) - Date.UTC(now.y, now.m - 1, now.d) >= 7 * 864e5;
+  const far = BroomUrgency.diffDays(now, day) >= 7;
   const wd = far ? BroomUrgency.dayLabel(day) : BroomUrgency.WEEKDAYS[BroomUrgency.weekday(day)];
   const short = far ? BroomUrgency.dayLabel(day).replace(/^\S+ /, '') : wd;  // "Nov 22" a week or more away
   return { short: `Clear until ${short}`, long: `Clear until ${wd}${at}` };
@@ -365,10 +364,10 @@ function schedBlockHTML(id, header, lines, top = '', asOf = null) {
   const retry = '<button class="btn btn-tinted ce-btn-retry">Retry</button>';
   const body = lines ? lines.slice(0, 6).map(l => typeof l === 'string' ? { text: l } : l)
     .map(l => `<div class="ce-sched-item ${l.cls || ''}">${esc(l.text)}`
-      + (l.tag ? ` <span class="ce-tag urg-${l.tag}">${l.tag === 'today' ? 'Today' : 'Tomorrow'}</span>` : '') + '</div>').join('')
+      + (l.tag ? ` ${tagHTML(l.tag)}` : '') + '</div>').join('')
       + (loadFailed.has(id) && asOf ? `<div class="ce-error">${navigator.onLine ? 'Couldn’t update' : 'Offline'} · as of ${esc(asOf)} ${retry}</div>` : '')
     : loadFailed.has(id) ? `<div class="ce-error">Couldn’t load the schedule ${retry}</div>`
-    : '<div class="ce-loading">Loading…</div>';
+    : '<div class="muted">Loading…</div>';
   return `${header ? `<div class="sec-label">${esc(header)}</div>` : ''}<div class="sec">${top}${body}</div>`;
 }
 
@@ -424,7 +423,7 @@ function vehicleHTML(car) {
   if (regionAt(car.lat, car.lon) !== 'chicago') return '';
   const c = vehicleChecks[car.id] || {};
   let out = '';
-  if (c.busy) out = '<div class="ce-loading">Checking…</div>';
+  if (c.busy) out = '<div class="muted">Checking…</div>';
   else if (c.error) out = `<div class="ce-error">${esc(c.error)}</div>`;
   else if (c.result) {
     const rows = [...c.result.towed.map(t => `Towed ${_when(t.date)} to ${t.to}${t.phone ? ` (${t.phone})` : ''}`),
@@ -441,10 +440,10 @@ function vehicleHTML(car) {
 }
 // "2026-11-10T14:23" (the city's local time) -> "Tue Nov 10, 2:23PM"; other text as is.
 function _when(iso) {
-  const m = /^(\d{4})-(\d\d)-(\d\d)(?:[T ](\d\d):(\d\d))?/.exec(String(iso || ''));
-  if (!m) return iso || '';
-  const day = BroomUrgency.dayLabel({ y: +m[1], m: +m[2], d: +m[3] });
-  return m[4] ? `${day}, ${BroomUrgency.clockText(+m[4] * 60 + +m[5])}` : day;
+  const p = BroomUrgency.parseIso(iso);
+  if (!p) return iso || '';
+  const day = BroomUrgency.dayLabel(p);
+  return p.min != null ? `${day}, ${BroomUrgency.clockText(p.min)}` : day;
 }
 async function checkVehicle(car) {
   if (!car.plate) { showToast('Enter the license plate first', true); return; }
@@ -531,12 +530,12 @@ function sidePickHTML(car) {
   return '<div class="ce-side" role="radiogroup" aria-label="Your side of the street">'
     + ['even', 'odd'].map((s, i) => {
       const raw = i ? sched.schedule_odd : sched.schedule_even, mine = side === s;
-      const u = BroomUrgency.checkDaySweeping(raw.map(e => ({ code: e[0], time: e[2] || '' })), now, skip);
-      const tag = !mine && (u === 'today' || u === 'tomorrow') ? u : null;
-      return `<button type="button" class="ce-pick${side && !mine && !tag ? ' ce-other' : ''}" role="radio" data-side="${s}" aria-checked="${mine}">`
+      const u = BroomUrgency.checkDaySweeping(BroomUrgency.entries(raw), now, skip);
+      const tag = !mine && isSoon(u) ? u : null;
+      return `<button type="button" class="ce-pick${side && !mine && !tag ? ' muted' : ''}" role="radio" data-side="${s}" aria-checked="${mine}">`
         + `<i class="ce-radio" aria-hidden="true"></i><span><b>${esc(labels[i])} side</b>`
         + _sideLines(raw, now).map(l => `<span>${esc(l)}</span>`).join('') + '</span>'
-        + (tag ? `<span class="ce-tag urg-${tag}">${tag === 'today' ? 'Today' : 'Tomorrow'}</span>` : '') + '</button>';
+        + (tag ? tagHTML(tag) : '') + '</button>';
     }).join('') + '</div>';
 }
 

@@ -158,8 +158,8 @@ function askConfirm(title, message, action) {
 // Switch UI chrome AND basemap together.
 function _applyDark(on) {
   document.body.classList.toggle('dark', on);
-  // Browser bars (older Safari, Chrome) take the map's own color, as html's background does.
-  document.querySelector('meta[name="theme-color"]').content = on ? '#121212' : '#ecefea';
+  // Browser bars (older Safari, Chrome) take the map's own color: html's background (styles.css --page).
+  document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).backgroundColor;
   const style = on ? DARK_STYLE : LIGHT_STYLE;
   const styleChanged = _mapStyle !== style;
   _mapStyle = style;
