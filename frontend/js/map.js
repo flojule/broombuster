@@ -282,19 +282,21 @@ function addTilePaintLayers() {
 // not a filter: a filter change re-parses the source's tiles in a worker, which lagged
 // the glow several frames behind a pan across many streets.
 let _activeId = null;
+// Move the true feature-state `key` from feature `from` to `to` (null: none); at(id): the feature.
+function swapState(at, key, from, to) {
+  if (from != null) map.setFeatureState(at(from), { [key]: false });
+  if (to != null) map.setFeatureState(at(to), { [key]: true });
+}
+const _tileAt = id => ({ source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id });
 function setActiveFeature(id) {
   markOverlayAtTarget();
   if (id === _activeId || !map?.getSource(TILES_SOURCE)) return;
-  const at = fid => ({ source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: fid });
-  if (_activeId != null) map.setFeatureState(at(_activeId), { active: false });
-  if (id != null) map.setFeatureState(at(id), { active: true });
+  swapState(_tileAt, 'active', _activeId, id);
   _activeId = id;
 }
 // The basemap switched (js/ui.js): feature-state may be gone or kept; mark the target afresh.
 function remarkTarget() {
-  if (_activeId != null && map.getSource(TILES_SOURCE)) {
-    map.setFeatureState({ source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: _activeId }, { active: false });
-  }
+  if (map.getSource(TILES_SOURCE)) swapState(_tileAt, 'active', _activeId, null);
   _activeId = null;
   resetOverlayMarks();
   renderTargetInfo();

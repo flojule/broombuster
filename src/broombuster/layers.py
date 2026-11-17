@@ -19,7 +19,8 @@ from broombuster.config import REPO_ROOT
 # applies_to: "car" rules, "home" facts, or "map" only.
 THEMES = {
     "parking": {"name": "Permit areas", "map": True, "near_m": 12, "applies_to": "car"},
-    "meters": {"name": "Meters", "map": True, "near_m": 20, "applies_to": "car"},
+    # Meters: block centerlines (Oakland, Berkeley); 15 m reaches the curb, not past the corner.
+    "meters": {"name": "Meters", "map": True, "near_m": 15, "applies_to": "car"},
     "winter": {"name": "Winter parking bans", "map": True, "near_m": 15, "applies_to": "car"},
     "ev": {"name": "EV charging", "map": True, "near_m": 0, "applies_to": "map"},
     "fire": {"name": "Fire hazard zones", "map": True, "near_m": 0, "applies_to": "home"},
@@ -169,12 +170,16 @@ def _label_parts(label: str) -> set[str]:
 
 
 def _area_color(areas, city: str, label: str):
-    """The map color of a permit area, or of a curb's first permit ("Permit area G or K": G)."""
+    """The card color of a permit area: its map color, or its darker edge when that is pale;
+    a curb's: its first permit's ("Permit area G or K": G)."""
     if areas is None:
         return None
     label = label.split(" or ")[0]
     m = areas[(areas["city"] == city) & (areas["label"] == label)]
-    return m["color"].iat[0] if len(m) else None
+    if not len(m):
+        return None
+    edge = m["edge"].iat[0] if "edge" in m else None
+    return edge if isinstance(edge, str) and edge else m["color"].iat[0]
 
 
 def _color(c) -> dict:

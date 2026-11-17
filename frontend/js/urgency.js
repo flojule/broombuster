@@ -46,6 +46,12 @@
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
   // "2026-10-14" (the /check-home pickup format).
+  // "2026-11-10" or "2026-11-10T14:23" (a local time) -> {y, m, d, min}; else null.
+  function parseIso(s) {
+    var m = /^(\d{4})-(\d\d)-(\d\d)(?:[T ](\d\d):(\d\d))?/.exec(String(s || ''));
+    return m && { y: +m[1], m: +m[2], d: +m[3], min: m[4] ? +m[4] * 60 + +m[5] : null };
+  }
+
   function isoDay(p) { return p.y + '-' + pad2(p.m) + '-' + pad2(p.d); }
 
   // "Wed Oct 14".
@@ -395,6 +401,7 @@
     return (t && t !== 'N/A' && label.indexOf(t) === -1) ? (label + SEP + t) : label;
   }
 
+  // A schedule entry, [code, desc, time] (the API's) or {code, desc, time}, as the object.
   function _ent(e) {
     if (Array.isArray(e)) return { code: e[0], desc: e[1] || '', time: e[2] || '' };
     return { code: e.code, desc: e.desc || '', time: e.time || '' };
@@ -498,9 +505,12 @@
   global.BroomUrgency = {
     WEEKDAYS: WEEKDAYS,
     addDays: addDays,
+    diffDays: diffDays,
+    entries: function (list) { return list.map(_ent); },
     dayKey: function (p) { return dayKey(p.y, p.m, p.d); },
     weekday: function (p) { return pyWeekday(p.y, p.m, p.d); },
     isoDay: isoDay,
+    parseIso: parseIso,
     dayLabel: dayLabel,
     WEEKDAY_CODES: WEEKDAY_CODES,
     NO_SWEEP_CODES: NO_SWEEP_CODES,

@@ -9,10 +9,14 @@
       --muted: #526071; --border: #e2e8f0;
       /* Corner radii (iOS 26): concentric, so a box inside another keeps an even margin
          (inner radius = outer radius - the gap between them). */
-      --r-sm: 10px; --r-md: 14px;  /* calendar days and text fields; inputs */
+      --r-sm: 12px; --r-md: 14px;  /* calendar days; text fields and inputs */
       --r-group: 22px;  /* grouped lists and sections on the sheet */
       --r-menu: 24px;   /* pull-down menus, the name box */
-      --r-sheet: 36px;  /* the sheet (about the screen's corner, less its gap) */
+      --r-sheet: 36px;  /* the desktop panel */
+      /* The screen's corner radius: measured per iPhone (js/core.js); else one that keeps
+         the hidden tab bar clear of the home indicator. The sheet is drawn around it. */
+      --screen-r: max(52px, calc(var(--inset-b) + 28px));
+      --page: #ecefea;  /* behind the map, the status bar strip and Safari's bars (= the map's land) */
       --r-alert: 32px;
       --pill: 999px;    /* capsules: buttons, tab bar, segmented control, labels */
       --shadow-1: 0 4px 14px rgba(0,0,0,.14);   /* floating controls */
@@ -29,7 +33,7 @@
       --tint-fg: #1d4ed8; /* blue text on a blue-tinted button (AA) */
       --home: #15803d;    /* homes' marks in the calendar and pins (= HOME_COLOR in core.js, lighter in dark) */
       /* Rule glyphs on the street card, as street signs (js/signs.js; js/layers.js matches). */
-      --rule-allow: #15803d; --rule-meter: #4b5563; --rule-snow: #1d4ed8; --rule-ban: #dc2626;
+      --rule-allow: var(--home); --rule-meter: #4b5563; --rule-snow: #1d4ed8; --rule-ban: #dc2626;
       --pin-halo: #ffffff;  /* the outline that sets a pin's glyph off the map */
 
       /* Layers: map pins (MapLibre markers) < crosshair 15 < place banner 20 < street signs 21
@@ -49,11 +53,11 @@
        lensing. Where blur is missing, or Reduce Transparency / Increase Contrast is on,
        they are opaque. Content (the sheet with its lists and calendar, the street card) is never
        glass: it is opaque, so the map's lines never run through text. */
-    body { --glass: var(--card); --sheet-bg: var(--card); --hairline: var(--border);
+    body { --glass: var(--card); --glass-regular: var(--card); --hairline: var(--border);
            --rim: inset 0 0 0 1px var(--border); --blur: none; }
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
       body { --glass: color-mix(in srgb, var(--card) 66%, transparent);
-             --sheet-bg: color-mix(in srgb, var(--card) 92%, transparent);
+             --glass-regular: color-mix(in srgb, var(--card) 92%, transparent);
              --hairline: color-mix(in srgb, var(--text) 13%, transparent);
              /* The rim: a bright top edge and a faint outline, as light catching glass. */
              --rim: inset 0 1px 0 rgba(255,255,255,.65), inset 0 0 0 1px rgba(255,255,255,.28);
@@ -64,11 +68,16 @@
     /* An override, not a condition on the block above: Safari does not know
        prefers-reduced-transparency, and an unknown query is false. */
     @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-      body, body.dark { --glass: var(--card); --sheet-bg: var(--card); --hairline: var(--border);
+      body, body.dark { --glass: var(--card); --glass-regular: var(--card); --hairline: var(--border);
                         --rim: inset 0 0 0 1px var(--border); --blur: none; }
     }
-    :is(#map-ctrl, .pop-menu, #confirm-dialog, #place-banner, .area-label,
-        .name-popup .maplibregl-popup-content) {
+    /* Clear: controls over the map. Regular: menus and the alert. */
+    :is(#map-ctrl, #place-banner, .area-label, #tabbar) {
+      background: var(--glass); box-shadow: var(--rim), var(--shadow-1);
+      -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    }
+    :is(.pop-menu, #confirm-dialog, .name-popup .maplibregl-popup-content) {
+      background: var(--glass-regular); box-shadow: var(--rim), var(--shadow-2);
       -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
     }
     /* Fills on a surface (iOS's grey control fill, the blue tint); on body, so they follow the theme. */
@@ -97,21 +106,18 @@
     }
     .btn-sm { position: relative; min-height: 36px; padding: 0 14px; font-size: .8rem; }
     /* Smaller-looking controls still take a 44 px touch (an invisible margin around them). */
-    :is(.btn-sm, .pill-btn, .cal-area, .toast-btn)::after { content: ''; position: absolute; inset: -6px -2px; }
+    :is(.btn-sm, .cal-area, .toast-btn)::after { content: ''; position: absolute; inset: -6px -2px; }
     .btn-plain { background: var(--fill); color: var(--text); }        /* secondary: grey fill */
     .btn-tinted { background: var(--tint-bg); color: var(--tint-fg); } /* in a section: blue tint */
     .btn-wide { width: 100%; }
-    /* A capsule in a tab's header (Today, Here). */
-    .pill-btn { position: relative; min-height: 32px; padding: 0 12px; margin-right: 2px; background: var(--fill);
-                border-radius: var(--pill); font-size: .72rem; font-weight: 600; color: var(--text); }
     /* Text fields and pickers: iOS's grey fill, no border (the focus ring marks the one in use). */
     .field { min-height: 36px; padding: 0 12px; font: inherit; font-size: 16px; color: var(--text);
              background: var(--fill); border: none; border-radius: var(--r-md); }
     button:disabled { opacity: .5; cursor: default; }
     button:not(:disabled):hover { opacity: .9; }
     /* Pressed: buttons and glass controls swell a little, as iOS 26's do under the finger. */
-    :is(.btn, .map-btn, .round-btn, .pill-btn) { transition: opacity .15s, transform .2s var(--spring); }
-    :is(.btn, .map-btn, .round-btn, .pill-btn):not(:disabled):active { transform: scale(1.06); }
+    :is(.btn, .map-btn, .round-btn) { transition: opacity .15s, transform .2s var(--spring); }
+    :is(.btn, .map-btn, .round-btn):not(:disabled):active { transform: scale(1.06); }
 
     /* ── App ── */
     /* Fixed to the full screen so the map runs under the status bar / Dynamic Island.
@@ -120,7 +126,13 @@
        Safari clips fixed content at its floating address bar, so a 100vh app would put
        the cards under it. The page behind is map-colored, which Safari also uses to
        tint its bars, so nothing white can show at an edge. */
-    html { background: #ecefea; } html:has(body.dark) { background: #121212; }
+    html { background: var(--page); } html:has(body.dark) { --page: #121212; }
+    /* Under the status bar: an opaque, map-colored strip fading into the map. iOS 26 blurs a
+       home-screen app's top edge (the status bar and about 40 pt); a fixed bar there is
+       reported to stop it. */
+    #status-strip { position: fixed; z-index: 19; top: 0; left: 0; right: 0; height: var(--inset-t); background: var(--page); pointer-events: none; }
+    #status-strip::after { content: ''; position: absolute; top: 100%; left: 0; right: 0; height: min(12px, var(--inset-t));
+                           background: linear-gradient(var(--page), transparent); }
     #app-screen { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h, 100vh); }
     /* Inside @supports: an unknown unit in a var() fallback would void the height, not fall back. */
     @supports (height: 100dvh) { #app-screen { height: var(--app-h, 100dvh); } }
@@ -133,7 +145,7 @@
     #map-ctrl {
       position: absolute; right: calc(var(--inset-r) + var(--edge)); top: calc(var(--inset-t) + var(--edge)); z-index: 24;
       display: flex; flex-direction: column; align-items: center;
-      background: var(--glass); border-radius: var(--pill); box-shadow: var(--rim), var(--shadow-1);
+      border-radius: var(--pill);
     }
     body.placing #map-ctrl { display: none; }
     body.naming #signs { display: none; }  /* the name box sits where the sign does on a phone */
@@ -155,7 +167,7 @@
     .lyr-legend-btn[aria-expanded="true"] .lyr-chev { transform: rotate(90deg); }
     .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 10px; font-size: .72rem; }
     .lyr-legend > b { font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-    .lyr-legend .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-size: .72rem; }
+    .lyr-legend .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-weight: 600; }
     .lyr-note { padding: 6px 12px 8px; font-size: .7rem; color: var(--muted); max-width: 260px; line-height: 1.35; }
     .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: .8rem;
       background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
@@ -179,10 +191,9 @@
       position: absolute; bottom: calc(var(--sheet-h) + 10px);
       left: 50%; transform: translateX(-50%);
       z-index: 20; display: none; align-items: center; gap: 8px;
-      background: var(--glass); color: var(--text);
+      color: var(--text);
       border-radius: var(--pill); padding: 6px 6px 6px 16px;
       font-size: .82rem; font-weight: 600;
-      box-shadow: var(--rim), var(--shadow-1);
       white-space: nowrap; pointer-events: auto;
     }
     #place-banner.active { display: flex; }
@@ -193,8 +204,7 @@
        between groups. Each time one shows it grows out of its button or the finger
        (transform-origin, from JS) with a small spring. */
     .pop-menu {
-      position: fixed; z-index: 200; padding: 6px; background: var(--sheet-bg); border-radius: var(--r-menu);
-      box-shadow: var(--rim), var(--shadow-2); min-width: 210px; animation: menu-in .4s var(--spring);
+      position: fixed; z-index: 200; padding: 6px; border-radius: var(--r-menu); min-width: 210px; animation: menu-in .4s var(--spring);
       max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain;
     }
     @keyframes menu-in { from { opacity: 0; transform: scale(.3); } 40% { opacity: 1; } }
@@ -233,72 +243,94 @@
     .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: .8rem; font-weight: 500;
                   transition: background-color .2s, box-shadow .2s; }
     .seg button[aria-checked="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); font-weight: 600; }
-    .legend { gap: 6px; font-weight: 600; font-size: .8rem; }
 
     /* ── Sheet (as in Find My) ──
-       Phone: at the bottom with the tab bar at its foot; its height is one of three detents
-       (js/sheet.js), dragged by the grabber, the tab bar, a tab's header or its content. As
-       iOS 26 sheets, it floats clear of the screen's edges (--sheet-gap) with all corners round.
-       Hidden (.retracted): the tab bar alone, the sheet around it clear and click-through.
+       Phone: at the bottom, its height one of three detents (js/sheet.js), dragged by the
+       grabber, the tab bar, a tab's header or its content. It floats clear of the screen's
+       edges, and its bottom corners and the tab bar's ends share the screen corners' centers
+       (concentric: one gap along the sides, the bottom and around the corners):
+         sheet radius = --screen-r - the sheet's gap; tab bar radius = --screen-r - the bar's gap.
+       The top corners are smaller (32 px), so a 36 px round button 14 px in from them is
+       concentric too (14 + 18 = 32). --m (js/sheet.js) takes it all from open (0) to hidden
+       (1), following the finger while dragged: the content fades, and the sheet closes in on
+       the tab bar (56 px, ends 28 px round) to become its capsule.
        Desktop: a panel on the left, the calendar's height, with the tabs as a segmented control. */
     #sheet {
-      --sheet-gap: 8px; --sheet-r: var(--r-sheet);
-      --tb-side: 10px; --tb-bot: max(10px, calc(var(--inset-b) - 20px));  /* the tab bar's inset in the sheet */
+      --m: 0;
+      --g-open: 8px;                          /* the open sheet's gap to the screen's edges */
+      --g-hid: calc(var(--screen-r) - 28px);  /* hidden: the tab bar's gap */
+      --tb-in: 14px;                          /* open: the tab bar's inset, as the content's */
+      --sheet-gap: calc(var(--g-open) + (var(--g-hid) - var(--g-open)) * var(--m));
+      --bar-gap: calc(var(--g-open) + var(--tb-in) + (var(--g-hid) - var(--g-open) - var(--tb-in)) * var(--m));
+      --sheet-r: calc(var(--screen-r) - var(--sheet-gap));
+      --bar-r: calc(var(--screen-r) - var(--bar-gap));
+      --bar-in: calc(var(--bar-gap) - var(--sheet-gap));
+      --r-top: min(32px, var(--sheet-r));
+      --bar-space: calc(2 * var(--bar-r) + var(--bar-in) + 12px);  /* the content's room for the tab bar */
       position: absolute; left: var(--sheet-gap); right: var(--sheet-gap); bottom: var(--sheet-gap); z-index: 25; height: 220px;
-      display: flex; flex-direction: column;
-      background: var(--card); border-radius: var(--sheet-r);
+      display: flex; flex-direction: column; overflow: clip;
+      background: var(--card); border-radius: var(--r-top) var(--r-top) var(--sheet-r) var(--sheet-r);
       box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-2);
-      transition: height .4s var(--sheet-ease), background-color .2s, box-shadow .2s;
+      transition: height .4s var(--sheet-ease), left .4s var(--sheet-ease), right .4s var(--sheet-ease),
+                  bottom .4s var(--sheet-ease), border-radius .4s var(--sheet-ease);
       /* Grouped boxes: a fill over the sheet (as iOS lists on a sheet), in both themes. */
       --group: color-mix(in srgb, var(--text) 6%, transparent);
     }
-    /* iPhone home-screen app (js/core.js --screen-r): the sheet's corners and the tab bar's
-       ends (56 px tall: 28 px radius) share the screen corners' centers, so their gap to the
-       screen's edge is the same along the sides, the bottom and around the corners. */
-    @media (max-width: 767.98px) and (orientation: portrait) {
-      .concentric #sheet { --sheet-r: calc(var(--screen-r) - var(--sheet-gap)); --tb-side: calc(var(--sheet-r) - 28px); --tb-bot: var(--tb-side); }
-    }
-    #sheet.dragging { transition: none; }
-    #sheet.retracted { background-color: transparent; box-shadow: none; pointer-events: none; }
-    #sheet.retracted #tabbar { margin-top: auto; pointer-events: auto; box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-2); }
-    #sheet.retracted :is(#sheet-grabber, .tab) { visibility: hidden; }
-    #sheet.retracted #sheet-grabber { display: none; }
-    #sheet-grabber { flex: none; position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 22px; cursor: grab; }
-    #sheet-grabber::after { content: ''; position: absolute; inset: -12px 0 -10px; }  /* 44 px to grab */
+    /* The open and hidden gaps in px, for js/sheet.js (sheetGap). */
+    #sheet-probe { position: absolute; visibility: hidden; pointer-events: none; width: var(--g-open); height: var(--g-hid); }
+    #sheet.dragging, #sheet.dragging :is(#tabbar, .tab, #sheet-grabber), #sheet.dragging #tabbar::before { transition: none; }
+    /* The content fades out first, and back in once the sheet has mostly opened. */
+    .tab, #sheet-grabber { opacity: clamp(0, 1 - 3 * var(--m), 1); transition: opacity .25s .15s; }
+    #sheet.retracted { pointer-events: none; }
+    #sheet.retracted :is(.tab, #sheet-grabber) { visibility: hidden; transition: opacity .15s, visibility 0s .15s; }
+    #sheet-grabber { position: absolute; z-index: 1; top: 0; left: 50%; width: 120px; height: 16px; transform: translateX(-50%);
+                     display: flex; align-items: center; justify-content: center; cursor: grab; }
+    #sheet-grabber::after { content: ''; position: absolute; inset: 0 0 -6px; }
     #sheet-grabber span { width: 36px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 28%, transparent); }
     .tab { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    /* Buttons 14 px from the top and sides, concentric with the top corners; the title on their line. */
     .tab-head {
-      flex: none; display: flex; align-items: center; gap: 4px; min-height: var(--tap);
-      padding: 0 12px 6px 20px; user-select: none;
+      flex: none; display: flex; align-items: center; gap: 4px; height: 58px;
+      padding: 14px 14px 8px 20px; user-select: none;
     }
     /* An item's page: ‹ back to the list before its title (as an iOS navigation bar). */
-    .tab-head:has(#btn-item-back:not([hidden])) { padding-left: 12px; gap: 8px; }
+    .tab-head:has(#btn-item-back:not([hidden])) { padding-left: 14px; gap: 8px; }
     .tab-title { flex: 1; min-width: 0; font-size: 1.4rem; font-weight: 700; letter-spacing: -.01em;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
     .tab-title[contenteditable="true"] { cursor: text; border-bottom: 2px solid var(--blue); user-select: text; }
+    /* The content runs under the glass tab bar and fades out at the sheet's foot. */
     .tab-body {
       flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y pinch-zoom;
-      padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
+      padding: 0 14px var(--bar-space); display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
+      -webkit-mask-image: linear-gradient(#000 calc(100% - 34px), transparent calc(100% - 6px));
+      mask-image: linear-gradient(#000 calc(100% - 34px), transparent calc(100% - 6px));
     }
     :is(.head-btn, .round-btn) { flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
     .head-btn { color: var(--muted); }
+    .text-btn { min-height: var(--tap); padding: 0 8px; color: var(--tint-fg); font-size: .9rem; font-weight: 600; }
     .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem; background: var(--fill); }
     .round-btn::after { content: ''; position: absolute; inset: -4px; }  /* 44 pt touch target */
     #btn-add, #btn-item-more { color: var(--blue); }
-    /* Tab bar (iOS 26): a capsule at the sheet's foot, icon over label, the selected tab in
-       blue on a pill that slides to it (--i: the selected tab's index, from JS), clear of the
-       home indicator (--inset-b). A red dot on Saved: a car must move today. */
+    /* Tab bar (iOS 26): a glass capsule at the sheet's foot, 14 px in when open (the content's
+       edge), icon over label, the selected tab in blue on a pill that slides to it (--i: the
+       selected tab's index, from JS); the pill's 48 px stay concentric with the bar's ends.
+       A red dot on Saved: a car must move today. */
     #tabbar {
-      --pad: 4px; flex: none; position: relative; display: flex; padding: var(--pad); border-radius: var(--pill);
-      margin: 2px var(--tb-side) var(--tb-bot);
-      background: color-mix(in srgb, var(--text) 7%, var(--card));  /* opaque: it floats alone when hidden */
-      transition: box-shadow .2s;
+      --pad: calc(var(--bar-r) - 24px);
+      position: absolute; left: var(--bar-in); right: var(--bar-in); bottom: var(--bar-in); height: calc(2 * var(--bar-r));
+      display: flex; padding: var(--pad); border-radius: var(--pill);
+      box-shadow: inset 0 0 0 1px var(--hairline), 0 4px 16px rgba(0,0,0,.1);  /* on the sheet: its hairline */
+      transition: left .4s var(--sheet-ease), right .4s var(--sheet-ease), bottom .4s var(--sheet-ease),
+                  height .4s var(--sheet-ease), padding .4s var(--sheet-ease);
     }
+    #sheet.retracted #tabbar { pointer-events: auto; }
     #tabbar::before {
       content: ''; position: absolute; top: var(--pad); bottom: var(--pad); left: var(--pad);
       width: calc((100% - 2 * var(--pad)) / 3); border-radius: var(--pill);
       background: var(--fill);
-      transform: translateX(calc(var(--i, 0) * 100%)); transition: transform .45s var(--spring);
+      transform: translateX(calc(var(--i, 0) * 100%));
+      transition: transform .45s var(--spring), top .4s var(--sheet-ease), bottom .4s var(--sheet-ease),
+                  left .4s var(--sheet-ease), width .4s var(--sheet-ease);
     }
     #tabbar [role="tab"] {
       flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -361,19 +393,17 @@
     .car-entry.selected .ce-text { width: 100%; }
     .car-entry.selected .ce-status { font-size: 1.05rem; font-weight: 700; white-space: normal; }
     /* Sweeping on a car's page: the other side of the street, muted. */
-    .ce-other { color: var(--muted); }
-    .ce-tag, .cal-tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: .7rem; font-weight: 700;
+    .tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: .7rem; font-weight: 700;
                         background: color-mix(in srgb, currentColor 12%, transparent); }
     .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
     .car-entry:not(.selected) .ce-city { display: none; }  /* a row: the street address only (js/cars.js _addrHTML) */
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
-    .ce-loading { color: var(--muted); }
     /* The car's side of the street (where the sides differ): one choice per side with its sweeping. */
     .ce-pick { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 0; text-align: left; }
     .ce-pick + .ce-pick { border-top: 1px solid var(--hairline); }
-    .ce-pick > span:not(.ce-tag) { display: flex; flex-direction: column; min-width: 0; }
+    .ce-pick > span:not(.tag) { display: flex; flex-direction: column; min-width: 0; }
     .ce-pick b { font-weight: 600; }
-    .ce-pick .ce-tag { margin-left: auto; }
+    .ce-pick .tag { margin-left: auto; }
     .ce-radio { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--muted); }
     .ce-pick[aria-checked="true"] .ce-radio { border: 6px solid var(--blue); }
     .ce-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--urg-today); }
@@ -391,8 +421,7 @@
     /* ── Confirmation (as an iOS 26 alert): text to the left, capsule buttons side by side;
        it springs in from slightly larger. ── */
     #confirm-dialog { margin: auto; width: min(300px, calc(100vw - 40px)); padding: 22px 18px 18px; border: none;
-                      border-radius: var(--r-alert); background: var(--sheet-bg); color: var(--text);
-                      box-shadow: var(--rim), var(--shadow-2); }
+                      border-radius: var(--r-alert); color: var(--text); }
     #confirm-dialog[open] { animation: alert-in .35s var(--spring); }
     @keyframes alert-in { from { opacity: 0; transform: scale(1.12); } 50% { opacity: 1; } }
     #confirm-dialog::backdrop { background: rgba(0,0,0,.28); }
@@ -405,8 +434,7 @@
 
     /* ── Name box (arrow popup anchored at the new car's spot) ── */
     .name-popup .maplibregl-popup-content {
-      background: var(--sheet-bg); border-radius: var(--r-menu); padding: 8px;
-      box-shadow: var(--rim), var(--shadow-2); min-width: 220px;
+      border-radius: var(--r-menu); padding: 8px; min-width: 220px;
     }
     .name-popup .maplibregl-popup-tip {
       border-top-color: var(--card); border-bottom-color: var(--card);
@@ -415,14 +443,14 @@
     .np-row .field { flex: 1; min-width: 0; width: 0; }
 
     /* ── Calendar tab: one week (small sheet) unfolding into the month view ── */
-    #ic-cal { padding-bottom: 4px; gap: 0; overflow: hidden; }
-    .cal-muted { font-size: .72rem; color: var(--muted); }
-    .cal-ended { color: var(--muted); }
+    #ic-cal { padding-bottom: calc(var(--bar-space) - 8px); gap: 0; overflow: hidden; }
+    .muted { color: var(--muted); }  /* secondary text: loading, ended, the other side */
 
-    /* ── Street card: what applies on the street at the target (js/signs.js), in two
-       sections (Sweeping, Parking), one row each of at most two lines: a mark (a sweeping
-       side's bar in its map line color, a rule's dot in its layer color), the text, and a
-       muted detail. Top left, under the status bar. ── */
+    /* ── Street card: what applies on the street at the target (js/signs.js): the street's
+       name (a broom when it has sweeping), the sweeping rows, a hairline, the rules; one row
+       each of at most two lines: a mark (a sweeping side's bar in its map line color, one
+       bar down all of a side's rows; a rule's glyph), the text, and a muted detail. Top
+       left, under the status bar. ── */
     #signs {
       position: absolute; z-index: 21; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
       pointer-events: none;
@@ -435,12 +463,14 @@
     .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: .7rem; font-weight: 800; }
     .sc-street { min-width: 0; font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .sc-sec { margin-top: 3px; font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
     .sc-side { flex: none; min-width: 3.1em; padding-top: 1px; font-size: .72rem; font-weight: 600; color: var(--muted); }
     .sc-side.ghost { visibility: hidden; }  /* a side's next row: its text lines up with the first */
     .sc-mark { flex: none; }
     .sc-bar { align-self: stretch; width: 3px; border-radius: 2px; }
+    /* A side's next row: its bar runs on from the one above, across the 5 px row gap. */
+    .sc-cont .sc-bar { margin-top: -5px; border-top-left-radius: 0; border-top-right-radius: 0; }
+    .sc-row:has(+ .sc-cont) .sc-bar { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
     .sc-glyph { display: flex; color: var(--k); }
     .sc-glyph svg.ic { width: 16px; height: 16px; }
     body.dark .sc-permit { color: color-mix(in srgb, var(--k) 75%, #fff); }  /* a dark area color, readable on the dark card */
@@ -453,8 +483,7 @@
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
       width: auto; margin: 0; padding: 8px 16px; border-radius: var(--pill);
-      background: var(--glass); color: var(--text);
-      box-shadow: var(--rim), var(--shadow-1); font-size: .85rem; font-weight: 700;
+      color: var(--text); font-size: .85rem; font-weight: 700;
     }
 
     .cal-scroll::-webkit-scrollbar { display: none; }
@@ -465,52 +494,49 @@
     }
     /* Days outside the month in the header (.cal-out, js/calendar.js): muted digits; in the
        month view, light digits without the street tint or dots (today's red or orange stays).
-       Street days: a light tint of the clear color; red today, orange tomorrow (as on the map
-       and the street card's "S"). */
+       Street days: soft tiles, a light tint of the clear color; red today, orange tomorrow
+       (as on the map and the street card), tinted with the date in that color. */
     .cal-out { color: var(--muted); }
     #ic-cal:not(.cal-small) .cal-out:not(.sw-now, .sw-next) { color: color-mix(in srgb, var(--muted) 55%, transparent); background: none; }
     #ic-cal:not(.cal-small) .cal-out .cal-dots { visibility: hidden; }
-    .sw-day  { background: color-mix(in srgb, var(--urg-safe) 16%, transparent); }
+    .sw-day  { background: color-mix(in srgb, var(--urg-safe) 12%, transparent); }
     body.dark .sw-day { background: color-mix(in srgb, var(--urg-safe) 10%, transparent); }  /* muted digits stay AA */
-    .sw-now  { background: var(--urg-today-bg);    color: #fff; }
-    .sw-next { background: var(--urg-tomorrow-bg); color: #fff; }
-    /* Today: bold, with "Today" where the month name goes. Selected: a ring. */
-    .sw-today { font-weight: 800; }
-    .cal-sel { box-shadow: inset 0 0 0 2px var(--text); }
-    :is(.sw-now, .sw-next).cal-sel { box-shadow: inset 0 0 0 2px var(--card); }
+    .sw-now  { background: color-mix(in srgb, var(--urg-today) 15%, transparent);    color: var(--urg-today); font-weight: 700; }
+    .sw-next { background: color-mix(in srgb, var(--urg-tomorrow) 15%, transparent); color: var(--urg-tomorrow); font-weight: 700; }
+    /* Today: its date on a disc. Selected: a ring in the day's text color. */
+    .sw-today .cal-n { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%;
+                       background: var(--text); color: var(--card); font-weight: 700; }
+    .cal-sel { box-shadow: inset 0 0 0 1.5px currentColor; }
     /* One dot per car with sweeping that day, in the car's color. */
     .cal-dots { display: flex; justify-content: center; gap: 2px; height: 5px; margin-top: 1px; }
-    .cal-dot { width: 5px; height: 5px; border-radius: 50%; }
-    .cal-dot-home { border-radius: 1px; }  /* a home's pickup: a square, as its key below */
-    :is(.sw-now, .sw-next) .cal-dot { box-shadow: 0 0 0 1px rgba(255,255,255,.9); }  /* apart from the red / orange */
+    .cal-dot { width: 5px; height: 5px; }
     /* A no-sweep holiday: struck through, so a weekly street day reads as canceled. */
     .cal-hol { text-decoration: line-through; text-decoration-color: var(--muted); }
-    .cal-hol-line { color: var(--muted); }
     .cal-past { opacity: .4; }  /* days gone by: not counted as ahead */
     .cal-areas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
     .cal-area { position: relative; min-height: 36px; padding: 2px 12px; font-size: .74rem; }
 
-    .cal-nav { width: var(--tap); height: var(--tap); font-size: 1.15rem; }
-    .cal-nav:hover { color: var(--text); }
+    .cal-nav { width: var(--tap); height: var(--tap); font-size: 1.15rem; color: var(--tint-fg); }
     /* One grid of weeks for both views: it fills what the sheet leaves (the sheet's heights
        fit whole weeks), down to the one week the small sheet shows; then it neither scrolls
        nor shows the day details (a swipe steps a week, js/calendar.js). */
-    .cal-wds { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center;
-               font-size: .7rem; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
+    :is(.cal-wds, .cal-grid) { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
+    .cal-wds { flex: none; font-size: .64rem; letter-spacing: .04em; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
     .cal-scroll { flex: 1 1 0; min-height: 40px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
                   scroll-snap-type: y mandatory; scrollbar-width: none; }
     #ic-cal.cal-small .cal-scroll { overflow-y: hidden; touch-action: none; scroll-snap-type: none; }  /* hidden weeks are no snap points */
     #ic-cal.cal-folded .cal-day:not(.cal-on) { visibility: hidden; }
     /* Dragged up, the weeks below unfold under the finger (those above stay hidden). */
     #sheet.dragging #ic-cal .cal-near { visibility: visible; }
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 40px; gap: 3px; text-align: center; }
+    .cal-grid { grid-auto-rows: 40px; }
     .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .62rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
-    .sw-now .cal-mo, .sw-next .cal-mo { color: #fff; }
+    .sw-now .cal-mo, .sw-next .cal-mo { color: inherit; }
     /* The selected day: its date and three lines (more scroll), so the sheet's heights stay put. */
     .cal-detail { flex: none; height: calc(4 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
     .cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 2px; }
-    .cal-round { border-radius: 50%; }
-    .cal-square { border-radius: 1px; }
+    /* A car's mark is round, a home's pickup square (the dots above, the keys here). */
+    :is(.cal-dot, .cal-key).cal-round { border-radius: 50%; }
+    :is(.cal-dot, .cal-key).cal-square { border-radius: 1px; }
     /* ── Map pins (MapLibre HTML markers): the item's line glyph in its color (--pin, set
        from JS: the car's color or --home), tinted inside, on an outline (--pin-halo) that
        sets it off the map (js/markers.js draws the glyph twice). Selected: larger, on a
@@ -544,7 +570,7 @@
       --muted: #94a3b8; --border: #334155;
       --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #7cc495; --urg-check: #cbd5e1;
       --tint-fg: #93b4f8; --home: #4ade80;
-      --rule-allow: #4ade80; --rule-meter: #9ca3af; --rule-snow: #60a5fa; --rule-ban: #f87171;  /* 3:1 on the card */
+      --rule-allow: var(--home); --rule-meter: #9ca3af; --rule-snow: #60a5fa; --rule-ban: #f87171;  /* 3:1 on the card */
       --pin-halo: #111418;
     }
 
@@ -604,17 +630,20 @@
       /* The calendar sets the panel's height for every tab: it stays laid out (unseen) under
          the others, which take no height of their own (contain: size) and scroll in it. */
       #sheet { left: calc(var(--inset-l) + var(--edge)); top: var(--edge); bottom: auto; right: auto; width: var(--panel-w); height: auto;
-               max-height: calc(100% - 2 * var(--edge)); display: grid; grid-template-rows: auto minmax(0, 1fr); transition: none; }
-      #tabbar { grid-row: 1; }
+               max-height: calc(100% - 2 * var(--edge)); display: grid; grid-template-rows: auto minmax(0, 1fr); transition: none;
+               border-radius: var(--r-sheet); --bar-space: 12px; }
+      /* The same capsule and pill as a segmented control at the top. */
+      #tabbar { --pad: 3px; grid-row: 1; position: relative; left: auto; right: auto; bottom: auto; height: auto;
+                margin: 14px 14px 6px; transition: none; box-shadow: none;
+                background: color-mix(in srgb, var(--text) 7%, var(--card)); -webkit-backdrop-filter: none; backdrop-filter: none; }
+      .tab-body { -webkit-mask-image: none; mask-image: none; }
       .tab { grid-area: 2 / 1; }
       #tab-calendar[hidden] { display: flex !important; visibility: hidden; }  /* over the global [hidden] */
       #tab-saved, #tab-settings { contain: size; }
       #ic-cal { overflow-y: auto; }
       #sheet-grabber { display: none; }
-      .tab-head { padding-top: 4px; }
+      .tab-head { height: auto; min-height: var(--tap); padding: 4px 12px 6px 20px; }
       .tab-title { font-size: 1.2rem; }
-      /* The same capsule and pill as a segmented control at the top. */
-      #tabbar { --pad: 3px; order: -1; margin: 14px 14px 6px; }
       #tabbar::before { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
       /* Words only (as a Mac segmented control): three of them fit the panel's width. */
       #tabbar [role="tab"] { min-width: 0; min-height: 34px; font-size: .78rem; }
