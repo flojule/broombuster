@@ -159,26 +159,78 @@ def _edge(color: str) -> str | None:
     return "#" + "".join(f"{int(c * 0.6):02x}" for c in (r, g, b))
 
 
-def snap_to_blocks(areas: geopandas.GeoDataFrame, streets) -> geopandas.GeoDataFrame:
-    """Permit areas (EPSG:3857) by street block: each block between the city's swept
-    streets goes whole to the area covering most of it. Where no area covers most of a
-    block, each area keeps its own shape there, less strips under 30 m wide."""
+# Faces of the street network over this size (EPSG:3857 m², ~60,000 m² on the ground in
+# the Bay Area) are parks and hills, not blocks: areas keep their own shape there.
+BIG_FACE = 100_000
+# Holes in an area up to this size (a few blocks: a commercial strip, a school) are filled,
+# so its edge is its outline; the permit curbs show the blocks themselves.
+HOLE_MAX = 200_000
+
+
+def snap_to_blocks(areas: geopandas.GeoDataFrame, streets, curbs=None) -> geopandas.GeoDataFrame:
+    """Permit areas (EPSG:3857) by street block, so edges run along streets. Blocks are the
+    faces of the city's swept streets; a curb lies in its own block's face. A block goes
+    whole to the area covering most of it, else to the area with the most permit curbs
+    (EPSG:3857, label) in it, else to none. In faces over BIG_FACE and outside all faces,
+    each area keeps its own shape, less strips under 30 m wide away from its own curbs. An
+    area that would keep under half of itself keeps its own shape wherever no other area
+    took the block. Holes up to HOLE_MAX no other area took are filled."""
     lines = [g for g in streets if g is not None and "LineString" in g.geom_type]
     blocks = list(shapely.polygonize([shapely.union_all(lines)]).geoms)
+    by_label = {lbl: i for i, lbl in areas["label"].items()}
+    marks = []  # (area index, curb part)
+    if curbs is not None:
+        for lbl, c in zip(curbs["label"], curbs.geometry, strict=True):
+            i = by_label.get(lbl.split(" or ")[0].strip())
+            if i is not None and c is not None:
+                marks += [(i, part) for part in shapely.get_parts(c) if not part.is_empty]
+    mtree = shapely.STRtree([part.interpolate(0.5, normalized=True) for _, part in marks])
+    near = {i: shapely.union_all([c for j, c in marks if j == i]) for i in areas.index}
     owned: dict[int, list] = {i: [] for i in areas.index}
+    big = []
     sidx = areas.sindex
     for b in blocks:
         cover = {i: areas.geometry[i].intersection(b).area for i in areas.index[sidx.query(b)]}
         best = max(cover, key=cover.get, default=None)
+        held: dict[int, float] = {}
+        for k in mtree.query(b, predicate="contains"):
+            held[marks[k][0]] = held.get(marks[k][0], 0.0) + marks[k][1].length
         if best is not None and cover[best] > 0.5 * b.area:
             owned[best].append(b)
+        elif held:
+            owned[max(held, key=held.get)].append(b)
+        elif b.area > BIG_FACE:
+            big.append(b)
     taken = shapely.union_all([b for bs in owned.values() for b in bs])
+    open_land = shapely.union_all(
+        [*big, shapely.union_all(areas.geometry).difference(shapely.union_all(blocks))]
+    )
+
+    def strips_off(g, own):
+        wide = g.buffer(-15, join_style="mitre").buffer(15, join_style="mitre")
+        thin = [t for t in shapely.get_parts(g.difference(wide)) if t.distance(own) < 15]
+        return shapely.union_all([wide, *thin])
+
     out = areas.copy()
     for i, g in areas.geometry.items():
-        rest = g.difference(taken).buffer(-15, join_style="mitre").buffer(15, join_style="mitre")
-        merged = shapely.union_all([*owned[i], rest]).buffer(0.5).buffer(-0.5)
+        merged = shapely.union_all([*owned[i], strips_off(g.intersection(open_land), near[i])])
+        if merged.area < 0.5 * g.area:
+            merged = shapely.union_all([*owned[i], strips_off(g.difference(taken), near[i])])
+        merged = merged.buffer(0.5).buffer(-0.5)
         out.at[i, "geometry"] = layer_sources._clean(merged.simplify(2), 2000)
+    for i, g in out.geometry.items():
+        others = shapely.union_all([h for j, h in out.geometry.items() if j != i])
+        out.at[i, "geometry"] = _fill_holes(g, HOLE_MAX).difference(others)
     return out[~out.geometry.is_empty]
+
+
+def _fill_holes(g, max_area: float):
+    """g with its holes under max_area filled."""
+    parts = [
+        shapely.Polygon(p.exterior, [h for h in p.interiors if shapely.Polygon(h).area >= max_area])
+        for p in shapely.get_parts(g)
+    ]
+    return shapely.union_all(parts)
 
 
 def _city_streets(city_key: str):
@@ -243,8 +295,10 @@ def build_region_geojson(region_key: str) -> None:
             if p.exists():
                 g = geopandas.read_file(p)
                 if theme == "parking":
-                    g = snap_to_blocks(g.to_crs(3857), _city_streets(ck)).to_crs(4326)
-                    curbs.append(permit_curbs(ck).assign(city=ck))
+                    c = permit_curbs(ck)
+                    g = snap_to_blocks(g.to_crs(3857), _city_streets(ck), c.to_crs(3857))
+                    g = g.to_crs(4326)
+                    curbs.append(c.assign(city=ck))
                 g["city"] = ck
                 parts.append(g)
         target = out_dir / f"{theme}.geojson"

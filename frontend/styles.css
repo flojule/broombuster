@@ -27,7 +27,10 @@
       --inset-l: env(safe-area-inset-left, 0px); --inset-r: env(safe-area-inset-right, 0px);  /* a phone on its side */
       --sheet-h: 0px; /* sheet height (phone), set from JS */
       --tint-fg: #1d4ed8; /* blue text on a blue-tinted button (AA) */
-      --home: #15803d;    /* homes' marks in the calendar (= HOME_COLOR in core.js, lighter in dark) */
+      --home: #15803d;    /* homes' marks in the calendar and pins (= HOME_COLOR in core.js, lighter in dark) */
+      /* Rule glyphs on the street card, as street signs (js/signs.js; js/layers.js matches). */
+      --rule-allow: #15803d; --rule-meter: #4b5563; --rule-snow: #1d4ed8; --rule-ban: #dc2626;
+      --pin-halo: #ffffff;  /* the outline that sets a pin's glyph off the map */
 
       /* Layers: map pins (MapLibre markers) < crosshair 15 < place banner 20 < street signs 21
          < map controls 24 < sheet 25 < menus 200 < toasts 9999. */
@@ -233,21 +236,33 @@
     .legend { gap: 6px; font-weight: 600; font-size: .8rem; }
 
     /* ── Sheet (as in Find My) ──
-       Phone: at the bottom with the tab bar at its foot; its height is one of two detents
-       (js/sheet.js), dragged by the grabber, a tab's header or its content. As iOS 26 sheets,
-       it floats clear of the screen's edges (--sheet-gap) with all corners round.
-       Desktop: a full-height panel on the left with the tabs as a segmented control. */
+       Phone: at the bottom with the tab bar at its foot; its height is one of three detents
+       (js/sheet.js), dragged by the grabber, the tab bar, a tab's header or its content. As
+       iOS 26 sheets, it floats clear of the screen's edges (--sheet-gap) with all corners round.
+       Hidden (.retracted): the tab bar alone, the sheet around it clear and click-through.
+       Desktop: a panel on the left, the calendar's height, with the tabs as a segmented control. */
     #sheet {
-      --sheet-gap: 8px;
+      --sheet-gap: 8px; --sheet-r: var(--r-sheet);
+      --tb-side: 10px; --tb-bot: max(10px, calc(var(--inset-b) - 20px));  /* the tab bar's inset in the sheet */
       position: absolute; left: var(--sheet-gap); right: var(--sheet-gap); bottom: var(--sheet-gap); z-index: 25; height: 220px;
       display: flex; flex-direction: column;
-      background: var(--card); border-radius: var(--r-sheet);
+      background: var(--card); border-radius: var(--sheet-r);
       box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-2);
-      transition: height .4s var(--sheet-ease);
+      transition: height .4s var(--sheet-ease), background-color .2s, box-shadow .2s;
       /* Grouped boxes: a fill over the sheet (as iOS lists on a sheet), in both themes. */
       --group: color-mix(in srgb, var(--text) 6%, transparent);
     }
+    /* iPhone home-screen app (js/core.js --screen-r): the sheet's corners and the tab bar's
+       ends (56 px tall: 28 px radius) share the screen corners' centers, so their gap to the
+       screen's edge is the same along the sides, the bottom and around the corners. */
+    @media (max-width: 767.98px) and (orientation: portrait) {
+      .concentric #sheet { --sheet-r: calc(var(--screen-r) - var(--sheet-gap)); --tb-side: calc(var(--sheet-r) - 28px); --tb-bot: var(--tb-side); }
+    }
     #sheet.dragging { transition: none; }
+    #sheet.retracted { background-color: transparent; box-shadow: none; pointer-events: none; }
+    #sheet.retracted #tabbar { margin-top: auto; pointer-events: auto; box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-2); }
+    #sheet.retracted :is(#sheet-grabber, .tab) { visibility: hidden; }
+    #sheet.retracted #sheet-grabber { display: none; }
     #sheet-grabber { flex: none; position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 22px; cursor: grab; }
     #sheet-grabber::after { content: ''; position: absolute; inset: -12px 0 -10px; }  /* 44 px to grab */
     #sheet-grabber span { width: 36px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 28%, transparent); }
@@ -275,8 +290,9 @@
        home indicator (--inset-b). A red dot on Saved: a car must move today. */
     #tabbar {
       --pad: 4px; flex: none; position: relative; display: flex; padding: var(--pad); border-radius: var(--pill);
-      margin: 2px 10px max(10px, calc(var(--inset-b) - 20px));
-      background: color-mix(in srgb, var(--text) 7%, transparent);
+      margin: 2px var(--tb-side) var(--tb-bot);
+      background: color-mix(in srgb, var(--text) 7%, var(--card));  /* opaque: it floats alone when hidden */
+      transition: box-shadow .2s;
     }
     #tabbar::before {
       content: ''; position: absolute; top: var(--pad); bottom: var(--pad); left: var(--pad);
@@ -403,8 +419,9 @@
     .cal-muted { font-size: .72rem; color: var(--muted); }
     .cal-ended { color: var(--muted); }
 
-    /* ── Street card: what applies on the street at the target (js/signs.js), one row
-       each: a mark in its color (a sweeping side's: its map line color), the text, and a
+    /* ── Street card: what applies on the street at the target (js/signs.js), in two
+       sections (Sweeping, Parking), one row each of at most two lines: a mark (a sweeping
+       side's bar in its map line color, a rule's dot in its layer color), the text, and a
        muted detail. Top left, under the status bar. ── */
     #signs {
       position: absolute; z-index: 21; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
@@ -418,14 +435,18 @@
     .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: .7rem; font-weight: 800; }
     .sc-street { min-width: 0; font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .sc-rule { margin: 1px 0; border: none; border-top: 1px solid var(--border); }
+    .sc-sec { margin-top: 3px; font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
     .sc-side { flex: none; min-width: 3.1em; padding-top: 1px; font-size: .72rem; font-weight: 600; color: var(--muted); }
     .sc-side.ghost { visibility: hidden; }  /* a side's next row: its text lines up with the first */
-    .sc-mark { flex: none; display: flex; align-items: center; justify-content: center; width: 19px; height: 19px; margin-top: -1px;
-               border-radius: 5px; color: #fff; font-style: normal; font-size: .64rem; font-weight: 800; letter-spacing: -.02em; }
-    .sc-sweep, .sc-mark.light { color: rgba(0,0,0,.72); }  /* a letter on a light color */
-    .sc-text { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+    .sc-mark { flex: none; }
+    .sc-bar { align-self: stretch; width: 3px; border-radius: 2px; }
+    .sc-glyph { display: flex; color: var(--k); }
+    .sc-glyph svg.ic { width: 16px; height: 16px; }
+    body.dark .sc-permit { color: color-mix(in srgb, var(--k) 75%, #fff); }  /* a dark area color, readable on the dark card */
+    .sc-rule { border: none; height: 1px; margin: 1px 0; background: var(--hairline); }
+    .sc-text { min-width: 0; overflow-wrap: anywhere; font-weight: 600;
+               display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }  /* two lines at most */
     .sc-detail { font-weight: 400; color: var(--muted); }
     .sc-time { white-space: nowrap; }  /* "7–9AM" never breaks */
 
@@ -442,21 +463,13 @@
       min-width: 0; border-radius: var(--r-sm); font-size: .75rem; line-height: 1.15; color: var(--text);
       font-variant-numeric: tabular-nums; scroll-snap-align: start;
     }
-    /* Days outside the month in the header (#ic-cal data-m, js/calendar.js): muted digits.
+    /* Days outside the month in the header (.cal-out, js/calendar.js): muted digits; in the
+       month view, light digits without the street tint or dots (today's red or orange stays).
        Street days: a light tint of the clear color; red today, orange tomorrow (as on the map
        and the street card's "S"). */
-    #ic-cal:not([data-m="1"]) .cal-m1,
-    #ic-cal:not([data-m="2"]) .cal-m2,
-    #ic-cal:not([data-m="3"]) .cal-m3,
-    #ic-cal:not([data-m="4"]) .cal-m4,
-    #ic-cal:not([data-m="5"]) .cal-m5,
-    #ic-cal:not([data-m="6"]) .cal-m6,
-    #ic-cal:not([data-m="7"]) .cal-m7,
-    #ic-cal:not([data-m="8"]) .cal-m8,
-    #ic-cal:not([data-m="9"]) .cal-m9,
-    #ic-cal:not([data-m="10"]) .cal-m10,
-    #ic-cal:not([data-m="11"]) .cal-m11,
-    #ic-cal:not([data-m="12"]) .cal-m12 { color: var(--muted); }
+    .cal-out { color: var(--muted); }
+    #ic-cal:not(.cal-small) .cal-out:not(.sw-now, .sw-next) { color: color-mix(in srgb, var(--muted) 55%, transparent); background: none; }
+    #ic-cal:not(.cal-small) .cal-out .cal-dots { visibility: hidden; }
     .sw-day  { background: color-mix(in srgb, var(--urg-safe) 16%, transparent); }
     body.dark .sw-day { background: color-mix(in srgb, var(--urg-safe) 10%, transparent); }  /* muted digits stay AA */
     .sw-now  { background: var(--urg-today-bg);    color: #fff; }
@@ -498,19 +511,21 @@
     .cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 2px; }
     .cal-round { border-radius: 50%; }
     .cal-square { border-radius: 1px; }
-    /* ── Map pins (MapLibre HTML markers): the card's icon in white on a disc of the car's
-       color (--pin, set from JS) or the home green, ringed in white (as in Apple Maps).
-       Selected: larger, with a halo in its color. ── */
+    /* ── Map pins (MapLibre HTML markers): the item's line glyph in its color (--pin, set
+       from JS: the car's color or --home), tinted inside, on an outline (--pin-halo) that
+       sets it off the map (js/markers.js draws the glyph twice). Selected: larger, on a
+       glow in its color. ── */
     .pin {
-      display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
-      background: var(--pin); color: #fff; --icon-hole: var(--pin); font-size: 17px;
-      border: 2px solid #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,.4);
-      transition: width .12s, height .12s, font-size .12s;
+      display: flex; align-items: center; justify-content: center; width: 1em; height: 1em; font-size: 30px;
+      background: none; color: var(--pin); --icon-tint: .28; filter: drop-shadow(0 1px 2px rgba(0,0,0,.3));
+      transition: font-size .12s;
     }
-    .pin svg.ic { width: 1em; height: 1em; }
-    .pin::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }  /* 44 pt touch target (Apple HIG) */
-    .pin.selected { width: 40px; height: 40px; font-size: 22px;
-                    box-shadow: 0 0 0 4px color-mix(in srgb, var(--pin) 35%, transparent), 0 2px 8px rgba(0,0,0,.4); }
+    .pin svg.ic { width: 1em; height: 1em; overflow: visible; }
+    .pin .pin-halo { color: var(--pin-halo); stroke-width: 5.2; --icon-tint: 1; --icon-hole: var(--pin-halo); }
+    .pin::after { content: ''; position: absolute; inset: -7px; border-radius: 50%; }  /* 44 pt touch target (Apple HIG) */
+    .pin.selected { font-size: 39px; }
+    .pin.selected::before { content: ''; position: absolute; z-index: -1; left: 50%; bottom: -3px; width: 85%; height: 25%;
+                            transform: translateX(-50%); border-radius: 50%; background: color-mix(in srgb, var(--pin) 35%, transparent); }
     /* The spot a new car is being named at: its pin to be, faded. */
     .pin.temp { opacity: .75; pointer-events: none; }
     /* You are here: a blue dot, and the fix's accuracy as a halo (--halo: diameter, from JS). */
@@ -529,6 +544,8 @@
       --muted: #94a3b8; --border: #334155;
       --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #7cc495; --urg-check: #cbd5e1;
       --tint-fg: #93b4f8; --home: #4ade80;
+      --rule-allow: #4ade80; --rule-meter: #9ca3af; --rule-snow: #60a5fa; --rule-ban: #f87171;  /* 3:1 on the card */
+      --pin-halo: #111418;
     }
 
     /* ── Toast notifications ── */
@@ -584,8 +601,15 @@
        the signs sit at the top left of the map beside it. Keep the query in step with
        isDesktop(). ── */
     @media (min-width: 768px), (orientation: landscape) and (max-height: 500px) {
-      #sheet { left: calc(var(--inset-l) + var(--edge)); top: var(--edge); bottom: var(--edge); right: auto; width: var(--panel-w); height: auto;
-               transition: none; }
+      /* The calendar sets the panel's height for every tab: it stays laid out (unseen) under
+         the others, which take no height of their own (contain: size) and scroll in it. */
+      #sheet { left: calc(var(--inset-l) + var(--edge)); top: var(--edge); bottom: auto; right: auto; width: var(--panel-w); height: auto;
+               max-height: calc(100% - 2 * var(--edge)); display: grid; grid-template-rows: auto minmax(0, 1fr); transition: none; }
+      #tabbar { grid-row: 1; }
+      .tab { grid-area: 2 / 1; }
+      #tab-calendar[hidden] { display: flex !important; visibility: hidden; }  /* over the global [hidden] */
+      #tab-saved, #tab-settings { contain: size; }
+      #ic-cal { overflow-y: auto; }
       #sheet-grabber { display: none; }
       .tab-head { padding-top: 4px; }
       .tab-title { font-size: 1.2rem; }
@@ -599,6 +623,9 @@
       #map-ctrl, #signs { top: var(--edge); }
       #signs { left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
       .zoom-btn { display: flex; }
+      /* Calendar: one month (six 40 px week rows, js/calendar.js), the day details under it. */
+      .cal-scroll { flex: none; height: calc(6 * 40px + 5 * 3px); overflow-y: hidden; scroll-snap-type: none; }
+      .cal-detail { margin-top: 10px; }
       /* Centered in the map area right of the panel. */
       #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--inset-l) + var(--panel-w) + var(--edge)) / 2); }
       #toast-container { bottom: 24px; left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }

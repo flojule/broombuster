@@ -8,12 +8,15 @@ function placeMarker(marker, at, makeEl) {
     .setLngLat([at.lon, at.lat]).addTo(map);
 }
 
-// A car or home pin: the card's icon, white on a disc of the item's color (as in
-// Apple Maps); a tap opens the item in the sheet. Its label is the item's name (set by the caller).
+// A pin's glyph: the item's icon over the same icon drawn as its outline (.pin-halo).
+const _pinGlyph = kind => `<svg class="ic"><use class="pin-halo" href="#i-${kind}"/><use href="#i-${kind}"/></svg>`;
+
+// A car or home pin: the item's icon in its color (styles.css .pin); a tap opens the item
+// in the sheet. Its label is the item's name (set by the caller).
 function _pinEl(kind, id) {
   const el = document.createElement('button');
   el.className = 'pin';
-  el.innerHTML = icon(kind);
+  el.innerHTML = _pinGlyph(kind);
   el.addEventListener('click', e => { e.stopPropagation(); openItem(id); });
   return el;
 }
@@ -44,7 +47,7 @@ function updateHomeMarkers() {
   }
   for (const h of homes) {
     const marker = placeMarker(_homeMarkers.get(h.id), h, () => _pinEl('home', h.id));
-    marker.getElement().style.setProperty('--pin', HOME_COLOR);
+    marker.getElement().style.setProperty('--pin', 'var(--home)');  // HOME_COLOR, lighter in dark mode
     marker.getElement().setAttribute('aria-label', itemName(h));
     _homeMarkers.set(h.id, marker);
   }
@@ -56,7 +59,7 @@ function updateTempPin() {
   _tempPinMarker = placeMarker(_tempPinMarker, _tempPin, () => {
     const el = document.createElement('div');
     el.className = 'pin temp';
-    el.innerHTML = icon('car');
+    el.innerHTML = _pinGlyph('car');
     el.style.setProperty('--pin', nextCarColor());
     return el;
   });

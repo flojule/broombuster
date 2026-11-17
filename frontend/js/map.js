@@ -127,7 +127,7 @@ function removeTileLayers() {
 
 // Paint that follows the theme, by the layer's metadata.bbTheme (also js/layers.js; the
 // basemap switch re-applies it, js/ui.js): ward lines; a zone's thin edge (rim); the halo
-// and outline of the zone at the target (focus); the wash outside it; edge labels.
+// and outline of the zone at the target (focus); edge labels.
 function themePaint(kind) {
   const dark = document.body.classList.contains('dark');
   const halo = dark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
@@ -136,22 +136,22 @@ function themePaint(kind) {
     rim:   { 'line-color': dark ? 'rgba(255,255,255,0.6)' : 'rgba(30,41,59,0.7)' },
     halo:  { 'line-color': halo },
     focus: { 'line-color': dark ? '#e2e8f0' : '#0f172a' },
-    wash:  { 'fill-color': dark ? 'rgba(0,0,0,0.5)' : 'rgba(236,239,234,0.7)' },
     label: { 'text-color': dark ? '#e2e8f0' : '#334155', 'text-halo-color': dark ? '#111827' : '#ffffff' },
     casing: { 'line-color': dark ? 'rgba(0,0,0,0.75)' : 'rgba(15,23,42,0.55)' },
   }[kind];
 }
 const themed = (kind, paint = {}) => ({ metadata: { bbTheme: kind }, paint: { ...paint, ...themePaint(kind) } });
 
-// A zone's edge, drawn the same for the tiles' zones and the map layers' areas (js/layers.js):
-// a band of the zone's color just inside its edge, under the streets (where two zones meet,
-// both colors show side by side), and a thin rim on the edge itself, over the streets.
-// A positive offset is inside for both sources: the tiles (tippecanoe orders their rings)
-// and the layers' GeoJSON (MapLibre orders its rings as it tiles them).
+// A tile zone's edge (Chicago): a band of the zone's color just inside its edge, under the
+// streets (where two zones meet, both colors show side by side), and a thin rim on the
+// edge itself, over the streets. A positive offset is inside (tippecanoe orders the rings).
 const BAND_W = { 11: 3, 14: 6, 16: 10, 18: 14 };
 const bandWidth = () => ['interpolate', ['linear'], ['zoom'], ...Object.entries(BAND_W).flatMap(([z, w]) => [Number(z), w])];
 const bandOffset = () => ['interpolate', ['linear'], ['zoom'], ...Object.entries(BAND_W).flatMap(([z, w]) => [Number(z), w / 2])];
 const RIM_W = ['interpolate', ['linear'], ['zoom'], 11, 0.6, 16, 1.2];
+// A map layer's area (js/layers.js): a thin edge, bolder for the area at the target.
+const EDGE_W = ['interpolate', ['linear'], ['zoom'], 11, 1, 16, 1.5];
+const HERE_W = ['interpolate', ['linear'], ['zoom'], 11, 2, 16, 3];
 // The zone at the target: a bold outline on a halo, shown by feature-state `key`.
 const focusOn = key => ['case', ['boolean', ['feature-state', key], false], 1, 0];
 const FOCUS_W = ['interpolate', ['linear'], ['zoom'], 11, 2, 16, 4, 18, 5.5];
