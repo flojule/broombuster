@@ -67,7 +67,6 @@ def resolve_car_segment(
     lat: float,
     lon: float,
     *,
-    city_key: str | None = None,
     max_distance_m: float = 40.0,
 ) -> ResolvedCar:
     """Authoritative nearest-segment resolver.
@@ -75,8 +74,6 @@ def resolve_car_segment(
     Args:
         gdf_3857: GeoDataFrame in EPSG:3857 with a spatial index (`sindex`).
         lat, lon: Car coordinates in EPSG:4326.
-        city_key: Optional — when set, filter candidates whose `_city` column
-            matches. Skips cross-city matches when regions overlap.
         max_distance_m: If the nearest line segment is farther than this,
             raise NoSegmentNearby. Defaults to 40 m — wide enough for urban
             blocks, narrow enough to reject off-map coordinates.
@@ -101,9 +98,6 @@ def resolve_car_segment(
 
     # Vectorised over the candidates (in sindex order, so ties resolve as a
     # row-by-row scan would); only the winning row is materialised.
-    if city_key and len(cand) and "_city" in gdf_3857:
-        cities = gdf_3857["_city"].iloc[cand].to_numpy(object)
-        cand = cand[[not (c and c != city_key) for c in cities]]
     geoms = np.asarray(gdf_3857.geometry.values[cand], dtype=object)
     valid = ~(shapely.is_missing(geoms) | shapely.is_empty(geoms))
     type_ids = shapely.get_type_id(geoms)
@@ -128,17 +122,14 @@ def resolve_car_segment(
 
     # Line / MultiLineString: track the nearest.
     lines = np.flatnonzero(valid & ~is_poly)
-    best_line_idx: int | None = None
-    best_line_dist = float("inf")
-    if len(lines):
-        dists = shapely.distance(car_pt, geoms[lines])
-        j = _swept_border_twin(gdf_3857, cand[lines], dists, int(np.argmin(dists)), car_pt)
-        best_line_idx, best_line_dist = int(cand[lines[j]]), float(dists[j])
-
-    if best_line_idx is None or best_line_dist > max_distance_m * k:
+    dists = shapely.distance(car_pt, geoms[lines])
+    j = int(np.argmin(dists)) if len(lines) else None
+    if j is None or dists[j] > max_distance_m * k:
         raise NoSegmentNearby(
             f"No street segment within {max_distance_m:.0f} m of ({lat:.5f}, {lon:.5f})"
         )
+    j = _swept_border_twin(gdf_3857, cand[lines], dists, j, car_pt, max_distance_m * k)
+    best_line_idx, best_line_dist = int(cand[lines[j]]), float(dists[j])
 
     row = gdf_3857.iloc[best_line_idx]
     geom = row.geometry
@@ -192,14 +183,15 @@ def _unswept(row) -> bool:
     return all(analysis.is_no_sweep_code(row.get(f"DAY_{s}")) for s in ("EVEN", "ODD"))
 
 
-def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt) -> int:
+def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt, limit: float) -> int:
     """Position in idx of the line for the car: the nearest (j), unless it is unswept and another
-    city draws the same street alongside, with a schedule, within BORDER_EXTRA_M farther."""
+    city draws the same street alongside, with a schedule, within BORDER_EXTRA_M farther and
+    within limit (EPSG:3857 m)."""
     best = gdf_3857.iloc[int(idx[j])]
     if "_city" not in gdf_3857 or not _unswept(best):
         return j
     for k in np.argsort(dists, kind="stable"):
-        if dists[k] > dists[j] + BORDER_EXTRA_M:
+        if dists[k] > min(dists[j] + BORDER_EXTRA_M, limit):
             break
         row = gdf_3857.iloc[int(idx[k])]
         if (

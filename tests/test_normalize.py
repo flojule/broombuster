@@ -427,6 +427,7 @@ class TestHouseNumber:
 
     def test_letter_suffix(self):
         assert normalize.house_number("100 A") == 100
+        assert normalize.house_number("1234A") == 1234
 
     def test_leading_whitespace(self):
         assert normalize.house_number("  42  ") == 42

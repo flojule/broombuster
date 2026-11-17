@@ -31,6 +31,16 @@ def _download(url: str, dest: Path) -> None:
     dest.write_bytes(resp.content)
 
 
+def input_files(city_key: str) -> list[Path]:
+    """Local paths of the manifest's `source.files`: a URL lands next to `local_path`."""
+    src = CITIES[city_key]["source"]
+    here = (_ROOT / src["local_path"]).parent
+    return [
+        here / f.rsplit("/", 1)[-1] if f.startswith(("http://", "https://")) else _ROOT / f
+        for f in src.get("files", [])
+    ]
+
+
 def rebuild(city_key: str) -> None:
     city = CITIES[city_key]
     src = city["source"]
@@ -46,10 +56,10 @@ def rebuild(city_key: str) -> None:
             sys.exit(f"{layer['url']}: no features")
         gdf.to_file(local.parent / name, driver="GeoJSON")
         print(f"    {name}: {len(gdf):,} features, edited {asof or 'unknown'}")
-    for f in src.get("files", []):
+    for f, path in zip(src.get("files", []), input_files(city_key), strict=True):
         if f.startswith(("http://", "https://")):
-            _download(f, local.parent / f.rsplit("/", 1)[-1])
-        elif not (_ROOT / f).exists():
+            _download(f, path)
+        elif not path.exists():
             sys.exit(f"missing {f}:\n{src.get('notes', '')}")
     if src.get("build"):
         subprocess.run([sys.executable, str(_ROOT / src["build"])], cwd=_ROOT, check=True)

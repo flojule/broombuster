@@ -89,3 +89,19 @@ def test_even_left_unset_when_sides_match_or_unknown():
         )
     )
     assert [r["even_left"] for r in recs] == [None, None]
+
+
+def test_lines_merge_by_street_and_endpoints():
+    # Two streets between the same corners (SF's La Salle and Osceola): one line each, as the card.
+    ab = [(-122.0, 37.0), (-122.0, 37.001)]
+    curve = [(-122.0, 37.0), (-121.9995, 37.0005), (-122.0, 37.001)]
+    recs = tiles.merge_segment_rows(
+        _rows(
+            {"coords": ab, "DAY_EVEN": "ME", "DAY_ODD": None},
+            {"coords": ab, "DAY_EVEN": None, "DAY_ODD": "TE"},
+            {"coords": curve, "STREET_NAME": "SIDE ST", "DAY_EVEN": "FE", "DAY_ODD": None},
+        )
+    )
+    got = {(r["street"], tuple(s["code"] for s in r["schedule"])) for r in recs}
+    assert got == {("MAIN ST", ("ME", "TE")), ("SIDE ST", ("FE",))}
+    assert len(next(r for r in recs if r["street"] == "SIDE ST")["geometry"].coords) == 3

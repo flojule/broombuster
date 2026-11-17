@@ -318,18 +318,20 @@ def next_sweep(
 
 
 # Phone automations send numbers as text, sometimes with a unit ("65 m", "213 ft",
-# Shortcuts' measurements) or a decimal comma ("37,8044"). A comma before exactly three
-# digits is a thousands separator ("1,234 ft"), never read as a decimal.
+# Shortcuts' measurements) or a decimal comma ("37,8044"). In a distance, a comma before
+# exactly three digits is a thousands separator ("1,234 ft"); in a degree, always a decimal.
 _NUMBER = re.compile(r"[±~]?\s*([-+]?\d+(?:[.,]\d+)?)\s*([a-z°]*)\.?", re.I)
 _METERS = {"": 1.0, "m": 1.0, "km": 1000.0, "ft": 0.3048, "yd": 0.9144, "mi": 1609.344}
 _DEGREES = {"": 1.0, "°": 1.0}
 
 
-def _number(units: dict):
+def _number(units: dict, thousands: bool = False):
     def parse(v):
         if not isinstance(v, str):
             return v
-        v = re.sub(r",(\d{3})(?!\d)", r"\1", v.strip().replace("\u00a0", " "))
+        v = v.strip().replace("\u00a0", " ")
+        if thousands:
+            v = re.sub(r",(\d{3})(?!\d)", r"\1", v)
         m = _NUMBER.fullmatch(v)
         if not m or m[2].lower() not in units:
             return v  # pydantic refuses it
@@ -342,12 +344,12 @@ class CarLocation(BaseModel):
     lat: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-90.0, le=90.0)]
     lon: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-180.0, le=180.0)]
     # Meters (or with a unit), as the phone reports it.
-    accuracy: Annotated[float | None, BeforeValidator(_number(_METERS)), Field(ge=0.0, le=1e6)] = (
-        None
-    )
+    accuracy: Annotated[
+        float | None, BeforeValidator(_number(_METERS, thousands=True)), Field(ge=0.0, le=1e6)
+    ] = None
 
 
-_PHONE_PATH = "/api/cars/location"
+_PHONE_PATH = web.PHONE_PATH
 
 
 async def _phone_refusal(

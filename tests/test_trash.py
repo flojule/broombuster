@@ -4,7 +4,7 @@ import datetime
 
 import requests
 
-from broombuster import trash
+from broombuster import calfeed, feeds, trash
 
 _TODAY = datetime.date(2026, 9, 30)
 _LATER = _TODAY + datetime.timedelta(days=3)
@@ -44,7 +44,7 @@ class _Resp:
 
 
 def test_pickups_for_oakland(monkeypatch):
-    trash._cache.clear()
+    trash.cache.clear()
 
     def _get(url, params, timeout):
         if url.endswith("address-suggest"):
@@ -58,17 +58,51 @@ def test_pickups_for_oakland(monkeypatch):
 
 
 def test_failure_is_cached_briefly(monkeypatch):
-    trash._cache.clear()
+    trash.cache.clear()
 
     def _down(*a, **k):
         raise requests.ConnectionError
 
     monkeypatch.setattr(trash.requests, "get", _down)
-    monkeypatch.setattr(trash.time, "time", lambda: 1000.0)
+    monkeypatch.setattr(feeds.time, "time", lambda: 1000.0)
     assert trash.pickups("oakland", "1 Main St", _TODAY) == {}
-    ((expires, value),) = trash._cache.values()
-    assert value is None and expires == 1000.0 + trash._FAILURE_TTL_S
-    trash._cache.clear()
+    ((expires, value),) = trash.cache._data.values()
+    assert value is None and expires == 1000.0 + trash.cache.failure_ttl
+    trash.cache.clear()
+
+
+def test_feed_looks_up_trash_for_a_few_homes_only(monkeypatch):
+    """A feed makes at most calfeed.TRASH_LOOKUPS uncached lookups; cached homes are free."""
+    trash.cache.clear()
+    asked = []
+
+    def _get(url, params, timeout):
+        if url.endswith("address-suggest"):
+            asked.append(params["q"])
+            return _Resp([{"place_id": params["q"]}])
+        return _Resp({"events": [_event(_TODAY, "Trash")]})
+
+    monkeypatch.setattr(trash.requests, "get", _get)
+    homes = [
+        {"id": f"h{i}", "lat": 37.8113, "lon": -122.2580, "address": f"{i} Lakeshore Ave"}
+        for i in range(5)
+    ]
+    now = datetime.datetime(2026, 9, 30, 19, tzinfo=datetime.UTC)  # noon in Oakland
+    ics = calfeed.build({"homes": homes}, lambda lat, lon: None, now=now)
+    assert len(asked) == calfeed.TRASH_LOOKUPS == 3
+    assert ics.count("UID:trash-") == 3
+    ics = calfeed.build({"homes": homes}, lambda lat, lon: None, now=now)
+    assert len(asked) == 5  # the 3 cached homes did not use up this feed's lookups
+    assert ics.count("UID:trash-") == 5
+    trash.cache.clear()
+
+
+def test_busy_slots_are_not_cached_as_an_outage(monkeypatch):
+    trash.cache.clear()
+    monkeypatch.setattr(trash._slots, "acquire", lambda timeout: False)
+    assert trash.pickups("oakland", "1 Main St", _TODAY) == {}
+    assert not trash.cache._data
+    trash.cache.clear()
 
 
 def test_check_home_endpoint(monkeypatch, app_client):
@@ -105,12 +139,3 @@ def test_check_home_weekly_city(app_client):
     assert data["city"] == "berkeley" and data["trash_kind"] == "weekly"
     (dates,) = data["pickups"].values()
     assert all(d >= "2026" for d in dates) and len(dates) >= 7
-
-
-def test_cache_is_bounded(monkeypatch):
-    monkeypatch.setattr(trash, "_CACHE_MAX", 5)
-    trash._cache.clear()
-    for i in range(20):
-        trash._cached(("k", i), 3600, lambda i=i: i)
-    assert len(trash._cache) <= 5
-    trash._cache.clear()

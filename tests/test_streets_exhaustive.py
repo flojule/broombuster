@@ -3,7 +3,7 @@
 These tests sample the most-common street names in each city's prebuilt
 FlatGeobuf and verify:
   - every common name normalizes to a STREET_KEY present in the data
-  - the nearest segment for that street has schedule information
+  - the resolver places a car mid-block on that street, with schedule information
   - if address ranges exist, at least one segment covers a sample house number
 
 These exercises help catch regressions in name-indexing, range parsing,
@@ -14,9 +14,8 @@ import math
 
 import pytest
 from pyproj import Transformer
-from shapely.geometry import Point
 
-from broombuster import data_loader, normalize
+from broombuster import analysis, data_loader, normalize, resolve
 from broombuster.cities import CITIES
 
 
@@ -45,9 +44,8 @@ def test_common_streets_index_and_schedule(city_key):
     if not names:
         pytest.skip(f"No STREET_NAME values for {city_key}")
 
-    # prepare spatial transformer and index
-    trans = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
     gdf3857 = gdf.to_crs("EPSG:3857")
+    to_4326 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
     name_idx = _name_index(gdf)
 
     for name in names:
@@ -56,47 +54,29 @@ def test_common_streets_index_and_schedule(city_key):
         inds = name_idx[norm]
         assert inds, f"No indices for {name} in {city_key}"
 
-        # nearest segment to the centroid of those segments should have a schedule
-        # compute a representative point (centroid of first geometry)
-        first_row = gdf.loc[inds[0]]
-        geom = first_row.geometry
+        # A car parked mid-block on the street (inside the zone, for polygons).
+        geom = gdf3857.loc[inds[0]].geometry
         assert geom is not None and not geom.is_empty
-        centroid = geom.representative_point()
-        # transform to 3857 for distance checks
-        try:
-            cx, cy = trans.transform(centroid.x, centroid.y)
-        except Exception:
-            # if transform fails, fall back to 4326 directly
-            cx, cy = centroid.x, centroid.y
-        car_pt = Point(cx, cy)
+        if geom.geom_type in ("Polygon", "MultiPolygon"):
+            pt = geom.representative_point()
+        else:
+            pt = geom.interpolate(0.5, normalized=True)
+        lon, lat = to_4326.transform(pt.x, pt.y)
+        r = resolve.resolve_car_segment(gdf3857, lat, lon)
 
-        nearest = None
-        nearest_d = math.inf
-        for i in inds:
-            row = gdf3857.loc[i]
-            g = row.geometry
-            if g is None or g.is_empty:
-                continue
-            d = car_pt.distance(g)
-            if d < nearest_d:
-                nearest_d = d
-                nearest = row
-
-        assert nearest is not None, f"Could not find nearest segment for {name} in {city_key}"
-        de = nearest.get("DAY_EVEN")
-        do = nearest.get("DAY_ODD")
-        de_desc = nearest.get("DESC_EVEN")
-        do_desc = nearest.get("DESC_ODD")
-        te = nearest.get("TIME_EVEN")
-        to = nearest.get("TIME_ODD")
-        # For Chicago-style zone data there may legitimately be no per-zone
-        # schedule fields in some rows; avoid failing the test on that basis.
-        if CITIES.get(city_key, {}).get("schema") == "chicago":
+        if r.is_polygon:
+            assert r.segment.geometry.contains(pt), f"{name} in {city_key}: zone not containing"
             continue
-        has_schedule = any(
-            (isinstance(x, str) and x.strip()) for x in (de, do, de_desc, do_desc, te, to)
-        )
-        assert has_schedule, f"Nearest segment for {name} in {city_key} missing schedule info"
+        assert r.distance_m < 1.0, f"{name} in {city_key}: resolved {r.distance_m:.1f} m away"
+        same_line = r.segment.geometry.equals(geom)  # one line drawn under two names (freeways)
+        assert r.segment["STREET_KEY"] == norm or same_line, f"{name} in {city_key}: {r.label}"
+        even, odd = analysis.schedules_for_all_matching_rows(gdf3857, r)
+        texts = [
+            r.segment.get(c)
+            for c in ("DAY_EVEN", "DAY_ODD", "DESC_EVEN", "DESC_ODD", "TIME_EVEN", "TIME_ODD")
+        ]
+        has_schedule = even or odd or any(isinstance(x, str) and x.strip() for x in texts)
+        assert has_schedule, f"Resolved segment for {name} in {city_key} missing schedule info"
 
 
 @pytest.mark.parametrize("city_key", list(CITIES.keys()))

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
 from broombuster import analysis, holidays, normalize, schedule, trash
 from broombuster.cities import CITIES
@@ -45,8 +46,85 @@ def test_every_city_has_a_holiday_file_with_this_and_next_year(city):
     # From December, next year's dates must be in (the lists change every year).
     if today.month == 12:
         assert today.year + 1 in years, f"{city}: add {today.year + 1}'s holidays"
-    meta = holidays.source(city)
+    meta = yaml.safe_load((_DIR.parent / CITIES[city]["holidays"]).read_text(encoding="utf-8"))
     assert meta["source"].startswith("https://") and meta["last_verified"]
+
+
+def _nth(month, weekday, n):
+    """The nth `weekday` (Mon=0) of `month`; n=-1 the last."""
+
+    def rule(year):
+        if n > 0:
+            first = datetime.date(year, month, 1)
+            return first + datetime.timedelta((weekday - first.weekday()) % 7 + 7 * (n - 1))
+        last = datetime.date(year, month + 1, 1) - datetime.timedelta(1)
+        return last - datetime.timedelta((last.weekday() - weekday) % 7)
+
+    return rule
+
+
+def _on(month, day):
+    return lambda year: datetime.date(year, month, day)
+
+
+_NEW_YEAR = ("New Year's Day", _on(1, 1))
+_MLK = ("Martin Luther King Jr. Day", _nth(1, 0, 3))
+_MEMORIAL = ("Memorial Day", _nth(5, 0, -1))
+_JUNETEENTH = ("Juneteenth", _on(6, 19))
+_JULY_4 = ("Independence Day", _on(7, 4))
+_LABOR = ("Labor Day", _nth(9, 0, 1))
+_VETERANS = ("Veterans Day", _on(11, 11))
+_THANKSGIVING = ("Thanksgiving Day", _nth(11, 3, 4))
+_DAY_AFTER = ("Day after Thanksgiving", lambda y: _nth(11, 3, 4)(y) + datetime.timedelta(1))
+_CHRISTMAS = ("Christmas Day", _on(12, 25))
+_TRASH = [_NEW_YEAR, _THANKSGIVING, _CHRISTMAS]
+
+_OAKLAND = [_NEW_YEAR, _MLK, ("Presidents Day", _nth(2, 0, 3)), ("Farmworkers Day", _on(3, 31)),
+            _MEMORIAL, _JUNETEENTH, _JULY_4, _LABOR, ("California Admission Day", _on(9, 9)),
+            _VETERANS, _THANKSGIVING, _DAY_AFTER, _CHRISTMAS]  # fmt: skip
+_SF_DAYTIME = [_MLK, ("Presidents' Day", _nth(2, 0, 3)), _MEMORIAL, _JUNETEENTH, _JULY_4, _LABOR,
+               ("Indigenous Peoples Day", _nth(10, 0, 2)), _VETERANS, _DAY_AFTER]  # fmt: skip
+_CHICAGO = [_NEW_YEAR, _MEMORIAL, _JULY_4, _LABOR, _THANKSGIVING, _CHRISTMAS]
+
+# city: [(holidays, suspends, observed)]; observed: "date" (the date only), "both" (plus the
+# weekday a weekend date is observed on), "weekday" (only the observed weekday).
+_EXPECTED = {
+    "oakland": [(_OAKLAND, ["sweeping"], "both")],
+    "san_francisco": [(_TRASH, ["sweeping"], "date"), (_SF_DAYTIME, ["sweeping_day"], "weekday")],
+    "berkeley": [(_TRASH, ["trash"], "date")],
+    "alameda": [(_TRASH, ["trash"], "date")],
+    "chicago_all": [(_CHICAGO, ["trash"], "date")],
+}
+_SF_DAYTIME_YEARS = {2026}  # SFMTA has not published 2027's daytime-only holidays
+_ALSO_SUSPENDED = {("san_francisco", datetime.date(2026, 1, 1)): "trash"}  # Recology moved pickups
+
+
+def _expected(city, year):
+    """{date: {"name", "suspends"}} the rules give for a city's year. An observed day in the
+    year before (Oakland: no Fri Dec 31 2027 for New Year's Day 2028) is not expected."""
+    out = {}
+    for days, suspends, observed in _EXPECTED[city]:
+        if suspends == ["sweeping_day"] and year not in _SF_DAYTIME_YEARS:
+            continue
+        for name, rule in days:
+            day = rule(year)
+            weekday = day + datetime.timedelta({5: -1, 6: 1}.get(day.weekday(), 0))
+            if observed != "weekday" or weekday == day:
+                out[day] = {"name": name, "suspends": list(suspends)}
+            if observed != "date" and weekday != day and weekday.year == year:
+                out[weekday] = {"name": f"{name} (observed)", "suspends": list(suspends)}
+    for (ck, day), service in _ALSO_SUSPENDED.items():
+        if ck == city and day.year == year:
+            out[day]["suspends"].append(service)
+    return out
+
+
+@pytest.mark.parametrize("city", sorted(CITIES))
+def test_holiday_files_list_every_observed_holiday(city):
+    days = holidays.for_city(city)
+    for year in sorted({d.year for d in days}):
+        got = {d: h for d, h in days.items() if d.year == year}
+        assert got == _expected(city, year), f"{city} {year}"
 
 
 def test_oakland_and_sf_suspend_sweeping_others_only_trash():

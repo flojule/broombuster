@@ -37,16 +37,6 @@ def for_city(city_key: str) -> dict[datetime.date, dict]:
     return out
 
 
-def source(city_key: str) -> dict:
-    """{"source", "last_verified"} of a city's holiday file ({} without one)."""
-    rel = CITIES[city_key].get("holidays")
-    if not rel:
-        return {}
-    with open(os.path.join(REPO_ROOT, rel), encoding="utf-8") as fh:
-        doc = yaml.safe_load(fh) or {}
-    return {"source": doc.get("source"), "last_verified": str(doc.get("last_verified") or "")}
-
-
 def suspended(city_key: str, service: str, day: datetime.date) -> str | None:
     """The holiday's name when `service` is suspended in the city that day, else None."""
     h = for_city(city_key).get(day)

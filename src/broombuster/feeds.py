@@ -5,9 +5,12 @@ relocated vehicles, and Chicago's permit zones by address.
 Every feed is best effort: a failure answers "nothing known", never an error.
 """
 
+import concurrent.futures
 import datetime
+import logging
 import threading
 import time
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -18,38 +21,63 @@ from broombuster.cities import REGIONS
 
 TIMEOUT_S = 8
 _UA = {"User-Agent": "BroomBuster (https://github.com/flojule/broombuster)"}
+log = logging.getLogger(__name__)
+# Closure sources are fetched side by side; a request waits at most TIMEOUT_S for them.
+_pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="feeds")
 
 
 class TTLCache:
     """fetch() once per ttl per key; a failed fetch (None) is retried after failure_ttl.
+    One fetch per key at a time: concurrent callers wait up to wait_s for its result and
+    get None when it times out or raises (a raised fetch is not cached).
     Bounded: the oldest expired (else oldest) entries go first."""
 
-    def __init__(self, max_items: int = 512, failure_ttl: float = 300):
+    def __init__(self, max_items: int = 512, failure_ttl: float = 300, wait_s: float = 30):
         self._data: dict = {}
+        self._fetching: dict = {}  # key -> Event set when its one fetch ends
         self._lock = threading.Lock()
-        self.max_items, self.failure_ttl = max_items, failure_ttl
+        self.max_items, self.failure_ttl, self.wait_s = max_items, failure_ttl, wait_s
 
-    def get(self, key, ttl: float, fetch):
-        now = time.time()
+    def peek(self, key, default=None):
+        """The fresh cached value of key, else default (never fetches)."""
         with self._lock:
             hit = self._data.get(key)
-            if hit and now < hit[0]:
-                return hit[1]
-        value = fetch()
+            return hit[1] if hit and time.time() < hit[0] else default
+
+    def get(self, key, ttl: float, fetch):
         with self._lock:
-            if len(self._data) >= self.max_items:
-                stale = [k for k, (exp, _) in self._data.items() if exp <= now]
-                for k in stale or [next(iter(self._data))]:
-                    del self._data[k]
-            self._data[key] = (now + (ttl if value is not None else self.failure_ttl), value)
-        return value
+            hit = self._data.get(key)
+            if hit and time.time() < hit[0]:
+                return hit[1]
+            done = self._fetching.get(key)
+            owner = done is None
+            if owner:
+                done = self._fetching[key] = threading.Event()
+        if not owner:
+            done.wait(self.wait_s)
+            return self.peek(key)
+        try:
+            value = fetch()
+            now = time.time()
+            with self._lock:
+                if len(self._data) >= self.max_items:
+                    stale = [k for k, (exp, _) in self._data.items() if exp <= now]
+                    for k in stale or [next(iter(self._data))]:
+                        del self._data[k]
+                expires = now + (ttl if value is not None else self.failure_ttl)
+                self._data[key] = (expires, value)
+            return value
+        finally:
+            with self._lock:
+                del self._fetching[key]
+            done.set()
 
     def clear(self) -> None:
         with self._lock:
             self._data.clear()
 
 
-cache = TTLCache()
+cache = TTLCache(wait_s=2 * TIMEOUT_S)
 
 
 def get_json(url: str, **params):
@@ -107,6 +135,7 @@ def _sf_closures(now: datetime.datetime):
     return out
 
 
+_BAY_TZ = ZoneInfo(REGIONS["bay_area"]["tz"])
 _OAKLAND_CLOSURES = (
     "https://services.arcgis.com/9tC74aDHuml0x5Yz/arcgis/rest/services/"
     "Latest_Street_Closures_Nov24/FeatureServer/0/query"
@@ -114,9 +143,10 @@ _OAKLAND_CLOSURES = (
 
 
 def _oakland_closures(now: datetime.datetime):
+    today = now.astimezone(_BAY_TZ).date()  # its dates are Oakland days
     data = get_json(
         _OAKLAND_CLOSURES,
-        where=f"End_date >= DATE '{now:%Y-%m-%d}'",
+        where=f"End_date >= DATE '{today:%Y-%m-%d}'",
         outFields="ST_NAME,Start_date,End_date,Event_type,Event_time,Status",
         outSR=4326,
         f="geojson",
@@ -148,6 +178,12 @@ def _oakland_closures(now: datetime.datetime):
     return out
 
 
+def _aware(iso: str) -> datetime.datetime:
+    """An ISO date-time; one without a zone is Bay Area local time (as _when shows it)."""
+    d = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    return d if d.tzinfo else d.replace(tzinfo=_BAY_TZ)
+
+
 def _511_work_zones(now: datetime.datetime):
     """511 SF Bay WZDx work zones on local streets (needs BB_511_API_KEY)."""
     key = config.api_511_key()
@@ -163,9 +199,9 @@ def _511_work_zones(now: datetime.datetime):
         p = f.get("properties") or {}
         start, end = p.get("start_date") or "", p.get("end_date") or ""
         try:
-            if end and datetime.datetime.fromisoformat(end.replace("Z", "+00:00")) < now:
+            if end and _aware(end) < now:
                 continue
-            if start and datetime.datetime.fromisoformat(start.replace("Z", "+00:00")) > soon:
+            if start and _aware(start) > soon:
                 continue
         except ValueError:
             pass
@@ -190,17 +226,59 @@ def _511_work_zones(now: datetime.datetime):
 _CLOSURE_SOURCES = {"bay_area": (_sf_closures, _oakland_closures, _511_work_zones), "chicago": ()}
 
 
+def _safe(src, now: datetime.datetime):
+    """src(now), or None (logged) when it raises: one bad feed answers nothing."""
+    try:
+        return src(now)
+    except Exception:
+        log.exception("closure source %s failed", src.__name__)
+        return None
+
+
 def closures(region_key: str, now: datetime.datetime | None = None) -> list[dict]:
     """Closures in a region that are on now or start within CLOSURE_DAYS (GeoJSON
-    Features with a geometry). Each source is cached 15 minutes."""
+    Features with a geometry). Each source is cached 15 minutes; the sources are
+    fetched concurrently and a source not done within TIMEOUT_S counts as none."""
     now = now or datetime.datetime.now(datetime.UTC)
-    out = []
+    hour = now.strftime("%Y%m%d%H")
+    got, futures = {}, {}
     for src in _CLOSURE_SOURCES.get(region_key, ()):
-        got = cache.get(
-            ("closures", src.__name__, now.strftime("%Y%m%d%H")), 15 * 60, lambda src=src: src(now)
-        )
-        out += [f for f in got or [] if f.get("geometry")]
-    return out
+        key = ("closures", src.__name__, hour)
+        got[key] = cache.peek(key, _MISS)
+        if got[key] is _MISS:
+            futures[key] = _fetch_shared(key, lambda src=src: _safe(src, now))
+    if futures:
+        done, late = concurrent.futures.wait(futures.values(), timeout=TIMEOUT_S)
+        for fut in late:
+            fut.cancel()  # only a task still queued
+        if late:
+            log.warning("%d closure source(s) still fetching after %s s", len(late), TIMEOUT_S)
+        for key, fut in futures.items():
+            ok = fut in done and not fut.cancelled()
+            got[key] = fut.result() if ok else None
+    return [f for value in got.values() for f in value or [] if f.get("geometry")]
+
+
+_MISS = object()
+_inflight: dict = {}  # cache key -> the one pool task fetching it, shared by all callers
+_inflight_lock = threading.Lock()
+
+
+def _fetch_shared(key, fetch) -> concurrent.futures.Future:
+    """The pool task filling cache[key] with fetch(): one per key, however many callers."""
+    with _inflight_lock:
+        fut = _inflight.get(key)
+        if fut is not None and not fut.done():  # a done one may predate a cache.clear()
+            return fut
+        fut = _inflight[key] = _pool.submit(cache.get, key, 15 * 60, fetch)
+
+    def forget(f):
+        with _inflight_lock:
+            if _inflight.get(key) is f:
+                del _inflight[key]
+
+    fut.add_done_callback(forget)
+    return fut
 
 
 def closures_near(region_key: str, lat: float, lon: float, meters: float = 15) -> list[dict]:
@@ -237,8 +315,6 @@ def closures_near(region_key: str, lat: float, lon: float, meters: float = 15) -
 
 def _when(start: str, end: str, region_key: str) -> str:
     """ "Sun Feb 7, 7–10 AM" style text for a closure's span, in the region's time."""
-    from zoneinfo import ZoneInfo
-
     tz = ZoneInfo(REGIONS[region_key]["tz"])
 
     def parse(s):
@@ -363,15 +439,20 @@ def chicago_permit_zone(lat: float, lon: float, network: bool = True) -> list[di
     number = normalize.house_number(addr["house_number"])
     if number is None:
         return []
-    street = normalize.street_name(addr["road"])
     z = _permit_zones()
     side = "E" if number % 2 == 0 else "O"
-    hit = z[
-        (z["street"] == street)
-        & (z["low"] <= number)
-        & (z["high"] >= number)
-        & z["side"].isin((side, "B"))
-    ]
+
+    def rows(street: str) -> pd.DataFrame:
+        return z[
+            (z["street"] == street)
+            & (z["low"] <= number)
+            & (z["high"] >= number)
+            & z["side"].isin((side, "B"))
+        ]
+
+    hit = rows(normalize.street_name_typed(addr["road"]))
+    if hit.empty:  # rows without a street type ("NORTH KILDARE")
+        hit = rows(normalize.street_name(addr["road"]))
     return [
         {
             "theme": "parking",

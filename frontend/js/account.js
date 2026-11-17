@@ -3,18 +3,26 @@ let accountEnabled = false;  // the server has sign-in configured
 let account    = null;   // the signed-in person { name } while signed in
 let family     = [];     // names of everyone in the account
 let _syncTimer = null;
+let _saving    = Promise.resolve();  // account saves and reads, one at a time
+let _prefsRev  = null;   // the account's prefs version our lists build on (auth.me prefs_rev)
+// The sync base: {cars, homes} as this page last read from or saved to the account (null:
+// none). What differs from it is this device's unsaved edits. Kept across launches.
+const SYNC_BASE_KEY = 'bb_sync_base';
+let _base = null;
 let phoneLinks = {};     // car id -> the phone's last report, {used, moved, error} (auth.me)
 let calendarOn = false;  // the account has a calendar subscription link
 let _calendarUrl = null; // a freshly made link, shown once: {url, webcal}
 let _joinToken = null;   // an invite's token, from a join link, until a sign-in uses it
 let _inviteLink = null;  // a freshly made invite, shown once: {url, days}
 
-// Sign-in state. A signed-in user's account prefs replace the local copy; an
-// account without prefs adopts the local one.
+// Sign-in state. A signed-in user gets the account's lists with this device's unsaved
+// edits re-applied on top (all of its lists, for an account without any yet).
 async function loadAccount() {
   const join = new URLSearchParams(location.search).get('join');
   _joinToken = /^bbi_[\w-]+$/.test(join || '') ? join : null;
   if (join !== null) history.replaceState(null, '', '/');
+  // The base of the lists this page starts on (another tab may save before /api/me answers).
+  try { _base = JSON.parse(_read(SYNC_BASE_KEY)); } catch (_) { _base = null; }
   try {
     const res = await fetch('/api/me', { cache: 'no-store' });
     if (!res.ok) return;
@@ -31,17 +39,51 @@ async function loadAccount() {
     // The session ended on its own (30 days unused): say so; cars stay on this device only.
     if (!account && accountEnabled && _read('bb_signed_in')) showToast('Signed out. Sign in again to sync your cars.', true, { sticky: true });
     _store('bb_signed_in', account ? '1' : null);
-    if (!account) return;
-    if (me.prefs) _store(PREFS_KEY, JSON.stringify(me.prefs));
-    else if (_read(PREFS_KEY)) _putPrefs(_read(PREFS_KEY));
+    if (!account) { _setBase(null); return; }
+    if (!map) loadPrefs();  // before startup: this device's copy (answered late: the live lists)
+    _takeAccountLists(me);
+    if (_unsaved()) { syncPrefs(); await _flushPrefs(); }
   } catch (_) {}
 }
 
-function _putPrefs(body) {
-  return fetch('/api/me/prefs', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive: true,
-  }).then(res => { if (!res.ok) showToast('Couldn’t save to your account', true); })
-    .catch(() => showToast('Couldn’t save to your account', true));
+function _setBase(json) {
+  _base = json && JSON.parse(json);
+  _store(SYNC_BASE_KEY, json);
+}
+// This device's lists differ from the account's as last seen.
+function _unsaved() {
+  return !_base || !(_sameList(cars, _base.cars) && _sameList(homes, _base.homes));
+}
+
+// PUT the lists, based on version _prefsRev; on success they are the new sync base.
+async function _sendPrefs() {
+  const sent = JSON.stringify({ cars, homes }), rev = _prefsRev;
+  const res = await fetch('/api/me/prefs', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+    body: JSON.stringify({ cars, homes, rev: rev ?? undefined }),
+  }).catch(() => null);
+  if (res?.ok && _prefsRev === rev) {  // else a newer save or read moved on meanwhile
+    _setBase(sent);
+    try { _prefsRev = (await res.json()).rev ?? null; } catch (_) { _prefsRev = null; }
+  }
+  return res;
+}
+
+// Save the lists to the account. Another device saved first (409): re-read, re-apply
+// our edits on top of its lists, and save once more.
+async function _pushPrefs(retry = true) {
+  const res = await _sendPrefs();
+  if (res?.status === 409 && retry && await _pullPrefs()) return _pushPrefs(false);
+  if (!res?.ok) showToast('Couldn’t save to your account', true);
+}
+
+// The page is being hidden (iOS may freeze or end it): send unsaved edits at once,
+// outside the queue. A refusal is rebased at the next launch or return.
+function sendPrefsNow() {
+  if (!account) return;
+  clearTimeout(_syncTimer);
+  _syncTimer = null;
+  if (_unsaved()) _sendPrefs();
 }
 
 // Called by savePrefs(): upload cars and homes shortly after the last change.
@@ -52,46 +94,104 @@ function syncPrefs() {
 }
 
 function _flushPrefs() {
-  if (_syncTimer === null) return Promise.resolve();
-  clearTimeout(_syncTimer);
-  _syncTimer = null;
-  return _putPrefs(JSON.stringify({ cars, homes }));
+  if (_syncTimer !== null) {
+    clearTimeout(_syncTimer);
+    _syncTimer = null;
+    _saving = _saving.then(() => _pushPrefs()).catch(() => {});
+  }
+  return _saving;
 }
 
-// Back in the foreground: a phone may have moved a car meanwhile. Push our own
-// edits first, then adopt each server position with a higher version (the same
-// rule the server applies, auth._merge_cars).
+// A car or home as text, its keys sorted, to compare two copies.
+const _itemKey = x => JSON.stringify(x, Object.keys(x).sort());
+const _sameList = (a, b) => a.length === b.length && a.every((x, i) => _itemKey(x) === _itemKey(b[i]));
+
+// Where a car or home is: these fields change together.
+const _SPOT = ['lat', 'lon', 'loc_rev', 'side', 'address'];
+
+// Three-way merge into the local item `m` (kept as the same object): each field this
+// device changed since `b` keeps its value, the others take the server's (`s`). The
+// spot goes as one, and a server spot with a higher version wins (auth._merge_cars).
+function _mergeItem(m, b, s) {
+  const changed = k => JSON.stringify(m[k]) !== JSON.stringify(b[k]);
+  const spotHere = _SPOT.some(changed) && !((s.loc_rev || 0) > (m.loc_rev || 0));
+  const out = {};
+  for (const k of new Set([...Object.keys(m), ...Object.keys(s)])) {
+    const from = _SPOT.includes(k) ? (spotHere ? m : s) : (changed(k) ? m : s);
+    if (from[k] !== undefined) out[k] = from[k];
+  }
+  for (const k of Object.keys(m)) if (!(k in out)) delete m[k];
+  return Object.assign(m, out);
+}
+
+// `local` with this device's edits since `base` re-applied on top of `server`: its
+// additions and removals by id, its changed fields per item. An item removed on the
+// server stays removed. Local items are updated in place.
+function _rebase(local, base, server) {
+  const was = new Map(base.map(x => [x.id, x]));
+  const mine = new Map(local.map(x => [x.id, x]));
+  const out = [];
+  for (const s of server) {
+    const m = mine.get(s.id);
+    if (!m) { if (!was.has(s.id)) out.push(s); continue; }  // removed here, or added elsewhere
+    out.push(_mergeItem(m, was.get(s.id) || {}, s));
+  }
+  const there = new Set(server.map(s => s.id));
+  for (const m of local) if (!was.has(m.id) && !there.has(m.id)) out.push(m);  // added here
+  return out;
+}
+
+// Take the account's lists (`me`: /api/me) with this device's unsaved edits re-applied,
+// against the saved sync base. Without one, the account's lists win; an account
+// without any takes this device's. Draws the result once the app is up.
+function _takeAccountLists(me) {
+  const server = me.prefs || { cars: [], homes: [] };
+  const base = _base || (me.prefs ? JSON.parse(JSON.stringify({ cars, homes })) : { cars: [], homes: [] });
+  const spot = x => `${x.lat},${x.lon}`;
+  const carAt = new Map(cars.map(c => [c.id, spot(c)]));
+  const homeAt = new Map(homes.map(h => [h.id, spot(h)]));
+  phoneLinks = me.phone_links || phoneLinks;
+  cars = _rebase(cars, base.cars, server.cars);
+  homes = _rebase(homes, base.homes, server.homes);
+  _prefsRev = me.prefs_rev ?? null;
+  _setBase(JSON.stringify(server));
+  _store(PREFS_KEY, JSON.stringify({ cars, homes }));
+  for (const id in carSchedules) if (!cars.some(c => c.id === id)) delete carSchedules[id];
+  for (const id in homeSchedules) if (!homes.some(h => h.id === id)) delete homeSchedules[id];
+  if (!map) return;  // startup draws and checks them
+  updateCarMarkers();  // also re-renders the cards (phone link status may have changed)
+  updateHomeMarkers();
+  renderHomePanel();
+  for (const c of cars) if (carAt.get(c.id) !== spot(c)) { delete carSchedules[c.id]; checkCar(c); }
+  for (const h of homes) if (homeAt.get(h.id) !== spot(h)) { delete homeSchedules[h.id]; checkHome(h.id); }
+}
+
+// Read the account's lists and take them (_takeAccountLists); false if that failed.
+async function _pullPrefs() {
+  const res = await fetch('/api/me', { cache: 'no-store' }).catch(() => null);
+  if (!res?.ok) return false;
+  const me = await res.json().catch(() => null);
+  if (!me) return false;
+  if (!me.user) {  // the session ended meanwhile
+    account = null;
+    _store('bb_signed_in', null);
+    _setBase(null);
+    showToast('Signed out. Sign in again to sync your cars.', true, { sticky: true });
+    renderAccountSection();
+    return false;
+  }
+  _takeAccountLists(me);
+  return true;
+}
+
+// Back in the foreground: another device or a phone may have changed the lists.
+// Push our own edits first, then take the account's; edits still unsaved (a failed
+// or refused save) are saved again.
 async function refreshFromAccount() {
   if (!account) return;
-  try {
-    await _flushPrefs();
-    const res = await fetch('/api/me', { cache: 'no-store' });
-    if (!res.ok) return;
-    const me = await res.json();
-    if (!me.user) {  // the session ended meanwhile
-      account = null;
-      _store('bb_signed_in', null);
-      showToast('Signed out. Sign in again to sync your cars.', true, { sticky: true });
-      renderAccountSection();
-      return;
-    }
-    phoneLinks = me.phone_links || phoneLinks;
-    const moved = [];
-    for (const s of me.prefs?.cars || []) {
-      const car = cars.find(c => c.id === s.id);
-      if (car && (s.loc_rev || 0) > (car.loc_rev || 0)) {
-        Object.assign(car, { lat: s.lat, lon: s.lon, loc_rev: s.loc_rev });
-        if (s.side) car.side = s.side; else delete car.side;  // the side belongs to the old spot
-        delete carSchedules[car.id];
-        moved.push(car);
-      }
-    }
-    if (moved.length) {
-      _store(PREFS_KEY, JSON.stringify({ cars, homes }));
-      for (const car of moved) checkCar(car);
-    }
-    updateCarMarkers();  // re-renders the cards (phone link status may have changed)
-  } catch (_) {}
+  await _flushPrefs();
+  const pulled = await (_saving = _saving.then(_pullPrefs).catch(() => false));
+  if (pulled && _unsaved()) syncPrefs();
 }
 
 // ── Account sections of the Settings tab ──────────────────────────────────────
@@ -118,6 +218,7 @@ async function _leaveAccount(request) {
   account = null;
   _store('bb_signed_in', null);
   _store(PREFS_KEY, null);  // the account's cars and homes leave this device
+  _setBase(null);
   location.reload();
 }
 
@@ -206,13 +307,28 @@ async function _makeInvite() {
   _inviteLink = await res.json();
   renderAccountSection();
 }
+// Copies link.url; where the clipboard is refused, the link shows in a field instead
+// (link.field, focused once drawn).
+function _copyItems(label, link) {
+  if (link.shown) {
+    const field = link.field = Object.assign(document.createElement('input'), {
+      className: 'field link-field', readOnly: true, value: link.url });
+    field.setAttribute('aria-label', 'Link');
+    field.addEventListener('focus', () => field.select());
+    return [field];
+  }
+  return [_menuItem(label, async () => {
+    try { await navigator.clipboard.writeText(link.url); showToast('Link copied'); }
+    catch (_) {
+      link.shown = true;
+      renderAccountSection();
+      link.field?.focus();
+    }
+  })];
+}
 function _inviteItems() {
   if (!_inviteLink) return [_menuItem('Invite someone', _makeInvite)];
-  return [_menuItem('Copy invite link', async () => {
-      try { await navigator.clipboard.writeText(_inviteLink.url); showToast('Link copied'); }
-      catch (_) { showToast(_inviteLink.url, false, 10000); }
-    }),
-    _note(`Works once, for ${_inviteLink.days} days.`)];
+  return [..._copyItems('Copy invite link', _inviteLink), _note(`Works once, for ${_inviteLink.days} days.`)];
 }
 
 // ── Calendar subscription: a secret link a calendar app polls (sweeping of the cars,
@@ -237,10 +353,8 @@ function _calendarItems() {
   if (_calendarUrl) {
     const a = Object.assign(document.createElement('a'), {
       className: 'menu-item', href: _calendarUrl.webcal, textContent: 'Subscribe in Calendar' });
-    items.push(a, _menuItem('Copy link', async () => {
-      try { await navigator.clipboard.writeText(_calendarUrl.url); showToast('Link copied'); }
-      catch (_) { showToast(_calendarUrl.url, false, 10000); }
-    }), _note('Shown once. Anyone with the link sees your cars’ days.'));
+    items.push(a, ..._copyItems('Copy link', _calendarUrl),
+      _note('Shown once. Anyone with the link sees your cars’ days.'));
   } else {
     items.push(_menuItem(calendarOn ? 'New calendar link' : 'Add sweeping and trash days to your calendar',
                          _makeCalendarLink));
@@ -258,6 +372,7 @@ function _signedOutSection() {
   if (!_passkeysOk) return [];
   const name = Object.assign(document.createElement('input'), {
     className: 'field', placeholder: 'Name', maxLength: 40, autocomplete: 'name' });
+  name.setAttribute('aria-label', 'Name');
   const go = Object.assign(document.createElement('button'), {
     type: 'button', className: 'btn btn-wide', textContent: _joinToken ? 'Join' : 'Create account' });
   go.addEventListener('click', () => _passkeyCreate(name.value));
@@ -270,7 +385,11 @@ function _signedInSection() {
   const rows = [_menuItem(account.name)];
   if (family.length > 1) rows.push(_note(`With ${family.join(', ')}`));
   rows.push(..._inviteItems(),
-    _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' }))));
+    _menuItem('Sign out', () => _leaveAccount(() => fetch('/auth/logout', { method: 'POST' }))),
+    _menuItem('Sign out everywhere', async () => {
+      if (!await askConfirm('Sign out everywhere?', 'Every device signed in as you signs out, this one too.', 'Sign out')) return;
+      _leaveAccount(() => fetch('/auth/logout-everywhere', { method: 'POST' }));
+    }));
   return _section('Account', rows);
 }
 

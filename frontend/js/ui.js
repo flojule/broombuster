@@ -45,6 +45,8 @@ window.addEventListener('online', () => {
   updateNetChip();
   if (_citiesFailed) retryCities();
   for (const c of cars) if (loadFailed.has(c.id)) checkCar(c);
+  for (const h of homes) if (loadFailed.has(h.id)) checkHome(h.id);
+  loadAlerts();
 });
 
 // Safari on iPhone: once, after the first car or home is saved (the user has seen what
@@ -119,6 +121,24 @@ function menuButton(btn, menu, beforeOpen) {
 }
 document.addEventListener('click', e => { if (_openMenu && !_openMenu.menu.contains(e.target)) closeMenu(); });
 
+// ── Radio groups (Appearance, a car's side): one Tab stop, the checked radio (else the
+// first); the arrow keys check the next or previous one, as native radios do.
+function radioTabs(group) {
+  const rs = [...group.querySelectorAll('[role="radio"]')];
+  const on = rs.find(r => r.getAttribute('aria-checked') === 'true') || rs[0];
+  for (const r of rs) r.tabIndex = r === on ? 0 : -1;
+}
+document.addEventListener('keydown', e => {
+  const r = e.target.closest?.('[role="radio"]'), g = r?.closest('[role="radiogroup"]');
+  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+  if (!g || !step) return;
+  e.preventDefault();
+  const rs = [...g.querySelectorAll('[role="radio"]')];
+  const next = rs[(rs.indexOf(r) + step + rs.length) % rs.length];
+  next.click();  // a group re-rendered by the click focuses its own new radio (js/cars.js)
+  if (next.isConnected) next.focus();
+});
+
 // ── Confirmation (as an iOS alert): a modal <dialog>; resolves true on the action ──
 const confirmDialog = document.getElementById('confirm-dialog');
 function askConfirm(title, message, action) {
@@ -151,7 +171,7 @@ function _applyDark(on) {
     // The map layers that are on (js/layers.js, sources "lyr-…") come along too.
     // Lines and areas go under the new basemap's labels, point markers over them.
     map.setStyle(_mapStyle, { transformStyle: (prev, next) => {
-      const base = tuneBasemapLabels(next.layers);
+      const base = tuneBasemap(next).layers;
       if (!prev?.sources?.[TILES_SOURCE]) return { ...next, layers: base };
       const overlay = id => id.startsWith(LAYER_PREFIX);
       const ours = prev.layers.filter(l => ZONE_LAYERS.includes(l.id) || overlay(l.source || ''))
@@ -170,6 +190,7 @@ function setThemePref(pref) {
   _store('bb_theme', pref === 'auto' ? null : pref);
   _applyDark(_wantDark());
   document.querySelectorAll('#theme-seg button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.theme === pref)));
+  radioTabs(document.getElementById('theme-seg'));
 }
 setThemePref(_themePref());
 _sysDark.addEventListener('change', () => { if (_themePref() === 'auto') _applyDark(_wantDark()); });
@@ -202,6 +223,18 @@ function _centerFeature() {
     if (d < bestD) { bestD = d; best = f; }
   }
   return best || feats[0] || null;
+}
+
+// Whether a street or zone of the data is drawn within `m` meters of the target (at any
+// zoom); null while unknown (no street tiles here, or still loading).
+function streetNear(m) {
+  if (!map) return null;
+  const layers = HOVER_LAYERS.filter(l => map.getLayer(l));
+  const c = map.getCenter(), p = map.project(c), r = Math.min(m / metersPerPx(c.lat), 400);
+  try {
+    if (!layers.length || !map.isSourceLoaded(TILES_SOURCE)) return null;
+    return map.queryRenderedFeatures([[p.x - r, p.y - r], [p.x + r, p.y + r]], { layers }).length > 0;
+  } catch (_) { return null; }
 }
 
 // The segment of a street (line feature) nearest the screen point c: {d: distance (px),

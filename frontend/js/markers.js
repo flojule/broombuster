@@ -140,10 +140,10 @@ const _selectedCar = () => cars.find(c => c.id === _selectedId);
 makeEditable(savedTitle, () => itemName(selectedItem()), v => {
   const car = _selectedCar();
   if (!car) return;  // removed while being renamed
-  car.name = v;
+  car.name = v.slice(0, CAR_NAME_MAX).trim();
   savePrefs();
   updateCarMarkers();
-}, () => !!_selectedCar());
+}, () => !!_selectedCar(), 'Car name');
 
 // ── "You are here": a dot with an accuracy halo ──────────────────────────────
 // The locate button starts it; it then follows the device while the app is in the
@@ -160,9 +160,8 @@ function updateHereMarker() {
     return el;
   });
   if (!_here || !map) return;
-  // Halo diameter in px: the accuracy radius over the map's meters per pixel (512 px tiles).
-  const mPerPx = 40075016.686 * Math.cos(_here.lat * Math.PI / 180) / (512 * 2 ** map.getZoom());
-  _hereMarker.getElement().style.setProperty('--halo', Math.min(600, 2 * _here.acc / mPerPx) + 'px');
+  // Halo diameter in px: the accuracy radius over the map's meters per pixel.
+  _hereMarker.getElement().style.setProperty('--halo', Math.min(600, 2 * _here.acc / metersPerPx(_here.lat)) + 'px');
 }
 
 function _setHere(lat, lon, acc) { _here = { lat, lon, acc: acc || 0 }; updateHereMarker(); }

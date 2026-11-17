@@ -357,7 +357,7 @@ def test_frontend_uses_region_clock():
     allowed = {("core.js", "_isNight"), ("urgency.js", "d.get")}  # unknown-zone fallback
     pat = re.compile(
         r"\.(getDate|getDay|getHours|getMinutes|getMonth|getFullYear|"
-        r"toDateString|toLocaleDateString|toLocaleTimeString)\("
+        r"toDateString|toLocaleDateString|toLocaleTimeString|toLocaleString)\("
     )
     bad = []
     for f in sorted(_FRONTEND.glob("*.js")):

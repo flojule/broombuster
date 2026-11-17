@@ -7,19 +7,23 @@ Wants=network-online.target
 User=__USER__
 WorkingDirectory=__REPO__
 Environment=PYTHONDONTWRITEBYTECODE=1
+# The account database, the only file the app writes (.env may override it).
+Environment=BB_DB=/var/lib/broombuster/users.sqlite
 EnvironmentFile=-__REPO__/.env
 UMask=0077
 ExecStart=__REPO__/.venv/bin/python -m uvicorn broombuster.api.app:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
+StateDirectory=broombuster
+StateDirectoryMode=0700
+MemoryMax=2G
+TasksMax=256
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-# The home directory is empty except the repo (read-only) and its data: the app never
-# sees the user's GitHub token, SSH keys or other credentials, nor Claude worktrees.
+# Home is empty except the repo (read-only): no GitHub token, SSH keys or Claude worktrees.
 ProtectHome=tmpfs
 BindReadOnlyPaths=__REPO__
-BindPaths=__REPO__/data
 InaccessiblePaths=-__REPO__/.claude
 PrivateDevices=true
 ProtectKernelTunables=true
@@ -33,6 +37,8 @@ RestrictNamespaces=true
 RestrictRealtime=true
 LockPersonality=true
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 

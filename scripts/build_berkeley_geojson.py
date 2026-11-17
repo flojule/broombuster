@@ -4,7 +4,7 @@ Build data/berkeley/StreetSweeping.geojson from Berkeley's PDF schedules and the
 city's street centerlines (both fetched by scripts/rebuild_city_data.py berkeley).
 
 Usage (from repo root):  python scripts/build_berkeley_geojson.py
-Input:  data/berkeley/*.pdf, data/berkeley/centerlines.geojson
+Input:  the manifest's source.files PDFs, data/berkeley/centerlines.geojson
 Output: data/berkeley/StreetSweeping.geojson
 Requires: uv sync --extra scripts
 
@@ -19,6 +19,7 @@ from pathlib import Path
 
 import geopandas
 import pdf_city
+import rebuild_city_data
 
 from broombuster.config import REPO_ROOT
 
@@ -155,10 +156,13 @@ def join(rows: list[dict], lines: geopandas.GeoDataFrame) -> geopandas.GeoDataFr
 
 def main():
     data_dir = Path(REPO_ROOT) / "data" / "berkeley"
-    pdfs = sorted(data_dir.glob("*.pdf"))
+    pdfs = rebuild_city_data.input_files("berkeley")  # the manifest's PDFs, not every *.pdf here
     centerlines = data_dir / "centerlines.geojson"
-    if not pdfs or not centerlines.exists():
-        raise FileNotFoundError(f"inputs missing in {data_dir}; run rebuild_city_data.py berkeley")
+    missing = [p.name for p in [*pdfs, centerlines] if not p.exists()]
+    if not pdfs or missing:
+        raise FileNotFoundError(
+            f"missing {missing or 'source.files'}; run rebuild_city_data.py berkeley"
+        )
     rows = rows_from(pdf_city.pdf_lines(pdfs))
     print(f"  {len(rows)} rows parsed from {len(pdfs)} PDF(s)")
     gdf = join(rows, geopandas.read_file(centerlines))

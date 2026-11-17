@@ -2,11 +2,14 @@
 
 import itertools
 import json
+import math
 from pathlib import Path
 
 import geopandas
+import pyproj
 import pytest
 import shapely
+import shapely.ops
 
 from broombuster import layer_sources, layers
 from broombuster.cities import CITIES, REGIONS
@@ -106,6 +109,37 @@ def test_home_rules_are_area_facts(app_client):
     rules = app_client.get("/api/rules", params={"lat": lat, "lon": lon, "kind": "home"}).json()
     assert label in {r["label"] for r in rules["rules"]}
     assert all(r["theme"] in ("fire", "evac") for r in rules["rules"])
+
+
+def _zones_3857(city, theme):
+    return geopandas.read_file(layers.fgb_path(city, theme)).to_crs(3857).set_index("label")
+
+
+def _home_labels(x, y):
+    lon, lat = pyproj.Transformer.from_crs(3857, 4326, always_xy=True).transform(x, y)
+    return {r["label"] for r in layers.rules_at("bay_area", lat, lon, "home")}
+
+
+def test_home_zone_applies_just_outside_it(app_client):
+    zones = _zones_3857("oakland", "evac")
+    label = "Evacuation zone US-CA-XAL-OKL-E235"
+    k = 1 / math.cos(math.radians(37.8))  # EPSG:3857 units per meter
+    ring = zones.geometry[label].buffer(1.6 * k).exterior
+    outside = (ring.interpolate(f / 50, normalized=True) for f in range(50))
+    p = next(p for p in outside if not zones.geometry.intersects(p).any())
+    assert label in _home_labels(p.x, p.y)
+
+
+def test_home_inside_a_zone_lists_it_not_its_neighbor(app_client):
+    zones = _zones_3857("berkeley", "evac")
+    a, b = (zones.geometry[f"Evacuation zone BER-{n}"] for n in (44, 38))
+    edge = a.boundary.intersection(b.boundary)  # the shared edge
+    k = 1 / math.cos(math.radians(37.87))
+    mid = edge.interpolate(0.5, normalized=True)
+    p = shapely.ops.nearest_points(a.buffer(-0.5 * k), mid)[0]  # 0.5 m inside BER-44
+    assert 0 < b.distance(p) < 1 * k
+    got = _home_labels(p.x, p.y)
+    assert "Evacuation zone BER-44" in got and "Evacuation zone BER-38" not in got
 
 
 def test_rules_reject_bad_kind(app_client):

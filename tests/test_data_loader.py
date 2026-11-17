@@ -8,6 +8,7 @@ Unit tests use synthetic GeoDataFrames so they never hit the network.
 import datetime
 import functools
 import re
+from zoneinfo import ZoneInfo
 
 import geopandas
 import pandas as pd
@@ -130,6 +131,17 @@ class TestLoadCityDataIntegration:
         for code in codes[:10]:
             result = _dates(str(code))
             assert result, f"Chicago: code {code!r} parsed to empty list"
+
+    @pytest.mark.freshness
+    def test_chicago_dates_cover_this_season(self):
+        """From April 1 the data must have this year's dates (the city republishes each
+        spring: see data/manifests/chicago_all.yaml)."""
+        today = datetime.datetime.now(ZoneInfo("America/Chicago")).date()
+        if today < datetime.date(today.year, 4, 1):
+            pytest.skip("the season starts in April")
+        codes = _city("chicago_all")["DAY_EVEN"].dropna().unique()
+        years = {d.year for code in codes for d in _dates(str(code))}
+        assert today.year in years, f"Chicago sweep dates end in {max(years)}: rebuild the data"
 
     def test_chicago_even_odd_identical(self):
         """Chicago zones apply the same schedule to every address, so DAY_EVEN == DAY_ODD."""

@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --locked --extra api --extra dev
+      - run: uv sync --locked --extra api --extra dev --extra scripts
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest -q   # node (preinstalled) runs tests/test_urgency.py

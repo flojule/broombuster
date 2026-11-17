@@ -90,7 +90,7 @@ function calLayers(ptrSched, start, end) {
 
 function _dotsHTML(layers, k) {
   const dots = layers.cars.filter(l => l.days.has(k))
-    .map(l => `<span class="cal-dot" style="background:${l.color}"></span>`)
+    .map(l => `<span class="cal-dot" style="background:${esc(l.color)}"></span>`)
     .concat(layers.homes.filter(l => l.days.has(k))
       .map(() => `<span class="cal-dot cal-dot-home" style="background:var(--home)"></span>`)).join('');
   return `<span class="cal-dots">${dots}</span>`;
@@ -104,7 +104,7 @@ const _lower = t => t.charAt(0).toLowerCase() + t.slice(1);  // "West side …" 
 function _dayLines(layers, k) {
   return [
     ...layers.cars.filter(l => l.days.has(k)).map(l => ({
-      mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
+      mark: `<i class="cal-key cal-round" style="background:${esc(l.color)}"></i>`,
       text: `${l.car.name} · ${_lower(l.days.get(k)) || 'sweeping'}`,  // Chicago's days have no times
       // Today in the car's own region, its sweep over.
       ended: k === _ymdKey(schedNow(carSchedules[l.car.id])) && sweepUrgency(l.car) !== 'today',
@@ -171,16 +171,21 @@ function _nextSweepHTML(layers, sel) {
   return '';
 }
 
-// No street at the target: in an area, put the target on one; elsewhere, the areas
-// covered (a tap flies there) and the device's position. The state names the areas
+// No street at the target: in an area, put the target on one ('in'), unless the target
+// is outside its street data's bounds ('nodata': past the cities covered); elsewhere, the
+// areas covered (a tap flies there) and the device's position. The state names the areas
 // known, so the details follow /cities loading.
 function _noStreetState() {
-  const c = map?.getCenter();
-  return c && map.getZoom() >= AREA_ZOOM && regionAt(c.lat, c.lng) ? 'in' : `off:${Object.keys(regions)}`;
+  const c = map?.getCenter(), region = c && map.getZoom() >= AREA_ZOOM && regionAt(c.lat, c.lng);
+  if (!region) return `off:${Object.keys(regions)}`;
+  const b = region === _tilesRegion && map.getSource(TILES_SOURCE)?.bounds;  // [w, s, e, n]
+  return b && (c.lng < b[0] || c.lat < b[1] || c.lng > b[2] || c.lat > b[3]) ? 'nodata' : 'in';
 }
 function _noStreetHTML() {
   if (streetsLoading()) return '<div class="cal-muted">Loading streets…</div>';
-  if (_noStreetState() === 'in') return '<div class="cal-muted">Move the map to put the target on a street.</div>';
+  const state = _noStreetState();
+  if (state === 'nodata') return '<div class="cal-muted">No street data here.</div>';
+  if (state === 'in') return '<div class="cal-muted">Move the map to put the target on a street.</div>';
   const areas = Object.entries(regions).map(([k, r]) => `<button class="btn btn-plain cal-area" data-area="${esc(k)}">${esc(r.name)}</button>`);
   return '<div class="cal-muted">No street covered here. Go to an area:</div>'
        + `<div class="cal-areas">${areas.join('')}<button class="btn btn-plain cal-area" data-locate>${icon('locate')} My location</button></div>`;
@@ -216,8 +221,9 @@ function calendarHTML(layers, range, sel, today) {
 // on screen.
 const tabCal = document.getElementById('tab-calendar');
 const icCal  = document.getElementById('ic-cal');
-// anchor: the week row at the top of the grid (fractional while scrolled between rows).
-let _cal = { expanded: null, sel: null, anchor: null, pending: false };
+// anchor: the week row at the top of the grid (fractional while scrolled between rows);
+// today: the day key the grid was last rendered for.
+let _cal = { expanded: null, sel: null, anchor: null, pending: false, today: null };
 let _calKey = '';       // last rendered state, to skip no-op re-renders
 let _ptrSched = null;   // street schedule under the target (null: none)
 let _ptrStreet = false; // a street or zone is under the target (with sweeping or not)
@@ -330,19 +336,29 @@ function renderTargetInfo(f, live = false) {
   const ptrEntries = _ptrSched ? [..._ptrSched.schedule_even, ..._ptrSched.schedule_odd].map(e => ({ code: e[0], time: e[2] })) : [];
   _ptrUrg = _ptrSched ? BroomUrgency.checkDaySweeping(ptrEntries, today, schedSkip(_ptrSched)) : null;
   _ptrUnknown = why === 'sign' ? 'Sweeping day: check the sign' : why ? `No ${today.y} dates yet` : '';
-  const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSide(c) || ''}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
+  const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSide(c) || ''}:${sweepUrgency(c)}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
   const homeSig = homes.map(h => `${h.id}:${itemName(h)}:${homeSchedules[h.id] ? _schedId(homeSchedules[h.id]) : 0}`).join(',');
   const key = [_ptrSched ? `${props.city}:${props.sched}:${_ptrSched.side_labels}:${_ptrUrg}` : props ? 'street' : `${_noStreetState()}:${streetsLoading()}`,
                carSig, homeSig, todayK].join('|');
   if (key === _calKey) return;
   _calKey = key;
 
-  const range = _calRange0 = _calRange(today);
+  const range = _calRange(today);
+  // A new day (the app left open overnight): the selection moves from yesterday to today,
+  // and the week rows on screen stay on their dates as the window moves.
+  if (_calRange0 && _cal.today != null && _cal.today !== todayK) {
+    if (_cal.sel === _cal.today) _cal.sel = todayK;
+    if (_cal.anchor != null) _cal.anchor = Math.max(0, _cal.anchor + _dayIdx(range, _calRange0.start) / 7);
+  }
+  _cal.today = todayK;
+  _calRange0 = range;
   const layers = _calLayers0 = calLayers(_ptrSched, range.start, range.end);
+  const hadFocus = icCal.contains(document.activeElement);
   icCal.innerHTML = calendarHTML(layers, range, _cal.sel, today);
   if (_cal.anchor == null) _cal.anchor = _anchorFor(range, today);
   _restoreScroll();
-  updateCalTitle();
+  updateCalTitle();  // marks the week on screen: a folded sheet's other weeks take no focus
+  if (hadFocus) icCal.querySelector('.cal-sel')?.focus({ preventScroll: true });  // the grid's one Tab stop
   measureCalChrome();
 }
 // Back to the remembered week row; a hidden tab has no layout to scroll, so it waits

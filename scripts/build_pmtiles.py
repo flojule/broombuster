@@ -13,7 +13,7 @@ Usage (from repo root):
     python scripts/build_pmtiles.py                 # all regions
     python scripts/build_pmtiles.py --region chicago
 
-Requires the `tippecanoe` binary on PATH (brew install tippecanoe).
+Requires the `tippecanoe` binary on PATH, release TIPPECANOE_VERSION (brew install tippecanoe).
 """
 
 import argparse
@@ -36,6 +36,7 @@ _TILES_DIR = _ROOT / "frontend" / "tiles"
 _SOURCE_LAYER = "zones"
 _MINZOOM = 8
 _MAXZOOM = 14
+TIPPECANOE_VERSION = "2.79.0"  # tiles differ between releases
 
 
 def _write_ndjson(region_key: str, path: Path) -> int:
@@ -117,9 +118,21 @@ def _build_region(region_key: str) -> bool:
     return True
 
 
-def main() -> int:
+def _tippecanoe_version() -> str:
+    """`tippecanoe --version` without the leading "v" ("" when not on PATH)."""
     if not shutil.which("tippecanoe"):
-        print("ERROR: tippecanoe not found on PATH (brew install tippecanoe).")
+        return ""
+    out = subprocess.run(["tippecanoe", "--version"], capture_output=True, text=True, check=True)
+    return (out.stdout + out.stderr).strip().removeprefix("tippecanoe v")
+
+
+def main() -> int:
+    found = _tippecanoe_version()
+    if found != TIPPECANOE_VERSION:
+        print(
+            f"ERROR: needs tippecanoe {TIPPECANOE_VERSION} (found {found or 'none'}) for "
+            "reproducible tiles: install it, or set TIPPECANOE_VERSION and rebuild every region."
+        )
         return 2
 
     ap = argparse.ArgumentParser(

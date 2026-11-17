@@ -1,13 +1,24 @@
 // ── "Add here" menu: right-click, or a long press on touch (as in Google / Apple Maps) ──
+// While placing, a mouse right-click moves the target there and sets the spot; a finger
+// resting on the map (Android fires contextmenu for it) does nothing.
+let _touchAt = -Infinity;  // time of the last touch on the map
+const _fromTouch = e => (e.pointerType ? e.pointerType !== 'mouse' : !!e.sourceCapabilities?.firesTouchEvents)
+  || e.timeStamp - _touchAt < 1000;
 mapDiv.addEventListener('contextmenu', e => {
   e.preventDefault();
   if (!map) return;
   const rect = mapDiv.getBoundingClientRect();
-  openCtxMenu(map.unproject([e.clientX - rect.left, e.clientY - rect.top]), e.clientX, e.clientY);
+  const at = map.unproject([e.clientX - rect.left, e.clientY - rect.top]);
+  if (placing) {
+    if (!_fromTouch(e)) { map.jumpTo({ center: at }); confirmPlacementAtCenter(); }
+    return;
+  }
+  openCtxMenu(at, e.clientX, e.clientY);
 });
 // Held still for 500 ms with one finger; a pan, a second finger or lifting cancels it.
 let _press = null;  // AbortController of the pending press
 mapDiv.addEventListener('touchstart', e => {
+  _touchAt = e.timeStamp;
   _press?.abort();
   if (e.touches.length !== 1 || !map || placing || _namePopup || e.target.closest('.pin')) return;
   const { clientX: x0, clientY: y0 } = e.touches[0];
@@ -66,7 +77,7 @@ const CITIES_KEY = 'bb_cities';
 let _citiesRetry = 0;
 async function loadCities() {
   try {
-    const res = await fetch('/api/cities');
+    const res = await fetch('/api/cities', { signal: AbortSignal.timeout(START_WAIT_MS) });
     if (!res.ok) throw new Error(res.statusText);
     regions = await res.json();
     _store(CITIES_KEY, JSON.stringify(regions));

@@ -34,11 +34,17 @@ def _line_parts(geom):
     return []
 
 
+def _street_key(row) -> str:
+    """The street a row is merged by, as the card's union (analysis.segment_index) keys it."""
+    sk = row.get("STREET_KEY")
+    return sk if normalize.is_text(sk) else normalize.street_name(row.get("STREET_NAME"))
+
+
 def _merge_lines(gdf_4326):
-    """Merge line rows sharing endpoints (analysis.line_key) into one segment each.
+    """Merge line rows of one street sharing endpoints (analysis.line_key) into one segment each.
 
     SF emits one row per (segment x weekday x side), so a physical line is the
-    union of every row sharing its endpoints. Returns {key: segment dict} with
+    union of every row of its street sharing its endpoints. Returns {key: segment dict} with
     coords, name, city, labels, the even/odd raw entries and even_left: every
     answer its rows gave to "is the even side left of `coords`' direction?".
     """
@@ -50,11 +56,12 @@ def _merge_lines(gdf_4326):
         be, bo = _analysis.get_schedule(row, 0), _analysis.get_schedule(row, 1)
         labels = _analysis.side_labels(row)
         left = resolve.even_on_left(row)
+        street = _street_key(row)
         for coords in _line_parts(geom):
             if len(coords) < 2:
                 continue
             sd = seg_data.setdefault(
-                _analysis.line_key(coords),
+                (street, _analysis.line_key(coords)),
                 {
                     "coords": coords,
                     "city": _safe(row.get("_city")),
