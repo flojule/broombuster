@@ -1,21 +1,27 @@
 // ── Street card: what applies on the street at the target ─────────────────────
 // Top left: the street's name, then one row per thing that applies there: its sweeping
-// (in the source's own words, shortened; one row per side when the sides differ, the
-// side lying higher on screen first, marked in that side's map line color), then the
+// (in the source's own words, shortened; one row per side and set of days, the side
+// lying higher on screen first, marked in that side's map line color), then the
 // parking rules from /api/rules (permit area, meter, winter ban, closure), each a short
 // line with its mark. The rules arrive once the map stops (one request per spot); the
 // turned-on map layers' areas at the target (a permit area, a fire zone) show at once.
 const signsEl = document.getElementById('signs');
 let _signsKey = '';
 
-// One side's tile entries as lines [{days, time}]: the same wording as the car's page
-// (urgency.js formatScheduleSide: "Mon, Wed · 8AM–10AM", "Tue 2nd & 4th", Chicago's
-// next dates), split at the time.
+// One side's tile entries as lines [{days, time}] (urgency.js formatScheduleSide: "Mon, Wed
+// · 8AM–10AM", "Tue 2nd & 4th", Chicago's next dates), split at the time; one line per
+// set of days, its times in order ("9–11AM, 12–2PM"). Shared with the car's page.
 function sourceLines(entries, now) {
-  return BroomUrgency.formatScheduleSide(entries, now).map(l => {
-    const i = l.lastIndexOf(' · ');
-    return i < 0 ? { days: l, time: '' } : { days: l.slice(0, i), time: l.slice(i + 3) };
-  });
+  const byDays = new Map();  // days (+ '|' when untimed: kept apart) -> times
+  for (const l of BroomUrgency.formatScheduleSide(entries, now)) {
+    const i = l.lastIndexOf(' · '), key = i < 0 ? `${l}|` : l.slice(0, i);
+    if (!byDays.has(key)) byDays.set(key, []);
+    if (i >= 0) byDays.get(key).push(l.slice(i + 3));
+  }
+  const start = t => BroomUrgency.timeWindow(t)?.[0] ?? 1440;
+  return [...byDays].map(([key, ts]) => ({ days: key.replace(/\|$/, ''),
+    time: tidyTimes(ts.sort((a, b) => start(a) - start(b)).join(', ')),
+  }));
 }
 
 // A monthly or dated pattern's next sweep after tomorrow ("Next: Mon Nov 23"): weekly
@@ -71,14 +77,17 @@ function _evenSideDirection(f) {
   return p.side_even ? _compassDirection(p.side_even) : null;
 }
 
-// A row: a mark (its color, a letter), what applies, and a detail; `said` for screen readers.
-// A row without a color continues the one above (another time window of that side).
-function _rowHTML({ heading, when, color, mark, text, detail = '', said, sweep = false, ...rest }) {
+// A row: a mark (its color, a letter), the side when the sides differ, what applies, a
+// detail and a "Today" / "Tomorrow" badge; `said` for screen readers. A row without a
+// color continues the one above (other days of that side; its side name `ghost`: hidden,
+// keeping the text in line).
+function _rowHTML({ side, ghost, when, color, mark, text, detail = '', said, sweep = false, ...rest }) {
   if (rest.divider) return '<hr class="sc-rule">';
-  if (heading) return `<div class="sc-side" aria-hidden="true">${esc(heading)}${when ? _whenBadge(when) : ''}</div>`;  // each row says its side
   return `<div class="sc-row">${markHTML({ color, mark, sweep })}`
+       + (side === undefined ? '' : `<span class="sc-side${ghost ? ' ghost' : ''}" aria-hidden="true">${esc(side)}</span>`)
        + `<span class="sr-only">${esc(said || `${text} ${detail}`.trim())}</span>`
-       + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail${sweep ? ' sc-time' : ''}">${_keepTimes(esc(detail))}</span>` : ''}</span></div>`;
+       + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail${sweep ? ' sc-time' : ''}">${_keepTimes(esc(detail))}</span>` : ''}</span>`
+       + `${when ? _whenBadge(when) : ''}</div>`;
 }
 // Escaped text with each time range ("8am–9pm", "7 - 9AM") kept on one line.
 const _TIME_RANGE = /\d{1,2}(?::\d\d)?\s*(?:[ap]\.?m\.?)?\s*[-–]\s*\d{1,2}(?::\d\d)?\s*[ap]\.?m\.?/gi;
@@ -89,27 +98,27 @@ function _sideUrgency({ entries }, now, skip) {
   return entries.length ? BroomUrgency.checkDaySweeping(entries, now, skip) : 'none';
 }
 
-// A side's sweeping rows (one per time window): "S" once, in its map line color; when
-// the sides differ, under the side's heading ("NORTH SIDE"), which carries "Today" /
-// "Tomorrow" when that side is swept then.
+// A side's sweeping rows (one per set of days): "S" once, in its map line color; when the
+// sides differ, the first row names the side ("North") and carries "Today" / "Tomorrow"
+// when that side is swept then.
 function _sweepRows(sec, now, skip) {
   const { lines, side, tag, entries } = sec, u = _sideUrgency(sec, now, skip), soon = u === 'today' || u === 'tomorrow';
-  const head = tag ? [{ heading: side, when: soon && u }] : [];
-  const mark = { sweep: true, mark: _MARK.sweep.mark };
+  const first = { sweep: true, mark: _MARK.sweep.mark, ...(tag ? { side: tag, when: soon && u } : {}) };
+  const more = { sweep: true, mark: '', color: '', ...(tag ? { side: tag, ghost: true } : {}) };
   if (!lines.length) {  // none, or none left: Chicago's season is over, or its dates ran out
     const text = !entries.length ? 'No sweeping' : u === 'check' ? `No ${now.y} dates yet`
       : BroomUrgency.seasonOver(entries, now) ? 'Season over' : 'No sweeping';
-    return [...head, { ...mark, color: URGENCY[u === 'check' ? 'check' : 'none'].line, text, said: `${side}: ${text.toLowerCase()}` }];
+    return [{ ...first, color: URGENCY[u === 'check' ? 'check' : 'none'].line, text, said: `${side}: ${text.toLowerCase()}` }];
   }
   const next = soon ? '' : _nextDate(entries, now, skip);
-  return [...head, ...lines.map((l, i) => ({
-    ...(i ? { sweep: true, mark: '' } : mark), color: i ? '' : URGENCY[u].line,
+  return [...lines.map((l, i) => ({
+    ...(i ? more : { ...first, color: URGENCY[u].line }),
     text: l.days, detail: l.time, said: `${side}: ${!i && soon ? `swept ${u}; ` : ''}sweeping ${l.days} ${l.time}`.trim(),
-  })), ...(next ? [{ sweep: true, mark: '', text: '', detail: next, said: `${side}: ${next}` }] : [])];
+  })), ...(next ? [{ ...more, text: '', detail: next, said: `${side}: ${next}` }] : [])];
 }
 
 // Beside the street's name: "Today" / "Tomorrow" when the street (both sides alike, or a
-// zone) is swept then. When the sides differ, each side's heading carries its own.
+// zone) is swept then. When the sides differ, each side's row carries its own.
 function _whenHTML(secs, now, skip) {
   if (secs.length !== 1) return '';
   const u = _sideUrgency(secs[0], now, skip);
@@ -130,19 +139,17 @@ function _isLight(color) {
   return !!m && (0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16)) > 165;
 }
 
-// The card's marks, also the Layers menu's legend (js/layers.js; a mark with a `layer`
-// only where the region has it): sweeping, then the rules, in their map layer's colors
-// (a permit area: its own color on the map, LAYER_STYLE.key).
-const CARD_MARKS = [
-  { key: 'sweep',   mark: 'S', color: URGENCY.safe.line, name: 'Street sweeping' },
-  { key: 'permit',  mark: 'P', color: LAYER_STYLE.parking.key, name: 'Permit area', layer: 'parking' },
-  { key: 'limit',   mark: 'h', color: '#6d28d9', name: 'Time limit', layer: 'parking' },
-  { key: 'meter',   mark: '$', color: LAYER_STYLE.meters.color, name: 'Meter', layer: 'meters' },
-  { key: 'winter',  mark: '*', color: LAYER_STYLE.winter.color, name: 'Winter ban', layer: 'winter' },
-  { key: 'fire',    mark: 'F', color: LAYER_STYLE.fire.color, name: 'Fire zone', layer: 'fire' },
-  { key: 'ban',     mark: '!', color: LAYER_STYLE.closures.color, name: 'Closure or ban' },
-];
-const _MARK = Object.fromEntries(CARD_MARKS.map(m => [m.key, m]));
+// The card's marks: sweeping, then the rules, in their map layer's colors (a permit area:
+// its own color on the map, LAYER_STYLE.key).
+const _MARK = {
+  sweep:  { mark: 'S', color: URGENCY.safe.line },
+  permit: { mark: 'P', color: LAYER_STYLE.parking.key },
+  limit:  { mark: 'h', color: '#6d28d9' },
+  meter:  { mark: '$', color: LAYER_STYLE.meters.color },
+  winter: { mark: '*', color: LAYER_STYLE.winter.color },
+  fire:   { mark: 'F', color: LAYER_STYLE.fire.color },
+  ban:    { mark: '!', color: LAYER_STYLE.closures.color },
+};
 
 // /api/rules' rules as rows: the mark of their kind, and the rule in a few words (ruleText).
 function _ruleRow(r) {
@@ -216,7 +223,7 @@ function renderSigns(f, live = false) {
   const seen = new Set(), server = targetRules(live), themes = new Set(server.map(r => r.theme));
   const rules = [...server, ...overlayAreasAtTarget().filter(r => !themes.has(r.theme))]
     .filter(r => r.label && !seen.has(r.label) && seen.add(r.label)).slice(0, 4);
-  // The rules apply to the whole block: a rule line sets them apart from a side's heading.
+  // The rules apply to the whole block: a rule line sets them apart from the sides.
   const rows = [...secs.flatMap(s => _sweepRows(s, now, skip)),
                 ...(secs.length && rules.length ? [{ divider: true }] : []), ...rules.map(_ruleRow)];
   const street = p && p.street !== 'N/A' ? p.street : '';

@@ -13,7 +13,7 @@ Cloudflare Tunnel ──────────── the only way in
   ▼
 uvicorn 127.0.0.1:8000        src/broombuster/api/app.py
   │
-  ├─ /api/*   schedule, rules, closures, nearby, alerts, calendar feed, phone reports
+  ├─ /api/*   schedule, rules, closures, alerts, calendar feed, phone reports
   ├─ /auth/*  passkey sign-in                      api/auth.py
   └─ /        frontend/ (index.html, js/, sw.js, tiles/, layers/, vendor/)
         │

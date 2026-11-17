@@ -153,8 +153,6 @@
     .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 10px; font-size: .72rem; }
     .lyr-legend > b { font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
     .lyr-legend .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-size: .72rem; }
-    .lyr-marks { display: grid; grid-template-columns: 1fr; gap: 4px; }
-    .lyr-marks span { display: flex; align-items: center; gap: 6px; }
     .lyr-note { padding: 6px 12px 8px; font-size: .7rem; color: var(--muted); max-width: 260px; line-height: 1.35; }
     .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: .8rem;
       background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
@@ -281,7 +279,7 @@
     }
     #tabbar::before {
       content: ''; position: absolute; top: var(--pad); bottom: var(--pad); left: var(--pad);
-      width: calc((100% - 2 * var(--pad)) / 4); border-radius: var(--pill);
+      width: calc((100% - 2 * var(--pad)) / 3); border-radius: var(--pill);
       background: var(--fill);
       transform: translateX(calc(var(--i, 0) * 100%)); transition: transform .45s var(--spring);
     }
@@ -299,7 +297,6 @@
     #saved-summary .note { margin: 0; font-size: .8rem; }
     #saved-summary { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; font-weight: 600; }
     #saved-summary:empty { display: none; }
-    .sum-line { display: flex; align-items: center; gap: 6px; min-height: 28px; }
     /* Nothing saved: what saving does, and the two ways to start. */
     .empty-saved { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; font-weight: 400; }
     .empty-saved .note { margin: 0 2px; font-size: .82rem; }
@@ -352,8 +349,14 @@
     .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
     .ce-loading { color: var(--muted); }
-    /* The car's side of the street (where the sides differ) above its sweeping lines. */
-    .ce-side { margin: 2px 0 6px; }
+    /* The car's side of the street (where the sides differ): one choice per side with its sweeping. */
+    .ce-pick { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 0; text-align: left; }
+    .ce-pick + .ce-pick { border-top: 1px solid var(--hairline); }
+    .ce-pick > span:not(.ce-tag) { display: flex; flex-direction: column; min-width: 0; }
+    .ce-pick b { font-weight: 600; }
+    .ce-pick .ce-tag { margin-left: auto; }
+    .ce-radio { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--muted); }
+    .ce-pick[aria-checked="true"] .ce-radio { border: 6px solid var(--blue); }
     .ce-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--urg-today); }
     .ce-error .btn { flex: none; }
     .ce-token { width: 100%; margin: 4px 0; font-family: ui-monospace, monospace; }
@@ -362,17 +365,6 @@
     .ce-field input.field { width: 8.5em; text-transform: uppercase; }
     .alert-line { flex-basis: 100%; font-weight: 400; display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; font-size: .8rem; line-height: 1.35; }
     .alert-line small { color: var(--muted); }
-    /* Nearby tab: one row per item (by time), the title over its kind, time, place and distance;
-       the list fades out under the tab bar. */
-    #nearby-body { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
-                   mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent); }
-    .nb-row { display: flex; flex-direction: column; min-width: 0; padding: 4px 0; }
-    .nb-row + .nb-row { border-top: 1px solid var(--hairline); padding-top: 7px; }
-    .nb-title { font-weight: 600; }
-    .nb-title a, .nb-link { color: var(--tint-fg); text-decoration: none; }
-    .nb-meta { color: var(--muted); font-size: .74rem; }
-    .nb-link { display: flex; align-items: center; min-height: var(--tap); text-decoration: none; }
-    .nb-link + .nb-link { border-top: 1px solid var(--hairline); }
     /* Rules at a car (permit area, meter, closure): one line each, the source in grey. */
     .ce-rule span { color: var(--muted); }
     .ce-rule.warn { color: var(--urg-tomorrow); }
@@ -406,6 +398,7 @@
     /* ── Calendar tab: one week (small sheet) unfolding into the month view ── */
     #ic-cal { padding-bottom: 4px; gap: 0; overflow: hidden; }
     .cal-muted { font-size: .72rem; color: var(--muted); }
+    .cal-ended { color: var(--muted); }
 
     /* ── Street card: what applies on the street at the target (js/signs.js), one row
        each: a mark in its color (a sweeping side's: its map line color), the text, and a
@@ -423,8 +416,9 @@
     .sc-street { min-width: 0; font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sc-rule { margin: 1px 0; border: none; border-top: 1px solid var(--border); }
-    .sc-side { display: flex; align-items: center; gap: 6px; margin: 2px 0 -2px; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
+    .sc-side { flex: none; min-width: 3.1em; padding-top: 1px; font-size: .72rem; font-weight: 600; color: var(--muted); }
+    .sc-side.ghost { visibility: hidden; }  /* a side's next row: its text lines up with the first */
     .sc-mark { flex: none; display: flex; align-items: center; justify-content: center; width: 19px; height: 19px; margin-top: -1px;
                border-radius: 5px; color: #fff; font-style: normal; font-size: .64rem; font-weight: 800; letter-spacing: -.02em; }
     .sc-sweep, .sc-mark.light { color: rgba(0,0,0,.72); }  /* a letter on a light color */
@@ -583,20 +577,19 @@
     body.dark #center-crosshair.placing { box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 0 0 3.5px var(--blue); }
 
     /* ── Desktop (and a phone on its side, too short for a bottom sheet): the sheet is a
-       left panel (as Find My on the Mac) as tall as a month of the calendar (six weeks,
-       js/calendar.js deskPanelHeight; every tab the same), tabs on top as a segmented control;
+       left panel (as Find My on the Mac) the screen's height, tabs on top as a segmented control;
        the signs sit at the top left of the map beside it. Keep the query in step with
        isDesktop(). ── */
     @media (min-width: 768px), (orientation: landscape) and (max-height: 500px) {
-      #sheet { left: calc(var(--inset-l) + var(--edge)); top: var(--edge); bottom: auto; right: auto; width: var(--panel-w); height: auto;
-               max-height: calc(100% - 2 * var(--edge)); transition: none; }
+      #sheet { left: calc(var(--inset-l) + var(--edge)); top: var(--edge); bottom: var(--edge); right: auto; width: var(--panel-w); height: auto;
+               transition: none; }
       #sheet-grabber { display: none; }
       .tab-head { padding-top: 4px; }
       .tab-title { font-size: 1.2rem; }
       /* The same capsule and pill as a segmented control at the top. */
       #tabbar { --pad: 3px; order: -1; margin: 14px 14px 6px; }
       #tabbar::before { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
-      /* Words only (as a Mac segmented control): four of them fit the panel's width. */
+      /* Words only (as a Mac segmented control): three of them fit the panel's width. */
       #tabbar [role="tab"] { min-width: 0; min-height: 34px; font-size: .78rem; }
       #tabbar [role="tab"] svg.ic { display: none; }
       .tab-badge { top: 3px; left: auto; right: 3px; width: 8px; height: 8px; }

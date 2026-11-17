@@ -483,7 +483,10 @@
       if (t === 'N/A') t = '';
       if (per[it.side].indexOf(t) < 0) per[it.side].push(t);
     });
-    function j(a) { return a.filter(Boolean).join(', '); }
+    function start(t) { var w = timeWindow(t); return w ? w[0] : 1440; }
+    function j(a) {
+      return a.filter(Boolean).sort(function (x, y) { return start(x) - start(y); }).join(', ');
+    }
     function side(label, ts) { return (label + ' ' + j(ts)).trim(); }
     if (oneSide) return j(per.even.concat(per.odd));  // the side is known (a car's)
     if (!per.odd.length) return side(labels[0] + ' side', per.even);

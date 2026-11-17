@@ -112,7 +112,17 @@ function ruleText(r) {
     .replace(/^Metered:\s*(most meters\s*)?/i, '').trim();
   // "No oversized vehicles" + "No oversized vehicles, M–Su 12am–6am": the hours only.
   if (detail.toLowerCase().startsWith(text.toLowerCase())) detail = detail.slice(text.length).replace(/^[\s,:–-]+/, '');
-  return { text, detail: /\d/.test(detail) ? detail : '' };
+  return { text, detail: /\d/.test(detail) ? tidyTimes(detail) : '' };
+}
+
+// Time ranges in one style: "8am - 6pm" -> "8AM–6PM", "9AM–11AM" and "9-11am" -> "9–11AM"
+// (one AM/PM when both ends share it or the first has none).
+const _RANGE = /(\d{1,2}(?::\d\d)?)\s*(?:([ap])\.?m\.?)?\s*[-–]\s*(\d{1,2}(?::\d\d)?)\s*([ap])\.?m\.?/gi;
+function tidyTimes(s) {
+  return String(s).replace(_RANGE, (_, a, am, b, bm) => {
+    const y = bm.toUpperCase() + 'M', x = am ? am.toUpperCase() + 'M' : y;
+    return x === y ? `${a}–${b}${y}` : `${a}${x}–${b}${y}`;
+  });
 }
 
 // Schedules for cars and homes: the latest request per id wins (a slow answer for an

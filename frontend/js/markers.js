@@ -91,7 +91,7 @@ function applySelection() {
   const item = selectedItem();
   carsPanel.classList.toggle('item-open', !!item);
   if (savedTitle.contentEditable !== 'true') savedTitle.textContent = item ? itemName(item) : 'Saved';
-  btnAdd.hidden = !!item;
+  btnAdd.hidden = !!item || !cars.length && !homes.length;  // nothing saved: the empty state's buttons add
   btnItemMore.hidden = btnItemBack.hidden = !item;
   syncCrosshair();
 }

@@ -1,15 +1,15 @@
-// ── Sheet (as in Find My): Calendar | Saved | Nearby | Settings ───────────────
+// ── Sheet (as in Find My): Calendar | Saved | Settings ────────────────────────
 // Phone: at the bottom with the tab bar, at one of its tab's heights (detents): the
 // Calendar is small (one week and the selected day) or medium (the month); the lists
-// (Saved, Nearby, Settings) are medium or large (nearly the whole screen). Each kind
+// (Saved, Settings) are medium or large (nearly the whole screen). Each kind
 // keeps its own. It floats clear of the screen's edges, as iOS 26 sheets do. Drag the
 // grabber, a tab's header or its content, or tap the grabber to switch. The map is
 // padded by the sheet (up to medium) so the center target sits in the middle of the
 // map area left free.
-// Desktop: a panel on the left, as tall as a month of the calendar; no detents.
+// Desktop: a panel on the left, the screen's height; no detents.
 const tabbar  = document.getElementById('tabbar');
 const grabber = document.getElementById('sheet-grabber');
-const TABS = ['calendar', 'saved', 'nearby', 'settings'];
+const TABS = ['calendar', 'saved', 'settings'];
 let _tab = _stored('bb_tab', [...TABS, 'me'], 'calendar').replace(/^me$/, 'settings');  // Settings was "Me"
 // The detents of a tab, smallest first; each kind of tab remembers where it was left.
 const _kind = t => t === 'calendar' ? 'calendar' : 'list';
@@ -59,8 +59,7 @@ const sheetGap = () => parseFloat(getComputedStyle(sheet).getPropertyValue('--sh
 
 function applySheet() {
   const desk = isDesktop(), ds = tabDetents();
-  const deskH = desk && typeof deskPanelHeight === 'function' ? deskPanelHeight() : 0;
-  sheet.style.height = desk ? (deskH ? deskH + 'px' : '') : detentHeights()[_shown()] + 'px';
+  sheet.style.height = desk ? '' : detentHeights()[_shown()] + 'px';
   grabber.setAttribute('aria-label', _detent === ds[ds.length - 1] ? 'Shrink the sheet' : 'Enlarge the sheet');
   // The calendar shows the month view whenever it has the room: its medium.
   if (typeof calSetExpanded === 'function') calSetExpanded(desk || (!_compact && _detentOf.calendar !== 'small'));
@@ -185,7 +184,6 @@ function showTab(name) {
   if (name === 'calendar' && typeof calShown === 'function') calShown();
   applySheet();
   if (name === 'settings' && typeof renderAccountSection === 'function') renderAccountSection();
-  if (name === 'nearby' && typeof nearbyShown === 'function') nearbyShown();
 }
 // Tapping the open tab again, with the sheet at its smallest, opens it.
 tabbar.addEventListener('click', e => {

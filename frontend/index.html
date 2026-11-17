@@ -51,7 +51,6 @@
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></symbol>
     <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></symbol>
     <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l9 5-9 5-9-5 9-5z"/><path d="M3 14l9 5 9-5"/></symbol>
-    <symbol id="i-nearby" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></symbol>
     <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
     <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
     <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
@@ -98,7 +97,7 @@
     <div id="net-chip" role="status" hidden></div>
   </div>
 
-  <!-- The sheet (as in Find My): Calendar, Saved (cars and homes), Nearby and Settings tabs.
+  <!-- The sheet (as in Find My): Calendar, Saved (cars and homes) and Settings tabs.
        Phone: docked at the bottom with the tab bar, dragged between two heights per tab. Desktop:
        a panel on the left with the tabs on top. -->
   <section id="sheet" aria-label="BroomBuster">
@@ -127,14 +126,6 @@
       </div>
     </div>
 
-    <div class="tab" id="tab-nearby" role="tabpanel" aria-labelledby="tb-nearby" hidden>
-      <div class="tab-head">
-        <h2 class="tab-title">Nearby</h2>
-        <button class="pill-btn" id="btn-nearby-here" hidden>Here</button>
-      </div>
-      <div class="tab-body" id="nearby-body" aria-live="polite"></div>
-    </div>
-
     <div class="tab" id="tab-settings" role="tabpanel" aria-labelledby="tb-settings" hidden>
       <div class="tab-head"><h2 class="tab-title">Settings</h2></div>
       <!-- The account's sections (js/account.js) fill the slots: first, around the calendar link, last. -->
@@ -156,7 +147,6 @@
     <div id="tabbar" role="tablist" aria-label="Sections">
       <button role="tab" id="tb-calendar" data-tab="calendar" aria-controls="tab-calendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
       <button role="tab" id="tb-saved" data-tab="saved" aria-controls="tab-saved"><svg class="ic"><use href="#i-pin"/></svg>Saved<i class="tab-badge" hidden></i></button>
-      <button role="tab" id="tb-nearby" data-tab="nearby" aria-controls="tab-nearby"><svg class="ic"><use href="#i-nearby"/></svg>Nearby</button>
       <button role="tab" id="tb-settings" data-tab="settings" aria-controls="tab-settings"><svg class="ic"><use href="#i-gear"/></svg>Settings</button>
     </div>
   </section>
@@ -206,7 +196,6 @@
 <script defer src="js/account.js"></script>
 <script defer src="js/cars.js"></script>
 <script defer src="js/homes.js"></script>
-<script defer src="js/nearby.js"></script>
 <script defer src="js/app.js"></script>
 </body>
 </html>
