@@ -84,8 +84,9 @@ def _ref_resolve(gdf, lat, lon, city_key=None, max_distance_m=40.0):
     """(row position, is_polygon, distance) a per-row resolver loop picks."""
     x, y = resolve._TRANSFORMER_4326_TO_3857.transform(lon, lat)
     pt = Point(x, y)
+    k = resolve.mercator_scale(lat)
     best, best_d, lines = None, float("inf"), []
-    for i in gdf.sindex.query(pt.buffer(max(max_distance_m * 3.0, 100.0))):
+    for i in gdf.sindex.query(pt.buffer(max(max_distance_m * 3.0, 100.0) * k)):
         row = gdf.iloc[i]
         if city_key:
             c = row.get("_city")
@@ -113,9 +114,9 @@ def _ref_resolve(gdf, lat, lon, city_key=None, max_distance_m=40.0):
             if r.get("_city") != b.get("_city") and same and not _unswept(r) and alongside:
                 best, best_d = i, d
                 break
-    if best is None or best_d > max_distance_m:
+    if best is None or best_d > max_distance_m * k:
         return None
-    return best, False, best_d
+    return best, False, best_d / k
 
 
 def _unswept(row):

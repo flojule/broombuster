@@ -206,7 +206,12 @@ def test_csp_forbids_inline_and_remote_scripts(client):
 def test_service_worker_precaches_every_script(client):
     sw = client.get("/sw.js").text
     for f in ("/js/app.js", "/js/maplibre-global.js", "/vendor/maplibre-gl.mjs"):
-        assert f'"{f}"' in sw
+        assert f'"{f}?v=' in sw  # as the page asks for it: one download
+
+
+def test_map_module_imports_versioned_library(client):
+    js = client.get("/js/maplibre-global.js").text
+    assert "/vendor/maplibre-gl.mjs?v=" in js and "/vendor/maplibre-gl-worker.mjs?v=" in js
 
 
 def test_geocode_searches_inside_the_region(client, monkeypatch):
@@ -303,6 +308,20 @@ def test_signs_override_the_source(client, lat, lon, side, codes):
     data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
     assert data["car_side"] == side
     assert sorted(e[0] for e in data[f"schedule_{side}"]) == codes
+
+
+def test_both_sides_of_a_block_drawn_apart_are_kept(client):
+    """Mission St 37.7174: DataSF draws the block's two sides as lines ~6 m apart; the
+    car's street still lists both sides' sweeping."""
+    data = _check(client, {"lat": 37.71744, "lon": -122.44024, "region": "bay_area"})
+    assert data["address"].startswith("Mission St")
+    assert data["schedule_even"] and data["schedule_odd"]
+
+
+def test_point_without_street_data_is_not_covered(client):
+    """Golden Gate Park: inside the region, no street data at the car."""
+    data = _check(client, {"lat": 37.7694, "lon": -122.4862, "region": "bay_area"})
+    assert data["covered"] is False and data["car_side"] is None
 
 
 def test_stale_correction_fails(tmp_path):

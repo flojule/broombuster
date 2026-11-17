@@ -4,9 +4,9 @@
 async function checkCar(car, loud = false) {
   const warmupTimer = loud && setTimeout(() => showToast('Server warming up'), 5000);
   const data = await loadSchedule(car.id, carSchedules, () => postCheck(car.lat, car.lon),
-                                  loud ? msg => showToast(msg, true) : null);
+                                  loud ? msg => showToast(msg, true, { retry: () => checkCar(car, true) }) : null);
   clearTimeout(warmupTimer);
-  if (data) upgradeAddress(car, data);
+  if (data) { data._at = Date.now(); _saveSchedCache(); upgradeAddress(car, data); }
   updateCarMarkers();  // re-renders the cards (data, or the Retry state)
   if (await loadRules(car, 'car')) renderCarsPanel();
 }
@@ -31,14 +31,37 @@ async function upgradeAddress(car, sched) {
 
 // Cars by sweeping verdict; feeds the Saved summary and the tab's badge.
 function urgentCars() {
-  const out = { today: [], tomorrow: [] };
-  for (const car of cars) out[sweepUrgency(carSchedules[car.id])]?.push(car);
+  const out = { today: [], tomorrow: [], check: [] };
+  for (const car of cars) out[sweepUrgency(car)]?.push(car);
   return out;
 }
 
+// Each car's last /check answer, kept on this device with its time and position: offline
+// (a parking garage) the car's page still has its schedule, "as of" then.
+const SCHED_KEY = 'bb_sched';
+function _saveSchedCache() {
+  const out = {};
+  for (const c of cars) {
+    const s = carSchedules[c.id];
+    if (s?._at) out[c.id] = { lat: c.lat, lon: c.lon, s };
+  }
+  _store(SCHED_KEY, JSON.stringify(out));
+}
+function loadSchedCache() {
+  let saved = {};
+  try { saved = JSON.parse(_read(SCHED_KEY)) || {}; } catch (_) {}
+  for (const c of cars) {
+    const e = saved[c.id];
+    if (e && e.lat === c.lat && e.lon === c.lon && !carSchedules[c.id]) carSchedules[c.id] = e.s;
+  }
+}
+
 // The user moved a car (GPS, map or address): save it, show it, and re-check its street.
+// The old spot's schedule and side no longer apply.
 function moveCar(car, lat, lon) {
   car.lat = lat; car.lon = lon; touchCarLocation(car);
+  delete car.side;
+  delete carSchedules[car.id];
   savePrefs();
   updateCarMarkers();
   return checkCar(car, true);
@@ -54,7 +77,7 @@ function startPlacing(editId = null, kind = 'car') {
   closeNameBox();
   const p = placing = { kind, editId };
   placeBannerText.innerHTML = icon(editId ? 'pin' : kind)
-    + `<span><span class="sr-only">${editId ? 'Move' : 'Place'} ${kind}: </span>Pan to the spot</span>`;
+    + `<span><span class="sr-only">${editId ? 'Set location of' : 'Place'} ${kind}: </span>Pan to the spot</span>`;
   if (!isDesktop()) setCompact(true);
   document.body.classList.add('placing');
   placeBanner.classList.add('active');
@@ -116,7 +139,7 @@ const _menuRow = (act, label, ic, danger) =>
 menuButton(btnItemMore, itemMenu, () => {
   const item = selectedItem(), car = cars.includes(item);
   itemMenu.innerHTML = [
-    _menuRow('place', car ? 'Set location' : 'Move', 'pin'),
+    _menuRow('place', 'Set location', 'pin'),
     _menuRow('address', 'Enter address', 'search'),
     car && _menuRow('rename', 'Rename', 'pencil'),
     car && account && _menuRow('phone', item.id in phoneLinks ? 'Unlink phone' : 'Link phone', 'phone'),
@@ -244,46 +267,79 @@ function defaultCarName() {
 // Region-local clock for a /check response (the car's region, not the selected one).
 function schedNow(sched) { return regionNow(sched?.region || _region); }
 
-// The car's side of the street when it is known (as the calendar and the .ics feed read
-// it), else both sides.
-function _sweepEntries(sched) {
-  const side = sched.car_side === 'even' ? sched.schedule_even : sched.car_side === 'odd' ? sched.schedule_odd
-    : [...sched.schedule_even, ...sched.schedule_odd];
-  return side.map(e => ({ code: e[0], time: e[2] || '' }));
+// The car's side of the street: the one its owner picked, else null, and then both sides
+// count (a pin or a GPS fix lands either side of the centerline as easily; the server's
+// guess, car_side, only orders the sides).
+function carSide(car) {
+  return carSchedules[car.id] && (car.side === 'even' || car.side === 'odd') ? car.side : null;
 }
-// Sweeping urgency from the raw schedules against the live clock — the same rules as
-// the map color, so cards roll over when a window closes.
-function sweepUrgency(sched) {
-  if (!sched) return 'safe';
-  return BroomUrgency.checkDaySweeping(_sweepEntries(sched), schedNow(sched), schedSkip(sched));
+// The car's side's schedule entries (both sides' while it is not picked).
+function _sweepEntries(car) {
+  const sched = carSchedules[car.id], side = carSide(car);
+  const es = side === 'even' ? sched.schedule_even : side === 'odd' ? sched.schedule_odd
+    : [...sched.schedule_even, ...sched.schedule_odd];
+  return es.map(e => ({ code: e[0], time: e[2] || '' }));
+}
+// The car's verdict from the raw schedules against the live clock (the same rules as the
+// map color, so cards roll over when a window closes): 'today', 'tomorrow', 'check' (no
+// data there, or a day only the sign gives), 'safe'; null while its street loads.
+function sweepUrgency(car) {
+  const sched = carSchedules[car.id];
+  if (!sched) return null;
+  if (sched.covered === false) return 'check';
+  return BroomUrgency.checkDaySweeping(_sweepEntries(car), schedNow(sched), schedSkip(sched));
+}
+
+// Why the car's verdict is 'check', in words: {short, long, line (the Saved summary)}.
+function _checkWords(car) {
+  const sched = carSchedules[car.id], now = schedNow(sched);
+  if (sched.covered === false) return { short: 'No data', long: 'No sweeping data here. Check the signs.', line: `No data for ${car.name}’s street` };
+  const expired = _sweepEntries(car).some(e => BroomUrgency.unknownReason(e.code, now) === 'expired');
+  return { short: 'Check sign', long: expired ? `No ${now.y} dates yet. Check the signs.` : 'Sweeping day: check the sign',
+           line: `Check the sign for ${car.name}` };
 }
 
 // When to move, in words (urgency.js sweepDeadline): `short` for a Saved row, `long`
 // after "Move" (the car's page) or "Move <name>" (the Saved summary); null: nothing due.
-function deadlineText(sched) {
-  const d = sched && BroomUrgency.sweepDeadline(_sweepEntries(sched), schedNow(sched), schedSkip(sched));
+// A sweep starting at midnight is tonight's deadline, not tomorrow's.
+function deadlineText(car) {
+  const sched = carSchedules[car.id];
+  const d = sched && sched.covered !== false && BroomUrgency.sweepDeadline(_sweepEntries(car), schedNow(sched), schedSkip(sched));
   if (!d) return null;
   if (d.state === 'running') return { short: 'Sweeping now', long: `now, sweeping until ${d.at}` };
   if (d.state === 'by') return { short: `Move by ${d.at}`, long: `by ${d.at}` };
   if (d.state === 'today') return { short: 'Today', long: 'today' };
+  if (d.at === 'midnight') return { short: 'Tonight', long: 'by midnight tonight' };
   return { short: d.at ? `Tomorrow ${d.at}` : 'Tomorrow', long: d.at ? `tomorrow by ${d.at}` : 'tomorrow' };
 }
 
 // Nothing due: until when the car's side stays clear, from its next sweep within 60 days
-// ("Clear until Thu 9AM"; a week or more away, with the date); null when none.
-function clearUntilText(sched) {
-  if (!sched) return null;
-  const now = schedNow(sched), todayK = BroomUrgency.dayKey(now);
-  const even = sched.car_side === 'odd' ? [] : sched.schedule_even, odd = sched.car_side === 'even' ? [] : sched.schedule_odd;
-  const day = BroomUrgency.sweepDays(even, odd, now, BroomUrgency.addDays(now, 60), schedSkip(sched))
+// ("Clear until Thu 9AM"; a week or more away, with the date; a sweep at midnight is the
+// night before's: "Clear until Sun midnight"); "Season over" past a city's last date;
+// null when none.
+function clearUntilText(car) {
+  const sched = carSchedules[car.id];
+  if (!sched || sched.covered === false) return null;
+  const now = schedNow(sched), todayK = BroomUrgency.dayKey(now), side = carSide(car);
+  const even = side === 'odd' ? [] : sched.schedule_even, odd = side === 'even' ? [] : sched.schedule_odd;
+  let day = BroomUrgency.sweepDays(even, odd, now, BroomUrgency.addDays(now, 60), schedSkip(sched))
     .find(d => BroomUrgency.dayKey(d) > todayK);
-  if (!day) return null;
+  if (!day) return BroomUrgency.seasonOver(_sweepEntries(car), now) ? { short: 'Season over', long: 'Season over' } : null;
   const starts = day.items.map(it => BroomUrgency.timeWindow(it.time)?.[0]).filter(m => m != null);
+  let at = starts.length ? ` ${BroomUrgency.clockText(Math.min(...starts))}` : '';
+  if (at === ' midnight') day = BroomUrgency.addDays(day, -1);
   const far = Date.UTC(day.y, day.m - 1, day.d) - Date.UTC(now.y, now.m - 1, now.d) >= 7 * 864e5;
   const wd = far ? BroomUrgency.dayLabel(day) : BroomUrgency.WEEKDAYS[BroomUrgency.weekday(day)];
-  const at = starts.length ? ` ${BroomUrgency.clockText(Math.min(...starts))}` : '';
   const short = far ? BroomUrgency.dayLabel(day).replace(/^\S+ /, '') : wd;  // "Nov 22" a week or more away
   return { short: `Clear until ${short}`, long: `Clear until ${wd}${at}` };
+}
+
+// The verdict's words for the car's row (short) and page (long).
+function carWords(car) {
+  const u = sweepUrgency(car);
+  if (u === 'check') return _checkWords(car);
+  const dl = deadlineText(car);
+  return dl ? { short: dl.short, long: `Move ${dl.long}` } : clearUntilText(car);
 }
 
 // Verdict: icon + words (never color alone); the row shows the short form, the item's
@@ -294,16 +350,26 @@ function _statusHTML(u, words) {
        + `<span class="st-short">${esc(short)}</span><span class="st-long">${esc(long)}</span></span>`;
 }
 
+// When a cached schedule was fetched, on the region clock: "2:10PM", "Nov 14 2:10PM".
+function _asOf(sched) {
+  const at = regionNow(sched.region, new Date(sched._at)), now = schedNow(sched);
+  const day = BroomUrgency.dayKey(at) === BroomUrgency.dayKey(now) ? '' : BroomUrgency.dayLabel(at).replace(/^\S+ /, '') + ' ';
+  return day + BroomUrgency.clockText(at.min);
+}
+
 // An item page's section (as iOS grouped lists): a label over a rounded box holding up
-// to six lines (text, or {text, cls}); while loading, "Loading…", and after a failed load,
-// the error with Retry.
-function schedBlockHTML(id, header, lines) {
+// to six lines (text, or {text, cls, tag}); while loading, "Loading…", and after a failed
+// load, the error with Retry (with lines kept from before: "Offline · as of 2:10PM").
+// `top`: HTML above the lines (a picker).
+function schedBlockHTML(id, header, lines, top = '', asOf = null) {
+  const retry = '<button class="btn btn-tinted ce-btn-retry">Retry</button>';
   const body = lines ? lines.slice(0, 6).map(l => typeof l === 'string' ? { text: l } : l)
     .map(l => `<div class="ce-sched-item ${l.cls || ''}">${esc(l.text)}`
       + (l.tag ? ` <span class="ce-tag urg-${l.tag}">${l.tag === 'today' ? 'Today' : 'Tomorrow'}</span>` : '') + '</div>').join('')
-    : loadFailed.has(id) ? '<div class="ce-error">Couldn’t load the schedule <button class="btn btn-tinted ce-btn-retry">Retry</button></div>'
+      + (loadFailed.has(id) && asOf ? `<div class="ce-error">${navigator.onLine ? 'Couldn’t update' : 'Offline'} · as of ${esc(asOf)} ${retry}</div>` : '')
+    : loadFailed.has(id) ? `<div class="ce-error">Couldn’t load the schedule ${retry}</div>`
     : '<div class="ce-loading">Loading…</div>';
-  return `<div class="sec-label">${esc(header)}</div><div class="sec">${body}</div>`;
+  return `<div class="sec-label">${esc(header)}</div><div class="sec">${top}${body}</div>`;
 }
 
 // A row of the Saved list (icon, name over address, verdict) that opens the item's page
@@ -350,8 +416,8 @@ function vehicleHTML(car) {
   if (c.busy) out = '<div class="ce-loading">Checking…</div>';
   else if (c.error) out = `<div class="ce-error">${esc(c.error)}</div>`;
   else if (c.result) {
-    const rows = [...c.result.towed.map(t => `Towed ${t.date} to ${t.to}${t.phone ? ` (${t.phone})` : ''}`),
-                  ...c.result.relocated.map(r => `Moved ${r.date.replace('T', ' ')} to ${r.to}${r.reason ? ` (${r.reason})` : ''}`)];
+    const rows = [...c.result.towed.map(t => `Towed ${_when(t.date)} to ${t.to}${t.phone ? ` (${t.phone})` : ''}`),
+                  ...c.result.relocated.map(r => `Moved ${_when(r.date)} to ${r.to}${r.reason ? ` (${r.reason})` : ''}`)];
     out = rows.length ? rows.map(r => `<div class="ce-rule warn">${esc(r)}</div>`).join('')
       : '<div>No tow or relocation in the last 90 days.</div>';
   }
@@ -361,6 +427,13 @@ function vehicleHTML(car) {
     <label class="ce-field">State <input class="field ce-plate-state" maxlength="2" autocapitalize="characters"
       value="${esc(car.plate_state || 'IL')}" aria-label="Plate state"></label>
     <button class="btn btn-tinted ce-btn-towed">Check the city’s records</button>${out}</div>`;
+}
+// "2026-11-10T14:23" (the city's local time) -> "Tue Nov 10, 2:23PM"; other text as is.
+function _when(iso) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)(?:[T ](\d\d):(\d\d))?/.exec(String(iso || ''));
+  if (!m) return iso || '';
+  const day = BroomUrgency.dayLabel({ y: +m[1], m: +m[2], d: +m[3] });
+  return m[4] ? `${day}, ${BroomUrgency.clockText(+m[4] * 60 + +m[5])}` : day;
 }
 async function checkVehicle(car) {
   if (!car.plate) { showToast('Enter the license plate first', true); return; }
@@ -422,24 +495,66 @@ async function _togglePhoneLink(car) {
   document.querySelector('.ce-token')?.scrollIntoView({ block: 'nearest' });  // it is below the schedule
 }
 
-// A car's sweeping lines, its side first (formatBothSides) as "Your side (North): …",
-// then "Other side (South): …", muted unless swept today or tomorrow (then tagged so:
-// a car parked one side off, or a GPS fix across the street, makes it the line that matters).
-function carSchedLines(sched) {
+// A car's sweeping lines: one per pattern when both sides are alike (or a zone), else
+// "North side: …" per side, the car's first. The other side is muted unless swept today
+// or tomorrow (then tagged so); while the side is not picked, both count and both are tagged.
+function carSchedLines(car) {
+  const sched = carSchedules[car.id], now = schedNow(sched), skip = schedSkip(sched), side = carSide(car);
   const labels = sched.side_labels || ['Even', 'Odd'];
-  const lines = BroomUrgency.formatBothSides(sched.schedule_even, sched.schedule_odd, schedNow(sched), sched.car_side, labels);
-  if (!sched.car_side) return lines;
-  const mineI = sched.car_side === 'odd' ? 1 : 0, mine = `${labels[mineI]}: `, other = `${labels[1 - mineI]}: `;
-  const otherEntries = (mineI ? sched.schedule_even : sched.schedule_odd).map(e => ({ code: e[0], time: e[2] || '' }));
-  const u = BroomUrgency.checkDaySweeping(otherEntries, schedNow(sched), schedSkip(sched));
-  const tag = u === 'today' || u === 'tomorrow' ? u : null;
-  return lines.map(text => text.startsWith(other)
-    ? { cls: tag ? '' : 'ce-other', tag, text: `Other side (${labels[1 - mineI]}): ${text.slice(other.length)}` }
-    : text.startsWith(mine) ? `Your side (${labels[mineI]}): ${text.slice(mine.length)}` : text);
+  const raw = [sched.schedule_even, sched.schedule_odd], text = raw.map(r => BroomUrgency.formatScheduleSide(r, now));
+  if (text[0].join('\n') === text[1].join('\n')) return text[0].length ? text[0] : ['No sweeping'];
+  const out = [];
+  for (const i of (side || sched.car_side) === 'odd' ? [1, 0] : [0, 1]) {
+    const mine = side === ['even', 'odd'][i];
+    const u = BroomUrgency.checkDaySweeping(raw[i].map(e => ({ code: e[0], time: e[2] || '' })), now, skip);
+    const tag = !mine && (u === 'today' || u === 'tomorrow') ? u : null;
+    (text[i].length ? text[i] : ['No sweeping']).forEach((ln, k) => out.push({
+      text: `${labels[i]} side: ${ln}`, cls: side && !mine && !tag ? 'ce-other' : '', tag: k ? null : tag }));
+  }
+  return out;
 }
 
-// The car rows (before the homes) and, on a car's page, its one visible action: Parked
-// here (the car moves to the device's position), the one used every time (as Find My keeps Play Sound out); the rest is under "…".
+// Where the sides' schedules differ: which side the car is on (two buttons), and until it
+// is picked, that both count.
+function sidePickHTML(car) {
+  const sched = carSchedules[car.id];
+  if (!sched || sched.covered === false) return '';
+  const now = schedNow(sched), f = r => BroomUrgency.formatScheduleSide(r, now).join('\n');
+  if (f(sched.schedule_even) === f(sched.schedule_odd)) return '';
+  const labels = sched.side_labels || ['Even', 'Odd'], side = carSide(car);
+  return '<div class="seg ce-side" role="radiogroup" aria-label="Your side of the street">'
+    + ['even', 'odd'].map((s, i) => `<button type="button" role="radio" data-side="${s}" aria-checked="${side === s}">${esc(labels[i])} side</button>`).join('')
+    + '</div>' + (side ? '' : '<div class="ce-sched-item ce-other">Pick your side. Until then, both count.</div>');
+}
+
+// The city's sweeping data is over a year old: say when it is from (the signs win).
+function dataAgeHTML(sched) {
+  const ym = sched && regions[sched.region]?.updated?.[sched.city];
+  const m = /^(\d{4})-(\d{2})/.exec(ym || ''), now = schedNow(sched);
+  if (!m || (now.y - +m[1]) * 12 + now.m - +m[2] < 12) return '';
+  return `<p class="note">City data from ${BroomUrgency.dayLabel({ y: +m[1], m: +m[2], d: 1 }).split(' ')[1]} ${m[1]}. Follow posted signs.</p>`;
+}
+
+// A file for the calendar app with the car's next sweep and its reminders (the evening
+// before, an hour before): the reminder without an account. Signed in with a calendar
+// link, the feed has it already.
+function remindHTML(car) {
+  const sched = carSchedules[car.id];
+  const cl = clearUntilText(car);
+  if (!sched || sched.covered === false || calendarOn || !deadlineText(car) && !(cl && cl.short !== 'Season over')) return '';
+  const q = new URLSearchParams({ lat: car.lat, lon: car.lon, name: car.name, id: car.id });
+  if (carSide(car)) q.set('side', carSide(car));
+  return `<a class="btn btn-tinted btn-wide ce-btn-remind" href="/api/next-sweep.ics?${esc(q)}">${icon('calendar')} Add to calendar</a>`;
+}
+
+// Kilometers from a car to (lat, lon) (flat-earth: fine at city scale).
+function _kmFrom(car, lat, lon) {
+  const k = 111.32, dx = (lon - car.lon) * k * Math.cos(car.lat * Math.PI / 180), dy = (lat - car.lat) * k;
+  return Math.hypot(dx, dy);
+}
+
+// The car rows (before the homes) and, on a car's page, its one visible action: Use my
+// location (the car moves to the device's position, asked first when that is over 1 km away), the one used every time (as Find My keeps Play Sound out); the rest is under "…".
 function renderCarsPanel() {
   if (isEditingIn(carsPanel) || savedTitle.isContentEditable) return;
   for (const el of [...itemList.querySelectorAll(':scope > .car-entry:not(.home-entry)')]) el.remove();
@@ -447,13 +562,14 @@ function renderCarsPanel() {
   for (const car of cars) {
     const sched = carSchedules[car.id];
     const addrText = sched?.address || '';
-    const lines = sched && carSchedLines(sched), dl = deadlineText(sched), cl = !dl && clearUntilText(sched);
+    const asOf = sched?._at ? _asOf(sched) : null;
     const entry = itemCard({
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
-      urgency: sched && sweepUrgency(sched), words: dl ? { short: dl.short, long: `Move ${dl.long}` } : cl || null, addr: addrText,
+      urgency: sweepUrgency(car), words: sched ? carWords(car) : null, addr: addrText,
       detail: `
-        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
-        ${schedBlockHTML(car.id, 'Sweeping', lines && (lines.length ? lines : ['No sweeping']))}
+        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Use my location</button>
+        ${sched?.covered === false ? '' : schedBlockHTML(car.id, 'Sweeping', sched && carSchedLines(car), sidePickHTML(car), asOf)}
+        ${remindHTML(car)}${dataAgeHTML(sched)}
         ${rulesBlockHTML('Other rules', placeRules[car.id])}
         ${vehicleHTML(car)}
         ${account ? phoneLinkHTML(car) : ''}`,
@@ -472,10 +588,21 @@ function renderCarsPanel() {
 
     entry.querySelector('.ce-btn-retry')?.addEventListener('click', () => checkCar(car, true));
     entry.querySelector('.ce-btn-gps').addEventListener('click', e => {
-      locateWith(e.currentTarget, (lat, lon) => {
+      locateWith(e.currentTarget, async (lat, lon) => {
+        const km = _kmFrom(car, lat, lon);
+        if (km > 1 && !await askConfirm(`Update ${car.name}’s location?`,
+          `You are ${(km / 1.609).toFixed(1)} mi from where ${car.name} is now.`, 'Update')) return;
         if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
         return moveCar(car, lat, lon);
       });
+    });
+    entry.querySelector('.ce-side')?.addEventListener('click', e => {
+      const b = e.target.closest('[data-side]');
+      if (!b) return;
+      car.side = b.dataset.side;
+      savePrefs();
+      renderCarsPanel();
+      carsPanel.querySelector(`.car-entry[data-id="${CSS.escape(car.id)}"] [data-side="${car.side}"]`)?.focus();
     });
     const plateIn = entry.querySelector('.ce-plate'), stateIn = entry.querySelector('.ce-plate-state');
     plateIn?.addEventListener('change', () => {
@@ -529,22 +656,27 @@ function _alertsHTML() {
 }
 
 // Saved tab's first lines: each car to move today and when ("Move Civic by 9AM"), else
-// those to move tomorrow, else all clear; with nothing saved, the two ways to start.
-// "All clear" waits until every car's street has loaded. A red dot on the tab while a car
-// must move today. Alerts in effect where cars and homes are follow it.
+// those to move tomorrow; then each car whose sign decides ("Check the sign at Civic");
+// "All clear" once every car's street has loaded and each is clear. With nothing saved,
+// the two ways to start. The tab's dot: red while a car must move today, orange tomorrow.
+// Alerts in effect where cars and homes are follow it.
 function updateSavedSummary() {
-  const { today, tomorrow } = urgentCars();
+  const { today, tomorrow, check } = urgentCars();
   const due = today.length ? ['today', today] : tomorrow.length ? ['tomorrow', tomorrow] : null;
-  savedSummary.innerHTML = due
-    ? due[1].map(car => `<div class="sum-line"><span class="urg-${due[0]}">${icon('alert')}</span> `
-        + `Move ${esc(car.name)} ${esc(deadlineText(carSchedules[car.id])?.long || due[0])}</div>`).join('')
-    : cars.length && cars.every(c => carSchedules[c.id]) ? `<div class="sum-line"><span class="urg-safe">${icon('check')}</span> All clear</div>`
-    : cars.length || homes.length ? ''
+  const line = (u, ic, text) => `<div class="sum-line"><span class="urg-${u}">${icon(ic)}</span> ${esc(text)}</div>`;
+  savedSummary.innerHTML = [
+    ...(due ? due[1].map(car => line(due[0], 'alert', `Move ${car.name} ${deadlineText(car)?.long || due[0]}`)) : []),
+    ...check.map(car => line('check', 'help', _checkWords(car).line)),
+    !due && !check.length && cars.length && cars.every(c => carSchedules[c.id]) ? line('safe', 'check', 'All clear') : '',
+  ].join('') || (cars.length || homes.length ? ''
     : `<div class="empty-saved"><p class="note">Know when your street gets swept.</p>
          <div class="empty-btns"><button class="btn" data-add="car">${icon('car')} Add car</button>
-         <button class="btn btn-plain" data-add="home">${icon('home')} Add home</button></div></div>`;
+         <button class="btn btn-plain" data-add="home">${icon('home')} Add home</button></div></div>`);
   savedSummary.insertAdjacentHTML('beforeend', _alertsHTML());
-  tabbar.querySelector('.tab-badge').hidden = !today.length;
+  const badge = tabbar.querySelector('.tab-badge');
+  badge.hidden = !due;
+  badge.classList.toggle('soon', !!due && due[0] === 'tomorrow');
+  badge.innerHTML = due ? `<span class="sr-only">: ${esc(due[1].map(car => `move ${car.name} ${deadlineText(car)?.long || due[0]}`).join(', '))}</span>` : '';
 }
 // Nothing saved yet: the empty state's buttons start placing a car or a home.
 savedSummary.addEventListener('click', e => {

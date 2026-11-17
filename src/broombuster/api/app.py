@@ -105,6 +105,7 @@ def cities():
             "zoom": rv["zoom"],
             "holidays": holidays.for_region(rk),
             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
+            "updated": {ck: CITIES[ck].get("source_updated") for ck in rv["cities"]},
             "layers": layers.catalog(rk),
         }
         for rk, rv in REGIONS.items()
@@ -145,7 +146,8 @@ def check(req: CheckRequest):
     """Sweeping schedule of the street (or zone) a car is parked on.
 
     Urgency is computed by the client from the raw schedules, so it follows
-    the live clock.
+    the live clock. `covered` is false when no street or zone of the city's data
+    is there: the empty schedules then mean "unknown", not "no sweeping".
     """
     loc = _locate(req.lat, req.lon, req.region)
     address, pending = _address(loc, req.lat, req.lon, network=False)
@@ -167,6 +169,7 @@ def check(req: CheckRequest):
         ),
         "schedule_even": even,
         "schedule_odd": odd,
+        "covered": loc.resolved is not None,
     }
 
 
@@ -289,7 +292,7 @@ def _car_spot(lat: float, lon: float) -> calfeed.CarSpot | None:
         loc.city_key,
         address,
         {"even": [list(e) for e in even], "odd": [list(o) for o in odd]},
-        loc.resolved.side,
+        analysis.side_labels(loc.resolved.segment),
     )
 
 
@@ -303,6 +306,26 @@ def calendar_feed(token: str):
         calfeed.build(prefs, _car_spot),
         media_type="text/calendar; charset=utf-8",
         headers={"Cache-Control": "private, max-age=900"},
+    )
+
+
+@api.get("/next-sweep.ics", include_in_schema=False)
+def next_sweep(
+    lat: float = Query(..., ge=-90.0, le=90.0),
+    lon: float = Query(..., ge=-180.0, le=180.0),
+    name: str = Query("Car", max_length=200),
+    side: str | None = Query(None, pattern="^(even|odd)$"),
+    car_id: str = Query("car", alias="id", pattern=r"^[\w-]{1,64}$"),
+):
+    """A car's next sweep as a calendar file with its reminders (no account needed)."""
+    car = {"id": car_id, "name": name, "lat": lat, "lon": lon, "side": side}
+    return Response(
+        calfeed.build({"cars": [car], "homes": []}, _car_spot, first_only=True),
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": 'attachment; filename="sweeping.ics"',
+        },
     )
 
 
@@ -403,6 +426,11 @@ app.include_router(api)  # after every route above is registered on it
 @app.get("/", include_in_schema=False)
 def index():
     return web.index_response()
+
+
+@app.get("/js/maplibre-global.js", include_in_schema=False)
+def maplibre_module():
+    return web.module_response()
 
 
 @app.get("/sw.js", include_in_schema=False)

@@ -1,4 +1,5 @@
 name: "Chicago, IL"
+source_updated: "2026-06"   # when the city last edited its sweeping source
 center: {lat: 41.8781, lon: -87.6298}
 schema: chicago
 bbox: [41.644, -87.848, 42.024, -87.524]

@@ -37,7 +37,11 @@ function attachMapListeners() {
     // a stray tap — a tap during place mode is ignored so panning can't misfire.
     if (placing) return;
     if (_namePopup) return;  // name box open: taps don't open windows or close it
-    overlayClick(e);  // a permit area, meter, … names itself (js/layers.js)
+    // A tapped street comes under the target, so the card and calendar read it; then only a
+    // point (a market, a charger) names itself, else a permit area, meter, … (js/layers.js).
+    const street = _streetAt(e.point);
+    overlayClick(e, street);
+    if (street) map.easeTo({ center: e.lngLat });
     if (_tapTimer) clearTimeout(_tapTimer);
     _tapTimer = setTimeout(() => { _tapTimer = null; clearSelection(); }, 280);
   });
@@ -62,7 +66,25 @@ function attachMapListeners() {
   // Color tiles as they arrive, not only once the whole map is idle: until then
   // their streets are transparent (see _urgCase).
   map.on('sourcedata', (e) => { if (e.sourceId === TILES_SOURCE && e.tile) scheduleUrgencyUpdate(); });
+  // Street tiles still loading after a second: the chip says so (ui.js), until the map settles.
+  let slowTimer = 0;
+  map.on('sourcedataloading', (e) => {
+    if (e.sourceId !== TILES_SOURCE || slowTimer || _streetsSlow) return;
+    slowTimer = setTimeout(() => { _streetsSlow = true; updateNetChip(); renderTargetInfo(); }, 1000);
+  });
+  map.on('idle', () => {
+    clearTimeout(slowTimer); slowTimer = 0;
+    if (_streetsSlow) { _streetsSlow = false; updateNetChip(); renderTargetInfo(); }
+  });
   syncRegion();
+}
+
+// Whether a street line is drawn within 8 px of a screen point.
+function _streetAt(p) {
+  const layers = ['zones-line', 'zones-side-even', 'zones-side-odd'].filter(l => map.getLayer(l));
+  if (!layers.length) return false;
+  try { return map.queryRenderedFeatures([[p.x - 8, p.y - 8], [p.x + 8, p.y + 8]], { layers }).length > 0; }
+  catch (_) { return false; }
 }
 
 // Run `cb` once the style can accept sources/layers. `style.load` is a one-shot
@@ -109,6 +131,7 @@ function themePaint(kind) {
     focus: { 'line-color': dark ? '#e2e8f0' : '#0f172a' },
     wash:  { 'fill-color': dark ? 'rgba(0,0,0,0.5)' : 'rgba(236,239,234,0.7)' },
     label: { 'text-color': dark ? '#e2e8f0' : '#334155', 'text-halo-color': dark ? '#111827' : '#ffffff' },
+    casing: { 'line-color': dark ? 'rgba(0,0,0,0.75)' : 'rgba(15,23,42,0.55)' },
   }[kind];
 }
 const themed = (kind, paint = {}) => ({ metadata: { bbTheme: kind }, paint: { ...paint, ...themePaint(kind) } });
@@ -184,6 +207,24 @@ function addTilePaintLayers() {
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     ...themed('ward', { 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.0, 13, 2.0, 16, 3.2, 18, 4.5] }),
   });
+  // Under a street swept today or tomorrow: a dark casing, so its red or orange stands
+  // off the basemap (and red from orange by more than hue).
+  const cased = key => ['match', ['coalesce', ['feature-state', key], ''], 'today', 1, 'tomorrow', 1, 0];
+  addLayer({
+    id: 'zones-casing', type: 'line', filter: ['==', ['get', 'render_type'], 'line'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    ...themed('casing', { 'line-width': _lineWidth('urgency', 1, 2),
+      'line-opacity': ['step', ['zoom'], cased('urgency'), SIDE_ZOOM, ['case', ['has', 'even_left'], 0, cased('urgency')]] }),
+  });
+  for (const side of ['even', 'odd']) {
+    addLayer({
+      id: `zones-casing-${side}`, type: 'line',
+      minzoom: SIDE_ZOOM, filter: ['all', ['==', ['get', 'render_type'], 'line'], ['has', 'even_left']],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      ...themed('casing', { 'line-width': _lineWidth(`urgency_${side}`, 0.6, 2), 'line-offset': _sideOffset(side),
+                            'line-opacity': cased(`urgency_${side}`) }),
+    });
+  }
   addLayer({
     id: 'zones-line', type: 'line',
     filter: ['==', ['get', 'render_type'], 'line'],
@@ -324,7 +365,9 @@ function applyUrgencyStates() {
         _featSchedCache.set(f.id, sched);
       }
       const skip = sweepSkip(_tilesRegion, f.properties.city);
-      const verdict = es => sched.none || !es.length ? 'none' : BroomUrgency.checkDaySweeping(es, now, skip);
+      // No line to show is no sweeping, unless the data can't tell (Chicago's dates ran out).
+      const verdict = es => !es.length || (sched.none && !es.some(e => BroomUrgency.unknownReason(e.code, now))) ? 'none'
+        : BroomUrgency.checkDaySweeping(es, now, skip);
       u = { urgency: verdict(sched.entries) };
       if (sched.split) {
         u.urgency_even = verdict(sched.entries.filter(e => e.side === 'even'));

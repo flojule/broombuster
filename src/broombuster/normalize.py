@@ -278,10 +278,14 @@ _ORD_SUFFIX = {"1": "st", "2": "nd", "3": "rd"}
 
 
 def pretty_ordinals(text: str) -> str:
-    """Bare week-of-month digit runs -> ordinals: "13" -> "1st & 3rd"."""
+    """Bare week-of-month digit runs -> ordinals: "13" -> "1st & 3rd", "1234" -> "1st–4th"
+    (urgency.js _prettyOrdinals)."""
 
     def _repl(m: "re.Match") -> str:
-        parts = [d + _ORD_SUFFIX.get(d, "th") for d in m.group(1)]
+        ds = m.group(1)
+        parts = [d + _ORD_SUFFIX.get(d, "th") for d in ds]
+        if len(ds) >= 3 and int(ds[-1]) - int(ds[0]) == len(ds) - 1:
+            return f"{parts[0]}–{parts[-1]}"
         if len(parts) == 1:
             return parts[0]
         return ", ".join(parts[:-1]) + " & " + parts[-1]

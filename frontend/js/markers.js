@@ -22,8 +22,13 @@ function updateCarMarkers() {
   for (const [id, marker] of _carMarkers) {
     if (!cars.find(c => c.id === id)) { marker.remove(); _carMarkers.delete(id); }
   }
+  // Cars at one spot (within ~1 m) sit side by side, 18 px apart, so each pin shows.
+  const spot = c => `${c.lat.toFixed(5)},${c.lon.toFixed(5)}`, at = new Map();
+  for (const c of cars) at.set(spot(c), [...(at.get(spot(c)) || []), c.id]);
   for (const car of cars) {
     const marker = placeMarker(_carMarkers.get(car.id), car, () => _pinEl('car', car.id));
+    const same = at.get(spot(car));
+    marker.setOffset([(same.indexOf(car.id) - (same.length - 1) / 2) * 18, 0]);
     marker.getElement().style.setProperty('--pin', carColor(car));
     marker.getElement().setAttribute('aria-label', car.name);
     _carMarkers.set(car.id, marker);

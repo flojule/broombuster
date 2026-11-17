@@ -124,6 +124,15 @@ def test_car_on_centerline_tiebreaks_deterministically(east_west_street):
     assert resolved.side == "odd"
 
 
+def test_bent_line_uses_the_segment_under_the_car(east_west_street):
+    """A line bending north just past the car: the side comes from the east-west segment
+    the car is beside, not the northbound one that starts at the nearest vertex."""
+    gdf = east_west_street.copy()
+    gdf.geometry = [LineString([(0.0, 0.0), (100.0, 0.0), (102.0, 40.0)])]
+    car_lon, car_lat = _ll(90.0, -5.0)  # 5 m south of the first segment
+    assert resolve_car_segment(gdf, car_lat, car_lon).side == "odd"
+
+
 def test_reversed_segment_still_assigns_sides_correctly():
     # Same physical street, but directed B→A. The cross-product sign flips,
     # but L_F_ADD / R_F_ADD flip with it — net side must stay consistent.

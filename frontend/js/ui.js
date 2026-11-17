@@ -1,14 +1,51 @@
 // ── Toast notifications ────────────────────────────────────────────────────────
 const _toastContainer = document.getElementById('toast-container');
-// The container is a polite live region, so screen readers announce each toast.
-function showToast(msg, isError = false, ms = 3100) {
+// The container is a polite live region, so screen readers announce each toast. A note
+// fades after `ms`; an error stays until closed (x) and can offer Retry. `opts`: ms, or
+// {ms, retry}. The same message is not shown twice at once.
+function showToast(msg, isError = false, opts = {}) {
+  if (typeof opts === 'number') opts = { ms: opts };
+  if ([..._toastContainer.children].some(t => t.dataset.msg === msg)) return;
   const el = document.createElement('div');
   el.className = 'toast' + (isError ? ' error' : '');
-  el.textContent = msg;
-  el.style.animationDelay = `0s, ${(ms - 400) / 1000}s`;  // toast-in, then toast-out
+  el.dataset.msg = msg;
+  el.append(Object.assign(document.createElement('span'), { textContent: msg }));
+  const btn = (text, label, onClick) => {
+    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'toast-btn', textContent: text });
+    if (label) b.setAttribute('aria-label', label);
+    b.addEventListener('click', () => { el.remove(); onClick?.(); });
+    el.append(b);
+  };
+  if (opts.retry) btn('Retry', '', opts.retry);
+  // An error with Retry (or marked sticky) stays until closed; the rest fade.
+  if (opts.retry || opts.sticky) btn('\u00d7', 'Dismiss');
+  else {
+    const ms = opts.ms || (isError ? 5000 : 3100);
+    el.style.animationDelay = `0s, ${(ms - 400) / 1000}s`;  // toast-in, then toast-out
+    setTimeout(() => el.remove(), ms);
+  }
   _toastContainer.appendChild(el);
-  setTimeout(() => el.remove(), ms);
 }
+
+// ── Connection chip: "Offline", "Can't reach the server" or "Loading streets…" over the
+// map, so a failure never reads as "nothing here". ────────────────────────────────
+const netChip = document.getElementById('net-chip');
+let _citiesFailed = false;  // /api/cities failed (data.js retries it)
+let _streetsSlow = false;   // the street tiles have been loading for over a second (map.js)
+// Streets are on their way: /api/cities is loading, or the tiles are slow.
+function streetsLoading() { return (!Object.keys(regions).length && !_citiesFailed) || _streetsSlow; }
+function updateNetChip() {
+  const text = !navigator.onLine ? 'Offline' : _citiesFailed && !Object.keys(regions).length ? 'Can’t reach the server'
+    : _streetsSlow ? 'Loading streets…' : '';
+  if (netChip.textContent !== text) netChip.textContent = text;
+  netChip.hidden = !text;
+}
+window.addEventListener('offline', updateNetChip);
+window.addEventListener('online', () => {
+  updateNetChip();
+  if (_citiesFailed) retryCities();
+  for (const c of cars) if (loadFailed.has(c.id)) checkCar(c);
+});
 
 // Safari on iPhone: once, after the first car or home is saved (the user has seen what
 // the app is for), say how to install it full screen. Safari has no install prompt.
@@ -184,6 +221,23 @@ function nearestSegment(f, c) {
   }
   return best;
 }
+
+// ── Find an address: the map centers there (the target reads its street) ───────
+const btnSearch = document.getElementById('btn-search'), searchBox = document.getElementById('search-box');
+menuButton(btnSearch, searchBox);
+btnSearch.addEventListener('click', () => { if (!searchBox.hidden) searchBox.q.focus(); });
+searchBox.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeMenu(true); } });
+searchBox.addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = searchBox.q.value.trim();
+  if (!q || !map) return;
+  let hit;
+  try { hit = await geocode(q, _region || nearestRegion(map.getCenter().lat, map.getCenter().lng)); }
+  catch (_) { showToast('Couldn’t look up the address', true); return; }
+  if (!hit) { showToast('Address not found', true); return; }
+  closeMenu();
+  map.jumpTo({ center: [hit.lon, hit.lat], zoom: 17 });
+});
 
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());

@@ -77,7 +77,7 @@ async function loadNearby() {
     if (!res.ok) throw new Error(res.statusText);
     renderNearby(await res.json());
   } catch (_) {
-    if (n === _nearbySeq) nearbyBody.innerHTML = '<p class="note">Couldn’t load.</p>';
+    if (n === _nearbySeq) nearbyBody.innerHTML = '<div class="sec"><div class="ce-error">Couldn’t load <button class="btn btn-tinted nb-retry">Retry</button></div></div>';
   }
 }
 
@@ -93,6 +93,7 @@ function _nearbyMoved() {
   btnNearbyHere.hidden = _kmBetween(_nearbyAt, { lat: c.lat, lon: c.lng }) < NEARBY_MOVED_KM;
 }
 btnNearbyHere.addEventListener('click', loadNearby);
+nearbyBody.addEventListener('click', e => { if (e.target.closest('.nb-retry')) loadNearby(); });
 // While the tab is open, panning far enough offers "Here" (the map listener is added
 // once the map exists).
 (function waitForMap() {

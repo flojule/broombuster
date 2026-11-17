@@ -305,3 +305,11 @@ def test_map_areas_give_a_cross_city_overlap_to_the_newer_source():
     assert out.geometry["berkeley"].symmetric_difference(gdf.geometry[0]).area < 1e-12
     assert not out.geometry["oakland"].contains(_square(60, 40, 10).centroid)
     assert out.geometry["oakland"].contains(_square(120, 40, 10).centroid)
+
+
+def test_curb_listing_two_permit_areas_shows_one_rule(app_client):
+    """Virginia St, Berkeley: the curb's "Permit area F or G" covers the area polygons'
+    F and G, so one parking rule shows, not three."""
+    rules = app_client.get("/api/rules", params={"lat": 37.877852, "lon": -122.259778}).json()
+    permits = [r["label"] for r in rules["rules"] if r["label"].startswith("Permit area")]
+    assert permits == ["Permit area F or G"]

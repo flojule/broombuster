@@ -26,6 +26,9 @@ const out = cases.map(function (c) {
   if (c.kind === 'side') {
     return { id: c.id, lines: U.formatScheduleSide(c.entries, c.now) };
   }
+  if (c.kind === 'deadline') {
+    return { id: c.id, deadline: U.sweepDeadline(JSON.parse(c.sched), c.now) };
+  }
   return { id: c.id, urgency: U.checkDaySweeping(JSON.parse(c.sched), c.now) };
 });
 process.stdout.write(JSON.stringify(out));

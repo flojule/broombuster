@@ -9,6 +9,10 @@ const URGENCY = {
   // Clear is quiet (a muted green): only today and tomorrow should catch the eye.
   safe:     { color: 'var(--urg-safe)',     short: 'Clear', icon: 'check',
               fill: 'rgba(63,140,92,0.12)',  band: '#3f8c5c', line: 'rgba(63,140,92,0.6)' },
+  // Swept, but the data can't say when (the day is on the posted sign only, the city's
+  // season dates ran out, or no data at a car): never shown as clear.
+  check:    { color: 'var(--urg-check)',    short: 'Check sign', icon: 'help',
+              fill: 'rgba(100,116,139,0.18)', band: '#64748b', line: '#64748b' },
   // Map only: a street or zone with no sweeping at all (not a car verdict).
   none:     { color: 'var(--muted)',       short: 'No sweeping',
               fill: 'rgba(120,130,150,0.10)', band: '#64748b', line: '#94a3b8' },
@@ -205,8 +209,8 @@ let _tempPinMarker = null;
 let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
-const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-band', 'zones-ward', 'zones-line', 'zones-side-even',
-                      'zones-side-odd', 'zones-edge', 'zones-here-halo', 'zones-here', 'zones-label'];
+const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-band', 'zones-ward', 'zones-casing', 'zones-casing-even',
+                      'zones-casing-odd', 'zones-line', 'zones-side-even', 'zones-side-odd', 'zones-edge', 'zones-here-halo', 'zones-here', 'zones-label'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
 // Vector tile source; per-feature urgency arrives via feature-state.
@@ -221,6 +225,7 @@ function _urgCase(prop, key = 'urgency') {
     'today',    URGENCY.today[prop],
     'tomorrow', URGENCY.tomorrow[prop],
     'safe',     URGENCY.safe[prop],
+    'check',    URGENCY.check[prop],
     'none',     URGENCY.none[prop],
     'rgba(0,0,0,0)',
   ];
@@ -229,14 +234,15 @@ function _urgCase(prop, key = 'urgency') {
 // grows with urgency (today x2, tomorrow x1.5; no sweeping a hairline) so color is not the only cue.
 // One side's line (key 'urgency_even' / 'urgency_odd') is `scale` of that.
 const LINE_W = { 11: 0.8, 14: 1.5, 16: 2.5, 18: 4 };
-const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, none: 0.35 };
-function _lineWidth(key = 'urgency', scale = 1) {
+const LINE_MULT = { today: 2, tomorrow: 1.5, safe: 1, check: 1, none: 0.35 };
+// `add`: px added to every width (a casing under the line).
+function _lineWidth(key = 'urgency', scale = 1, add = 0) {
   const stops = Object.entries(LINE_W).flatMap(([z, w]) => [Number(z), [
     'case',
-    ['==', ['feature-state', key], 'today'],    w * scale * LINE_MULT.today,
-    ['==', ['feature-state', key], 'tomorrow'], w * scale * LINE_MULT.tomorrow,
-    ['==', ['feature-state', key], 'none'],     w * scale * LINE_MULT.none,
-    w * scale,
+    ['==', ['feature-state', key], 'today'],    w * scale * LINE_MULT.today + add,
+    ['==', ['feature-state', key], 'tomorrow'], w * scale * LINE_MULT.tomorrow + add,
+    ['==', ['feature-state', key], 'none'],     w * scale * LINE_MULT.none + add,
+    w * scale + add,
   ]]);
   return ['interpolate', ['linear'], ['zoom'], ...stops];
 }

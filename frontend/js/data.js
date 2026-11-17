@@ -60,11 +60,30 @@ function abbreviate(s) {
 }
 
 // ── Cities / regions ──────────────────────────────────────────────────────────
+// The areas (/api/cities), kept on this device: a failed load uses the last copy and
+// retries every 5 s until it answers. Returns whether it answered.
+const CITIES_KEY = 'bb_cities';
+let _citiesRetry = 0;
 async function loadCities() {
   try {
     const res = await fetch('/api/cities');
-    if (res.ok) regions = await res.json();
-  } catch (_) {}
+    if (!res.ok) throw new Error(res.statusText);
+    regions = await res.json();
+    _store(CITIES_KEY, JSON.stringify(regions));
+    _citiesFailed = false;
+    return true;
+  } catch (_) {
+    if (!Object.keys(regions).length) { try { regions = JSON.parse(_read(CITIES_KEY)) || {}; } catch (e) { regions = {}; } }
+    _citiesFailed = true;
+    clearTimeout(_citiesRetry);
+    _citiesRetry = setTimeout(retryCities, 5000);
+    return false;
+  } finally { updateNetChip(); }
+}
+async function retryCities() {
+  if (!await loadCities() || !map) return;
+  syncRegion();
+  renderTargetInfo();
 }
 
 // ── Saved cars + homes (this browser only) ───────────────────────────────────

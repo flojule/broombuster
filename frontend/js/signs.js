@@ -8,57 +8,23 @@
 const signsEl = document.getElementById('signs');
 let _signsKey = '';
 
-// "8:00 AM - 11 :00 AM" / "8AM–10AM" -> "8–11AM" (one AM/PM when both share it, no ":00");
-// other wordings are kept.
-const _TIME_RE = /^\s*(\d{1,2})\s*(?::\s*(\d\d))?\s*([AP])\.?\s*M\.?\s*[-–·]\s*(\d{1,2})\s*(?::\s*(\d\d))?\s*([AP])\.?\s*M\.?\s*$/i;
-function shortTime(t) {
-  const m = _TIME_RE.exec(t);
-  if (!m) return t;
-  const hm = (h, min) => h + (min && min !== '00' ? ':' + min : '');
-  const [a, b] = [m[3].toUpperCase() + 'M', m[6].toUpperCase() + 'M'];
-  return a === b ? `${hm(m[1], m[2])}–${hm(m[4], m[5])}${b}` : `${hm(m[1], m[2])}${a}–${hm(m[4], m[5])}${b}`;
-}
-
-// One side's tile entries as published, shortened: [{days, time}], one per time window,
-// with the days sharing it ("Mon–Wed, Fri"; weekly is the norm, so no "Every"). A dated
-// code (Chicago) is a list of dates at the source: shown as the next run of them.
+// One side's tile entries as lines [{days, time}]: the same wording as the car's page
+// (urgency.js formatScheduleSide: "Mon, Wed · 8AM–10AM", "Tue 2nd & 4th", Chicago's
+// next dates), split at the time.
 function sourceLines(entries, now) {
-  const byTime = new Map();  // time -> [day wording]
-  for (const e of entries) {
-    const raw = e.time && !/^n\/?a$/i.test(e.time) ? e.time : '';
-    let days = String(e.code).startsWith('DATES:') ? BroomUrgency.formatScheduleSide([e], now)[0]
-             : e.desc || BroomUrgency.formatScheduleSide([e], now)[0];
-    // SF's descriptions carry the time and an "(every)" of their own.
-    days = (days || '').replace(/\s*\(every\)/i, '');
-    if (raw) days = days.replace(`, ${raw}`, '');
-    days = days.trim();
-    if (!days) continue;
-    const time = shortTime(raw);
-    if (!byTime.has(time)) byTime.set(time, []);
-    if (!byTime.get(time).includes(days)) byTime.get(time).push(days);
-  }
-  return [...byTime].map(([time, days]) => {
-    const text = _joinDays(days);
-    return { days: text, time: time && !text.includes(time) ? time : '' };
+  return BroomUrgency.formatScheduleSide(entries, now).map(l => {
+    const i = l.lastIndexOf(' · ');
+    return i < 0 ? { days: l, time: '' } : { days: l.slice(0, i), time: l.slice(i + 3) };
   });
 }
 
-// "Every Mon", "Every Tue", "Every Wed", "Every Fri" -> "Mon–Wed, Fri" (weekday order;
-// 3+ days in a row as a range); other wordings are joined as they are, minus "Every".
-const _WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-function _joinDays(days) {
-  const bare = days.map(d => d.replace(/^Every /, ''));
-  const ranks = bare.map(d => _WD.indexOf(d));
-  if (days.length < 2 || ranks.includes(-1)) return bare.join(', ');
-  ranks.sort((a, b) => a - b);
-  const runs = [];
-  for (let i = 0; i < ranks.length;) {
-    let j = i;
-    while (j + 1 < ranks.length && ranks[j + 1] === ranks[j] + 1) j++;
-    runs.push(j - i >= 2 ? `${_WD[ranks[i]]}–${_WD[ranks[j]]}` : ranks.slice(i, j + 1).map(r => _WD[r]).join(', '));
-    i = j + 1;
-  }
-  return runs.join(', ');
+// A monthly or dated pattern's next sweep after tomorrow ("Next: Mon Nov 23"): weekly
+// ones need no date. '' when none within 60 days.
+function _nextDate(entries, now, skip) {
+  if (!entries.some(e => /^(DATES:|[A-Z]+[1-5]+$)/.test(String(e.code).trim().toUpperCase()))) return '';
+  const from = BroomUrgency.addDays(now, 2), es = entries.map(e => [e.code, e.desc || '', e.time || '']);
+  const day = BroomUrgency.sweepDays(es, [], from, BroomUrgency.addDays(now, 60), skip)[0];
+  return day ? `Next: ${BroomUrgency.dayLabel(day)}` : '';
 }
 
 // Screen direction [dx, dy] in which the street at the target is drawn, at its point
@@ -127,14 +93,19 @@ function _sideUrgency({ entries }, now, skip) {
 // the sides differ, under the side's heading ("NORTH SIDE"), which carries "Today" /
 // "Tomorrow" when that side is swept then.
 function _sweepRows(sec, now, skip) {
-  const { lines, side, tag } = sec, u = _sideUrgency(sec, now, skip), soon = u === 'today' || u === 'tomorrow';
+  const { lines, side, tag, entries } = sec, u = _sideUrgency(sec, now, skip), soon = u === 'today' || u === 'tomorrow';
   const head = tag ? [{ heading: side, when: soon && u }] : [];
   const mark = { sweep: true, mark: _MARK.sweep.mark };
-  if (!lines.length) return [...head, { ...mark, color: URGENCY.none.line, text: 'No sweeping', said: `${side}: no sweeping` }];
+  if (!lines.length) {  // none, or none left: Chicago's season is over, or its dates ran out
+    const text = !entries.length ? 'No sweeping' : u === 'check' ? `No ${now.y} dates yet`
+      : BroomUrgency.seasonOver(entries, now) ? 'Season over' : 'No sweeping';
+    return [...head, { ...mark, color: URGENCY[u === 'check' ? 'check' : 'none'].line, text, said: `${side}: ${text.toLowerCase()}` }];
+  }
+  const next = soon ? '' : _nextDate(entries, now, skip);
   return [...head, ...lines.map((l, i) => ({
     ...(i ? { sweep: true, mark: '' } : mark), color: i ? '' : URGENCY[u].line,
     text: l.days, detail: l.time, said: `${side}: ${!i && soon ? `swept ${u}; ` : ''}sweeping ${l.days} ${l.time}`.trim(),
-  }))];
+  })), ...(next ? [{ sweep: true, mark: '', text: '', detail: next, said: `${side}: ${next}` }] : [])];
 }
 
 // Beside the street's name: "Today" / "Tomorrow" when the street (both sides alike, or a
@@ -253,8 +224,13 @@ function renderSigns(f, live = false) {
     ? `<div class="sc">${street || secs.length ? `<div class="sc-head"><span class="sc-street">${esc(street)}</span>${_whenHTML(secs, now, skip)}</div>` : ''}`
       + `${rows.map(_rowHTML).join('')}</div>`
     : '';
-  if (html === _signsKey) return;
-  _signsKey = html;
-  signsEl.hidden = !html;
-  signsEl.innerHTML = html;
+  if (html !== _signsKey) {
+    _signsKey = html;
+    signsEl.hidden = !html;
+    signsEl.innerHTML = html;
+  }
+  // Screen readers hear the street and its first rows once the map stops (not while panning).
+  const said = rows.length ? [street, ...rows.filter(r => r.said).slice(0, 3).map(r => r.said)].filter(Boolean).join('. ') : '';
+  if (!live && signsLive.textContent !== said) signsLive.textContent = said;
 }
+const signsLive = document.getElementById('signs-live');

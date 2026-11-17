@@ -223,13 +223,13 @@ def _spot(lat, lon):
         "oakland",
         "Chestnut St, Oakland",
         {"even": [["W", "", "8AM-10AM"]], "odd": [["TH", "", "N/A"]]},
-        "even",
+        ("North", "South"),
     )
 
 
 def test_feed_events_holidays_and_format(monkeypatch):
     prefs = {
-        "cars": [{"id": "c1", "name": "Civic", "lat": 37.82, "lon": -122.28}],
+        "cars": [{"id": "c1", "name": "Civic", "lat": 37.82, "lon": -122.28, "side": "even"}],
         "homes": [
             {"id": "h1", "lat": 37.8716, "lon": -122.2727, "address": "", "collection_day": 3}
         ],
@@ -250,3 +250,37 @@ def test_feed_line_folding_keeps_utf8():
     folded = calfeed._fold(line)
     assert all(len(p.encode()) <= 75 for p in folded.split("\r\n"))
     assert folded.replace("\r\n ", "") == line
+
+
+def test_feed_without_side_and_next_sweep_only():
+    """No picked side: both sides' days, each named; first_only keeps the next sweep not
+    over yet, with its two reminders."""
+    prefs = {"cars": [{"id": "c1", "lat": 37.82, "lon": -122.28}]}
+    ics = calfeed.build(prefs, _spot, now=datetime.datetime(2026, 11, 1, 12, tzinfo=datetime.UTC))
+    assert "UID:sweep-c1-20261104-even" in ics and "UID:sweep-c1-20261105-odd" in ics
+    assert "North side" in ics and "South side" in ics
+
+    def first(utc_hour):
+        now = datetime.datetime(2026, 11, 4, utc_hour, tzinfo=datetime.UTC)
+        return calfeed.build(prefs, _spot, now=now, first_only=True)
+
+    running = first(17)  # Wed 9 AM PST, inside 8-10 AM
+    assert running.count("BEGIN:VEVENT") == 1 and "UID:sweep-c1-20261104-even" in running
+    assert running.count("BEGIN:VALARM") == len(calfeed.TIMED_ALARMS)
+    over = first(19)  # Wed 11 AM PST: next is Thursday's all-day odd side
+    assert over.count("BEGIN:VEVENT") == 1 and "UID:sweep-c1-20261105-odd" in over
+
+
+def test_feed_one_event_when_both_sides_share_the_time():
+    def spot(lat, lon):
+        both = [["W", "", "8AM-10AM"]]
+        return calfeed.CarSpot(
+            "bay_area", "oakland", "Chestnut St", {"even": both, "odd": both}, ("Even", "Odd")
+        )
+
+    now = datetime.datetime(2026, 11, 1, 12, tzinfo=datetime.UTC)
+    ics = calfeed.build(
+        {"cars": [{"id": "c1", "lat": 0, "lon": 0}]}, spot, now=now, first_only=True
+    )
+    assert ics.count("BEGIN:VEVENT") == 1 and "UID:sweep-c1-20261104-both" in ics
+    assert " side" not in ics

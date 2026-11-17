@@ -168,6 +168,23 @@ def _start_session(resp: Response, member_id: str, base: str) -> None:
     _set_cookie(resp, _SESSION_COOKIE, token, _SESSION_TTL_S, base, "/")
 
 
+def _renew_session(request: Request, response: Response) -> None:
+    """Push a session's end back to _SESSION_TTL_S from now (at most daily): a session
+    in use never runs out."""
+    token, now = request.cookies.get(_SESSION_COOKIE), int(time.time())
+    base = _base()
+    if not token or base is None:
+        return
+    with closing(_connect()) as db, db:
+        cur = db.execute(
+            "UPDATE sessions SET expires_at = ? WHERE token_hash = ? AND expires_at > ?"
+            " AND expires_at < ?",
+            (now + _SESSION_TTL_S, _hash(token), now, now + _SESSION_TTL_S - 86400),
+        )
+    if cur.rowcount:
+        _set_cookie(response, _SESSION_COOKIE, token, _SESSION_TTL_S, base, "/")
+
+
 def _session_user(request: Request) -> sqlite3.Row | None:
     """The signed-in member (its account_id included), or None."""
     token = request.cookies.get(_SESSION_COOKIE)
@@ -470,6 +487,8 @@ class Car(BaseModel):
     # License plate, for Chicago's towed / relocated vehicle lookups (optional).
     plate: str | None = Field(None, max_length=10, pattern=r"^[A-Za-z0-9 -]*$")
     plate_state: str | None = Field(None, pattern=r"^[A-Z]{2}$")
+    # The side of the street the owner says the car is on; unset: both sides count.
+    side: str | None = Field(None, pattern="^(even|odd)$")
 
 
 class Home(BaseModel):
@@ -493,7 +512,13 @@ def _merge_cars(incoming: list[dict], stored: list[dict]) -> list[dict]:
     for car in incoming:
         old = have.get(car["id"], {})
         if old.get("loc_rev") and old["loc_rev"] >= car.get("loc_rev", 0):
+            same = (car.get("lat"), car.get("lon")) == (old["lat"], old["lon"])
+            # The side goes with the position it was picked for.
+            side = (car.get("side") if same else None) or old.get("side")
             car = {**car, "lat": old["lat"], "lon": old["lon"], "loc_rev": old["loc_rev"]}
+            car.pop("side", None)
+            if side:
+                car["side"] = side
         out.append(car)
     return out
 
@@ -513,6 +538,7 @@ def me(request: Request, response: Response):
     user = _session_user(request)
     if user is None:
         return {"enabled": True, "user": None, "prefs": None}
+    _renew_session(request, response)
     with closing(_connect()) as db:
         account_id = user["account_id"]
         account = db.execute("SELECT prefs FROM accounts WHERE id = ?", (account_id,)).fetchone()
@@ -697,6 +723,7 @@ def set_car_location(account_id: str, car_id: str, lat: float, lon: float) -> bo
         if car is None:
             return False
         car.update(lat=lat, lon=lon, loc_rev=car.get("loc_rev", 0) + 1)
+        car.pop("side", None)  # a new spot: its side is unknown
         db.execute(
             "UPDATE accounts SET prefs = ? WHERE id = ?",
             (json.dumps(prefs, separators=(",", ":")), account_id),

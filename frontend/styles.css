@@ -4,6 +4,7 @@
       /* Urgency colors (cards, banner, legend); the map paint lives in core.js URGENCY. */
       --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #3b7a53;  /* text and swatches: AA on card tints; clear is quiet */
       --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
+      --urg-check: #475569;  /* swept, day unknown: neither alarm nor clear */
       --card: #ffffff; --text: #1e293b;
       --muted: #526071; --border: #e2e8f0;
       /* Corner radii (iOS 26): concentric, so a box inside another keeps an even margin
@@ -75,6 +76,7 @@
                                1.038, 1.037, 1.032, 1.025, 1.019, 1.013, 1.008, 1.005, 1.002, 1, 0.999, 0.999, 1); }
     }
     :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    body.dark :focus-visible { outline-color: #93b4f8; }  /* 3:1 on the dark card */
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
     [hidden] { display: none !important; }
@@ -88,14 +90,16 @@
     .btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       min-height: var(--tap); padding: 0 18px; background: var(--blue); color: #fff;
-      border-radius: var(--pill); font-size: .88rem; font-weight: 600;
+      border-radius: var(--pill); font-size: .88rem; font-weight: 600; text-decoration: none;
     }
-    .btn-sm { min-height: 36px; padding: 0 14px; font-size: .8rem; }
+    .btn-sm { position: relative; min-height: 36px; padding: 0 14px; font-size: .8rem; }
+    /* Smaller-looking controls still take a 44 px touch (an invisible margin around them). */
+    :is(.btn-sm, .pill-btn, .cal-area, .toast-btn)::after { content: ''; position: absolute; inset: -6px -2px; }
     .btn-plain { background: var(--fill); color: var(--text); }        /* secondary: grey fill */
     .btn-tinted { background: var(--tint-bg); color: var(--tint-fg); } /* in a section: blue tint */
     .btn-wide { width: 100%; }
     /* A capsule in a tab's header (Today, Here). */
-    .pill-btn { min-height: 32px; padding: 0 12px; margin-right: 2px; background: var(--fill);
+    .pill-btn { position: relative; min-height: 32px; padding: 0 12px; margin-right: 2px; background: var(--fill);
                 border-radius: var(--pill); font-size: .72rem; font-weight: 600; color: var(--text); }
     /* Text fields and pickers: iOS's grey fill, no border (the focus ring marks the one in use). */
     .field { min-height: 36px; padding: 0 12px; font: inherit; font-size: 16px; color: var(--text);
@@ -139,7 +143,7 @@
     /* Layers menu: one switch row per layer, its map color as the key. */
     .lyr-item[aria-checked="true"] .lyr-check { opacity: 1; }
     .lyr-check { margin-left: auto; opacity: 0; color: var(--blue); }
-    .lyr-label small { display: block; font-size: .66rem; color: var(--muted); }
+    .lyr-label small { display: block; font-size: .7rem; color: var(--muted); }
     .lyr-key { flex: none; width: 14px; height: 14px; border-radius: 4px; background: var(--k); }
     img.lyr-key { width: 18px; height: 18px; margin: -2px; background: none; }
     .lyr-legend-btn { margin-top: 4px; border-top: 1px solid var(--hairline); border-radius: 0 0 calc(var(--r-menu) - 6px) calc(var(--r-menu) - 6px);
@@ -147,7 +151,7 @@
     .lyr-chev { margin-left: auto; transition: transform .2s; }
     .lyr-legend-btn[aria-expanded="true"] .lyr-chev { transform: rotate(90deg); }
     .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 10px; font-size: .72rem; }
-    .lyr-legend > b { font-size: .62rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+    .lyr-legend > b { font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
     .lyr-legend .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-size: .72rem; }
     .lyr-marks { display: grid; grid-template-columns: 1fr; gap: 4px; }
     .lyr-marks span { display: flex; align-items: center; gap: 6px; }
@@ -193,6 +197,8 @@
       max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain;
     }
     @keyframes menu-in { from { opacity: 0; transform: scale(.3); } 40% { opacity: 1; } }
+    #search-box { width: min(300px, calc(100vw - 2 * var(--edge))); }
+    #search-box .field { width: 100%; min-height: var(--tap); }
     .ctx-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--tap); padding: 0 12px;
                 border-radius: calc(var(--r-menu) - 6px); text-align: left; font-size: .9rem; }
     .ctx-item:hover, .ctx-item:focus-visible { background: var(--fill); }
@@ -200,7 +206,7 @@
 
     /* ── Sections (as iOS grouped lists), on every tab: a small caps label over a rounded
        box holding text (.sec) or tappable rows (.sec.rows); a muted note under or in one. ── */
-    .sec-label { margin: 8px 14px 0; font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+    .sec-label { margin: 8px 14px 0; font-size: .7rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
     .sec { display: flex; flex-direction: column; gap: 3px; padding: 12px 16px; background: var(--group); border-radius: var(--r-group);
            font-size: .82rem; line-height: 1.4; }
     .sec .btn { align-self: flex-start; }
@@ -243,7 +249,8 @@
       --group: color-mix(in srgb, var(--text) 6%, transparent);
     }
     #sheet.dragging { transition: none; }
-    #sheet-grabber { flex: none; display: flex; align-items: center; justify-content: center; width: 100%; height: 22px; cursor: grab; }
+    #sheet-grabber { flex: none; position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 22px; cursor: grab; }
+    #sheet-grabber::after { content: ''; position: absolute; inset: -12px 0 -10px; }  /* 44 px to grab */
     #sheet-grabber span { width: 36px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 28%, transparent); }
     .tab { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     .tab-head {
@@ -256,7 +263,7 @@
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
     .tab-title[contenteditable="true"] { cursor: text; border-bottom: 2px solid var(--blue); user-select: text; }
     .tab-body {
-      flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y pinch-zoom;
       padding: 0 14px 12px; display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
     }
     :is(.head-btn, .round-btn) { flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
@@ -280,12 +287,13 @@
     }
     #tabbar [role="tab"] {
       flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 1px; min-height: 48px; border-radius: var(--pill); font-size: .66rem; font-weight: 600; color: var(--text);
+      gap: 1px; min-height: 48px; border-radius: var(--pill); font-size: .7rem; font-weight: 600; color: var(--text);
     }
     #tabbar [role="tab"] svg.ic { width: 24px; height: 24px; }
     #tabbar [aria-selected="true"] { color: var(--tint-fg); }
     .tab-badge { position: absolute; top: 4px; left: calc(50% + 7px); width: 10px; height: 10px; border-radius: 50%;
                  background: var(--urg-today); box-shadow: 0 0 0 2px var(--card); }
+    .tab-badge.soon { background: var(--urg-tomorrow); }  /* a car must move tomorrow */
     /* Saved: the verdict line, then one grouped list of cars and homes (as Find My's
        Items list); an open item hides the rest and shows its own page. */
     #saved-summary .note { margin: 0; font-size: .8rem; }
@@ -298,7 +306,7 @@
     .empty-btns { display: flex; gap: 8px; }
     .empty-btns .btn { flex: 1; }
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
-    .urg-safe { color: var(--urg-safe); } .urg-none { color: var(--muted); }
+    .urg-safe { color: var(--urg-safe); } .urg-check { color: var(--urg-check); } .urg-none { color: var(--muted); }
     /* Legend swatch: line thickness mirrors the map (today thickest). */
     .lg { display: inline-block; width: 16px; border-radius: 2px; background: currentColor; vertical-align: middle; margin-right: 5px; }
     .lg-3 { height: 4px; } .lg-2 { height: 3px; } .lg-1 { height: 2px; } .lg-0 { height: 1px; }
@@ -339,11 +347,13 @@
     .car-entry.selected .ce-status { font-size: 1.05rem; font-weight: 700; white-space: normal; }
     /* Sweeping on a car's page: the other side of the street, muted. */
     .ce-other { color: var(--muted); }
-    .ce-tag, .cal-tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: .68rem; font-weight: 700;
+    .ce-tag, .cal-tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: .7rem; font-weight: 700;
                         background: color-mix(in srgb, currentColor 12%, transparent); }
     .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
     .ce-loading { color: var(--muted); }
+    /* The car's side of the street (where the sides differ) above its sweeping lines. */
+    .ce-side { margin: 2px 0 6px; }
     .ce-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--urg-today); }
     .ce-error .btn { flex: none; }
     .ce-token { width: 100%; margin: 4px 0; font-family: ui-monospace, monospace; }
@@ -404,15 +414,16 @@
       position: absolute; z-index: 21; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
       pointer-events: none;
     }
-    .sc { display: flex; flex-direction: column; gap: 5px; width: max-content; max-width: 260px; padding: 8px 10px 9px;
+    .sc { display: flex; flex-direction: column; gap: 5px; width: max-content; padding: 8px 10px 9px;
+          max-width: min(260px, calc(100vw - 3 * var(--edge) - var(--tap) - var(--inset-l) - var(--inset-r)));  /* clear of the map buttons */
           border-radius: var(--r-md); background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-1);
           font-size: .8rem; line-height: 1.3; }  /* read walking to the car: rows 12.8 px, labels from 10.6 px */
     .sc-head { display: flex; align-items: center; gap: 6px; }
-    .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: .66rem; font-weight: 800; }
+    .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: .7rem; font-weight: 800; }
     .sc-street { min-width: 0; font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sc-rule { margin: 1px 0; border: none; border-top: 1px solid var(--border); }
-    .sc-side { display: flex; align-items: center; gap: 6px; margin: 2px 0 -2px; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .sc-side { display: flex; align-items: center; gap: 6px; margin: 2px 0 -2px; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
     .sc-mark { flex: none; display: flex; align-items: center; justify-content: center; width: 19px; height: 19px; margin-top: -1px;
                border-radius: 5px; color: #fff; font-style: normal; font-size: .64rem; font-weight: 800; letter-spacing: -.02em; }
@@ -467,7 +478,7 @@
     .cal-hol-line { color: var(--muted); }
     .cal-past { opacity: .4; }  /* days gone by: not counted as ahead */
     .cal-areas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-    .cal-area { min-height: 30px; padding: 2px 10px; font-size: .74rem; }
+    .cal-area { position: relative; min-height: 36px; padding: 2px 12px; font-size: .74rem; }
 
     .cal-nav { width: var(--tap); height: var(--tap); font-size: 1.15rem; }
     .cal-nav:hover { color: var(--text); }
@@ -475,7 +486,7 @@
        fit whole weeks), down to the one week the small sheet shows; then it neither scrolls
        nor shows the day details (a swipe steps a week, js/calendar.js). */
     .cal-wds { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center;
-               font-size: .62rem; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
+               font-size: .7rem; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
     .cal-scroll { flex: 1 1 0; min-height: 40px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
                   scroll-snap-type: y mandatory; scrollbar-width: none; }
     #ic-cal.cal-small .cal-scroll { overflow-y: hidden; touch-action: none; scroll-snap-type: none; }  /* hidden weeks are no snap points */
@@ -483,7 +494,7 @@
     /* Dragged up, the weeks below unfold under the finger (those above stay hidden). */
     #sheet.dragging #ic-cal .cal-near { visibility: visible; }
     .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 40px; gap: 3px; text-align: center; }
-    .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .56rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+    .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .62rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
     .sw-now .cal-mo, .sw-next .cal-mo { color: #fff; }
     /* The selected day: its date and three lines (more scroll), so the sheet's heights stay put. */
     .cal-detail { flex: none; height: calc(4 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
@@ -519,7 +530,7 @@
     body.dark {
       --card: #1e293b; --text: #e2e8f0;
       --muted: #94a3b8; --border: #334155;
-      --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #7cc495;
+      --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #7cc495; --urg-check: #cbd5e1;
       --tint-fg: #93b4f8; --home: #4ade80;
     }
 
@@ -537,7 +548,15 @@
       animation: toast-in .2s ease, toast-out .3s ease 2.7s forwards;
       width: max-content; max-width: min(420px, calc(100vw - 2 * var(--edge))); text-align: center;
     }
-    .toast.error { background: #7f1d1d; }
+    .toast.error { background: #7f1d1d; animation: toast-in .2s ease; pointer-events: auto;
+                   display: flex; align-items: center; gap: 10px; padding-right: 6px; }
+    .toast-btn { position: relative; min-height: 32px; padding: 0 10px; border-radius: var(--pill); font-weight: 700;
+                 background: rgba(255,255,255,.16); color: #fff; }
+
+    /* Offline, can't reach the server, loading streets: a chip at the top of the map. */
+    #net-chip { position: absolute; z-index: 22; top: calc(var(--inset-t) + var(--edge)); left: 50%; transform: translateX(-50%);
+                padding: 6px 12px; border-radius: var(--pill); background: #1e293b; color: #f1f5f9;
+                font-size: .8rem; font-weight: 600; box-shadow: var(--shadow-1); pointer-events: none; }
     @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
     @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
 

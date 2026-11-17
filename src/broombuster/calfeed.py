@@ -1,13 +1,14 @@
 """The calendar subscription feed (iCalendar, RFC 5545): an account's cars' street
 sweeping, its homes' trash pickups and the no-sweep holidays of those cities, for
-the next DAYS days, each with a reminder the evening before."""
+the next DAYS days. Each sweep has two reminders: the evening before (ALARMS) and an
+hour before, so a car parked late still gets one."""
 
 import datetime
 from collections.abc import Callable
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
-from broombuster import holidays, schedule, trash
+from broombuster import holidays, normalize, schedule, trash
 from broombuster.cities import REGIONS, city_for_point, region_for_point
 
 DAYS = 60
@@ -21,7 +22,13 @@ class CarSpot(NamedTuple):
     city: str
     address: str
     entries: dict  # {"even": [[code, desc, time]], "odd": [...]}
-    side: str | None  # the car's side ("even" / "odd"), None when unknown
+    labels: tuple[str, str]  # the sides' names (even, odd): "North", "Even", ...
+
+
+# Reminders before a timed sweep (the evening before, an hour before) and an all-day one
+# (7PM the evening before, 6AM that day).
+TIMED_ALARMS = ("-PT12H", "-PT1H")
+DAY_ALARMS = ("-PT5H", "PT6H")
 
 
 def _esc(text: str) -> str:
@@ -64,7 +71,7 @@ def _event(
     start,
     end,
     stamp: str,
-    alarm: str,
+    alarms: tuple[str, ...],
     description: str = "",
     location: str = "",
 ) -> list[str]:
@@ -85,14 +92,15 @@ def _event(
         lines.append(f"DESCRIPTION:{_esc(description)}")
     if location:
         lines.append(f"LOCATION:{_esc(location)}")
-    lines += [
-        "BEGIN:VALARM",
-        "ACTION:DISPLAY",
-        f"DESCRIPTION:{_esc(summary)}",
-        f"TRIGGER:{alarm}",
-        "END:VALARM",
-        "END:VEVENT",
-    ]
+    for alarm in alarms:
+        lines += [
+            "BEGIN:VALARM",
+            "ACTION:DISPLAY",
+            f"DESCRIPTION:{_esc(summary)}",
+            f"TRIGGER:{alarm}",
+            "END:VALARM",
+        ]
+    lines.append("END:VEVENT")
     return lines
 
 
@@ -100,9 +108,13 @@ def build(
     prefs: dict,
     locate: Callable[[float, float], CarSpot | None],
     now: datetime.datetime | None = None,
+    *,
+    days: int = DAYS,
+    first_only: bool = False,
 ) -> str:
     """The feed for an account's prefs ({"cars": [...], "homes": [...]}); `locate`
-    resolves a car's position like /check."""
+    resolves a car's position like /check. A car's side is the one its owner picked
+    ("side"), else both. first_only: each car's next sweep day only, no holidays."""
     now = now or datetime.datetime.now(datetime.UTC)
     stamp = _utc(now)
     lines = [
@@ -125,13 +137,24 @@ def build(
         tz = ZoneInfo(REGIONS[spot.region]["tz"])
         today = now.astimezone(tz).date()
         entries = spot.entries
-        if spot.side in ("even", "odd"):
-            entries = {spot.side: entries.get(spot.side, [])}
+        if car.get("side") in ("even", "odd"):
+            entries = {car["side"]: entries.get(car["side"], [])}
         name = car.get("name") or "Car"
-        for day, items in schedule.sweep_days(
-            entries, spot.city, today, today + datetime.timedelta(days=DAYS)
-        ):
+        sweeps = schedule.sweep_days(
+            entries, spot.city, today, today + datetime.timedelta(days=days)
+        )
+        if first_only:
+            later = [d for d in sweeps if _not_over(d, tz, now)]
+            sweeps = later[:1]
+        for day, items in sweeps:
+            sides_at: dict[str, list[str]] = {}  # time -> sides swept then: one event each
             for side, time in items:
+                sides_at.setdefault(time, []).append(side)
+            for time, sides in sides_at.items():
+                side = sides[0] if len(set(sides)) == 1 else "both"
+                where = spot.address
+                if side != "both":
+                    where += f", {spot.labels[side == 'odd']} side"
                 w = schedule.time_window(time)
                 uid = f"sweep-{car['id']}-{day:%Y%m%d}-{side}-{w[0] if w else 'day'}@broombuster"
                 summary = f"Move {name}: street sweeping"
@@ -144,8 +167,8 @@ def build(
                         start,
                         end,
                         stamp,
-                        "-PT12H",
-                        f"{spot.address} ({side} side) {time}",
+                        TIMED_ALARMS,
+                        f"{where}, {normalize.time_display(time)}",
                         spot.address,
                     )
                 else:
@@ -155,8 +178,8 @@ def build(
                         day,
                         day + datetime.timedelta(days=1),
                         stamp,
-                        "-PT5H",
-                        f"{spot.address} ({side} side)",
+                        DAY_ALARMS,
+                        where,
                         spot.address,
                     )
 
@@ -176,15 +199,15 @@ def build(
             day = datetime.date.fromisoformat(iso)
             lines += _event(
                 f"trash-{home['id']}-{day:%Y%m%d}@broombuster",
-                f"{label}: {', '.join(streams)} pickup",
+                f"{label} · trash day: {', '.join(streams).lower()}",
                 day,
                 day + datetime.timedelta(days=1),
                 stamp,
-                "-PT5H",
+                DAY_ALARMS[:1],
                 location=home.get("address") or "",
             )
 
-    for city, region in cities_seen.items():
+    for city, region in ({} if first_only else cities_seen).items():
         today = now.astimezone(ZoneInfo(REGIONS[region]["tz"])).date()
         for day, h in sorted(holidays.for_city(city).items()):
             last = today + datetime.timedelta(days=DAYS)
@@ -206,6 +229,18 @@ def build(
 
 
 _NO_SWEEP = {"sweeping": "No street sweeping: ", "sweeping_day": "No daytime street sweeping: "}
+
+
+def _not_over(sweep, tz, now: datetime.datetime) -> bool:
+    """A sweep day (date, [(side, time)]) with a window still to come or running."""
+    day, items = sweep
+    next_day = day + datetime.timedelta(days=1)
+    for _side, time in items:
+        w = schedule.time_window(time)
+        end = _at(next_day, 0, tz) if not w else _at(next_day if w[1] <= w[0] else day, w[1], tz)
+        if end > now:
+            return True
+    return False
 
 
 def _region_of(item: dict) -> str | None:

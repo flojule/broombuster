@@ -25,6 +25,9 @@
     return typeof code === 'string' && NO_SWEEP[code.trim().toUpperCase()] === 1;
   }
 
+  // Same set as analysis.UNDATED_CODES: swept on a day only the posted sign gives.
+  var UNDATED = { POSTED: 1 };
+
   // ── Days (calendar arithmetic only; no JS Date tz pitfalls) ──────────────────
   // Days are {y, m, d}. Python weekday(): Mon=0..Sun=6; JS getUTCDay(): Sun=0.
   function pyWeekday(y, m, d) { return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; }
@@ -236,6 +239,38 @@
     return HALF_DAY[s.toUpperCase()] ? s.toUpperCase() : s;
   }
 
+  // Why the data can't say when a code sweeps: 'sign' (the day is on the posted sign
+  // only), 'expired' (a list of dates, all before this year, and this year's season would
+  // have begun by the old season's first month and day: the city's dates ran out), else ''.
+  // Before then it is the off-season (seasonOver), not unknown.
+  function unknownReason(code, now) {
+    if (typeof code !== 'string') return '';
+    if (UNDATED[code.trim().toUpperCase()] === 1) return 'sign';
+    var r = codeRule(code);
+    if (!r || !r.dates || !r.dates.length) return '';
+    var last = r.dates[r.dates.length - 1];
+    if (last.y >= now.y) return '';
+    var start = 1232;  // the last season's first month and day, as m * 100 + d
+    for (var i = 0; i < r.dates.length; i++) {
+      if (r.dates[i].y === last.y) start = Math.min(start, r.dates[i].m * 100 + r.dates[i].d);
+    }
+    return now.y > last.y + 1 || now.m * 100 + now.d >= start ? 'expired' : '';
+  }
+
+  // A list of dates whose last date is past (Chicago after its season): {y} of that
+  // season, else null.
+  function seasonOver(entries, now) {
+    var last = null, k = dayKey(now.y, now.m, now.d);
+    for (var i = 0; i < entries.length; i++) {
+      var r = codeRule(entries[i].code);
+      if (!r || !r.dates) return null;
+      var d = r.dates[r.dates.length - 1];
+      if (!d || dayKey(d.y, d.m, d.d) >= k) return null;
+      if (!last || d.y > last.y) last = d;
+    }
+    return last && { y: last.y };
+  }
+
   // ── Urgency verdict ──────────────────────────────────────────────────────────
   // A sweep starting this soon is today's problem even when it falls after
   // midnight: a 12AM window means moving the car tonight, not tomorrow.
@@ -245,11 +280,13 @@
   // region-local midnight). 'today' while a window today is still to come or
   // running (all day when untimed), while yesterday's runs past midnight, or
   // when tomorrow's starts within LEAD_MIN (untimed: at midnight); 'tomorrow'
-  // when one is tomorrow; else 'safe'.
+  // when one is tomorrow; 'check' when a code's day is unknown (unknownReason);
+  // else 'safe'.
   function checkDaySweeping(entries, now, skip) {
-    var yst = addDays(now, -1), tmr = addDays(now, 1), tomorrow = false;
+    var yst = addDays(now, -1), tmr = addDays(now, 1), tomorrow = false, unknown = false;
     for (var i = 0; i < entries.length; i++) {
       var code = entries[i].code, t = entries[i].time || '', w = timeWindow(t);
+      if (unknownReason(code, now)) unknown = true;
       var overnight = w && w[1] < w[0];
       if (sweepsOn(code, now.y, now.m, now.d, skip, t) && (!w || overnight || now.min <= w[1])) return 'today';
       if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip, t)) return 'today';
@@ -258,7 +295,7 @@
         tomorrow = true;
       }
     }
-    return tomorrow ? 'tomorrow' : 'safe';
+    return tomorrow ? 'tomorrow' : unknown ? 'check' : 'safe';
   }
 
   // "9AM", "9:30AM", "12PM"; 0 or 1440 is "midnight".
@@ -293,7 +330,7 @@
       if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip, t)) {
         var start = w ? w[0] : 0, lead = 1440 - now.min + start;
         if (lead <= LEAD_MIN) take('by', start, lead);
-        else take('tomorrow', start || null, lead);
+        else take('tomorrow', w ? w[0] : null, lead);
       }
     }
     return best && { state: best.state, at: best.at === null ? null : clockText(best.at) };
@@ -325,17 +362,18 @@
     return out;
   }
 
-  // Bare week-of-month ordinals "13" -> "1st & 3rd".
+  // Bare week-of-month ordinals "13" -> "1st & 3rd"; three or more in a row "1st–4th".
+  function _ord(d) { return d + (d === '1' ? 'st' : d === '2' ? 'nd' : d === '3' ? 'rd' : 'th'); }
   function _prettyOrdinals(run) {
-    var parts = run.split('').map(function (d) {
-      return d + (d === '1' ? 'st' : d === '2' ? 'nd' : d === '3' ? 'rd' : 'th');
-    });
+    var ds = run.split('');
+    if (ds.length >= 3 && +ds[ds.length - 1] - +ds[0] === ds.length - 1) return _ord(ds[0]) + '–' + _ord(ds[ds.length - 1]);
+    var parts = ds.map(_ord);
     return parts.length === 1 ? parts[0]
          : parts.slice(0, -1).join(', ') + ' & ' + parts[parts.length - 1];
   }
 
-  function hasAllFour(ords) {
-    return ords[1] && ords[2] && ords[3] && ords[4];
+  function hasAllWeeks(ords) {
+    return ords[1] && ords[2] && ords[3] && ords[4] && ords[5];
   }
 
   // Sorted weekday ranks -> "Mon, Wed, Fri"; runs of 3+ become "Mon–Fri".
@@ -385,7 +423,7 @@
     var slots = {}, slotOrder = [];
     for (i = 0; i < perDayOrder.length; i++) {
       var pd = perDay[perDayOrder[i]];
-      var weeks = pd.every || hasAllFour(pd.ords) ? '' : Object.keys(pd.ords).sort().join('');
+      var weeks = pd.every || hasAllWeeks(pd.ords) ? '' : Object.keys(pd.ords).sort().join('');
       var sk = weeks + '|' + pd.time;
       if (!slots[sk]) { slots[sk] = { weeks: weeks, time: pd.time, ranks: [] }; slotOrder.push(sk); }
       slots[sk].ranks.push(pd.rank);
@@ -435,19 +473,23 @@
   }
 
   // One calendar day's sweeps (sweepDays items) as text: "9AM–12PM" when both
-  // sides share the times, "Even side 9AM–12PM" for one side, else per side.
+  // sides share the times, "Even side 9AM–12PM" for one side, else per side; a sweep
+  // without hours (Chicago) adds no time.
   function dayText(items, labels, oneSide) {
     labels = labels || ['Even', 'Odd'];
     var per = { even: [], odd: [] };
     items.forEach(function (it) {
-      var t = it.time ? timeDisplay(it.time) : 'time n/a';
+      var t = it.time ? timeDisplay(it.time) : '';
+      if (t === 'N/A') t = '';
       if (per[it.side].indexOf(t) < 0) per[it.side].push(t);
     });
-    if (oneSide) return per.even.concat(per.odd).join(', ');  // the side is known (a car's)
-    if (!per.odd.length) return labels[0] + ' side ' + per.even.join(', ');
-    if (!per.even.length) return labels[1] + ' side ' + per.odd.join(', ');
-    if (per.even.join() === per.odd.join()) return per.even.join(', ');
-    return [labels[0] + ' ' + per.even.join(', '), labels[1] + ' ' + per.odd.join(', ')].join(', ');
+    function j(a) { return a.filter(Boolean).join(', '); }
+    function side(label, ts) { return (label + ' ' + j(ts)).trim(); }
+    if (oneSide) return j(per.even.concat(per.odd));  // the side is known (a car's)
+    if (!per.odd.length) return side(labels[0] + ' side', per.even);
+    if (!per.even.length) return side(labels[1] + ' side', per.odd);
+    if (per.even.join() === per.odd.join()) return j(per.even);
+    return [side(labels[0], per.even), side(labels[1], per.odd)].join(', ');
   }
 
   global.BroomUrgency = {
@@ -468,6 +510,8 @@
     datesInRange: datesInRange,
     nowForTimeZone: nowForTimeZone,
     isNoSweepCode: isNoSweepCode,
+    unknownReason: unknownReason,
+    seasonOver: seasonOver,
     sweepDays: sweepDays,
     timeDisplay: timeDisplay,
     timeWindow: timeWindow,

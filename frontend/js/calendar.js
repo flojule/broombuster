@@ -69,7 +69,7 @@ function calLayers(ptrSched, start, end) {
     ptr: sweepDayMap(ptrSched, start, end),
     cars: cars.flatMap(car => carSchedules[car.id]
       ? [{ car, color: carColor(car),
-           days: sweepDayMap(carSchedules[car.id], start, end, carSchedules[car.id].car_side) }]
+           days: sweepDayMap(carSchedules[car.id], start, end, carSide(car)) }]
       : []),
     homes: homes.flatMap(home => homeSchedules[home.id]
       ? [{ home, days: pickupDayMap(homeSchedules[home.id], start, end) }] : []),
@@ -87,17 +87,17 @@ function _dotsHTML(layers, k) {
 
 // What happens that day, each with its mark as in the legend (js/layers.js) and saying
 // what it is: each car with sweeping (a dot in its color; "Civic · sweeping 9AM–11AM")
-// and each home with a pickup (a square; "Home · trash, recycling pickup"): [{mark, text}].
+// and each home with a trash day (a square; "Home · trash day: trash, recycling"): [{mark, text}].
 const _lower = t => t.charAt(0).toLowerCase() + t.slice(1);  // "West side …" mid-line
 function _dayLines(layers, k) {
   return [
     ...layers.cars.filter(l => l.days.has(k)).map(l => ({
       mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
-      text: `${l.car.name} · sweeping ${_lower(l.days.get(k))}`,
+      text: `${l.car.name} · sweeping ${_lower(l.days.get(k))}`.trim(),
     })),
     ...layers.homes.filter(l => l.days.has(k)).map(l => ({
       mark: `<i class="cal-key cal-square" style="background:var(--home)"></i>`,
-      text: `${itemName(l.home)} · ${l.days.get(k).toLowerCase()} pickup`,
+      text: `${itemName(l.home)} · trash day: ${l.days.get(k).toLowerCase()}`,
     }))];
 }
 
@@ -109,10 +109,12 @@ function _dayAria(layers, k, p, today) {
           ..._dayLines(layers, k).map(l => l.text)].filter(Boolean).join('; ');
 }
 
-// Street days: red today, orange tomorrow (as on the map), else a light tint (styles.css).
+// Street days: red today while its window is to come or on (as the map says it, _ptrUrg),
+// orange tomorrow, else a light tint (styles.css).
 function _streetCls(layers, k, today) {
   if (!layers.ptr.has(k)) return '';
-  return 'sw-day' + (k === _ymdKey(today) ? ' sw-now' : k === _ymdKey(_ymdAdd(today, 1)) ? ' sw-next' : '');
+  if (k === _ymdKey(today)) return 'sw-day' + (_ptrUrg === 'today' ? ' sw-now' : '');
+  return 'sw-day' + (k === _ymdKey(_ymdAdd(today, 1)) ? ' sw-next' : '');
 }
 
 // The calendar scrolls through one fixed window of days: a few weeks back, a
@@ -133,7 +135,9 @@ function _detailHTML(layers, sel) {
   const hol = layers.hol.has(sel) ? `<div class="cal-hol-line">No sweeping: ${esc(layers.hol.get(sel))}</div>` : '';
   const lines = _dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('');
   if (!_ptrStreet && !lines && !hol) return `<b>${_dayLabel(_keyDay(sel))}</b>` + _noStreetHTML();
-  const street = layers.ptr.has(sel) ? `<div>Sweeping ${esc(_lower(layers.ptr.get(sel)))}</div>`
+  const done = sel === _ymdKey(calNow()) && _ptrUrg !== 'today' ? ' · over' : '';
+  const street = layers.ptr.has(sel) ? `<div>${`Sweeping ${esc(_lower(layers.ptr.get(sel)))}`.trim()}${done}</div>`
+    : _ptrUnknown ? `<div>${esc(_ptrUnknown)}</div>`
     : (lines || hol ? '' : '<div class="cal-muted">No sweeping</div>') + _nextSweepHTML(layers, sel);
   return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + lines + street;
 }
@@ -144,7 +148,7 @@ function _nextSweepHTML(layers, sel) {
   for (const [k, text] of layers.ptr) {
     if (k <= sel || k < todayK) continue;
     const tag = k === todayK ? ['today', 'Today'] : k === tmrK ? ['tomorrow', 'Tomorrow'] : null;
-    const what = text === 'time n/a' ? '' : ` · ${esc(_lower(text))}`;  // Chicago's days have no times
+    const what = text ? ` · ${esc(_lower(text))}` : '';  // Chicago's days have no times
     return `<div>Next: ${_dayLabel(_keyDay(k))}${what}`
          + (tag ? ` <span class="cal-tag urg-${tag[0]}">${tag[1]}</span>` : '') + '</div>';
   }
@@ -159,6 +163,7 @@ function _noStreetState() {
   return c && map.getZoom() >= AREA_ZOOM && regionAt(c.lat, c.lng) ? 'in' : `off:${Object.keys(regions)}`;
 }
 function _noStreetHTML() {
+  if (streetsLoading()) return '<div class="cal-muted">Loading streets…</div>';
   if (_noStreetState() === 'in') return '<div class="cal-muted">Move the map to put the target on a street.</div>';
   const areas = Object.entries(regions).map(([k, r]) => `<button class="btn btn-plain cal-area" data-area="${esc(k)}">${esc(r.name)}</button>`);
   return '<div class="cal-muted">No street covered here. Go to an area:</div>'
@@ -175,7 +180,7 @@ function calendarHTML(layers, range, sel, today) {
     const cls = ['cal-day', `cal-m${p.m}`, _streetCls(layers, k, today), layers.hol.has(k) ? 'cal-hol' : '',
                  k === todayK ? 'sw-today' : k < todayK ? 'cal-past' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
     cells += `<button class="${cls}" data-cal-day="${k}" aria-label="${esc(_dayAria(layers, k, p, today))}"`
-           + ` aria-pressed="${k === sel}">`
+           + ` aria-pressed="${k === sel}" tabindex="${k === sel ? 0 : -1}">`
            + (p.d === 1 ? `<i class="cal-mo">${_MONTHS[p.m - 1].slice(0, 3)}</i>`
               : k === todayK ? '<i class="cal-mo" aria-hidden="true">Today</i>' : '')
            + `${p.d}${_dotsHTML(layers, k)}</button>`;
@@ -200,6 +205,8 @@ let _cal = { expanded: null, sel: null, anchor: null, pending: false };
 let _calKey = '';       // last rendered state, to skip no-op re-renders
 let _ptrSched = null;   // street schedule under the target (null: none)
 let _ptrStreet = false; // a street or zone is under the target (with sweeping or not)
+let _ptrUrg = null;     // its verdict now (urgency.js checkDaySweeping)
+let _ptrUnknown = '';   // why the data can't give its days ('' when it can)
 let _calRange0 = null;  // the window rendered last
 let _calLayers0 = null; // and its layers (for the day details)
 const _schedIds = new WeakMap();
@@ -216,8 +223,9 @@ function _pitch(el) {
   const kids = el.firstElementChild.children;
   return kids.length > 8 ? kids[7].offsetTop - kids[0].offsetTop : 0;
 }
+const _reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 function _scrollTo(el, row, smooth) {
-  el.scrollTo({ top: row * _pitch(el), behavior: smooth ? 'smooth' : 'auto' });
+  el.scrollTo({ top: row * _pitch(el), behavior: smooth && !_reduceMotion.matches ? 'smooth' : 'auto' });
 }
 const _weekOf = (range, k) => Math.floor(_dayIdx(range, _keyDay(k)) / 7);
 
@@ -321,11 +329,16 @@ function renderTargetInfo(f, live = false) {
   const lines = props ? tileSchedLines(props) : [];
   const today = calNow(), todayK = _ymdKey(today);
   if (_cal.sel == null) _cal.sel = todayK;
-  _ptrSched = props && lines.length ? pointerSched(f) : null;
+  const why = props ? tileEntries(props).map(e => BroomUrgency.unknownReason(e.code, today)).find(Boolean) || '' : '';
+  _ptrSched = props && (lines.length || why) ? pointerSched(f) : null;
   _ptrStreet = !!props;
-  const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
+  const ptrEntries = _ptrSched ? [..._ptrSched.schedule_even, ..._ptrSched.schedule_odd].map(e => ({ code: e[0], time: e[2] })) : [];
+  _ptrUrg = _ptrSched ? BroomUrgency.checkDaySweeping(ptrEntries, today, schedSkip(_ptrSched)) : null;
+  _ptrUnknown = why === 'sign' ? 'Sweeping day: check the sign' : why ? `No ${today.y} dates yet` : '';
+  const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSide(c) || ''}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
   const homeSig = homes.map(h => `${h.id}:${itemName(h)}:${homeSchedules[h.id] ? _schedId(homeSchedules[h.id]) : 0}`).join(',');
-  const key = [_ptrSched ? `${props.city}:${props.sched}:${_ptrSched.side_labels}` : props ? 'street' : _noStreetState(), carSig, homeSig, todayK].join('|');
+  const key = [_ptrSched ? `${props.city}:${props.sched}:${_ptrSched.side_labels}:${_ptrUrg}` : props ? 'street' : `${_noStreetState()}:${streetsLoading()}`,
+               carSig, homeSig, todayK].join('|');
   if (key === _calKey) return;
   _calKey = key;
 
@@ -370,13 +383,14 @@ function calSetExpanded(on) {
   if (!on && !first && el && _calRange0 && _cal.sel) _scrollTo(el, _weekOf(_calRange0, _cal.sel), true);
 }
 
-// Select a day in place: its ring and the details under the grid.
+// Select a day in place: its ring, the one Tab stop of the grid, and the details under it.
 function selectCalDay(k) {
   _cal.sel = k;
-  for (const b of icCal.querySelectorAll('.cal-sel')) { b.classList.remove('cal-sel'); b.setAttribute('aria-pressed', 'false'); }
+  for (const b of icCal.querySelectorAll('.cal-sel')) { b.classList.remove('cal-sel'); b.setAttribute('aria-pressed', 'false'); b.tabIndex = -1; }
   const b = icCal.querySelector(`[data-cal-day="${k}"]`);
   b?.classList.add('cal-sel');
   b?.setAttribute('aria-pressed', 'true');
+  if (b) b.tabIndex = 0;
   const det = icCal.querySelector('.cal-detail');
   if (det && _calLayers0) det.innerHTML = _detailHTML(_calLayers0, k);
 }
@@ -417,6 +431,24 @@ tabCal.addEventListener('click', e => {
   const day = e.target.closest('[data-cal-day]');
   if (!day) return;
   selectCalDay(Number(day.dataset.calDay));
+});
+
+// The grid is one Tab stop (the selected day): the arrow keys move a day or a week,
+// Home / End to the week's start / end, and the week in view follows.
+icCal.addEventListener('keydown', e => {
+  const day = e.target.closest?.('[data-cal-day]');
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+  if (!day || !_calRange0 || (step === undefined && e.key !== 'Home' && e.key !== 'End')) return;
+  e.preventDefault();
+  const i = _dayIdx(_calRange0, _keyDay(Number(day.dataset.calDay)));
+  const j = step !== undefined ? i + step : e.key === 'Home' ? i - i % 7 : i - i % 7 + 6;
+  if (j < 0 || j >= CAL_WEEKS * 7) return;
+  const k = _ymdKey(_ymdAdd(_calRange0.start, j));
+  selectCalDay(k);
+  const b = icCal.querySelector(`[data-cal-day="${k}"]`);
+  b?.focus({ preventScroll: true });
+  const el = _scroller(), row = _weekOf(_calRange0, k), top = el.scrollTop / (_pitch(el) || 1);
+  if (row < Math.floor(top) || row > Math.floor(top) + Math.max(0, Math.round(el.clientHeight / (_pitch(el) || 1)) - 1)) _scrollTo(el, row, true);
 });
 
 // Scroll events do not bubble: catch them on the way down.
