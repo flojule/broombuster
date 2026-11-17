@@ -1,0 +1,18 @@
+name: "Vacaville, CA"
+source_updated: "2026-08"   # when Recology last edited its sweeping layer
+center: {lat: 38.3600, lon: -121.9700}
+schema: prebuilt
+bbox: [38.31, -122.03, 38.41, -121.91]
+fgb_path: data/vacaville/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/vacaville.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Recology Vacaville Solano: the user picks the day
+source:
+  local_path: data/vacaville/StreetSweeping.geojson
+  build: scripts/build_vacaville_geojson.py
+  arcgis:
+    # Recology's 2026 layer: Solano County centerlines with sweep day and frequency.
+    schedule.geojson: https://services2.arcgis.com/YRDInqI2lQMNM8xP/arcgis/rest/services/VacavilleStreetSweep2026/FeatureServer/0
+  notes: |
+    Green / yellow week calendar on
+    https://www.recology.com/recology-vacaville-solano/street-sweeping/
