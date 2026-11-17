@@ -569,4 +569,5 @@ SCHEMA_PROFILES = {
     "chicago": _normalize_chicago,
     "berkeley": _normalize_prebuilt,
     "alameda": _normalize_prebuilt,
+    "prebuilt": _normalize_prebuilt,  # any city built by scripts/build_<city>_geojson.py
 }

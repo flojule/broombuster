@@ -71,7 +71,10 @@ ORDINALS := week-of-month digits 1..5
 ```
 
 `ME` = every Monday, `M13` = 1st and 3rd Monday, `TTH` = Tuesdays and Thursdays, `E` = every day.
-`POSTED` (`analysis.UNDATED_CODES`): swept on a day no source gives (Oakland's `S` / `SU`, which its domain
-calls Sat / Sun but whose signs give weekdays); hours shown, no dates.
-Codes in `analysis.NO_SWEEP_CODES` (`N`, `NS`, `MS`, …) mean no sweeping, or sweeping nobody is ticketed for
-(Alameda's unsigned sides, Berkeley's opted-out blocks).
+| Code | Meaning | Shown |
+|---|---|---|
+| `POSTED` (`analysis.UNDATED_CODES`) | swept on a day no source gives (Oakland's `S` / `SU`; a side the source leaves blank) | "check the sign", hours if known |
+| `NT` | swept, nobody ticketed (unsigned sides, courtesy programs) | the description ("1st Tue, no tickets"), never urgent |
+| `analysis.NO_SWEEP_CODES` (`N`, `NS`, `MS`, …) | no sweeping | "No sweeping" |
+
+`scripts/citykit.py` turns schedule words ("1st & 3rd Tuesday") into codes for the city build scripts.
