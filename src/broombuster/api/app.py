@@ -11,7 +11,6 @@ from fastapi.exception_handlers import http_exception_handler, request_validatio
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, BeforeValidator, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -20,6 +19,7 @@ from broombuster import (
     alerts,
     analysis,
     calfeed,
+    config,
     feeds,
     gps,
     holidays,
@@ -41,9 +41,14 @@ web.setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_all()
+    for rk in REGIONS:
+        web.tiles_version(rk)  # hashed once, before the first request
     if auth.check_config():
         auth.init_db()
+    stop = feeds.start_refresh() if config.live_feeds_enabled() else None
     yield
+    if stop is not None:
+        stop.set()
 
 
 app = FastAPI(
@@ -51,7 +56,8 @@ app = FastAPI(
 )
 
 app.middleware("http")(web.http_middleware)
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# Dynamic responses only: static files are served precompressed (web.Static).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
 app.add_middleware(web.BodyLimit)  # outermost: refuses before anything reads the body
 api = APIRouter(prefix="/api")  # everything the frontend fetches, except /auth and /health
 app.include_router(auth.router)
@@ -106,6 +112,7 @@ def cities():
             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
             "updated": {ck: CITIES[ck].get("source_updated") for ck in rv["cities"]},
             "layers": layers.catalog(rk),
+            "tiles_version": web.tiles_version(rk),
         }
         for rk, rv in REGIONS.items()
     }
@@ -242,7 +249,7 @@ def closures(region: str = Query(..., pattern="^[a-z_]+$")):
     """Street closures on now or starting within two weeks (GeoJSON), for the map."""
     if region not in REGIONS:
         raise HTTPException(404, "Unknown region.")
-    return {"type": "FeatureCollection", "features": feeds.closures(region)}
+    return Response(feeds.closures_json(region), media_type="application/json")
 
 
 @api.get("/alerts")
@@ -429,4 +436,4 @@ def service_worker():
 
 
 _frontend_dir = os.path.join(REPO_ROOT, "frontend")
-app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
+app.mount("/", web.Static(directory=_frontend_dir, html=True), name="frontend")

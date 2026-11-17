@@ -682,3 +682,19 @@ class TestBuildCityFgb:
             data_loader.build_city_fgb("testville")
         assert fgb.read_bytes() == before
         assert sorted(p.name for p in fgb.parent.iterdir()) == ["test.fgb"]
+
+
+def test_compact_region_reads_back_the_same_values(bay_area_3857):
+    """The server's frame (per-city reprojection, categorical text) holds the same values as
+    the plain one: str where there is text, NaN where there is none."""
+    got = data_loader.load_region_data("bay_area", crs="EPSG:3857", compact=True)
+    assert list(got.columns) == list(bay_area_3857.columns) and got.crs == bay_area_3857.crs
+    text = [c for c in got.columns if isinstance(got[c].dtype, pd.CategoricalDtype)]
+    assert {"STREET_KEY", "DAY_EVEN", "SIDE_ODD", "_city"} <= set(text)
+    for c in got.columns:
+        if c != "geometry":
+            a, b = got[c].to_numpy(object), bay_area_3857[c].to_numpy(object)
+            assert pd.Series(a).equals(pd.Series(b)), c
+    assert got.geometry.geom_equals_exact(bay_area_3857.geometry, tolerance=0).all()
+    row = got.iloc[0]
+    assert isinstance(row.get("STREET_KEY"), str) and row.get("STREET_KEY") == row["STREET_KEY"]

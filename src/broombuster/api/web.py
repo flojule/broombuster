@@ -1,6 +1,8 @@
 """HTTP plumbing: request logs (JSON lines), per-client rate limits, cache headers,
-and the index page with content-versioned asset URLs."""
+precompressed static files, and the index page with content-versioned asset URLs."""
 
+import functools
+import gzip
 import hashlib
 import ipaddress
 import json
@@ -13,7 +15,10 @@ from collections import deque
 from pathlib import Path
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import Headers
 
 from broombuster import config
 from broombuster.version import app_version
@@ -185,14 +190,71 @@ class BodyLimit:
 API_PATHS = ("/api", "/auth", "/health")
 
 
-def cache_control(path: str, versioned: bool) -> str:
+_IMMUTABLE = "public, max-age=31536000, immutable"
+_TILES = re.compile(r"/tiles/([\w-]+)\.pmtiles")
+
+
+def cache_control(path: str, version: str | None) -> str:
+    """version: the request's ?v=; a tile set is immutable only under its own tiles_version."""
     if path.startswith(API_PATHS):
         return "no-store"
-    if versioned:
-        return "public, max-age=31536000, immutable"
     if path.startswith("/tiles/"):
+        m = _TILES.fullmatch(path)
+        if version and m and version == tiles_version(m[1]):
+            return _IMMUTABLE
         return "public, max-age=3600, must-revalidate"
+    if version is not None:
+        return _IMMUTABLE
     return "no-cache"
+
+
+@functools.cache
+def tiles_version(region_key: str) -> str | None:
+    """Content hash of frontend/tiles/<region>.pmtiles (None when there is none)."""
+    path = _FRONTEND / "tiles" / f"{region_key}.pmtiles"
+    if not path.is_file():
+        return None
+    with path.open("rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()[:12]
+
+
+# ── Static files ──────────────────────────────────────────────────────────────
+# Text files are gzipped once (level 9) and kept in memory; GZipMiddleware skips them.
+_GZIP_SUFFIXES = (".js", ".mjs", ".css", ".html", ".json", ".geojson", ".svg", ".txt")
+_GZIP_MIN_BYTES = 1024
+_gzipped: dict[str, tuple[str, bytes]] = {}  # file path -> (its ETag, gzip bytes)
+
+
+def _gzip_file(path: str, etag: str) -> bytes:
+    hit = _gzipped.get(path)
+    if hit is None or hit[0] != etag:
+        data = gzip.compress(Path(path).read_bytes(), compresslevel=9, mtime=0)
+        hit = _gzipped[path] = (etag, data)
+    return hit[1]
+
+
+class Static(StaticFiles):
+    """StaticFiles that answers a full GET of a text file with its stored gzip bytes (weak
+    ETag, same validators); ranges, 304s and other files are StaticFiles' own."""
+
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        if not (
+            isinstance(response, FileResponse)
+            and response.status_code == 200
+            and str(response.path).endswith(_GZIP_SUFFIXES)
+            and response.stat_result.st_size >= _GZIP_MIN_BYTES
+        ):
+            return response
+        response.headers["vary"] = "Accept-Encoding"
+        h = Headers(scope=scope)
+        if "range" in h or "gzip" not in h.get("accept-encoding", ""):
+            return response
+        etag = response.headers["etag"]
+        body = await run_in_threadpool(_gzip_file, str(response.path), etag)
+        headers = {k: v for k, v in response.headers.items() if k != "content-length"}
+        headers.update({"content-encoding": "gzip", "etag": "W/" + etag})
+        return Response(body, headers=headers)
 
 
 # ── Versioned index page ──────────────────────────────────────────────────────
@@ -344,7 +406,7 @@ async def http_middleware(request: Request, call_next):
     ] = CSP
     response.headers["X-Request-ID"] = rid
     if "cache-control" not in response.headers:
-        response.headers["Cache-Control"] = cache_control(path, "v" in request.query_params)
+        response.headers["Cache-Control"] = cache_control(path, request.query_params.get("v"))
     extra = {
         "rid": rid,
         "method": request.method,

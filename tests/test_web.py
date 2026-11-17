@@ -1,5 +1,7 @@
 """HTTP plumbing (api/web.py): rate-limit keys and pruning, refusals on the phone path,
-HSTS, and the service worker's cache name."""
+HSTS, the service worker's cache name, precompressed static files and versioned tiles."""
+
+import gzip
 
 import pytest
 from fastapi.testclient import TestClient
@@ -93,3 +95,47 @@ def test_offline_cache_name_follows_the_page_and_manifest(tmp_path, monkeypatch)
         (tmp_path / f).write_text("changed " + f)
         assert web._asset_version() == assets and web._shell_version() != shell
         shell = web._shell_version()
+
+
+def test_static_text_is_served_precompressed(client):
+    path = "/layers/bay_area/parking.geojson"
+    raw = (web._FRONTEND / path.lstrip("/")).read_bytes()
+    r = client.get(path, headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200 and r.headers["content-encoding"] == "gzip"
+    assert r.content == raw and int(r.headers["content-length"]) < len(raw) / 3
+    assert r.headers["etag"].startswith('W/"') and r.headers["vary"] == "Accept-Encoding"
+    again = client.get(path, headers={"If-None-Match": r.headers["etag"]})
+    assert again.status_code == 304
+    plain = client.get(path, headers={"Accept-Encoding": "identity"})
+    assert "content-encoding" not in plain.headers and plain.content == raw
+    assert plain.headers["etag"] == r.headers["etag"][2:]
+    assert plain.headers["content-type"] == r.headers["content-type"]
+    part = client.get(path, headers={"Range": "bytes=0-99", "Accept-Encoding": "gzip"})
+    assert part.status_code == 206 and part.content == raw[:100]
+    assert "content-encoding" not in part.headers
+    assert gzip.decompress(web._gzipped[str(web._FRONTEND / path.lstrip("/"))][1]) == raw
+
+
+def test_dynamic_json_is_still_compressed(app_client):
+    r = app_client.get("/api/cities", headers={"Accept-Encoding": "gzip"})
+    assert r.headers["content-encoding"] == "gzip" and r.headers["cache-control"] == "no-store"
+
+
+def test_tiles_are_immutable_only_under_their_version(app_client):
+    regions = app_client.get("/api/cities").json()
+    v = regions["bay_area"]["tiles_version"]
+    assert v and v == web.tiles_version("bay_area") != regions["chicago"]["tiles_version"]
+    rng = {"Range": "bytes=0-15"}
+    hit = app_client.get(f"/tiles/bay_area.pmtiles?v={v}", headers=rng)
+    assert hit.status_code == 206 and len(hit.content) == 16
+    assert hit.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert "content-encoding" not in hit.headers and hit.headers["etag"]
+    for url in ("/tiles/bay_area.pmtiles", "/tiles/bay_area.pmtiles?v=stale"):
+        r = app_client.get(url, headers=rng)
+        assert r.status_code == 206 and r.headers["cache-control"] == (
+            "public, max-age=3600, must-revalidate"
+        )
+    again = app_client.get(
+        "/tiles/bay_area.pmtiles", headers={"If-None-Match": hit.headers["etag"]}
+    )
+    assert again.status_code == 304

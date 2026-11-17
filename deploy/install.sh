@@ -35,8 +35,8 @@ if [ -e data/users.sqlite ] && sudo test -e "$db"; then
 fi
 if [ -e data/users.sqlite ]; then
   sudo systemctl stop broombuster 2>/dev/null || true
-  if [ -e data/users.sqlite-journal ]; then
-    echo "data/users.sqlite-journal exists: start and stop broombuster once, then rerun." >&2
+  if [ -e data/users.sqlite-journal ] || [ -e data/users.sqlite-wal ]; then
+    echo "data/users.sqlite-journal or -wal exists: start and stop broombuster once, then rerun." >&2
     exit 1
   fi
   sudo install -d -o "$(id -un)" -m 700 "$(dirname "$db")"
