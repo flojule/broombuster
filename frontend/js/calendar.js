@@ -135,7 +135,7 @@ function _streetCls(layers, k, today) {
 // year ahead. Day i of the window is `_rangeStart + i`; both views index into it.
 const CAL_WEEKS = 70;
 function _calRange(today) {
-  const start = _ymdAdd(today, -56 - _dow(_ymdAdd(today, -56)));  // a Sunday
+  const start = _ymdAdd(today, -56 - _dow(_ymdAdd(today, -56)));  // a Monday
   return { start, end: _ymdAdd(start, CAL_WEEKS * 7 - 1) };
 }
 function _dayIdx(range, p) {
@@ -198,7 +198,7 @@ function calendarHTML(layers, range, sel, today) {
   let cells = '';
   for (let i = 0; i < CAL_WEEKS * 7; i++) {
     const p = _ymdAdd(range.start, i), k = _ymdKey(p);
-    const cls = ['cal-day', `cal-m${p.m}`, _streetCls(layers, k, today), layers.hol.has(k) ? 'cal-hol' : '',
+    const cls = ['cal-day', `cal-m${p.m}`, String(p.m) === icCal.dataset.m ? '' : 'cal-out', _streetCls(layers, k, today), layers.hol.has(k) ? 'cal-hol' : '',
                  k === todayK ? 'sw-today' : k < todayK ? 'cal-past' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
     cells += `<button class="${cls}" data-cal-day="${k}" aria-label="${esc(_dayAria(layers, k, p, today))}"`
            + ` aria-pressed="${k === sel}" tabindex="${k === sel ? 0 : -1}">`
@@ -250,10 +250,12 @@ function _scrollTo(el, row, smooth) {
   el.scrollTo({ top: row * _pitch(el), behavior: smooth && !_reduceMotion.matches ? 'smooth' : 'auto' });
 }
 const _weekOf = (range, k) => Math.floor(_dayIdx(range, _keyDay(k)) / 7);
+// Desktop: the grid shows one month, six week rows from the week holding the 1st.
+const _monthRow = (range, k) => _weekOf(range, Math.floor(k / 100) * 100 + 1);
 
 const CAL_ROW = 43;  // px: a 40 px row + the 3 px gap (styles.css .cal-grid)
-// On a phone the sheet's heights fit whole weeks (calFit); on a desktop the panel is the
-// screen's height and the grid scrolls in it.
+// On a phone the sheet's heights fit whole weeks (calFit); on a desktop the grid shows one
+// month (styles.css) and ‹ › or the wheel step a month.
 
 // Phone: sheet heights that show whole weeks and the day details: {small: one week, round(h): the nearest
 // height at or under h showing whole weeks and the day details}; null until the
@@ -268,7 +270,7 @@ function calFit() {
 // Measured once the sheet has settled (mid-animation sizes round differently).
 function measureCalChrome() {
   const el = _scroller(), det = icCal.querySelector('.cal-detail');
-  if (isDesktop() || tabCal.hidden || !el || !det || sheet.classList.contains('dragging')) return;
+  if (isDesktop() || tabCal.hidden || !el || !det || sheet.classList.contains('dragging') || sheet.classList.contains('retracted')) return;
   if (sheet.style.height && Math.abs(sheet.offsetHeight - parseFloat(sheet.style.height)) > 1) return;
   const detail = det.offsetHeight + parseFloat(getComputedStyle(det).marginTop);
   const base = sheet.offsetHeight - icCal.clientHeight + (icCal.scrollHeight - el.offsetHeight - detail);
@@ -297,7 +299,8 @@ function _markWeek(el, pitch) {
 }
 
 // Header title: the month of the top week on screen (of its Thursday, so a week belongs
-// to the month holding most of it; ‹ › scroll to such a week, calStep).
+// to the month holding most of it; ‹ › scroll to such a week, calStep). Desktop: of the
+// third week, as the top one holds the 1st.
 function updateCalTitle() {
   const el = _scroller(), t = document.getElementById('ic-month');
   if (!el || !t || !_calRange0) return;
@@ -306,11 +309,12 @@ function updateCalTitle() {
   const pos = Math.round(el.scrollTop / pitch);
   _cal.anchor = el.scrollTop / pitch;
   _markWeek(el, pitch);
-  const mid = _ymdAdd(_calRange0.start, pos * 7 + 3);
+  const mid = _ymdAdd(_calRange0.start, (pos + (isDesktop() ? 2 : 0)) * 7 + 3);
   const key = `${mid.y}-${mid.m}-${t.clientWidth}`;
   if (t.dataset.key === key) return;
   t.dataset.key = key; t.dataset.y = mid.y; t.dataset.m = mid.m;
-  icCal.dataset.m = mid.m;  // days of the other months are muted (styles.css)
+  icCal.dataset.m = mid.m;  // days of the other months are muted (.cal-out, styles.css)
+  for (const d of icCal.querySelectorAll('.cal-day')) d.classList.toggle('cal-out', !d.classList.contains(`cal-m${mid.m}`));
   // The longest form that fits ("September 2026", "Sep 2026", then without this year's).
   const M = _MONTHS[mid.m - 1], forms = [`${M} ${mid.y}`, `${M.slice(0, 3)} ${mid.y}`];
   if (mid.y === calNow().y) forms.push(M, M.slice(0, 3));
@@ -369,10 +373,11 @@ function _restoreScroll() {
   if (!_cal.pending) _scrollTo(el, _cal.anchor, false);
 }
 
-// Where the grid starts when nothing is remembered: the selected week, in both views
-// (the weeks ahead matter, not those past; ‹ › still step whole months).
+// Where the grid starts when nothing is remembered: the selected week on a phone (the
+// weeks ahead matter, not those past; ‹ › still step whole months), its month on a desktop.
 function _anchorFor(range, today) {
-  return _weekOf(range, _ymdKey(_cal.sel ? _keyDay(_cal.sel) : today));
+  const k = _ymdKey(_cal.sel ? _keyDay(_cal.sel) : today);
+  return isDesktop() ? _monthRow(range, k) : _weekOf(range, k);
 }
 
 // The sheet grew past small (expanded) or came back to it. Nothing is rebuilt: folding
@@ -421,8 +426,8 @@ function calStep(dir) {
   }
   const d = new Date(Date.UTC(Number(t.dataset.y), Number(t.dataset.m) - 1 + dir, 1));
   const first = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: 1 };
-  // The month's first week, or the next when the 1st falls after Thursday (that week is the last month's).
-  _scrollTo(el, Math.max(0, Math.floor(_dayIdx(_calRange0, first) / 7) + (_dow(first) > 3 ? 1 : 0)), true);
+  // The month's first week; on a phone the next when the 1st falls after Thursday (that week is the last month's).
+  _scrollTo(el, Math.max(0, Math.floor(_dayIdx(_calRange0, first) / 7) + (!isDesktop() && _dow(first) > 3 ? 1 : 0)), true);
 }
 
 // Today: selects today and scrolls back to it.
@@ -459,7 +464,9 @@ icCal.addEventListener('keydown', e => {
   const b = icCal.querySelector(`[data-cal-day="${k}"]`);
   b?.focus({ preventScroll: true });
   const el = _scroller(), row = _weekOf(_calRange0, k), top = el.scrollTop / (_pitch(el) || 1);
-  if (row < Math.floor(top) || row > Math.floor(top) + Math.max(0, Math.round(el.clientHeight / (_pitch(el) || 1)) - 1)) _scrollTo(el, row, true);
+  if (row < Math.floor(top) || row > Math.floor(top) + Math.max(0, Math.round(el.clientHeight / (_pitch(el) || 1)) - 1)) {
+    _scrollTo(el, isDesktop() ? _monthRow(_calRange0, k) : row, true);
+  }
 });
 
 // Scroll events do not bubble: catch them on the way down.
@@ -470,7 +477,7 @@ tabCal.addEventListener('scroll', () => {
 }, true);
 
 // Small sheet: a sideways swipe or the wheel steps a week (one step per gesture); a
-// vertical drag moves the sheet (sheet.js).
+// vertical drag moves the sheet (sheet.js). Desktop: the wheel steps a month.
 let _swipe = null, _wheelAt = 0;
 icCal.addEventListener('touchstart', e => {
   _swipe = !_cal.expanded && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
@@ -482,7 +489,7 @@ icCal.addEventListener('touchend', e => {
   if (Math.abs(dx) > 40 && Math.abs(dx) > 1.5 * Math.abs(dy)) calStep(dx < 0 ? 1 : -1);
 }, { passive: true });
 icCal.addEventListener('wheel', e => {
-  if (_cal.expanded) return;
+  if (_cal.expanded && !isDesktop()) return;
   e.preventDefault();
   const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
   if (Math.abs(d) < 4 || e.timeStamp - _wheelAt < 350) return;
@@ -501,5 +508,5 @@ function calShown() {
   measureCalChrome();
 }
 
-calSetExpanded(isDesktop() || _detentOf.calendar !== 'small');
+calSetExpanded(isDesktop() || _detent === 'medium');
 renderTargetInfo();  // initial empty state

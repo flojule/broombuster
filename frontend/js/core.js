@@ -301,4 +301,14 @@ if (navigator.standalone && /iPhone/.test(navigator.userAgent)) {
     (_landscape.matches ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height)) + 'px');
   setAppH();
   _landscape.addEventListener('change', setAppH);
+  // The screen's corner radius (pt) by its size, so the sheet and tab bar keep an even gap
+  // to the screen's rounded corners (styles.css .concentric). Community-measured values
+  // (iOS's private _displayCornerRadius; Apple publishes none); other screens keep the defaults.
+  const SCREEN_CORNER = { '402x874': 62, '440x956': 62, '393x852': 55, '430x932': 55,
+                          '428x926': 53.33, '390x844': 47.33 };
+  const r = SCREEN_CORNER[[screen.width, screen.height].sort((a, b) => a - b).join('x')];
+  if (r) {
+    document.documentElement.style.setProperty('--screen-r', r + 'px');
+    document.documentElement.classList.add('concentric');
+  }
 }

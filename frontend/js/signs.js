@@ -1,10 +1,12 @@
 // ── Street card: what applies on the street at the target ─────────────────────
-// Top left: the street's name, then one row per thing that applies there: its sweeping
-// (in the source's own words, shortened; one row per side and set of days, the side
-// lying higher on screen first, marked in that side's map line color), then the
-// parking rules from /api/rules (permit area, meter, winter ban, closure), each a short
-// line with its mark. The rules arrive once the map stops (one request per spot); the
-// turned-on map layers' areas at the target (a permit area, a fire zone) show at once.
+// Top left: the street's name, then Sweeping: one row per side and set of days (the side
+// lying higher on screen first), marked by a bar in that side's map line color, in the
+// words of the posted sign (the calendar gives the dates). Under a hairline, the rules
+// from /api/rules (permit area, time limit, meter, winter ban, fire zone, closure), each
+// marked by its glyph in sign colors (a permit: its area's map color). Every row is at
+// most two lines. The rules arrive once the
+// map stops (one request per spot); the turned-on map layers' areas at the target (a
+// permit area, a fire zone) show at once.
 const signsEl = document.getElementById('signs');
 let _signsKey = '';
 
@@ -22,15 +24,6 @@ function sourceLines(entries, now) {
   return [...byDays].map(([key, ts]) => ({ days: key.replace(/\|$/, ''),
     time: tidyTimes(ts.sort((a, b) => start(a) - start(b)).join(', ')),
   }));
-}
-
-// A monthly or dated pattern's next sweep after tomorrow ("Next: Mon Nov 23"): weekly
-// ones need no date. '' when none within 60 days.
-function _nextDate(entries, now, skip) {
-  if (!entries.some(e => /^(DATES:|[A-Z]+[1-5]+$)/.test(String(e.code).trim().toUpperCase()))) return '';
-  const from = BroomUrgency.addDays(now, 2), es = entries.map(e => [e.code, e.desc || '', e.time || '']);
-  const day = BroomUrgency.sweepDays(es, [], from, BroomUrgency.addDays(now, 60), skip)[0];
-  return day ? `Next: ${BroomUrgency.dayLabel(day)}` : '';
 }
 
 // Screen direction [dx, dy] in which the street at the target is drawn, at its point
@@ -77,16 +70,17 @@ function _evenSideDirection(f) {
   return p.side_even ? _compassDirection(p.side_even) : null;
 }
 
-// A row: a mark (its color, a letter), the side when the sides differ, what applies, a
-// detail and a "Today" / "Tomorrow" badge; `said` for screen readers. A row without a
-// color continues the one above (other days of that side; its side name `ghost`: hidden,
-// keeping the text in line).
-function _rowHTML({ side, ghost, when, color, mark, text, detail = '', said, sweep = false, ...rest }) {
-  if (rest.divider) return '<hr class="sc-rule">';
-  return `<div class="sc-row">${markHTML({ color, mark, sweep })}`
+// A row: a mark (`bar` for sweeping, else a rule's glyph) in its color, the side when the
+// sides differ, what applies, a muted detail and a "Today" / "Tomorrow" badge; `said`
+// for screen readers. A side's next rows hide its name (`ghost`), keeping the text in
+// line. `header`: a section's name; `divider`: the hairline above the rules.
+function _rowHTML({ header, divider, side, ghost, when, color, mark, text, detail = '', said }) {
+  if (header) return `<div class="sc-sec">${esc(header)}</div>`;
+  if (divider) return '<hr class="sc-rule">';
+  return `<div class="sc-row">${markHTML({ color, mark })}`
        + (side === undefined ? '' : `<span class="sc-side${ghost ? ' ghost' : ''}" aria-hidden="true">${esc(side)}</span>`)
        + `<span class="sr-only">${esc(said || `${text} ${detail}`.trim())}</span>`
-       + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail${sweep ? ' sc-time' : ''}">${_keepTimes(esc(detail))}</span>` : ''}</span>`
+       + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail">${_keepTimes(esc(detail))}</span>` : ''}</span>`
        + `${when ? _whenBadge(when) : ''}</div>`;
 }
 // Escaped text with each time range ("8am–9pm", "7 - 9AM") kept on one line.
@@ -98,23 +92,23 @@ function _sideUrgency({ entries }, now, skip) {
   return entries.length ? BroomUrgency.checkDaySweeping(entries, now, skip) : 'none';
 }
 
-// A side's sweeping rows (one per set of days): "S" once, in its map line color; when the
-// sides differ, the first row names the side ("North") and carries "Today" / "Tomorrow"
-// when that side is swept then.
+// A side's sweeping rows (one per set of days, as the sign words it), each marked in the
+// side's map line color; when the sides differ, the first row names the side ("North")
+// and carries "Today" / "Tomorrow" when that side is swept then.
 function _sweepRows(sec, now, skip) {
   const { lines, side, tag, entries } = sec, u = _sideUrgency(sec, now, skip), soon = u === 'today' || u === 'tomorrow';
-  const first = { sweep: true, mark: _MARK.sweep.mark, ...(tag ? { side: tag, when: soon && u } : {}) };
-  const more = { sweep: true, mark: '', color: '', ...(tag ? { side: tag, ghost: true } : {}) };
+  const color = URGENCY[lines.length ? u : u === 'check' ? 'check' : 'none'].line;
+  const first = { mark: 'bar', color, ...(tag ? { side: tag, when: soon && u } : {}) };
+  const more = { mark: 'bar', color, ...(tag ? { side: tag, ghost: true } : {}) };
   if (!lines.length) {  // none, or none left: Chicago's season is over, or its dates ran out
     const text = !entries.length ? 'No sweeping' : u === 'check' ? `No ${now.y} dates yet`
       : BroomUrgency.seasonOver(entries, now) ? 'Season over' : 'No sweeping';
-    return [{ ...first, color: URGENCY[u === 'check' ? 'check' : 'none'].line, text, said: `${side}: ${text.toLowerCase()}` }];
+    return [{ ...first, text, said: `${side}: ${text.toLowerCase()}` }];
   }
-  const next = soon ? '' : _nextDate(entries, now, skip);
-  return [...lines.map((l, i) => ({
-    ...(i ? more : { ...first, color: URGENCY[u].line }),
+  return lines.map((l, i) => ({
+    ...(i ? more : first),
     text: l.days, detail: l.time, said: `${side}: ${!i && soon ? `swept ${u}; ` : ''}sweeping ${l.days} ${l.time}`.trim(),
-  })), ...(next ? [{ ...more, text: '', detail: next, said: `${side}: ${next}` }] : [])];
+  }));
 }
 
 // Beside the street's name: "Today" / "Tomorrow" when the street (both sides alike, or a
@@ -128,27 +122,21 @@ function _whenBadge(u) {
   return `<b class="sc-when" style="background:var(--urg-${u}-bg)">${esc(URGENCY[u].short)}</b>`;
 }
 
-// A mark: a letter on a color (dark on a light one: a city's pale permit colors).
-function markHTML({ color, mark, sweep = false }) {
-  const light = !sweep && _isLight(color);
-  return `<i class="sc-mark${sweep ? ' sc-sweep' : ''}${light ? ' light' : ''}"${color ? ` style="background:${esc(color)}"` : ''}`
-       + ` aria-hidden="true">${esc(mark)}</i>`;
-}
-function _isLight(color) {
-  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color || '');
-  return !!m && (0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16)) > 165;
+// A mark: a bar (sweeping) in its color, or a rule's glyph (index.html i-<kind>).
+function markHTML({ color, mark }) {
+  if (mark === 'bar') return `<i class="sc-mark sc-bar" style="background:${esc(color)}" aria-hidden="true"></i>`;
+  return `<i class="sc-mark sc-glyph sc-${mark}" style="--k:${esc(color)}" aria-hidden="true">${icon(mark)}</i>`;
 }
 
-// The card's marks: sweeping, then the rules, in their map layer's colors (a permit area:
-// its own color on the map, LAYER_STYLE.key).
+// The rules' glyph colors, as street signs: green allows, red forbids, blue for snow,
+// gray for meters (styles.css --rule-*, lighter in dark mode; the map layers match).
 const _MARK = {
-  sweep:  { mark: 'S', color: URGENCY.safe.line },
-  permit: { mark: 'P', color: LAYER_STYLE.parking.key },
-  limit:  { mark: 'h', color: '#6d28d9' },
-  meter:  { mark: '$', color: LAYER_STYLE.meters.color },
-  winter: { mark: '*', color: LAYER_STYLE.winter.color },
-  fire:   { mark: 'F', color: LAYER_STYLE.fire.color },
-  ban:    { mark: '!', color: LAYER_STYLE.closures.color },
+  permit: 'var(--rule-allow)',  // when the area has no color of its own
+  limit:  'var(--rule-allow)',
+  meter:  'var(--rule-meter)',
+  winter: 'var(--rule-snow)',
+  fire:   'var(--rule-ban)',
+  ban:    'var(--rule-ban)',
 };
 
 // /api/rules' rules as rows: the mark of their kind, and the rule in a few words (ruleText).
@@ -157,8 +145,7 @@ function _ruleRow(r) {
   const kind = r.theme === 'meters' ? 'meter' : r.theme === 'winter' ? 'winter' : r.theme === 'closures' ? 'ban'
     : r.theme === 'fire' ? 'fire'
     : /^Permit (area|zone) /.test(text) ? 'permit' : /\b(h|min) limit$/.test(text) ? 'limit' : 'ban';
-  const { mark } = _MARK[kind], color = kind === 'permit' && r.color || _MARK[kind].color;
-  return { mark, color, text, detail, said: detail ? `${text}: ${detail}` : text };
+  return { mark: kind, color: kind === 'permit' && r.color || _MARK[kind], text, detail, said: detail ? `${text}: ${detail}` : text };
 }
 
 // Rules at the target, by spot (~10 m): fetched once the map stops, zoomed in to street
@@ -227,9 +214,8 @@ function renderSigns(f, live = false) {
   const seen = new Set(), server = near ? targetRules(live) : [], themes = new Set(server.map(r => r.theme));
   const rules = [...server, ...overlayAreasAtTarget().filter(r => !themes.has(r.theme))]
     .filter(r => r.label && !seen.has(r.label) && seen.add(r.label)).slice(0, 4);
-  // The rules apply to the whole block: a rule line sets them apart from the sides.
-  const rows = [...secs.flatMap(s => _sweepRows(s, now, skip)),
-                ...(secs.length && rules.length ? [{ divider: true }] : []), ...rules.map(_ruleRow)];
+  const rows = [...(secs.length ? [{ header: 'Sweeping' }, ...secs.flatMap(s => _sweepRows(s, now, skip))] : []),
+                ...(rules.length ? [...(secs.length ? [{ divider: true }] : []), ...rules.map(_ruleRow)] : [])];
   const street = p && p.street !== 'N/A' ? p.street : '';
   const html = rows.length
     ? `<div class="sc">${street || secs.length ? `<div class="sc-head"><span class="sc-street">${esc(street)}</span>${_whenHTML(secs, now, skip)}</div>` : ''}`

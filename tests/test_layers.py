@@ -324,6 +324,63 @@ def test_areas_snap_to_whole_blocks_and_keep_their_shape_elsewhere():
     assert out["C"] == pytest.approx(10_000, rel=1e-3)
 
 
+def test_areas_drop_part_blocks_so_edges_follow_streets():
+    # A covers block 0 and a 40 m strip of block 1 (its lots); B block 2; no area covers
+    # most of block 1. The strip goes: A's edge runs along the street at x = 100.
+    build = _build()
+    streets = geopandas.GeoSeries(
+        [shapely.LineString([(0, y), (300, y)]) for y in (0, 100)]
+        + [shapely.LineString([(x, 0), (x, 100)]) for x in (0, 100, 200, 300)],
+        crs=3857,
+    )
+    boxes = [shapely.box(0, 0, 140, 100), shapely.box(200, 0, 300, 100)]
+    areas = geopandas.GeoDataFrame({"label": list("AB")}, geometry=boxes, crs=3857)
+    out = build.snap_to_blocks(areas, streets).set_index("label").geometry
+    assert out["A"].symmetric_difference(shapely.box(0, 0, 100, 100)).area < 1
+    assert out["B"].symmetric_difference(shapely.box(200, 0, 300, 100)).area < 1
+
+
+def test_areas_keep_blocks_and_edge_lots_their_curbs_mark():
+    # As above, plus A's curbs: one in block 1 (A covers 40 % of it), one along a 25 m row
+    # of lots past the last street (y < 0, outside all blocks). Both go to A.
+    build = _build()
+    streets = geopandas.GeoSeries(
+        [shapely.LineString([(0, y), (300, y)]) for y in (0, 100)]
+        + [shapely.LineString([(x, 0), (x, 100)]) for x in (0, 100, 200, 300)],
+        crs=3857,
+    )
+    a = shapely.union_all([shapely.box(0, 0, 140, 100), shapely.box(0, -30, 100, -5)])
+    areas = geopandas.GeoDataFrame(
+        {"label": list("AB")}, geometry=[a, shapely.box(200, 0, 300, 100)], crs=3857
+    )
+    curbs = geopandas.GeoDataFrame(
+        {"label": ["A", "A or B"]},
+        geometry=[
+            shapely.LineString([(110, 95), (190, 95)]),
+            shapely.LineString([(5, -3), (95, -3)]),
+        ],
+        crs=3857,
+    )
+    out = build.snap_to_blocks(areas, streets, curbs).set_index("label").geometry
+    want = shapely.union_all([shapely.box(0, 0, 200, 100), shapely.box(0, -30, 100, -5)])
+    assert out["A"].symmetric_difference(want).area < 5  # corners: 0.5 m close
+    assert out["B"].symmetric_difference(shapely.box(200, 0, 300, 100)).area < 1
+
+
+def test_areas_fill_small_holes_no_other_area_took():
+    # A 3 x 3 grid of 100 m blocks: A covers all but the middle block (a school).
+    build = _build()
+    streets = geopandas.GeoSeries(
+        [shapely.LineString([(0, v), (300, v)]) for v in (0, 100, 200, 300)]
+        + [shapely.LineString([(v, 0), (v, 300)]) for v in (0, 100, 200, 300)],
+        crs=3857,
+    )
+    ring = shapely.box(0, 0, 300, 300).difference(shapely.box(100, 100, 200, 200))
+    areas = geopandas.GeoDataFrame({"label": ["A"]}, geometry=[ring], crs=3857)
+    out = build.snap_to_blocks(areas, streets).geometry.iloc[0]
+    assert out.symmetric_difference(shapely.box(0, 0, 300, 300)).area < 5  # corners: 0.5 m close
+
+
 def test_map_areas_give_a_cross_city_overlap_to_the_newer_source():
     build = _build()
     gdf = geopandas.GeoDataFrame(
