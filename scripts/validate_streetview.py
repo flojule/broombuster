@@ -616,7 +616,9 @@ def _verdict_sweeping(rec, meta, reading, since) -> tuple[str, str]:
         return "unreadable", ""
     if not good:
         return "no_view", ""
-    return ("match", "no sign, none expected") if not exp else ("absent", "expected a sign")
+    if exp or undated:  # a POSTED side has a sign by definition
+        return "absent", "expected a sign"
+    return "match", "no sign, none expected"
 
 
 _AREA = re.compile(r"(?:area|zone)\s+([A-Z]{1,2}|\d+)", re.I)
