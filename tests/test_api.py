@@ -69,6 +69,30 @@ def test_check_rejects_bad_coordinates(client):
     assert client.post("/api/check", json={"lat": 91, "lon": 0}).status_code == 422
 
 
+@pytest.mark.parametrize("path", ["/api/check", "/api/check-home"])
+@pytest.mark.parametrize("lat", ["NaN", "Infinity", "-Infinity", "true", '"37.8"'])
+def test_check_takes_json_numbers_only(client, path, lat):
+    body = '{"lat": ' + lat + ', "lon": -122.27, "region": "bay_area"}'
+    resp = client.post(path, content=body, headers={"content-type": "application/json"})
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.parametrize("lat,lon", [(-90, -180), (90, -122.27), (0, 0), (37.5, -123.5)])
+def test_points_outside_the_region_have_no_street_or_rules(client, lat, lon):
+    data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
+    assert data["covered"] is False and data["schedule_even"] == data["schedule_odd"] == []
+    for kind in ("car", "home"):
+        rules = client.get("/api/rules", params={"lat": lat, "lon": lon, "kind": kind})
+        assert rules.status_code == 200 and rules.json()["rules"] == []
+
+
+def test_mercator_scale_refuses_the_poles():
+    assert resolve.mercator_scale(60.0) == pytest.approx(2.0)
+    for lat in (-90.0, 86.0, float("nan")):
+        with pytest.raises(ValueError):
+            resolve.mercator_scale(lat)
+
+
 @pytest.mark.parametrize(
     "road,number,expected",
     [

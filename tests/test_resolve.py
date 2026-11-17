@@ -11,12 +11,17 @@ The side logic uses both geometry (cross product) and the segment's
 L_/R_ address-range parity. These tests lock in the combined rule.
 """
 
+import csv
+import re
+from pathlib import Path
+
 import geopandas
 import pandas as pd
 import pyproj
 import pytest
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 
+from broombuster import analysis, normalize, resolve
 from broombuster.resolve import NoSegmentNearby, resolve_car_segment
 
 _TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
@@ -339,3 +344,40 @@ def test_union_keeps_resolved_schedule(bay_area_3857, lat, lon, city):
 def test_midblock_snaps_to_street(bay_area_3857):
     r = resolve_car_segment(bay_area_3857, 37.821326, -122.280705)
     assert r.street_name.upper().startswith("CHESTNUT")
+
+
+# A validation point named on a street the data spells otherwise.
+_SPELLED_OTHERWISE = {"oak-sw-0097": "GREENLY"}
+
+
+def _validated_cars():
+    """(id, street, lat, lon) of every Street View point whose signs matched the data and
+    whose street is named (not "37.7653, -122.3924")."""
+    out = []
+    for path in sorted((Path(__file__).parent.parent / "data" / "validation").glob("*.csv")):
+        with open(path, encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                name = row["street"].split(",")[0]
+                if row["verdict"] == "match" and not re.fullmatch(r"-?[\d.]+", name):
+                    out.append((row["id"], name, float(row["lat"]), float(row["lon"])))
+    return out
+
+
+def test_validated_cars_resolve_to_their_street(bay_area_3857):
+    """Every car the signs confirmed stays on its street within CAR_MAX_DISTANCE_M."""
+    cars = _validated_cars()
+    assert len(cars) > 400
+    for cid, name, lat, lon in cars:
+        r = resolve.nearest_segment(bay_area_3857, lat, lon)
+        assert r is not None, (cid, name)
+        # Rows drawn on the resolved line, by any name (Doolittle Dr under State Hwy 61).
+        near = bay_area_3857.iloc[bay_area_3857.sindex.query(Point(r.projected_point).buffer(1))]
+        keys = {analysis.street_key(row) for row in near.to_dict("records")}
+        want = _SPELLED_OTHERWISE.get(cid, normalize.street_name(name))
+        assert want in keys, (cid, name, r.label)
+
+
+def test_car_beside_a_street_without_data_is_not_covered(bay_area_3857):
+    """Wilma Chan Way (Alameda) has no data row; Atlantic Ave is 24 m away."""
+    assert resolve.CAR_MAX_DISTANCE_M == 20.0
+    assert resolve.nearest_segment(bay_area_3857, 37.7800, -122.2750) is None

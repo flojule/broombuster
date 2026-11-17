@@ -3,7 +3,6 @@ from layer_sources.py): what applies at a point, for /api/rules, and the catalog
 map's Layers menu lists (/api/cities)."""
 
 import hashlib
-import math
 import os
 from pathlib import Path
 
@@ -11,6 +10,7 @@ import geopandas
 import pandas as pd
 import shapely
 
+from broombuster import resolve
 from broombuster.cities import CITIES, REGIONS
 from broombuster.config import REPO_ROOT
 
@@ -121,8 +121,8 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
     first per theme, one per (theme, label). A permit area applies by its curbs; away
     from any curb, anywhere inside the area as drawn on the map. It carries its map
     color (color)."""
+    k = resolve.mercator_scale(lat)  # EPSG:3857 units per ground meter; raises past 85 deg
     pt = shapely.Point(*_to_3857(lon, lat))
-    k = 1.0 / math.cos(math.radians(lat))  # EPSG:3857 units per ground meter
     out = []
     for theme, gdf in _loaded.get(region_key, {}).items():
         meta = THEMES[theme]
