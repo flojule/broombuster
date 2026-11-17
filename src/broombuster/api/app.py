@@ -19,7 +19,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from broombuster import (
     alerts,
     analysis,
-    around,
     calfeed,
     feeds,
     gps,
@@ -246,26 +245,15 @@ def closures(region: str = Query(..., pattern="^[a-z_]+$")):
     return {"type": "FeatureCollection", "features": feeds.closures(region)}
 
 
-@api.get("/around")
-def nearby(
-    lat: float = Query(..., ge=-90.0, le=90.0),
-    lon: float = Query(..., ge=-180.0, le=180.0),
-    region: str | None = None,
-):
-    """Markets, events, street events and meetings near a point this week (Nearby tab)."""
-    region = region if region in REGIONS else region_for_point(lat, lon)
-    return {"region": region, **around.around(region, lat, lon)}
-
-
 @api.get("/alerts")
 def place_alerts(
     lat: float = Query(..., ge=-90.0, le=90.0),
     lon: float = Query(..., ge=-180.0, le=180.0),
     region: str | None = None,
 ):
-    """Weather and air alerts in effect at a place (Red Flag, snow, Spare the Air, …)."""
+    """Weather alerts in effect at a place that change where to park (Red Flag, snow, …)."""
     region = region if region in REGIONS else region_for_point(lat, lon)
-    return {"region": region, "alerts": alerts.at(region, lat, lon)}
+    return {"region": region, "alerts": alerts.at(lat, lon)}
 
 
 @api.get("/vehicle")

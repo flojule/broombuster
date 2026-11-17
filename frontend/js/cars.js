@@ -29,9 +29,9 @@ async function upgradeAddress(car, sched) {
   } catch (_) {}
 }
 
-// Cars by sweeping verdict; feeds the Saved summary and the tab's badge.
+// Cars by sweeping verdict; feeds the tab's badge.
 function urgentCars() {
-  const out = { today: [], tomorrow: [], check: [] };
+  const out = { today: [], tomorrow: [] };
   for (const car of cars) out[sweepUrgency(car)]?.push(car);
   return out;
 }
@@ -169,7 +169,7 @@ itemMenu.addEventListener('click', async e => {
       return;
     }
     if (car) removeCar(car.id); else removeHome(item.id);
-    btnAdd.focus();
+    (btnAdd.hidden ? savedSummary.querySelector('[data-add]') : btnAdd)?.focus();  // nothing left: "Add car"
   }
 });
 
@@ -290,13 +290,12 @@ function sweepUrgency(car) {
   return BroomUrgency.checkDaySweeping(_sweepEntries(car), schedNow(sched), schedSkip(sched));
 }
 
-// Why the car's verdict is 'check', in words: {short, long, line (the Saved summary)}.
+// Why the car's verdict is 'check', in words: {short, long}.
 function _checkWords(car) {
   const sched = carSchedules[car.id], now = schedNow(sched);
-  if (sched.covered === false) return { short: 'No data', long: 'No sweeping data here. Check the signs.', line: `No data for ${car.name}’s street` };
+  if (sched.covered === false) return { short: 'No data', long: 'No sweeping data here. Check the signs.' };
   const expired = _sweepEntries(car).some(e => BroomUrgency.unknownReason(e.code, now) === 'expired');
-  return { short: 'Check sign', long: expired ? `No ${now.y} dates yet. Check the signs.` : 'Sweeping day: check the sign',
-           line: `Check the sign for ${car.name}` };
+  return { short: 'Check sign', long: expired ? `No ${now.y} dates yet. Check the signs.` : 'Sweeping day: check the sign' };
 }
 
 // When to move, in words (urgency.js sweepDeadline): `short` for a Saved row, `long`
@@ -369,7 +368,7 @@ function schedBlockHTML(id, header, lines, top = '', asOf = null) {
       + (loadFailed.has(id) && asOf ? `<div class="ce-error">${navigator.onLine ? 'Couldn’t update' : 'Offline'} · as of ${esc(asOf)} ${retry}</div>` : '')
     : loadFailed.has(id) ? `<div class="ce-error">Couldn’t load the schedule ${retry}</div>`
     : '<div class="ce-loading">Loading…</div>';
-  return `<div class="sec-label">${esc(header)}</div><div class="sec">${top}${body}</div>`;
+  return `${header ? `<div class="sec-label">${esc(header)}</div>` : ''}<div class="sec">${top}${body}</div>`;
 }
 
 // A row of the Saved list (icon, name over address, verdict) that opens the item's page
@@ -495,36 +494,38 @@ async function _togglePhoneLink(car) {
   document.querySelector('.ce-token')?.scrollIntoView({ block: 'nearest' });  // it is below the schedule
 }
 
-// A car's sweeping lines: one per pattern when both sides are alike (or a zone), else
-// "North side: …" per side, the car's first. The other side is muted unless swept today
-// or tomorrow (then tagged so); while the side is not picked, both count and both are tagged.
-function carSchedLines(car) {
-  const sched = carSchedules[car.id], now = schedNow(sched), skip = schedSkip(sched), side = carSide(car);
-  const labels = sched.side_labels || ['Even', 'Odd'];
-  const raw = [sched.schedule_even, sched.schedule_odd], text = raw.map(r => BroomUrgency.formatScheduleSide(r, now));
-  if (text[0].join('\n') === text[1].join('\n')) return text[0].length ? text[0] : ['No sweeping'];
-  const out = [];
-  for (const i of (side || sched.car_side) === 'odd' ? [1, 0] : [0, 1]) {
-    const mine = side === ['even', 'odd'][i];
-    const u = BroomUrgency.checkDaySweeping(raw[i].map(e => ({ code: e[0], time: e[2] || '' })), now, skip);
-    const tag = !mine && (u === 'today' || u === 'tomorrow') ? u : null;
-    (text[i].length ? text[i] : ['No sweeping']).forEach((ln, k) => out.push({
-      text: `${labels[i]} side: ${ln}`, cls: side && !mine && !tag ? 'ce-other' : '', tag: k ? null : tag }));
-  }
-  return out;
+// A side's sweeping as lines in the map card's words ("Tue, Thu 6–8AM").
+function _sideLines(entries, now) {
+  const ls = sourceLines(entries, now).map(l => `${l.days} ${l.time}`.trim());
+  return ls.length ? ls : ['No sweeping'];
 }
 
-// Where the sides' schedules differ: which side the car is on (two buttons), and until it
-// is picked, that both count.
+// A car's sweeping lines where both sides are alike (or a zone); [] where they differ
+// (the side choices carry each side's lines).
+function carSchedLines(car) {
+  const sched = carSchedules[car.id], now = schedNow(sched);
+  const text = [sched.schedule_even, sched.schedule_odd].map(r => _sideLines(r, now));
+  return text[0].join('\n') === text[1].join('\n') ? text[0] : [];
+}
+
+// Where the sides' schedules differ: one choice per side with its sweeping, the car's side
+// checked. A side not checked is muted, and tagged Today / Tomorrow when swept then; until
+// a side is checked, both count.
 function sidePickHTML(car) {
   const sched = carSchedules[car.id];
-  if (!sched || sched.covered === false) return '';
-  const now = schedNow(sched), f = r => BroomUrgency.formatScheduleSide(r, now).join('\n');
-  if (f(sched.schedule_even) === f(sched.schedule_odd)) return '';
-  const labels = sched.side_labels || ['Even', 'Odd'], side = carSide(car);
-  return '<div class="seg ce-side" role="radiogroup" aria-label="Your side of the street">'
-    + ['even', 'odd'].map((s, i) => `<button type="button" role="radio" data-side="${s}" aria-checked="${side === s}">${esc(labels[i])} side</button>`).join('')
-    + '</div>' + (side ? '' : '<div class="ce-sched-item ce-other">Pick your side. Until then, both count.</div>');
+  if (!sched || sched.covered === false || carSchedLines(car).length) return '';
+  const now = schedNow(sched), skip = schedSkip(sched), side = carSide(car);
+  const labels = sched.side_labels || ['Even', 'Odd'];
+  return '<div class="ce-side" role="radiogroup" aria-label="Your side of the street">'
+    + ['even', 'odd'].map((s, i) => {
+      const raw = i ? sched.schedule_odd : sched.schedule_even, mine = side === s;
+      const u = BroomUrgency.checkDaySweeping(raw.map(e => ({ code: e[0], time: e[2] || '' })), now, skip);
+      const tag = !mine && (u === 'today' || u === 'tomorrow') ? u : null;
+      return `<button type="button" class="ce-pick${side && !mine && !tag ? ' ce-other' : ''}" role="radio" data-side="${s}" aria-checked="${mine}">`
+        + `<i class="ce-radio" aria-hidden="true"></i><span><b>${esc(labels[i])} side</b>`
+        + _sideLines(raw, now).map(l => `<span>${esc(l)}</span>`).join('') + '</span>'
+        + (tag ? `<span class="ce-tag urg-${tag}">${tag === 'today' ? 'Today' : 'Tomorrow'}</span>` : '') + '</button>';
+    }).join('') + '</div>';
 }
 
 // The city's sweeping data is over a year old: say when it is from (the signs win).
@@ -553,8 +554,8 @@ function _kmFrom(car, lat, lon) {
   return Math.hypot(dx, dy);
 }
 
-// The car rows (before the homes) and, on a car's page, its one visible action: Use my
-// location (the car moves to the device's position, asked first when that is over 1 km away), the one used every time (as Find My keeps Play Sound out); the rest is under "…".
+// The car rows (before the homes) and, on a car's page, its one visible action: Parked
+// here (the car moves to the device's position, asked first when that is over 1 km away), the one used every time (as Find My keeps Play Sound out); the rest is under "…".
 function renderCarsPanel() {
   if (isEditingIn(carsPanel) || savedTitle.isContentEditable) return;
   for (const el of [...itemList.querySelectorAll(':scope > .car-entry:not(.home-entry)')]) el.remove();
@@ -562,13 +563,14 @@ function renderCarsPanel() {
   for (const car of cars) {
     const sched = carSchedules[car.id];
     const addrText = sched?.address || '';
-    const asOf = sched?._at ? _asOf(sched) : null;
+    const asOf = sched?._at ? _asOf(sched) : null, sidePick = sidePickHTML(car);
     const entry = itemCard({
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
       urgency: sweepUrgency(car), words: sched ? carWords(car) : null, addr: addrText,
       detail: `
-        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Use my location</button>
-        ${sched?.covered === false ? '' : schedBlockHTML(car.id, 'Sweeping', sched && carSchedLines(car), sidePickHTML(car), asOf)}
+        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
+        ${sched?.covered === false ? '' : schedBlockHTML(car.id, sidePick && !carSide(car) ? 'Sweeping · pick your side' : 'Sweeping',
+                                                          sched && carSchedLines(car), sidePick, asOf)}
         ${remindHTML(car)}${dataAgeHTML(sched)}
         ${rulesBlockHTML('Other rules', placeRules[car.id])}
         ${vehicleHTML(car)}
@@ -627,7 +629,7 @@ function renderCarsPanel() {
   updateSavedSummary();
 }
 
-// Weather and air alerts where cars and homes are (Red Flag, snow, Spare the Air, …):
+// Weather alerts where cars and homes are that change where to park (Red Flag, snow, …):
 // one fetch per region that has a saved item, refreshed every 10 minutes (app.js).
 let placeAlerts = [];
 async function loadAlerts() {
@@ -655,24 +657,17 @@ function _alertsHTML() {
   }).join('');
 }
 
-// Saved tab's first lines: each car to move today and when ("Move Civic by 9AM"), else
-// those to move tomorrow; then each car whose sign decides ("Check the sign at Civic");
-// "All clear" once every car's street has loaded and each is clear. With nothing saved,
-// the two ways to start. The tab's dot: red while a car must move today, orange tomorrow.
-// Alerts in effect where cars and homes are follow it.
+// Above the Saved list: with nothing saved, the two ways to start; then the alerts in
+// effect where cars and homes are (each row says its own verdict). The tab's dot: red
+// while a car must move today, orange tomorrow.
 function updateSavedSummary() {
-  const { today, tomorrow, check } = urgentCars();
+  const { today, tomorrow } = urgentCars();
   const due = today.length ? ['today', today] : tomorrow.length ? ['tomorrow', tomorrow] : null;
-  const line = (u, ic, text) => `<div class="sum-line"><span class="urg-${u}">${icon(ic)}</span> ${esc(text)}</div>`;
-  savedSummary.innerHTML = [
-    ...(due ? due[1].map(car => line(due[0], 'alert', `Move ${car.name} ${deadlineText(car)?.long || due[0]}`)) : []),
-    ...check.map(car => line('check', 'help', _checkWords(car).line)),
-    !due && !check.length && cars.length && cars.every(c => carSchedules[c.id]) ? line('safe', 'check', 'All clear') : '',
-  ].join('') || (cars.length || homes.length ? ''
+  savedSummary.innerHTML = (cars.length || homes.length ? ''
     : `<div class="empty-saved"><p class="note">Know when your street gets swept.</p>
          <div class="empty-btns"><button class="btn" data-add="car">${icon('car')} Add car</button>
-         <button class="btn btn-plain" data-add="home">${icon('home')} Add home</button></div></div>`);
-  savedSummary.insertAdjacentHTML('beforeend', _alertsHTML());
+         <button class="btn btn-plain" data-add="home">${icon('home')} Add home</button></div></div>`)
+    + _alertsHTML();
   const badge = tabbar.querySelector('.tab-badge');
   badge.hidden = !due;
   badge.classList.toggle('soon', !!due && due[0] === 'tomorrow');

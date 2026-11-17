@@ -84,7 +84,6 @@ LIMITS = (
     ("/api/calendar", 30),
     ("/api/closures", 30),
     ("/api/vehicle", 10),
-    ("/api/around", 30),
     ("/api/alerts", 30),
     ("/api/check", 60),
     ("/api/me", 30),

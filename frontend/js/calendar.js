@@ -18,7 +18,7 @@ function sweepDayMap(sched, start, end, side = null) {
   if (!sched) return out;
   for (const day of BroomUrgency.sweepDays(sched.schedule_even, sched.schedule_odd, start, end, schedSkip(sched))) {
     const items = side ? day.items.filter(it => it.side === side) : day.items;
-    if (items.length) out.set(_ymdKey(day), BroomUrgency.dayText(items, sched.side_labels, !!side));
+    if (items.length) out.set(_ymdKey(day), tidyTimes(BroomUrgency.dayText(items, sched.side_labels, !!side)));
   }
   return out;
 }
@@ -61,12 +61,23 @@ function holidayDayMap(scheds) {
   return out;
 }
 
+// A car parked on the street at the target: within a block (120 m) of it, with the same
+// sweeping (codes and hours).
+function _carOnStreet(car, ptrSched) {
+  const s = carSchedules[car.id], c = map?.getCenter();
+  if (!s || !ptrSched || !c || s.city !== ptrSched.city || _kmFrom(car, c.lat, c.lng) > 0.12) return false;
+  const key = es => JSON.stringify((es || []).map(e => [e[0], BroomUrgency.timeDisplay(e[2] || '')]).sort());
+  return key(s.schedule_even) === key(ptrSched.schedule_even) && key(s.schedule_odd) === key(ptrSched.schedule_odd);
+}
+
 // Layers for [start, end]: {ptr: Map, cars: [{car, color, days: Map}],
-// homes: [{home, days: Map}], hol: Map}.
+// homes: [{home, days: Map}], hol: Map, onStreet: [car]}. The street's line is left out
+// of a day's details when a car on it (onStreet) has a line that day: it says the same.
 function calLayers(ptrSched, start, end) {
   const carScheds = cars.map(c => carSchedules[c.id]).filter(Boolean);
   return {
     ptr: sweepDayMap(ptrSched, start, end),
+    onStreet: cars.filter(car => _carOnStreet(car, ptrSched)),
     cars: cars.flatMap(car => carSchedules[car.id]
       ? [{ car, color: carColor(car),
            days: sweepDayMap(carSchedules[car.id], start, end, carSide(car)) }]
@@ -85,15 +96,18 @@ function _dotsHTML(layers, k) {
   return `<span class="cal-dots">${dots}</span>`;
 }
 
-// What happens that day, each with its mark as in the legend (js/layers.js) and saying
-// what it is: each car with sweeping (a dot in its color; "Civic · sweeping 9AM–11AM")
-// and each home with a trash day (a square; "Home · trash day: trash, recycling"): [{mark, text}].
+// What happens that day, each with its mark and saying what it is: each car with
+// sweeping (a dot in its color; "Civic · 9–11AM", gray and "ended" once today's is over)
+// and each home with a trash day (a square; "Home · trash day: trash, recycling"):
+// [{mark, text, ended}].
 const _lower = t => t.charAt(0).toLowerCase() + t.slice(1);  // "West side …" mid-line
 function _dayLines(layers, k) {
   return [
     ...layers.cars.filter(l => l.days.has(k)).map(l => ({
       mark: `<i class="cal-key cal-round" style="background:${l.color}"></i>`,
-      text: `${l.car.name} · sweeping ${_lower(l.days.get(k))}`.trim(),
+      text: `${l.car.name} · ${_lower(l.days.get(k)) || 'sweeping'}`,  // Chicago's days have no times
+      // Today in the car's own region, its sweep over.
+      ended: k === _ymdKey(schedNow(carSchedules[l.car.id])) && sweepUrgency(l.car) !== 'today',
     })),
     ...layers.homes.filter(l => l.days.has(k)).map(l => ({
       mark: `<i class="cal-key cal-square" style="background:var(--home)"></i>`,
@@ -106,7 +120,7 @@ function _dayAria(layers, k, p, today) {
   return [_dayLabel(p) + (k === _ymdKey(today) ? ', today' : ''),
           layers.ptr.has(k) ? `street sweeping ${layers.ptr.get(k)}` : '',
           layers.hol.has(k) ? `no sweeping: ${layers.hol.get(k)}` : '',
-          ..._dayLines(layers, k).map(l => l.text)].filter(Boolean).join('; ');
+          ..._dayLines(layers, k).map(l => l.text + (l.ended ? ', ended' : ''))].filter(Boolean).join('; ');
 }
 
 // Street days: red today while its window is to come or on (as the map says it, _ptrUrg),
@@ -133,10 +147,12 @@ function _dayIdx(range, p) {
 // Monday's sweep is out of view on a Sunday). With no street at the target, how to get one.
 function _detailHTML(layers, sel) {
   const hol = layers.hol.has(sel) ? `<div class="cal-hol-line">No sweeping: ${esc(layers.hol.get(sel))}</div>` : '';
-  const lines = _dayLines(layers, sel).map(l => `<div>${l.mark} ${esc(l.text)}</div>`).join('');
+  const line = (html, ended) => ended ? `<div class="cal-ended">${html} · ended</div>` : `<div>${html}</div>`;
+  const lines = _dayLines(layers, sel).map(l => line(`${l.mark} ${esc(l.text)}`, l.ended)).join('');
   if (!_ptrStreet && !lines && !hol) return `<b>${_dayLabel(_keyDay(sel))}</b>` + _noStreetHTML();
-  const done = sel === _ymdKey(calNow()) && _ptrUrg !== 'today' ? ' · over' : '';
-  const street = layers.ptr.has(sel) ? `<div>${`Sweeping ${esc(_lower(layers.ptr.get(sel)))}`.trim()}${done}</div>`
+  const ended = sel === _ymdKey(calNow()) && _ptrUrg !== 'today';
+  const carSays = layers.cars.some(l => layers.onStreet.includes(l.car) && l.days.has(sel));
+  const street = layers.ptr.has(sel) ? (carSays ? '' : line(`Sweeping ${esc(_lower(layers.ptr.get(sel)))}`.trim(), ended))
     : _ptrUnknown ? `<div>${esc(_ptrUnknown)}</div>`
     : (lines || hol ? '' : '<div class="cal-muted">No sweeping</div>') + _nextSweepHTML(layers, sel);
   return `<b>${_dayLabel(_keyDay(sel))}</b>` + hol + lines + street;
@@ -230,29 +246,8 @@ function _scrollTo(el, row, smooth) {
 const _weekOf = (range, k) => Math.floor(_dayIdx(range, _keyDay(k)) / 7);
 
 const CAL_ROW = 43;  // px: a 40 px row + the 3 px gap (styles.css .cal-grid)
-// Desktop: the panel is as tall as six weeks of the grid (any month fits, as in Apple's and
-// Google's month views; the grid still scrolls on), fewer on a short screen; every tab
-// takes that height. On a phone the sheet's heights fit whole weeks instead (calFit).
-const DESK_WEEKS = 6;
-let _deskChrome = 0;  // the panel besides the grid, measured with the calendar shown
-function deskPanelHeight() {
-  const el = _scroller();
-  if (!el) return 0;
-  if (!_deskChrome) {
-    // Measured with the calendar in place of the open tab, within this frame (never painted).
-    const open = [...sheet.querySelectorAll('.tab')].find(t => !t.hidden), h = sheet.style.height;
-    if (open !== tabCal) { open.hidden = true; tabCal.hidden = false; }
-    sheet.style.height = '';
-    _deskChrome = sheet.offsetHeight - el.offsetHeight;
-    sheet.style.height = h;
-    if (open !== tabCal) { open.hidden = false; tabCal.hidden = true; }
-  }
-  const room = document.getElementById('app-screen').clientHeight - 2 * parseFloat(getComputedStyle(sheet).top);
-  const rows = Math.max(2, Math.min(DESK_WEEKS, Math.floor((room - _deskChrome + 3) / CAL_ROW)));
-  return _deskChrome + rows * CAL_ROW - 3;
-}
-// The screen changed (or the text size): measure again.
-window.addEventListener('resize', () => { _deskChrome = 0; applySheet(); });
+// On a phone the sheet's heights fit whole weeks (calFit); on a desktop the panel is the
+// screen's height and the grid scrolls in it.
 
 // Phone: sheet heights that show whole weeks and the day details: {small: one week, round(h): the nearest
 // height at or under h showing whole weeks and the day details}; null until the
@@ -492,4 +487,3 @@ function calShown() {
 
 calSetExpanded(isDesktop() || _detentOf.calendar !== 'small');
 renderTargetInfo();  // initial empty state
-if (isDesktop()) applySheet();  // the panel's height, now that the grid is there

@@ -2,10 +2,9 @@
 // Each region lists its layers in /cities (id, name, a content-versioned GeoJSON url,
 // scripts/build_layers.py). Turned on, a layer is drawn under the street colors (points
 // above them, and an area's thin rim), so sweeping stays the first thing the map says.
-// The parking rules start on, places (EV charging, markets: the Nearby tab lists them)
-// off; what is switched is remembered on this device. A tap on a layer's feature names
-// it (and a market's days, a closure's dates); an area the target is in shows on the
-// street card (overlayAreasAtTarget).
+// The parking rules start on, places (EV charging, markets) off; what is switched is
+// remembered on this device. A tap on a layer's feature names it (and a market's days, a
+// closure's dates); an area the target is in shows on the street card (overlayAreasAtTarget).
 // color: the layer's color; a feature's own `color` (each permit area its own: the
 // city's, else one its neighbors lack; scripts/build_layers.py) wins, edged in its
 // `edge` when it is pale. key: the Layers
@@ -125,12 +124,12 @@ function _addOverlay(layer) {
           paint: { 'line-color': ['coalesce', ['get', 'edge'], color], 'line-width': FOCUS_W,
                    'line-opacity': edgeOpacity(focusOn('here')) } }, over);
   }
-  if (curbs) {
-    const width = ['interpolate', ['linear'], ['zoom'], CURB_ZOOM, 2.5, 18, 6];
+  if (curbs) {  // thin and light: the street colors read first
+    const width = ['interpolate', ['linear'], ['zoom'], CURB_ZOOM, 1.2, 18, 3];
     add({ id: line, type: 'line', filter: ['all', lines, curb], minzoom: CURB_ZOOM - 0.5,
-          paint: { 'line-color': color, 'line-width': width, 'line-opacity': _fadeIn(0, 0.9) } }, below);
+          paint: { 'line-color': color, 'line-width': width, 'line-opacity': _fadeIn(0, 0.45) } }, below);
     add({ id: curb2, type: 'line', filter: ['all', lines, curb, ['has', 'color2']], minzoom: CURB_ZOOM - 0.5,
-          paint: { 'line-color': ['get', 'color2'], 'line-width': width, 'line-opacity': _fadeIn(0, 0.9),
+          paint: { 'line-color': ['get', 'color2'], 'line-width': width, 'line-opacity': _fadeIn(0, 0.45),
                    'line-dasharray': [1.5, 1.5] } }, below);
   }
   if (!map.getLayer(line)) map.addLayer({ id: line, type: 'line', source: src, ...zoom,
@@ -176,19 +175,13 @@ function syncOverlays() {
   }
 }
 
-// Under the layers, the legend: the streets' colors, then the marks the street card and
-// the calendar use (CARD_MARKS, js/signs.js; a car's dot, a home's square).
+// Under the layers, the legend: the streets' colors (the card's rows name their marks).
 function _legendHTML() {
   const colors = [['today', 'Today', 3], ['tomorrow', 'Tomorrow', 2], ['safe', 'Clear', 1], ['check', 'Check sign', 1], ['none', 'No sweeping', 0]]
     .map(([u, name, w]) => `<span class="urg-${u}"><i class="lg lg-${w}"></i>${name}</span>`).join('');
-  const have = new Set(_regionLayers().map(l => l.id));
-  const marks = CARD_MARKS.filter(m => !m.layer || have.has(m.layer)).map(m => `<span>${markHTML({ ...m, sweep: m.key === 'sweep' })}${esc(m.name)}</span>`).join('');
-  const cal = '<span><i class="cal-key cal-round" style="background:var(--muted)"></i>Your car</span>'
-            + '<span><i class="cal-key cal-square" style="background:var(--home)"></i>Trash day</span>';
   return `<button class="ctx-item lyr-legend-btn" role="menuitem" aria-expanded="${_legendOpen}" aria-controls="lyr-legend">`
        + `Legend<svg class="ic lyr-chev" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>`
-       + `<div class="lyr-legend" id="lyr-legend" role="none"${_legendOpen ? '' : ' hidden'}><b>Sweeping</b><div class="legend">${colors}</div>`
-       + `<b>Marks</b><div class="lyr-marks">${marks}${cal}</div></div>`;
+       + `<div class="lyr-legend" id="lyr-legend" role="none"${_legendOpen ? '' : ' hidden'}><b>Street colors</b><div class="legend">${colors}</div></div>`;
 }
 // The legend folds under its own row: open until folded (remembered on this device).
 let _legendOpen = _read('bb_legend') !== '0';

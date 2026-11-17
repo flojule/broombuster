@@ -6,7 +6,7 @@ import datetime
 import pandas as pd
 import pytest
 
-from broombuster import alerts, around, calfeed, feeds, gps
+from broombuster import alerts, calfeed, feeds, gps
 
 NOW = datetime.datetime(2026, 10, 17, 18, 0, tzinfo=datetime.UTC)
 
@@ -160,12 +160,6 @@ def test_rules_without_geocode_never_ask_nominatim(app_client, monkeypatch):
     assert asked
 
 
-def test_spare_the_air_parse():
-    assert alerts.parse_spare_the_air("<p>There is no Spare the Air Alert in effect.</p>") is False
-    assert alerts.parse_spare_the_air("<h2>Spare the Air Alert in effect</h2>") is True
-    assert alerts.parse_spare_the_air("<p>Redesigned page</p>") is None
-
-
 def test_nws_keeps_parking_relevant_events(monkeypatch):
     monkeypatch.setattr(
         feeds,
@@ -174,44 +168,11 @@ def test_nws_keeps_parking_relevant_events(monkeypatch):
             "features": [
                 {"properties": {"event": "Red Flag Warning", "ends": "2026-10-18T05:00:00-07:00"}},
                 {"properties": {"event": "Small Craft Advisory"}},
+                {"properties": {"event": "Heat Advisory"}},
             ]
         },
     )
-    monkeypatch.setattr(alerts, "_spare_the_air", list)
-    assert [a["title"] for a in alerts.at("bay_area", 37.87, -122.27)] == ["Red Flag Warning"]
-
-
-def test_markets_next_day_and_distance():
-    sat = datetime.date(2026, 10, 17)
-    got = around.markets(37.8697, -122.2730, sat)
-    names = {m["title"]: m["date"] for m in got}
-    assert names["Downtown Berkeley Farmers' Market"] == "2026-10-17"
-    assert names["North Berkeley Farmers' Market"] == "2026-10-22"
-    assert all(m["km"] <= around.NEAR_KM for m in got)
-
-
-def test_around_endpoint(app_client, monkeypatch):
-    monkeypatch.setattr(feeds, "closures", lambda region, now=None: [])
-    monkeypatch.setattr(
-        around,
-        "_legistar",
-        lambda client, today: [
-            {
-                "kind": "meeting",
-                "title": "City Council",
-                "date": today.isoformat(),
-                "time": "6:00 PM",
-                "place": "",
-                "url": "https://oakland.legistar.com/x",
-                "source": "Oakland Legistar",
-            }
-        ],
-    )
-    j = app_client.get("/api/around", params={"lat": 37.8106, "lon": -122.2479}).json()
-    assert j["city"] == "oakland"
-    kinds = {i["kind"] for i in j["items"]}
-    assert {"market", "meeting"} <= kinds
-    assert any(link["title"].startswith("Oaklandside") for link in j["links"])
+    assert [a["title"] for a in alerts.at(37.87, -122.27)] == ["Red Flag Warning"]
 
 
 # ── Calendar feed ────────────────────────────────────────────────────────────

@@ -45,7 +45,7 @@ pyproject.toml
 | geopandas, shapely, pyproj | Street geometry, nearest segment, CRS (EPSG:3857) | `data_loader.py`, `resolve.py`, `state.py` |
 | pandas, numpy | Schedule tables, holidays | `analysis.py`, `holidays.py`, `feeds.py` |
 | PyYAML | Manifests, holidays, places | `cities.py`, `layer_sources.py` |
-| requests | Live feeds, layer builds | `feeds.py`, `around.py`, `alerts.py`, `trash.py`, `layer_sources.py`, `auth.py` |
+| requests | Live feeds, layer builds | `feeds.py`, `alerts.py`, `trash.py`, `layer_sources.py`, `auth.py` |
 | geopy (Nominatim) | Address ↔ coordinates, 1 request/s | `gps.py` |
 | FastAPI, Starlette, Pydantic | HTTP API, validation, phone-report errors | `api/` |
 | Uvicorn | ASGI server | `run.sh`, `broombuster.service` |
@@ -78,10 +78,8 @@ Server ──▶ city open data, on demand, results cached in memory
   │
   ├─ Socrata        data.cityofchicago.org (tows, layers) · data.sf.gov (closures, layers)
   ├─ ArcGIS         services.arcgis.com · services1.arcgis.com · gis.cityofberkeley.info
-  ├─ Legistar       oakland / sfgov / alameda / webapi.legistar.com        council meetings
   ├─ Recollect      api.recollect.net                                     Oakland trash
   ├─ weather.gov    api.weather.gov · alerts.weather.gov                  Red Flag, snow
-  ├─ BAAQMD         www.baaqmd.gov                                        Spare the Air
   ├─ 511.org        api.511.org  (BB_511_API_KEY)                         Bay Area work zones
   ├─ Nominatim      OpenStreetMap                                         address search, reverse
   └─ ipapi.co       approximate position from IP (iplocate.py)

@@ -20,21 +20,20 @@ function homeUrgency(sched) {
   return next === BroomUrgency.isoDay(BroomUrgency.addDays(today, 1)) ? 'tomorrow' : 'safe';
 }
 
-// Collection day picker (weekly cities): Mon–Sun, or not set.
+// Pickup day picker (weekly cities): Mon–Sun, or not picked yet.
 function _collectionDayHTML(h) {
-  const opts = ['<option value="">Not set</option>', ...BroomUrgency.WEEKDAYS.map((w, i) =>
+  const opts = ['<option value="">Pick</option>', ...BroomUrgency.WEEKDAYS.map((w, i) =>
     `<option value="${i}"${h.collection_day === i ? ' selected' : ''}>${esc(w)}</option>`)];
-  return `<label class="ce-field">Day <select class="field ce-collection-day">${opts.join('')}</select></label>`;
+  return `<label class="ce-field">Pickup day <select class="field ce-collection-day">${opts.join('')}</select></label>`;
 }
 
 function homeScheduleHTML(h, sched) {
   const id = h.id;
   const fmt = iso => { const [y, m, d] = iso.split('-').map(Number); return BroomUrgency.dayLabel({ y, m, d }); };
   const lines = sched && _nextPickups(sched).map(([stream, iso]) => `${stream}: ${fmt(iso)}`);
-  if (sched?.trash_kind === 'weekly') {
-    const note = h.collection_day == null ? 'Pick your trash day.'
-      : sched.city === 'berkeley' ? 'On sweeping days, carts go on the parking strip.' : '';
-    return schedBlockHTML(id, 'Trash day', lines?.length ? lines : [])
+  if (sched?.trash_kind === 'weekly') {  // one row: the day picker, then the next pickups
+    const note = h.collection_day != null && sched.city === 'berkeley' ? 'On sweeping days, carts go on the parking strip.' : '';
+    return schedBlockHTML(id, '', lines?.length ? lines : [])
       .replace('<div class="sec">', `<div class="sec">${_collectionDayHTML(h)}`)
       + (note ? `<p class="note">${esc(note)}</p>` : '');
   }
