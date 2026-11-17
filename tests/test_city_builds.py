@@ -116,7 +116,11 @@ def test_alameda_only_signed_sides_are_enforced():
     )
     assert alameda.side_entry("All", 1, "4:00 AM - 5:30 AM") == ("E", "Every day", "4AM–5:30AM")
     assert alameda.side_entry("Monday", 1, "")[2] is None  # signed, hours not on file
-    assert alameda.side_entry("Monday", 0, "8:00 AM - 11:00 AM")[0] == "NS"
+    assert alameda.side_entry("Monday", 0, "8:00 AM - 11:00 AM") == (
+        "NT",
+        "Every Mon, 8AM–11AM, no tickets",
+        None,
+    )
     assert alameda.side_entry("None", 0, "N/A") == (None, None, None)
 
 
@@ -172,6 +176,41 @@ def test_alameda_block_takes_the_centerline_of_its_street_and_range():
     kitty = out.loc["KITTYHAWK RD"]
     assert kitty.geometry.equals(far) and kitty.DAY_EVEN == "FE"
     assert (kitty.L_F_ADD, kitty.R_F_ADD) == (301, 300)  # the centerline's own left / right
+
+
+def test_alameda_renamed_and_unranged_blocks_find_their_centerline():
+    def block(street, rng, even, odd, signed=1):
+        keys = ("FrAddressLeft", "ToAddressLeft", "FrAddressRight", "ToAddressRight")
+        return {"FullStreetName": street, **dict(zip(keys, rng, strict=True)),
+                "SweepEven": even, "SignEven": signed, "PostedTime_Even": "",
+                "SweepOdd": odd, "SignOdd": signed, "PostedTime_Odd": ""}  # fmt: skip
+
+    sched = pd.DataFrame(
+        [
+            block("CONSTITUTION WY", (1601, 1699, 1600, 1698), "Thursday", "Thursday"),
+            block("ENCINAL AV", (None,) * 4, "Wednesday", "Thursday"),
+            block("ENCINAL AV", (None,) * 4, "Friday", "Thursday"),
+            block("AUGHINBAUGH WY", (1100, 1198, 1101, 1199), "Tuesday", "Tuesday", signed=0),
+        ]
+    )
+    short = LineString([(0, 0), (0.001, 0)])
+    keys = ("FRADDL", "TOADDL", "FRADDR", "TOADDR")
+    lines = geopandas.GeoDataFrame(
+        [
+            {"STREET": "WILMA CHAN WY", **dict(zip(keys, ("1601", "1699", "1600", "1698"),
+                                                   strict=True)), "geometry": _LINE},
+            {"STREET": "ENCINAL AV", **dict.fromkeys(keys), "geometry": short},
+            {"STREET": "AUGHINBAUGH WY", **dict(zip(keys, ("1000", "1098", "1001", "1099"),
+                                                    strict=True)), "geometry": _LINE},
+        ],
+        crs="EPSG:4326",
+    )  # fmt: skip
+    out = alameda.join(sched, lines).set_index("STREET_NAME")
+    assert out.loc["WILMA CHAN WAY"].DAY_EVEN == "THE"
+    encinal = out.loc["ENCINAL AVE"]  # two unranged blocks, told apart by nothing
+    assert encinal.geometry.equals(short)
+    assert (encinal.DAY_EVEN, encinal.DAY_ODD) == ("POSTED", "THE")
+    assert "AUGHINBAUGH WAY" not in out.index  # no county block 1100: dropped, unsigned
 
 
 # ── Oakland ──────────────────────────────────────────────────────────────────
