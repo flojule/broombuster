@@ -16,6 +16,8 @@ pytest.importorskip("pdfplumber")  # the `scripts` extra
 
 import build_alameda_geojson as alameda
 import build_berkeley_geojson as berkeley
+import build_emeryville_geojson as emeryville
+import build_san_leandro_geojson as san_leandro
 
 _LINE = LineString([(0, 0), (1, 0)])
 
@@ -199,3 +201,58 @@ def test_sf_daytime_holiday_keeps_night_cleaning():
     entries = {"even": [["W", "", "8AM–10AM"], ["W", "", "2AM–6AM"]], "odd": []}
     (_, items), = schedule.sweep_days(entries, "san_francisco", vets, vets)  # fmt: skip
     assert items == [("even", "2AM–6AM")]
+
+
+# ── Alameda County cities ────────────────────────────────────────────────────
+
+_EAST = LineString([(-122.290, 37.835), (-122.289, 37.835)])  # 88 m heading east
+
+
+def _shifted(line, dlat):
+    return LineString([(x, y + dlat) for x, y in line.coords])
+
+
+def _block(geom, left=(1001, 1099), right=(1000, 1098), name="45TH ST"):
+    keys = ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD")
+    return {"STREET_NAME": name, **dict(zip(keys, (*left, *right), strict=True)), "geometry": geom}
+
+
+def test_emeryville_curb_lines_give_their_side_and_centerlines_both():
+    north = _shifted(_EAST, 0.000045)  # about 5 m north: the left side heading east
+    other = _shifted(_EAST, 0.001)
+    cross = LineString([(-122.289, 37.834), (-122.289, 37.836)])
+    rows = [
+        ("1st", "Thursday", 2, north),
+        ("1st or 2nd", "Thursday", 2, _EAST),
+        ("2nd", "Thursday", 2, _shifted(_EAST, -0.000045)),
+        ("1st or 2nd", "Thursday", 2, other),
+        ("1st & 3rd", "Monday", 1, cross),
+    ]
+    cols = ["DayOfMonth", "DayOfWeek", "TimeOfDay", "geometry"]
+    routes = geopandas.GeoDataFrame(pd.DataFrame(rows, columns=cols), crs="EPSG:4326")
+    lines = geopandas.GeoDataFrame(
+        [_block(_EAST), _block(other, (1101, 1199), (1100, 1198))], crs="EPSG:4326"
+    )
+    out = emeryville.join(routes, lines).set_index("L_F_ADD")
+    assert (out.loc[1001].DAY_ODD, out.loc[1001].DAY_EVEN) == ("TH1", "TH2")  # north = left = odd
+    assert out.loc[1001].TIME_ODD == "8AM–12PM"
+    assert (out.loc[1101].DAY_ODD, out.loc[1101].DAY_EVEN) == ("TH12", "TH12")  # side not drawn
+
+
+def test_san_leandro_commercial_beats_posted_beats_zone():
+    assert (
+        san_leandro.schedule_words("Monday - Friday") == "Monday Tuesday Wednesday Thursday Friday"
+    )
+    a, b, c = _EAST, _shifted(_EAST, 0.001), _shifted(_EAST, 0.002)
+    lines = geopandas.GeoDataFrame([_block(g) for g in (a, b, c)], crs="EPSG:4326")
+    zone = geopandas.GeoDataFrame(
+        {"SCHED": ["3rd Thursday"]}, geometry=[c.buffer(0.01)], crs="EPSG:4326"
+    )
+    posted = geopandas.GeoDataFrame(geometry=[b, c], crs="EPSG:4326")
+    commercial = geopandas.GeoDataFrame(
+        {"SWEEPING_SCHEDULE": ["Monday - Friday", "Friday, Every Other"]},
+        geometry=[c, LineString([(-122.0, 37.0), (-122.001, 37.0)])],
+        crs="EPSG:4326",
+    )
+    out = san_leandro.build(lines, zone, commercial, posted).set_index("DAY_EVEN")
+    assert sorted(out.index) == ["MTWTHFE", "POSTED", "TH3"]

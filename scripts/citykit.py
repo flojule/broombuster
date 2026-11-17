@@ -157,6 +157,27 @@ def zones_to_blocks(
     return out.drop(columns=["_line", "_zone"]).to_crs("EPSG:4326")
 
 
+def blocks_along(
+    lines: geopandas.GeoDataFrame,
+    routes: geopandas.GeoDataFrame,
+    near_m: float = 8.0,
+    min_share: float = 0.5,
+) -> list[tuple]:
+    """(line index, route index) pairs where the route runs along the line: within near_m
+    of at least min_share of its length (a crossing street covers a few meters only)."""
+    utm = "EPSG:26910"
+    ln = lines.to_crs(utm).geometry
+    buf = routes.to_crs(utm).geometry.buffer(near_m)
+    near = geopandas.sjoin(
+        geopandas.GeoDataFrame(geometry=ln), geopandas.GeoDataFrame(geometry=buf)
+    )
+    return [
+        (i, r)
+        for i, r in zip(near.index, near["index_right"], strict=True)
+        if ln[i].intersection(buf[r]).length >= min_share * ln[i].length
+    ]
+
+
 def blocks_by_name(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFrame:
     """Lines whose STREET_KEY equals the key of `name` ("Mission Street" matches MISSION ST)."""
     return lines[lines["STREET_KEY"] == normalize.street_name(str(name))]

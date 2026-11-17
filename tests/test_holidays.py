@@ -94,6 +94,10 @@ _EXPECTED = {
     "berkeley": [(_TRASH, ["trash"], "date")],
     "alameda": [(_TRASH, ["trash"], "date")],
     "chicago_all": [(_CHICAGO, ["trash"], "date")],
+    "dublin": [(_TRASH, ["trash"], "date")],
+    "emeryville": [(_TRASH, ["trash"], "date")],
+    "livermore": [(_TRASH, ["trash"], "date")],
+    "san_leandro": [(_TRASH, ["trash"], "date")],
 }
 _SF_DAYTIME_YEARS = {2026}  # SFMTA has not published 2027's daytime-only holidays
 _ALSO_SUSPENDED = {("san_francisco", datetime.date(2026, 1, 1)): "trash"}  # Recology moved pickups
@@ -141,7 +145,16 @@ def test_oakland_and_sf_suspend_sweeping_others_only_trash():
 def test_for_region_is_the_client_copy():
     reg = holidays.for_region("bay_area")
     assert reg["oakland"]["2026-11-11"] == {"name": "Veterans Day", "suspends": ["sweeping"]}
-    assert set(reg) == {"oakland", "san_francisco", "berkeley", "alameda"}
+    assert set(reg) == {
+        "oakland",
+        "san_francisco",
+        "berkeley",
+        "alameda",
+        "dublin",
+        "livermore",
+        "emeryville",
+        "san_leandro",
+    }
 
 
 # ── Sweep dates: Python vs urgency.js ────────────────────────────────────────
