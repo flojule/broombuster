@@ -1,7 +1,4 @@
 import calendar
-import threading
-import weakref
-from typing import NamedTuple
 
 import numpy as np
 import shapely
@@ -69,173 +66,125 @@ def schedules_for_segment(segment):
 
 
 def schedules_for_all_matching_rows(gdf_3857, resolved):
-    """Return (schedule_even, schedule_odd) UNIONED across every GDF row
-    that describes the same physical segment as `resolved`.
+    """(schedule_even, schedule_odd) unioned across every row that draws the same street as
+    the resolved one (`coincide`), whatever its name or city.
 
-    SF's data layer emits one row per (segment × weekday); the resolver
-    picks one of them. Without this helper, every downstream view (card,
-    hover, urgency) sees only that one row's schedule, even though the map
-    color reflects the union of all rows. This produces the long-running
-    "hover says Wed but card says Mon" inconsistency.
+    SF emits one row per (segment x weekday), Oakland draws a state highway over the street
+    it runs on, and border streets are drawn by both cities: the card and the map color
+    (tiles.merge_segment_rows) show the union. A MultiLineString row (Alameda: one per street)
+    matches the rows of any of its blocks.
 
-    Two rows are treated as the same physical segment when they share
-    `STREET_KEY` and overlap geometrically — at least one sub-line endpoint
-    pair (rounded to ~1m, CRS-aware) appears in both. The overlap test
-    handles Alameda's schema where one MultiLineString row spans every
-    block of a street.
-
-    Returns deduped lists of (code, desc, time) tuples — order is
-    deterministic (sorted by code) so downstream message-formatting
-    produces stable output.
+    Returns deduped lists of (code, desc, time) tuples, sorted by code.
     """
     if resolved is None or resolved.segment is None:
         return [], []
-    if getattr(resolved, "is_polygon", False):
-        # Polygon zones (Chicago) are one row per zone — no merge needed.
-        return schedules_for_segment(resolved.segment)
+    seg = resolved.segment
+    tparts, _ = line_parts([seg.geometry])
+    if getattr(resolved, "is_polygon", False) or not len(tparts):
+        return schedules_for_segment(seg)
 
-    target_geom = resolved.segment.geometry
-    if target_geom is None or target_geom.is_empty:
-        return schedules_for_segment(resolved.segment)
-    if target_geom.geom_type not in ("LineString", "MultiLineString"):
-        return schedules_for_segment(resolved.segment)
-
-    target_key = resolved.segment.get("STREET_KEY") or normalize.street_name(
-        resolved.segment.get("STREET_NAME") or ""
+    sub = gdf_3857.iloc[gdf_3857.sindex.query(_boxes(tparts))[1]]
+    cparts, crow = line_parts(sub.geometry.values)
+    n = len(tparts)
+    i, j = near_pairs(tparts, cparts)
+    ok = coincide(
+        np.concatenate([tparts, cparts]),
+        np.concatenate([np.full(n, street_key(seg), object), street_keys(sub)[crow]]),
+        np.concatenate([np.full(n, seg.get("_city"), object), _cities(sub)[crow]]),
+        i,
+        j + n,
     )
-    target_endpoints = _segment_endpoints(target_geom)
-    if target_key == "" or not target_endpoints:
-        return schedules_for_segment(resolved.segment)
+    rows = sub.iloc[np.unique(crow[j[ok]])]
+    cols = [c for c in _SCHEDULE_COLS if c in rows]
 
-    # Only rows sharing the street key AND a sub-line endpoint can match; the
-    # prebuilt index maps exactly those pairs to row positions.
-    index = segment_index(gdf_3857)
-    positions = sorted(
-        {p for ep in target_endpoints for p in index.by_key.get((target_key, ep), ())}
-    )
-
-    seen_even: set = set()
-    seen_odd: set = set()
     even_out: list = []
     odd_out: list = []
-
-    for p in positions:
-        row = {col: arr[p] for col, arr in index.cols.items()}
-        e = get_schedule(row, 0)
-        o = get_schedule(row, 1)
-        if e and e not in seen_even:
-            seen_even.add(e)
-            even_out.append(e)
-        if o and o not in seen_odd:
-            seen_odd.add(o)
-            odd_out.append(o)
-
-    # Stable order: sort by sweep code so message formatting is deterministic.
+    for row in rows[cols].to_dict("records"):
+        for side, out in ((0, even_out), (1, odd_out)):
+            e = get_schedule(row, side)
+            if e and e not in out:
+                out.append(e)
     even_out.sort(key=lambda t: (t[0] or "", t[1] or "", t[2] or ""))
     odd_out.sort(key=lambda t: (t[0] or "", t[1] or "", t[2] or ""))
     return even_out, odd_out
 
 
-def line_key(coords) -> frozenset:
-    """Orientation-free endpoint key of a line (~1 m: 0 decimals in meters, 5 in degrees)."""
-    decimals = 0 if abs(coords[0][0]) > 180 else 5
-    a = (round(coords[0][0], decimals), round(coords[0][1], decimals))
-    b = (round(coords[-1][0], decimals), round(coords[-1][1], decimals))
-    return frozenset({a, b})
-
-
-def _segment_endpoints(geom):
-    """Frozenset of line_key per sub-line (MultiLineString rows span many blocks)."""
-    if geom is None or geom.is_empty:
-        return None
-    if geom.geom_type == "LineString":
-        parts = [geom]
-    elif geom.geom_type == "MultiLineString":
-        parts = list(geom.geoms)
-    else:
-        return None
-    out = {line_key(list(p.coords)) for p in parts if not p.is_empty and len(p.coords) >= 2}
-    return frozenset(out) if out else None
-
-
-class SegmentIndex(NamedTuple):
-    """Per-GDF lookup behind schedules_for_all_matching_rows."""
-
-    by_key: dict  # (street_key, line_key) -> [row positions], ascending
-    cols: dict  # schedule column -> object ndarray, indexed by row position
-
-
 _SCHEDULE_COLS = ("DAY_EVEN", "DESC_EVEN", "TIME_EVEN", "DAY_ODD", "DESC_ODD", "TIME_ODD")
 
-# id(gdf) -> (weakref.ref(gdf), SegmentIndex); the weakref callback drops the
-# entry when the GDF is collected, so replaced region frames don't leak.
-_segment_index_cache: dict[int, tuple] = {}
-_segment_index_lock = threading.Lock()
+EARTH_RADIUS_M = 6378137.0  # EPSG:3857 sphere
+COINCIDE_M = 3.0  # two rows of one city within this (Hausdorff) draw one street
+BORDER_M = 10.0  # two cities' drawings of one border street (Oakland | Berkeley) within this
 
 
-def segment_index(gdf) -> SegmentIndex:
-    """Cached SegmentIndex for `gdf` (built once; ~1 s for the Bay Area on a Pi).
-
-    Keys: STREET_KEY when it is text, else the normalized STREET_NAME; one
-    entry per non-empty LineString part with at least two coordinates.
-    """
-    gdf_id = id(gdf)
-    cached = _segment_index_cache.get(gdf_id)  # lock-free hit: another region's
-    if cached is not None and cached[0]() is gdf:  # build must not stall it
-        return cached[1]
-    with _segment_index_lock:
-        cached = _segment_index_cache.get(gdf_id)
-        if cached is not None and cached[0]() is gdf:
-            return cached[1]
-        index = _build_segment_index(gdf)
-        _segment_index_cache[gdf_id] = (
-            weakref.ref(gdf, lambda _r, k=gdf_id: _segment_index_cache.pop(k, None)),
-            index,
-        )
-        return index
+def street_key(row) -> str:
+    """A row's street comparison key: STREET_KEY when text, else the normalized STREET_NAME."""
+    sk = row.get("STREET_KEY")
+    return sk if normalize.is_text(sk) else normalize.street_name(row.get("STREET_NAME"))
 
 
-def _build_segment_index(gdf) -> SegmentIndex:
+def street_keys(gdf) -> np.ndarray:
+    """street_key of every row (object array)."""
     n = len(gdf)
     keys = gdf["STREET_KEY"].to_numpy(object) if "STREET_KEY" in gdf else [None] * n
     names = gdf["STREET_NAME"].to_numpy(object) if "STREET_NAME" in gdf else [None] * n
-    # street_name() returns "" for non-text, which the loop below skips.
-    street_keys = [
+    out = [
         k if normalize.is_text(k) else normalize.street_name(nm)
-        for k, nm in zip(keys, names, strict=False)
+        for k, nm in zip(keys, names, strict=True)
     ]
+    return np.array(out, dtype=object)
 
-    geoms = np.asarray(gdf.geometry.values, dtype=object)
-    type_ids = shapely.get_type_id(geoms)
-    is_line = (type_ids == 1) | (type_ids == 5)  # LineString | MultiLineString
-    rows = np.flatnonzero(is_line)
-    parts, part_row = shapely.get_parts(geoms[rows], return_index=True)
-    part_row = rows[part_row]
-    ok = ~shapely.is_empty(parts) & (shapely.get_num_coordinates(parts) >= 2)
-    parts, part_row = parts[ok], part_row[ok]
-    first, last = shapely.get_point(parts, 0), shapely.get_point(parts, -1)
-    xy = np.column_stack(
-        [shapely.get_x(first), shapely.get_y(first), shapely.get_x(last), shapely.get_y(last)]
+
+def _cities(gdf) -> np.ndarray:
+    return gdf["_city"].to_numpy(object) if "_city" in gdf else np.full(len(gdf), None, object)
+
+
+def line_parts(geoms):
+    """(parts, row) of every LineString part with 2+ coordinates; other geometries skipped."""
+    geoms = np.asarray(geoms, dtype=object)
+    tid = shapely.get_type_id(geoms)
+    rows = np.flatnonzero((tid == 1) | (tid == 5))  # LineString | MultiLineString
+    parts, idx = shapely.get_parts(geoms[rows], return_index=True)
+    ok = shapely.get_num_coordinates(parts) >= 2
+    return parts[ok], rows[idx[ok]]
+
+
+def _scale(parts) -> np.ndarray:
+    """EPSG:3857 units per ground meter at each part's start."""
+    return np.cosh(shapely.get_y(shapely.get_point(parts, 0)) / EARTH_RADIUS_M)
+
+
+def _boxes(parts):
+    """Each part's bounding box grown by BORDER_M."""
+    b, r = shapely.bounds(parts), BORDER_M * _scale(parts)
+    return shapely.box(b[:, 0] - r, b[:, 1] - r, b[:, 2] + r, b[:, 3] + r)
+
+
+def near_pairs(parts, others):
+    """(i, j) of parts[i] and others[j] whose boxes are within BORDER_M: coincide candidates."""
+    return shapely.STRtree(others).query(_boxes(parts))
+
+
+def _ends(parts):
+    """(start, end) of each part, rounded to 1 EPSG:3857 unit, as (n, 2) arrays."""
+    return tuple(
+        np.round(shapely.get_coordinates(shapely.get_point(parts, k))).reshape(-1, 2)
+        for k in (0, -1)
     )
-    # line_key, vectorised for meters (the served frames): np.round to 0 decimals
-    # is round()'s half-to-even. Degrees still go through line_key itself.
-    meters = np.abs(xy[:, 0]) > 180
-    xy[meters] = np.round(xy[meters])
 
-    by_key: dict = {}
-    for pos, m, (x0, y0, x1, y1) in zip(
-        part_row.tolist(), meters.tolist(), xy.tolist(), strict=True
-    ):
-        sk = street_keys[pos]
-        if not sk:
-            continue
-        ends = ((x0, y0), (x1, y1))
-        lst = by_key.setdefault((sk, frozenset(ends) if m else line_key(ends)), [])
-        if not lst or lst[-1] != pos:  # a row's parts can share one key
-            lst.append(pos)
 
-    cols = {c: gdf[c].to_numpy(object) for c in _SCHEDULE_COLS if c in gdf}
-    return SegmentIndex(by_key, cols)
+def coincide(parts, keys, cities, i, j) -> np.ndarray:
+    """Which pairs (parts[i], parts[j]) of line parts (EPSG:3857), with their rows' street keys
+    and cities, draw one street: within COINCIDE_M of each other (Hausdorff; BORDER_M for two
+    cities) and half the shorter part, or one street key with the same ends (~1 m)."""
+    b, length, scale = shapely.bounds(parts), shapely.length(parts), _scale(parts)
+    tol = np.where(cities[i] == cities[j], COINCIDE_M, BORDER_M) * scale[i]
+    tol = np.minimum(tol, np.minimum(length[i], length[j]) / 2)
+    # Hausdorff <= tol needs every bound within tol: a cheap filter first.
+    near = (np.abs(b[i] - b[j]) <= tol[:, None]).all(axis=1)
+    near[near] = shapely.hausdorff_distance(parts[i[near]], parts[j[near]]) <= tol[near]
+    s, e = _ends(parts)
+    same = ((s[i] == s[j]) & (e[i] == e[j])).all(1) | ((s[i] == e[j]) & (e[i] == s[j])).all(1)
+    return near | (same & (keys[i] == keys[j]) & (keys[i] != ""))
 
 
 def side_entry(code, desc, time):
