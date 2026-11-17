@@ -60,9 +60,34 @@
   // ── Region-local clock ───────────────────────────────────────────────────────
   var _clockFmt = {};
   // {y, m, d, min} for the instant `when` (default now) in IANA zone `tz`
-  // (undefined: the browser's zone); min = minutes since local midnight.
+  // (undefined: the browser's zone); min = minutes since local midnight. Also carries,
+  // not enumerated, its instant `at` (epoch ms) and `tz`, for minutesUntil.
   function nowForTimeZone(tz, when) {
-    var d = when || new Date(), parts = {};
+    var d = when || new Date(), out = _wallClock(tz, d);
+    Object.defineProperty(out, 'at', { value: d.getTime() });
+    Object.defineProperty(out, 'tz', { value: tz });
+    return out;
+  }
+
+  // Epoch ms of minute `min` of day p in zone tz (a DST gap's time: either side of it).
+  function _instant(p, min, tz) {
+    var wall = Date.UTC(p.y, p.m - 1, p.d) + min * 60000, t = wall;
+    for (var i = 0; i < 2; i++) {  // the second pass settles a DST change in between
+      var w = _wallClock(tz, new Date(t));
+      t = wall - (Date.UTC(w.y, w.m - 1, w.d) + w.min * 60000 - (t - (t % 60000)));
+    }
+    return t;
+  }
+
+  // Real minutes from `now` until minute `min` of day p: a DST night is 23 or 25 hours
+  // long. Wall-clock minutes for a `now` without its instant (not from nowForTimeZone).
+  function minutesUntil(now, p, min) {
+    if (now.at === undefined) return diffDays(now, p) * 1440 + min - now.min;
+    return Math.round((_instant(p, min, now.tz) - now.at) / 60000);
+  }
+
+  function _wallClock(tz, d) {
+    var parts = {};
     try {
       var fmt = _clockFmt[tz] || (_clockFmt[tz] = new Intl.DateTimeFormat('en-US', {
         timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -283,7 +308,8 @@
   var LEAD_MIN = 6 * 60;
 
   // entries: [{code, time}, ...]; now: {y, m, d, min} (min = minutes since
-  // region-local midnight). 'today' while a window today is still to come or
+  // region-local midnight; from nowForTimeZone, the lead counts real time across a DST
+  // change). 'today' while a window today is still to come or
   // running (all day when untimed), while yesterday's runs past midnight, or
   // when tomorrow's starts within LEAD_MIN (untimed: at midnight); 'tomorrow'
   // when one is tomorrow; 'check' when a code's day is unknown (unknownReason);
@@ -297,7 +323,7 @@
       if (sweepsOn(code, now.y, now.m, now.d, skip, t) && (!w || overnight || now.min <= w[1])) return 'today';
       if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip, t)) return 'today';
       if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip, t)) {
-        if (1440 - now.min + (w ? w[0] : 0) <= LEAD_MIN) return 'today';
+        if (minutesUntil(now, tmr, w ? w[0] : 0) <= LEAD_MIN) return 'today';
         tomorrow = true;
       }
     }
@@ -334,7 +360,7 @@
       }
       if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip, t)) take('running', w[1], 0);
       if (sweepsOn(code, tmr.y, tmr.m, tmr.d, skip, t)) {
-        var start = w ? w[0] : 0, lead = 1440 - now.min + start;
+        var start = w ? w[0] : 0, lead = minutesUntil(now, tmr, start);
         if (lead <= LEAD_MIN) take('by', start, lead);
         else take('tomorrow', w ? w[0] : null, lead);
       }

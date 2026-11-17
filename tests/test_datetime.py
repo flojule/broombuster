@@ -285,6 +285,31 @@ def test_sweep_deadline(entries, at, want):
     assert (want is not None) == (js(("checkDaySweeping", [es, at]))[0] != "safe")
 
 
+# The 6 h lead counts real time: a DST night is 23 h (Mar 8 2026) or 25 h (Nov 1 2026).
+# SF Sunday 4AM-6AM: 4AM PDT (11:00Z) is 6 h after 9PM PST; 4AM PST (12:00Z) after 11PM PDT.
+DST_CASES = [
+    ("2026-03-07T20:59:00-08:00", "tomorrow"),
+    ("2026-03-07T21:00:00-08:00", "today"),
+    ("2026-03-07T21:30:00-08:00", "today"),
+    ("2026-10-31T22:30:00-07:00", "tomorrow"),
+    ("2026-10-31T23:00:00-07:00", "today"),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("iso,want", DST_CASES)
+def test_lead_counts_real_time_across_dst(iso, want):
+    es = [{"code": "SUE", "time": "4AM-6AM"}]
+    at = {"$now": ["America/Los_Angeles", iso]}
+    verdict, deadline = js(("checkDaySweeping", [es, at]), ("sweepDeadline", [es, at]))
+    assert verdict == want
+    assert deadline == {"state": "by" if want == "today" else "tomorrow", "at": "4AM"}
+    t = datetime.datetime.fromisoformat(iso)
+    sunday = t.date() + datetime.timedelta(days=1)
+    start = datetime.datetime.combine(sunday, datetime.time(4), ZoneInfo("America/Los_Angeles"))
+    assert (start - t <= datetime.timedelta(hours=6)) == (want == "today")  # the Python oracle
+
+
 # ── Schedule display ─────────────────────────────────────────────────────────
 
 
