@@ -19,7 +19,7 @@ import pandas as pd
 import pytest
 import shapely.geometry
 
-from broombuster import analysis, normalize, schemas
+from broombuster import analysis, normalize, schedule, schemas
 from broombuster.cities import REGIONS
 
 _DIR = Path(__file__).parent
@@ -205,6 +205,35 @@ TIME_CASES = [
 @pytest.mark.parametrize("raw,display,window", TIME_CASES)
 def test_time_display_and_window(raw, display, window):
     assert js(("timeDisplay", [raw]), ("timeWindow", [raw])) == [display, window]
+
+
+# Python (calendar feed) and JS read the same: ASCII digits, dates as YYYY-MM-DD only.
+PARSER_TIMES = ["\uff18AM-10AM", "8AM-\uff110AM", " am ", "pm", "8AM-10AM", "10PM-2AM"]
+PARSER_CODES = [
+    "DATES:2026-09-30",
+    "DATES: 2026-02-30 , 2026-09-30",
+    "DATES:20260930",
+    "DATES:2026-W40-3",
+    "DATES:\uff12\uff10\uff12\uff16-09-30",
+    "DATES:2026-9-30",
+    "WE",
+]
+
+
+@needs_node
+def test_python_and_js_parse_alike():
+    wed = datetime.date(2026, 9, 30)
+    got = js(
+        *[(fn, [t]) for t in PARSER_TIMES for fn in ("timeDisplay", "timeWindow")],
+        *[("sweepsOn", [c, wed.year, wed.month, wed.day]) for c in PARSER_CODES],
+    )
+    py = [
+        *[v for t in PARSER_TIMES for v in (normalize.time_display(t), schedule.time_window(t))],
+        *[schedule.sweeps_on(c, wed) for c in PARSER_CODES],
+    ]
+    assert got == [list(v) if isinstance(v, tuple) else v for v in py]
+    assert [schedule.sweeps_on(c, wed) for c in PARSER_CODES] == [1, 1, 0, 0, 0, 0, 1]
+    assert normalize.time_display(" am ") == "AM" and schedule.time_window("\uff18AM-10AM") is None
 
 
 @needs_node

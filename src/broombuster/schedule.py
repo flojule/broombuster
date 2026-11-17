@@ -5,18 +5,14 @@ tests/test_schedule.py, plus city holidays and weekly trash days."""
 import datetime
 import re
 
-from broombuster import analysis, holidays
+from broombuster import analysis, holidays, normalize
 from broombuster.cities import CITIES
 
 _CODE_RE = re.compile(r"((?:TH|SU|M|T|W|F|S)*)(E?|[1-5]+)")
 _DAY_TOKEN_RE = re.compile(r"TH|SU|M|T|W|F|S")
+_ISO_DAY_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")  # urgency.js parseDatesCode
 # Same lenient pattern as urgency.js TIME_RANGE_RE (PDF artifacts in the raw data).
-_TIME_RANGE_RE = re.compile(
-    r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)"
-    r"[\s,]*(?:[-–—•·o]|to)\s*"
-    r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)",
-    re.I,
-)
+_TIME_RANGE_RE = normalize.TIME_RANGE_RE
 _HALF_DAY = {"AM": (0, 720), "PM": (720, 1440)}
 
 
@@ -28,9 +24,11 @@ def _rule(code):
     if c.startswith("DATES:"):
         days = set()
         for part in c[6:].split(","):
+            if not _ISO_DAY_RE.fullmatch(part.strip()):
+                continue
             try:
                 days.add(datetime.date.fromisoformat(part.strip()))
-            except ValueError:
+            except ValueError:  # 2026-02-30
                 pass
         return ("dates", days)
     m = _CODE_RE.fullmatch(c)
