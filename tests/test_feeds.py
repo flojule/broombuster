@@ -375,6 +375,22 @@ def test_feed_without_side_and_next_sweep_only():
     assert over.count("BEGIN:VEVENT") == 1 and "UID:sweep-c1-20261105-odd" in over
 
 
+def test_next_sweep_keeps_last_nights_window_while_it_runs():
+    def spot(lat, lon):
+        night = {"even": [["W", "", "10PM-2AM"], ["W", "", "8AM-10AM"]], "odd": []}
+        return calfeed.CarSpot("bay_area", "oakland", "Chestnut St", night, ("Even", "Odd"))
+
+    def first(utc_hour):
+        now = datetime.datetime(2026, 11, 5, utc_hour, tzinfo=datetime.UTC)
+        car = {"id": "c1", "lat": 0, "lon": 0}
+        return calfeed.build({"cars": [car]}, spot, now, first_only=True)
+
+    running = first(9)  # Thu 1 AM PST: Wednesday's 10 PM-2 AM is on, its 8-10 AM is over
+    assert running.count("BEGIN:VEVENT") == 1
+    assert "DTSTART:20261105T060000Z" in running and "DTEND:20261105T100000Z" in running
+    assert "UID:sweep-c1-20261118" in first(11)  # 3 AM: over; Nov 11 is Veterans Day
+
+
 def test_feed_one_event_when_both_sides_share_the_time():
     def spot(lat, lon):
         both = [["W", "", "8AM-10AM"]]

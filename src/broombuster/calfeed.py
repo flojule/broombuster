@@ -141,12 +141,14 @@ def build(
         if car.get("side") in ("even", "odd"):
             entries = {car["side"]: entries.get(car["side"], [])}
         name = car.get("name") or "Car"
+        # first_only: from yesterday, whose overnight window may still run.
+        start = today - datetime.timedelta(days=1) if first_only else today
         sweeps = schedule.sweep_days(
-            entries, spot.city, today, today + datetime.timedelta(days=days)
+            entries, spot.city, start, today + datetime.timedelta(days=days)
         )
         if first_only:
-            later = [d for d in sweeps if _not_over(d, tz, now)]
-            sweeps = later[:1]
+            later = [(d, [it for it in its if _not_over(d, it[1], tz, now)]) for d, its in sweeps]
+            sweeps = [s for s in later if s[1]][:1]
         for day, items in sweeps:
             sides_at: dict[str, list[str]] = {}  # time -> sides swept then: one event each
             for side, time in items:
@@ -238,16 +240,12 @@ def build(
 _NO_SWEEP = {"sweeping": "No street sweeping: ", "sweeping_day": "No daytime street sweeping: "}
 
 
-def _not_over(sweep, tz, now: datetime.datetime) -> bool:
-    """A sweep day (date, [(side, time)]) with a window still to come or running."""
-    day, items = sweep
+def _not_over(day: datetime.date, time: str, tz, now: datetime.datetime) -> bool:
+    """Whether a sweep on `day` with window text `time` is still to come or running."""
     next_day = day + datetime.timedelta(days=1)
-    for _side, time in items:
-        w = schedule.time_window(time)
-        end = _at(next_day, 0, tz) if not w else _at(next_day if w[1] <= w[0] else day, w[1], tz)
-        if end > now:
-            return True
-    return False
+    w = schedule.time_window(time)
+    end = _at(next_day, 0, tz) if not w else _at(next_day if w[1] <= w[0] else day, w[1], tz)
+    return end > now
 
 
 def _region_of(item: dict) -> str | None:
