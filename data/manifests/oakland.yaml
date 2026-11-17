@@ -4,6 +4,7 @@ center: {lat: 37.8044, lon: -122.2712}
 schema: oakland
 bbox: [37.69, -122.38, 37.90, -122.11]
 fgb_path: data/oakland/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
 trash: {kind: recollect, area: OaklandCA, service_id: 608}   # oaklandrecycles.com
 holidays: data/holidays/oakland.yaml
 corrections: data/oakland/corrections.yaml

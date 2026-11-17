@@ -9,12 +9,12 @@ kind: weekly     no lookup exists: the user picks the home's collection weekday 
 
 import datetime
 import threading
-import time
 
 import requests
 
 from broombuster import schedule
 from broombuster.cities import CITIES
+from broombuster.feeds import TTLCache
 
 _API = "https://api.recollect.net/api"
 _TIMEOUT_S = 3
@@ -22,36 +22,27 @@ _PLACE_TTL_S = 30 * 24 * 3600
 _PICKUPS_TTL_S = 12 * 3600
 DAYS_AHEAD = 56  # the calendar shows about two months of pickups
 WEEKLY_LABEL = "Trash, compost and recycling"
-_FAILURE_TTL_S = 5 * 60
-_CACHE_MAX = 2048
 
-_cache: dict[tuple, tuple[float, object]] = {}
-_lock = threading.Lock()
+cache = TTLCache(max_items=2048, failure_ttl=5 * 60, wait_s=5 * _TIMEOUT_S)  # bounded
+_slots = threading.BoundedSemaphore(4)  # ReCollect calls in flight at once
+_MISS = object()
 
 
-def _cached(key: tuple, ttl: float, fetch):
-    """fetch() once per ttl; a failed fetch (None) is retried after _FAILURE_TTL_S."""
-    now = time.time()
-    with _lock:
-        hit = _cache.get(key)
-        if hit and now < hit[0]:
-            return hit[1]
-    value = fetch()
-    with _lock:
-        if len(_cache) >= _CACHE_MAX:  # keys include user-typed addresses: bound memory
-            for k in [k for k, (exp, _) in _cache.items() if exp <= now] or [next(iter(_cache))]:
-                del _cache[k]
-        _cache[key] = (now + (ttl if value is not None else _FAILURE_TTL_S), value)
-    return value
+class Busy(Exception):
+    """Every ReCollect slot stayed taken: local congestion, not cached as an outage."""
 
 
 def _get(path: str, **params):
+    if not _slots.acquire(timeout=2 * _TIMEOUT_S):
+        raise Busy
     try:
         r = requests.get(f"{_API}/{path}", params={**params, "locale": "en-US"}, timeout=_TIMEOUT_S)
         r.raise_for_status()
         return r.json()
     except (requests.RequestException, ValueError):
         return None
+    finally:
+        _slots.release()
 
 
 def parse_pickups(events, today: datetime.date) -> dict[str, list[str]]:
@@ -78,11 +69,17 @@ def kind(city_key: str) -> str | None:
 
 
 def pickups(
-    city_key: str, address: str, today: datetime.date, collection_day: int | None = None
-) -> dict[str, list[str]]:
+    city_key: str,
+    address: str,
+    today: datetime.date,
+    collection_day: int | None = None,
+    *,
+    network: bool = True,
+) -> dict[str, list[str]] | None:
     """{stream: [ISO dates]} for the next DAYS_AHEAD days at a home, or {}.
 
-    collection_day (Mon=0..Sun=6) is the weekday the user picked, for kind weekly."""
+    collection_day (Mon=0..Sun=6) is the weekday the user picked, for kind weekly.
+    network=False: cached ReCollect answers only; None when a lookup is not cached."""
     k = kind(city_key)
     if k == "weekly":
         if collection_day is None:
@@ -98,7 +95,15 @@ def pickups(
         hits = _get(f"areas/{area}/services/{service}/address-suggest", q=address)
         return hits[0].get("place_id") if isinstance(hits, list) and hits else None
 
-    place_id = _cached(("place", area, " ".join(address.lower().split())), _PLACE_TTL_S, place)
+    place_key = ("place", area, " ".join(address.lower().split()))
+    try:
+        place_id = (
+            cache.get(place_key, _PLACE_TTL_S, place) if network else cache.peek(place_key, _MISS)
+        )
+    except Busy:
+        return {}
+    if place_id is _MISS:
+        return None
     if not place_id:
         return {}
 
@@ -114,4 +119,11 @@ def pickups(
             return None
         return parse_pickups(data.get("events", []) if isinstance(data, dict) else data, today)
 
-    return _cached(("events", place_id, today.isoformat()), _PICKUPS_TTL_S, events) or {}
+    events_key = ("events", place_id, today.isoformat())
+    if not network:
+        got = cache.peek(events_key, _MISS)
+        return None if got is _MISS else got or {}
+    try:
+        return cache.get(events_key, _PICKUPS_TTL_S, events) or {}
+    except Busy:
+        return {}

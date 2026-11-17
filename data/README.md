@@ -6,10 +6,16 @@ FlatGeobuf at the manifest's `fgb_path`, loaded by the server at startup. Pipeli
 ## Rebuild
 
 ```bash
-python scripts/rebuild_city_data.py [city ...]   # inputs per the manifest's source: block
-python scripts/build_pmtiles.py                  # map tiles; needs tippecanoe
-python scripts/build_layers.py [city ...] [--theme parking ...]   # extra layers
+uv run --extra scripts python scripts/rebuild_city_data.py [city ...]   # inputs per the manifest's source: block
+uv run python scripts/build_pmtiles.py           # map tiles; needs tippecanoe at TIPPECANOE_VERSION
+uv run python scripts/build_layers.py [city ...] [--theme parking ...]   # extra layers
+uv run --extra scripts python scripts/build_icons.py   # app icons; needs the system cairo library
 ```
+
+| Tool | macOS | Ubuntu |
+|---|---|---|
+| tippecanoe | `brew install tippecanoe` | build the pinned release from github.com/felt/tippecanoe |
+| cairo | `brew install cairo` | `sudo apt install libcairo2` |
 
 Commit the `.fgb` and `frontend/tiles/*.pmtiles` outputs. A new city needs a manifest, and a normalizer in
 `schemas.SCHEMA_PROFILES` if its source format is new. A rebuild with no `git diff` means the committed data
@@ -30,8 +36,8 @@ read on the street.
 
 ## Manifest keys
 
-- `source:` → raw inputs: `url` (download), `arcgis` (`{file: layer URL | {url, where}}`), `files`, `build`
-  (script producing `local_path`).
+- `source:` → raw inputs: `url` (download), `arcgis` (`{file: layer URL | {url, where}}`), `files` (the build
+  reads exactly these), `build` (script producing `local_path`).
 - `holidays:` → `holidays/<city>.yaml`: published holidays and what each suspends: `sweeping` (Oakland, SF),
   `sweeping_day` (SF: only sweeps starting at 6 AM or later; night cleaning stays enforced) or `trash` (moved by
   `trash.holiday_rule`: `shift_week` or `next_day`).
@@ -41,6 +47,8 @@ read on the street.
   (the user picks the home's day).
 - `layers:` → extra map layers. Permit areas never overlap: within a city the first by label keeps a shared
   edge, across cities the newer source. Chicago's permit zones by address: `chicago/permit_zones.csv`.
+- `streetview_since:` → `YYYY-MM`: oldest Street View imagery `scripts/validate_streetview.py` counts as
+  evidence of today's signs.
 - `places/markets.yaml`: farmers markets, kept by hand.
 
 ## Columns

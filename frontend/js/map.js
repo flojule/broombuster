@@ -7,6 +7,11 @@ function initMap(center) {
     center: [c.lon, c.lat],
     zoom: c.zoom,
     attributionControl: false,
+    transformStyle: (prev, next) => tuneBasemap(next),
+  });
+  // An icon the basemap's sprite lacks ("wood-pattern"): a transparent pixel, no warning.
+  map.setMissingStyleImageResolver(id => {
+    if (!map.hasImage(id)) map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
   });
   map.dragRotate.disable();
   map.touchZoomRotate.disableRotation();
@@ -14,7 +19,6 @@ function initMap(center) {
   _crosshair.classList.add('visible');
   map.on('load', () => {
     map.resize();
-    tuneBasemapLabels();
     attachMapListeners();
   });
   map.on('error', (e) => console.error('[MapLibre]', e.error));
@@ -79,6 +83,9 @@ function attachMapListeners() {
   syncRegion();
 }
 
+// Ground meters per screen pixel at latitude `lat` and the map's zoom (512 px tiles).
+function metersPerPx(lat) { return 40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * 2 ** map.getZoom()); }
+
 // Whether a street line is drawn within 8 px of a screen point.
 function _streetAt(p) {
   const layers = ['zones-line', 'zones-side-even', 'zones-side-odd'].filter(l => map.getLayer(l));
@@ -87,19 +94,19 @@ function _streetAt(p) {
   catch (_) { return false; }
 }
 
-// Run `cb` once the style can accept sources/layers. `style.load` is a one-shot
-// event: if it already fired before we register, map.once() never calls back.
-// isStyleLoaded() can also be briefly false AFTER style.load while the basemap
-// loads sprites/tiles. Gating on a styledata listener that re-checks
-// isStyleLoaded() covers both cases — the fix for Chicago zones not appearing
-// until the user pans/zooms.
+// Run `cb` once the style can accept sources/layers: now, else at the first styledata
+// or idle event that finds it loaded (isStyleLoaded() is false while tiles stream in,
+// and after an instant jump no styledata may follow, only idle).
 function whenStyleReady(cb) {
   if (!map) return;
   if (map.isStyleLoaded()) { cb(); return; }
-  const onData = () => {
-    if (map.isStyleLoaded()) { map.off('styledata', onData); cb(); }
+  const check = () => {
+    if (!map.isStyleLoaded()) return;
+    map.off('styledata', check); map.off('idle', check);
+    cb();
   };
-  map.on('styledata', onData);
+  map.on('styledata', check);
+  map.on('idle', check);
 }
 
 // ── Vector-tile rendering (PMTiles) ───────────────────────────────────────────
@@ -169,17 +176,29 @@ function firstLabelLayer(layers = map.getStyle().layers) {
   return base[base.findLastIndex(l => l.type !== 'symbol') + 1]?.id;
 }
 
-// The dark basemap's street and place names are dim grey on black: brighter, with a dark
-// halo (they sit over the street colors). Paint for `layers` (a style being loaded), else
-// set on the live map.
+// The basemap style as loaded (initMap; the theme switch, js/ui.js): place names end at
+// street zoom (they would sit on the target); the dark style's street and place names,
+// dim grey on black, are brighter with a dark halo; filters are made quiet.
+const PLACE_MAXZOOM = 14;
 const DARK_LABEL = { 'text-color': '#b8c0cc', 'text-halo-color': 'rgba(0,0,0,0.9)', 'text-halo-width': 1.5 };
 function _darkLabel(l) { return l.type === 'symbol' && /^(highway_name|place_)/.test(l.id); }
-function tuneBasemapLabels(layers) {
-  if (!document.body.classList.contains('dark')) return layers;
-  if (layers) return layers.map(l => _darkLabel(l) ? { ...l, paint: { ...l.paint, ...DARK_LABEL } } : l);
-  for (const l of map.getStyle().layers.filter(_darkLabel)) {
-    for (const [k, v] of Object.entries(DARK_LABEL)) map.setPaintProperty(l.id, k, v);
+function tuneBasemap(style) {
+  const dark = document.body.classList.contains('dark');
+  return { ...style, layers: style.layers.map(l => {
+    if (l.filter) l = { ...l, filter: _quietFilter(l.filter) };
+    if (l.type === 'symbol' && /^(place|label)_/.test(l.id)) l = { ...l, maxzoom: Math.min(l.maxzoom ?? 24, PLACE_MAXZOOM) };
+    return dark && _darkLabel(l) ? { ...l, paint: { ...l.paint, ...DARK_LABEL } } : l;
+  }) };
+}
+// A number comparison on a property some features lack (["<=", ["get", "ref_length"], 6]):
+// those compare false, as before, without MapLibre's warning about the null.
+const _MISSING = { '<': 1e9, '<=': 1e9, '>': -1e9, '>=': -1e9 };
+function _quietFilter(f) {
+  if (!Array.isArray(f)) return f;
+  if (_MISSING[f[0]] && Array.isArray(f[1]) && f[1][0] === 'get' && f[1].length === 2 && typeof f[2] === 'number') {
+    return [f[0], ['coalesce', f[1], _MISSING[f[0]]], f[2]];
   }
+  return f.map(_quietFilter);
 }
 
 function addTilePaintLayers() {
@@ -314,10 +333,9 @@ function syncRegion() {
 }
 
 function ensureTiles() {
-  if (!map) return;
-  const region = _region;
-  if (!region) return;
+  if (!map || !_region) return;
   whenStyleReady(() => {
+    const region = _region;  // now, not when queued: an older callback must not switch back
     if (!_pmtilesProtocol) {
       try { maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile); } catch (_) {}
       _pmtilesProtocol = true;

@@ -217,6 +217,7 @@
     .note { margin: 0 14px; font-size: .74rem; color: var(--muted); line-height: 1.4; font-weight: 400; }
     .sec .note { margin: 0; }
     .rows .note { padding: 6px 16px 8px; }
+    .rows .link-field { margin: 6px 16px; }
     .about { font-size: .7rem; line-height: 1.45; }
     .about a { color: inherit; }
     /* Destructive actions; after the row styles so it wins over their color. */
@@ -302,6 +303,7 @@
     .empty-saved .note { margin: 0 2px; font-size: .82rem; }
     .empty-btns { display: flex; gap: 8px; }
     .empty-btns .btn { flex: 1; }
+    body.placing .empty-btns { display: none; }  /* the banner's "Set here" is the one action */
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
     .urg-safe { color: var(--urg-safe); } .urg-check { color: var(--urg-check); } .urg-none { color: var(--muted); }
     /* Legend swatch: line thickness mirrors the map (today thickest). */
@@ -347,6 +349,7 @@
     .ce-tag, .cal-tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: .7rem; font-weight: 700;
                         background: color-mix(in srgb, currentColor 12%, transparent); }
     .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
+    .car-entry:not(.selected) .ce-city { display: none; }  /* a row: the street address only (js/cars.js _addrHTML) */
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
     .ce-loading { color: var(--muted); }
     /* The car's side of the street (where the sides differ): one choice per side with its sweeping. */

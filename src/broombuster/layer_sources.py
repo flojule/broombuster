@@ -62,51 +62,67 @@ def arcgis(
         else ""
     )
     page = min(int(meta.get("maxRecordCount") or 1000), 2000)
-    if "geojson" not in (meta.get("supportedQueryFormats") or "").lower():
-        return _arcgis_esri_json(layer_url, where, fields, page), asof
-    feats, offset = [], 0
+    geojson = "geojson" in (meta.get("supportedQueryFormats") or "").lower()
+    oid = meta.get("objectIdField") or next(
+        (f["name"] for f in meta.get("fields") or [] if f.get("type") == "esriFieldTypeOID"), None
+    )
+    paging = (meta.get("advancedQueryCapabilities") or {}).get("supportsPagination")
+    if not (geojson and paging and oid):
+        return _arcgis_by_ids(layer_url, where, fields, page, geojson), asof
+    feats, offset, firsts = [], 0, set()
     while True:
-        data = _get(
-            f"{layer_url}/query",
+        data = _query(
+            layer_url,
             where=where,
             outFields=fields,
             outSR=4326,
             f="geojson",
+            orderByFields=oid,
             resultOffset=offset,
             resultRecordCount=page,
-        ).json()
+        )
         batch = data.get("features") or []
+        if batch:
+            first = json.dumps(batch[0], sort_keys=True)
+            if first in firsts:  # the server ignores resultOffset
+                return _arcgis_by_ids(layer_url, where, fields, page, geojson), asof
+            firsts.add(first)
         feats += batch
-        if len(batch) < page and not data.get("exceededTransferLimit"):
+        if not batch or (len(batch) < page and not data.get("exceededTransferLimit")):
             break
         offset += len(batch)
-        if not batch:
-            break
     return _frame(feats), asof
 
 
-def _arcgis_esri_json(layer_url: str, where: str, fields: str, page: int):
-    """Every feature of an old ArcGIS Server layer (no GeoJSON, no paging): object ids
-    first, then Esri JSON by id batch. Lines and polygons; a layer that hides its
-    geometry gives rows without one."""
+def _query(layer_url: str, **params) -> dict:
+    """An ArcGIS layer query; its in-body error (HTTP 200) raises."""
+    data = _get(f"{layer_url}/query", **params).json()
+    if "error" in data:
+        raise ValueError(f"{layer_url}: {data['error']}")
+    return data
+
+
+def _arcgis_by_ids(layer_url: str, where: str, fields: str, page: int, geojson: bool):
+    """Every feature of a layer without (working) paging: object ids first, then features
+    by id batch, as GeoJSON or, for old servers, Esri JSON lines and polygons (a layer
+    that hides its geometry gives rows without one)."""
     ids = sorted(
-        _get(f"{layer_url}/query", where=where, returnIdsOnly="true", f="json")
-        .json()
-        .get("objectIds")
-        or []
+        set(_query(layer_url, where=where, returnIdsOnly="true", f="json").get("objectIds") or [])
     )
+    step = min(page, 200)  # ids travel in the URL
     feats = []
-    for i in range(0, len(ids), min(page, 200)):  # ids travel in the URL
-        data = _get(
-            f"{layer_url}/query",
-            objectIds=",".join(map(str, ids[i : i + min(page, 200)])),
+    for i in range(0, len(ids), step):
+        data = _query(
+            layer_url,
+            objectIds=",".join(map(str, ids[i : i + step])),
             outFields=fields,
             returnGeometry="true",
             outSR=4326,
-            f="json",
-        ).json()
-        if "error" in data:
-            raise ValueError(f"{layer_url}: {data['error']}")
+            f="geojson" if geojson else "json",
+        )
+        if geojson:
+            feats += data.get("features") or []
+            continue
         for f in data.get("features") or []:
             g = f.get("geometry") or {}
             if g.get("paths"):
@@ -131,6 +147,9 @@ def arcgis_colors(layer_url: str) -> dict[str, str]:
     return out
 
 
+_SOCRATA_LIMIT = 200000  # rows in one request; a dataset that reaches it raises
+
+
 def socrata(
     domain: str, dataset: str, where: str | None = None, select: str | None = None
 ) -> tuple[geopandas.GeoDataFrame, str]:
@@ -138,13 +157,15 @@ def socrata(
     meta = _get(f"https://{domain}/api/views/{dataset}.json").json()
     upd = meta.get("rowsUpdatedAt")
     asof = datetime.datetime.fromtimestamp(upd, datetime.UTC).date().isoformat() if upd else ""
-    params = {"$limit": 200000}
+    params = {"$limit": _SOCRATA_LIMIT}
     if where:
         params["$where"] = where
     if select:
         params["$select"] = select
-    data = _get(f"https://{domain}/resource/{dataset}.geojson", **params).json()
-    return _frame(data.get("features") or []), asof
+    feats = _get(f"https://{domain}/resource/{dataset}.geojson", **params).json().get("features")
+    if len(feats or []) >= _SOCRATA_LIMIT:
+        raise ValueError(f"{domain}/{dataset}: {_SOCRATA_LIMIT} rows or more; raise the limit")
+    return _frame(feats or []), asof
 
 
 def _out(gdf: geopandas.GeoDataFrame, label, rule, asof: str) -> geopandas.GeoDataFrame:
@@ -562,7 +583,7 @@ def markets(city_key: str) -> geopandas.GeoDataFrame:
 
 def chicago_permit_zones() -> pd.DataFrame:
     """Chicago's residential permit zones by address range (active rows only):
-    street (normalize.street_name key), low, high, side (O / E / B), zone."""
+    street (normalize.street_name_typed key), low, high, side (O / E / B), zone."""
     from broombuster import normalize
 
     rows = _get(
@@ -580,7 +601,7 @@ def chicago_permit_zones() -> pd.DataFrame:
             continue
         out.append(
             {
-                "street": normalize.street_name(street),
+                "street": normalize.street_name_typed(street),
                 "low": low,
                 "high": high,
                 "side": str(r.get("odd_even") or "B").strip().upper()[:1] or "B",

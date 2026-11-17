@@ -2,21 +2,21 @@
 async function initApp() {
   // Cities and saved cars first, so the map opens at the right place.
   await loadCities();
-  await loadAccount();  // a signed-in user's saved cars and homes replace the local copy
+  // A signed-in user's saved cars and homes, with this device's unsaved edits. Without an
+  // answer in time, the app starts on the local copy and loadAccount merges in the
+  // account's once it answers.
+  const me = loadAccount();
+  const late = await Promise.race([me.then(() => false), new Promise(r => setTimeout(r, START_WAIT_MS, true))]);
+  if (late) me.then(renderAccountSection);  // signed in or out; a join link's Join button too
   renderAccountSection();
   loadPrefs();
   loadSchedCache();  // each car's last answer, until its check comes back (offline: kept)
   initMap(cars.length ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 } : DEFAULT_CENTER);
-
-  renderHomePanel();
-  updateHomeMarkers();
-  checkAllHomes();
-  loadAlerts();
   setInterval(loadAlerts, 10 * 60 * 1000);
+  const checked = showSaved();
 
   if (cars.length) {
-    updateCarMarkers();
-    await Promise.all(cars.map((car, i) => checkCar(car, i === 0)));
+    await checked;
     // A car to move today or tomorrow: open on it, not on the calendar.
     const { today, tomorrow } = urgentCars();
     if ((today.length || tomorrow.length) && _tab === 'calendar') showTab('saved');
@@ -34,6 +34,16 @@ async function initApp() {
     const lo = [0, 1].map(i => Math.min(...cs.map(c => c[i]))), hi = [0, 1].map(i => Math.max(...cs.map(c => c[i])));
     map.fitBounds([lo, hi], { padding: 70, maxZoom: AREA_ZOOM - 1, animate: false });
   }
+}
+// The saved cars and homes on the map and in the sheet, each checked. Resolves once the
+// cars are checked.
+function showSaved() {
+  renderHomePanel();
+  updateHomeMarkers();
+  checkAllHomes();
+  loadAlerts();
+  updateCarMarkers();
+  return Promise.all(cars.map((car, i) => checkCar(car, i === 0)));
 }
 initApp();
 
@@ -64,7 +74,7 @@ setInterval(tick, 60 * 1000);
 // server's differs (cars, tab and map position come back).
 let _hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { _hiddenAt = Date.now(); _flushPrefs(); pauseHere(); return; }
+  if (document.hidden) { _hiddenAt = Date.now(); sendPrefsNow(); pauseHere(); return; }
   tick();
   refreshFromAccount();
   resumeHere();

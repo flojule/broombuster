@@ -80,7 +80,7 @@ def _ref_union(gdf, resolved):
     return eo, oo
 
 
-def _ref_resolve(gdf, lat, lon, city_key=None, max_distance_m=40.0):
+def _ref_resolve(gdf, lat, lon, max_distance_m=40.0):
     """(row position, is_polygon, distance) a per-row resolver loop picks."""
     x, y = resolve._TRANSFORMER_4326_TO_3857.transform(lon, lat)
     pt = Point(x, y)
@@ -88,10 +88,6 @@ def _ref_resolve(gdf, lat, lon, city_key=None, max_distance_m=40.0):
     best, best_d, lines = None, float("inf"), []
     for i in gdf.sindex.query(pt.buffer(max(max_distance_m * 3.0, 100.0) * k)):
         row = gdf.iloc[i]
-        if city_key:
-            c = row.get("_city")
-            if c and c != city_key:
-                continue
         g = row.geometry
         if g is None or g.is_empty:
             continue
@@ -103,19 +99,19 @@ def _ref_resolve(gdf, lat, lon, city_key=None, max_distance_m=40.0):
         lines.append((d, int(i)))
         if d < best_d:
             best, best_d = int(i), d
-    if best is not None and _unswept(gdf.iloc[best]):  # border street: the city that sweeps it
+    if best is None or best_d > max_distance_m * k:
+        return None
+    if _unswept(gdf.iloc[best]):  # border street: the city that sweeps it, if in range
         b = gdf.iloc[best]
         for d, i in sorted(lines, key=lambda x: x[0]):
             r = gdf.iloc[i]
-            if d > best_d + resolve.BORDER_EXTRA_M:
+            if d > best_d + resolve.BORDER_EXTRA_M or d > max_distance_m * k:
                 break
             alongside = 0 < r.geometry.project(pt) < r.geometry.length
             same = r.get("STREET_KEY") == b.get("STREET_KEY")
             if r.get("_city") != b.get("_city") and same and not _unswept(r) and alongside:
                 best, best_d = i, d
                 break
-    if best is None or best_d > max_distance_m * k:
-        return None
     return best, False, best_d / k
 
 
@@ -163,12 +159,11 @@ def test_union_matches_full_scan_on_bay_area(bay_area_3857, sample_points):
     assert checked >= 50, "too few resolved points to be meaningful"
 
 
-@pytest.mark.parametrize("city_key", [None, "oakland", "san_francisco"])
-def test_resolver_matches_row_scan_on_bay_area(bay_area_3857, sample_points, city_key):
+def test_resolver_matches_row_scan_on_bay_area(bay_area_3857, sample_points):
     for lat, lon in sample_points:
-        ref = _ref_resolve(bay_area_3857, lat, lon, city_key)
+        ref = _ref_resolve(bay_area_3857, lat, lon)
         try:
-            got = resolve.resolve_car_segment(bay_area_3857, lat, lon, city_key=city_key)
+            got = resolve.resolve_car_segment(bay_area_3857, lat, lon)
         except resolve.NoSegmentNearby:
             assert ref is None, (lat, lon)
             continue

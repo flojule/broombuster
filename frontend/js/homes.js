@@ -102,8 +102,9 @@ function moveHome(id, lat, lon) {
   openItem(h.id);
 }
 
-// A home was added or moved: save, show, and look up its pickup days.
+// A home was added or moved: save, show, and look up its pickup days (the old spot's rules go).
 function homeChanged(h) {
+  forgetRules(h.id);
   savePrefs();
   updateHomeMarkers();
   renderHomePanel();

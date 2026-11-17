@@ -24,8 +24,14 @@ self.addEventListener('fetch', event => {
   // are range requests, which Safari has mishandled through a worker, and never offline.
   if (url.origin !== location.origin || url.pathname.startsWith('/tiles/')
       || API_PATHS.some(p => url.pathname.startsWith(p))) return;
+  // Network first so a deploy is never masked by a stale cached shell; the cache is the
+  // fallback offline and while the server answers 5xx (a restart). A page falls back to "/".
+  const nav = event.request.mode === 'navigate', get = event.request.method === 'GET';
+  const cached = () => caches.match(event.request, { ignoreSearch: true })
+    .then(hit => hit || (nav ? caches.match('/') : undefined));
   event.respondWith(
-    // Network first so a deploy is never masked by a stale cached shell; the cache is the offline fallback.
-    fetch(event.request).catch(() => caches.match(event.request, { ignoreSearch: true }))
+    fetch(event.request)
+      .then(res => (get && res.status >= 500 ? cached().then(hit => hit || res) : res))
+      .catch(cached)
   );
 });

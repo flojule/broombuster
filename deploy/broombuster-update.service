@@ -7,4 +7,10 @@ Wants=network-online.target
 Type=oneshot
 User=__USER__
 WorkingDirectory=__REPO__
+Environment=GH_NO_UPDATE_NOTIFIER=1
 ExecStart=__REPO__/deploy/auto-update.sh
+# Writable: the repo (.venv included), uv cache, gh config and state, ~/.gnupg; no NoNewPrivileges (sudo).
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=__REPO__ -__HOME__/.cache/uv -__HOME__/.config/gh -__HOME__/.local/state/gh -__HOME__/.gnupg
+PrivateTmp=true

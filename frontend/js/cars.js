@@ -57,11 +57,12 @@ function loadSchedCache() {
 }
 
 // The user moved a car (GPS, map or address): save it, show it, and re-check its street.
-// The old spot's schedule and side no longer apply.
+// The old spot's schedule, side and rules no longer apply.
 function moveCar(car, lat, lon) {
   car.lat = lat; car.lon = lon; touchCarLocation(car);
   delete car.side;
   delete carSchedules[car.id];
+  forgetRules(car.id);
   savePrefs();
   updateCarMarkers();
   return checkCar(car, true);
@@ -70,8 +71,8 @@ function moveCar(car, lat, lon) {
 // ── Placement (cars and homes) ────────────────────────────────────────────────
 // Center-target flow: pan the map so the crosshair sits on the spot, then
 // "Set here" commits at the map center. The sheet shrinks so most of the map shows;
-// it returns to its height after. Right-click or a long press is the alternative for
-// an off-center spot. Places (or, with an id, moves) a car or home; the banner shows its icon.
+// it returns to its height after. A right-click sets an off-center spot (data.js).
+// Places (or, with an id, moves) a car or home; the banner shows its icon.
 // A new one starts where you are, when the app knows (people add a car once they've parked).
 function startPlacing(editId = null, kind = 'car') {
   closeNameBox();
@@ -204,7 +205,7 @@ function openNameBox(lat, lon) {
   row.className = 'np-row';
   const input = document.createElement('input');
   input.type = 'text'; input.className = 'field';
-  input.placeholder = 'Car name'; input.maxLength = 32;
+  input.placeholder = 'Car name'; input.maxLength = CAR_NAME_MAX;
   input.setAttribute('aria-label', 'Car name');
   input.value = defaultCarName();
   const save = document.createElement('button');
@@ -371,6 +372,17 @@ function schedBlockHTML(id, header, lines, top = '', asOf = null) {
   return `${header ? `<div class="sec-label">${esc(header)}</div>` : ''}<div class="sec">${top}${body}</div>`;
 }
 
+// An address whose city is one of its region's (the item at `id`): the city in its own
+// span, which a Saved row hides (styles.css .ce-city); the item's page shows it all.
+function _addrHTML(addr, id) {
+  const item = cars.find(c => c.id === id) || homes.find(h => h.id === id);
+  const region = item && regionAt(item.lat, item.lon);
+  const city = Object.values(regions[region]?.cities || {}).find(n => addr.endsWith(`, ${n}`));
+  if (!city) return esc(addr);
+  const at = addr.length - city.length - 2;
+  return `${esc(addr.slice(0, at))}<span class="ce-city">${esc(addr.slice(at))}</span>`;
+}
+
 // A row of the Saved list (icon, name over address, verdict) that opens the item's page
 // (click, Enter or Space); `detail` shows on that page only.
 function itemCard({ id, kind, color, name, urgency, words, addr, detail }) {
@@ -384,7 +396,7 @@ function itemCard({ id, kind, color, name, urgency, words, addr, detail }) {
       <span class="ce-dot">${icon(kind)}</span>
       <span class="ce-text">
         <span class="ce-name">${esc(name)}</span>
-        <span class="ce-addr" contenteditable="false">${esc(addr)}</span>
+        <span class="ce-addr" contenteditable="false">${_addrHTML(addr, id)}</span>
       </span>
       ${urgency ? _statusHTML(urgency, words) : ''}
     </div>
@@ -598,7 +610,9 @@ function renderCarsPanel() {
         return moveCar(car, lat, lon);
       });
     });
-    entry.querySelector('.ce-side')?.addEventListener('click', e => {
+    const sideGroup = entry.querySelector('.ce-side');
+    if (sideGroup) radioTabs(sideGroup);
+    sideGroup?.addEventListener('click', e => {
       const b = e.target.closest('[data-side]');
       if (!b) return;
       car.side = b.dataset.side;
@@ -641,17 +655,25 @@ async function loadAlerts() {
   const got = await Promise.all([...byRegion].map(async ([region, it]) => {
     try {
       const res = await fetch('/api/alerts?' + new URLSearchParams({ lat: it.lat, lon: it.lon, region }));
-      return res.ok ? (await res.json()).alerts : [];
+      return res.ok ? (await res.json()).alerts.map(a => ({ ...a, region })) : [];
     } catch (_) { return []; }
   }));
   const seen = new Set();
   placeAlerts = got.flat().filter(a => !seen.has(a.title) && seen.add(a.title));
   updateSavedSummary();
 }
+// "until 6PM" today, else "until Tue 6PM", on the alert's region clock; an end at 00:00
+// is the midnight ending the day before ("until Mon midnight").
+function _alertUntil(a) {
+  const until = a.until ? new Date(a.until) : null;
+  if (!until || isNaN(until)) return '';
+  const end = regionNow(a.region, until), day = end.min === 0 ? BroomUrgency.addDays(end, -1) : end;
+  const today = BroomUrgency.dayKey(day) === BroomUrgency.dayKey(regionNow(a.region));
+  return ` until ${today ? '' : BroomUrgency.WEEKDAYS[BroomUrgency.weekday(day)] + ' '}${BroomUrgency.clockText(end.min)}`;
+}
 function _alertsHTML() {
   return placeAlerts.map(a => {
-    const until = a.until ? new Date(a.until) : null;
-    const when = until && !isNaN(until) ? ` until ${until.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '';
+    const when = _alertUntil(a);
     return `<div class="alert-line"><span class="urg-tomorrow">${icon('alert')}</span> <span><b>${esc(a.title)}</b>${esc(when)}`
          + (a.detail ? `<br><small>${esc(a.detail)}</small>` : '') + '</span></div>';
   }).join('');

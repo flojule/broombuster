@@ -18,7 +18,8 @@ uvicorn 127.0.0.1:8000        src/broombuster/api/app.py
   └─ /        frontend/ (index.html, js/, sw.js, tiles/, layers/, vendor/)
         │
         ├─ data/<city>.fgb        loaded at startup         data_loader.py, state.py
-        ├─ data/users.sqlite      accounts, members, passkeys, sessions  auth.py  (BB_DB)
+        ├─ users.sqlite           accounts, members, passkeys, sessions  auth.py  (BB_DB;
+        │                         host: /var/lib/broombuster, local: data/)
         └─ live feeds             511, weather, trash, tows  cached in memory;
                                   a failed source = "nothing known", never an error
 ```
@@ -107,28 +108,51 @@ GitHub Actions ci.yml     ruff · pytest · node --check frontend/js/*.js
   │  passes
   ▼
 Pi: broombuster-update.timer (every 2 min) ──▶ deploy/auto-update.sh
-  │   origin/main has a passing CI run, and is not in .deploy-bad
+  │   newest first-parent commit on origin/main with a finished CI run
+  │   (no run, e.g. [skip ci], or a cancelled one: its parent)
+  │   CI passed · not in .deploy-bad · signature verified (opt-in)
   ▼
-deploy/update.sh <sha>    git reset --hard · uv sync · systemctl restart broombuster
-  │
+deploy/update.sh <sha>    git reset --hard · uv sync (system Python)
+  │   └─ fails  ──▶ reset + sync previous sha, no restart, no mark (retried next run)
   ▼
-poll /health for 3 min
-  ├─ healthy      ──▶ rm .deploy-bad                          done
-  └─ not healthy  ──▶ reset to previous sha · write .deploy-bad (timer skips it)
+systemctl restart broombuster
+  ▼
+checks: /health within 3 min · then the new sha's deploy/smoke.sh:
+        POST /api/check finds a street in each region · / is the app page
+  ├─ all pass     ──▶ rm .deploy-bad                          done
+  └─ any failure  ──▶ redeploy previous sha · write .deploy-bad (timer skips it)
 ```
 
-`/health` answers only after every city is loaded. Logs: `journalctl -u broombuster -u broombuster-update`.
+`/health` answers only after every city is loaded; a revision without `deploy/smoke.sh` is checked by `/health`
+alone. `tests/test_deploy.py` runs the scripts against stubs and checks the smoke points. Logs:
+`journalctl -u broombuster -u broombuster-update`.
 
 ### One-time host setup
 
 1. `./deploy/install.sh`: writes the units from `deploy/`, creates `.env` (secrets, mode 600), and a sudoers rule
-   that lets the update timer restart the service and nothing else. Unit changes need this again.
-2. Cloudflare Zero Trust > Networks > Tunnels: create `broombuster`, run its install command on the host,
+   that lets the update timer restart the service and nothing else. Unit changes need this again. It pauses
+   the update timer while it runs and moves an existing `data/users.sqlite` to `/var/lib/broombuster/` (old
+   copy: `data/users.sqlite.bak`); it stops if both exist, or if `.env` sets `BB_DB` outside that directory.
+2. `gh auth login` with a fine-grained token: this repository only, Actions: read (and Contents: read for a
+   private repository). The update timer only reads CI results.
+3. Cloudflare Zero Trust > Networks > Tunnels: create `broombuster`, run its install command on the host,
    public hostname `broombuster.com` → `HTTP localhost:8000`.
-3. Set `BB_BASE_URL=https://broombuster.com` in `.env` and restart: this turns sign-in on. It is also
+4. Set `BB_BASE_URL=https://broombuster.com` in `.env` and restart: this turns sign-in on. It is also
    the passkey domain, so changing it orphans every passkey.
-4. GitHub: branch protection on `main` requires a PR and passing CI, since every commit on `main` is deployed.
-5. Cloudflare: SSL/TLS > Edge Certificates > enable HSTS.
+5. GitHub: branch protection on `main` requires a PR and passing CI, since every commit on `main` is deployed.
+6. Cloudflare: SSL/TLS > Edge Certificates > enable HSTS.
+
+### Signed commits (opt-in)
+
+With `git config broombuster.verifyCommits true` in the host checkout, auto-update deploys only commits that
+`git verify-commit` accepts; any other commit stops the deploy, and the running version stays.
+
+| Commit signed by | Host setup |
+|---|---|
+| GitHub (`web-flow`): PRs merged on github.com | `curl -fsSL https://github.com/web-flow.gpg \| gpg --import` |
+| An SSH key (pushed by hand) | `git config gpg.ssh.allowedSignersFile <file>` (format: `ssh-keygen(1)` ALLOWED SIGNERS) |
+
+Check once by hand: `sudo systemctl start broombuster-update`, then `journalctl -u broombuster-update -n 20`.
 
 ## 5. Security boundary
 
@@ -136,19 +160,25 @@ poll /health for 3 min
 Internet ──▶ Cloudflare ──▶ tunnel ──▶ 127.0.0.1:8000
                                        (no other route: port 8000 is never exposed)
 
-systemd unit (deploy/broombuster.service)
+deploy/broombuster.service (the app)
   ProtectHome=tmpfs    home is empty except:
-    repo         read-only
-    repo/data    writable
+    repo         read-only (data/ included)
     .claude      hidden
+  /var/lib/broombuster  writable: users.sqlite (BB_DB)
   no capabilities · no new privileges · PrivateDevices · RestrictAddressFamilies
+  SystemCallFilter=@system-service · MemoryMax=2G · TasksMax=256
+
+deploy/broombuster-update.service (deploys, runs the deployed commit's scripts)
+  ProtectSystem=strict · ProtectHome=read-only · PrivateTmp
+  writable: repo (and its .venv) · ~/.cache/uv · ~/.config/gh · ~/.local/state/gh · ~/.gnupg
+  no NoNewPrivileges: it restarts the app through sudo
 ```
 
-The app cannot read the host user's `gh` token, SSH keys or other credentials. After changing the unit,
+The app cannot read the host user's `gh` token, SSH keys or other credentials. After changing a unit,
 run `./deploy/install.sh` and check `sudo systemd-analyze security broombuster`.
 
-Content-Security-Policy is sent report-only. Set `BB_CSP=enforce` in `.env` and restart once the browser
-console shows no `Content-Security-Policy-Report-Only` message (`CSP` in `api/web.py`).
+Content-Security-Policy is enforced. `BB_CSP=report-only` in `.env` (and a restart) sends it as
+`Content-Security-Policy-Report-Only` instead, for debugging (`CSP` in `api/web.py`).
 
 ## 6. Caching
 
@@ -163,5 +193,5 @@ Purge the Cloudflare cache once after changing this.
 
 ## 7. Rate limits
 
-Per client IP (`LIMITS` in `api/web.py`). The IP is `CF-Connecting-IP`, validated. `BB_RATE_LIMIT=0` turns them off.
+Per client: an IPv4 address or an IPv6 /64 (`LIMITS` in `api/web.py`). The IP is `CF-Connecting-IP`, validated. `BB_RATE_LIMIT=0` turns them off.
 

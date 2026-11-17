@@ -3,6 +3,7 @@ center: {lat: 37.7652, lon: -122.2416}
 schema: alameda
 bbox: [37.73, -122.33, 37.79, -122.21]
 fgb_path: data/alameda/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
 holidays: data/holidays/alameda.yaml
 trash: {kind: weekly, holiday_rule: shift_week}   # ACI Alameda: no lookup, the user picks the day
 layers: [ev, markets]   # scripts/build_layers.py (layer_sources.py)

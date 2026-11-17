@@ -4,6 +4,7 @@ center: {lat: 37.7749, lon: -122.4194}
 schema: sf
 bbox: [37.70, -122.53, 37.84, -122.35]
 fgb_path: data/san_francisco/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
 holidays: data/holidays/san_francisco.yaml
 corrections: data/san_francisco/corrections.yaml
 trash: {kind: weekly, holiday_rule: shift_week}   # Recology: no lookup, the user picks the day

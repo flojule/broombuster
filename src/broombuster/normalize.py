@@ -81,6 +81,12 @@ def street_name(raw: str) -> str:
       "East 12th Street"     →  "EAST 12TH"
       "3rd St"               →  "3RD"
     """
+    # Steps 1-3 (_street_core), then 4. strip the trailing suffix
+    return _SUFFIX_RE.sub("", _street_core(raw)).strip()
+
+
+def _street_core(raw: str) -> str:
+    """street_name steps 1-3: upper case, no periods, leading directional spelled out."""
     if not isinstance(raw, str) or not raw.strip():
         return ""
     # 1. Uppercase + collapse whitespace
@@ -89,10 +95,7 @@ def street_name(raw: str) -> str:
     n = n.replace(".", "")
     n = _WHITESPACE_RE.sub(" ", n).strip()
     # 3. Normalize leading directional to full word
-    n = _DIR_PREFIX_RE.sub(lambda m: _DIR_EXPAND.get(m.group(1), m.group(1)) + " ", n)
-    # 4. Strip trailing suffix
-    n = _SUFFIX_RE.sub("", n).strip()
-    return n
+    return _DIR_PREFIX_RE.sub(lambda m: _DIR_EXPAND.get(m.group(1), m.group(1)) + " ", n)
 
 
 # User-friendly display form for street names.
@@ -208,6 +211,15 @@ def street_display(raw: str) -> str:
     return " ".join(parts)
 
 
+def street_name_typed(raw: str) -> str:
+    """street_name keeping the street type, abbreviated: "West 23rd Place" -> "WEST 23RD PL"
+    (keys streets that differ only by type, as Chicago's permit zones do)."""
+    toks = raw.upper().replace(".", " ").split() if isinstance(raw, str) else []
+    if len(toks) > 1 and toks[-1] in _SUFFIX_ABBR:
+        return f"{_street_core(' '.join(toks[:-1]))} {_SUFFIX_ABBR[toks[-1]].upper()}"
+    return _street_core(raw)
+
+
 # ── Time display ──────────────────────────────────────────────────────────────
 
 # Matches time ranges regardless of separator style or colon presence:
@@ -295,19 +307,15 @@ def pretty_ordinals(text: str) -> str:
 
 # ── House number ──────────────────────────────────────────────────────────────
 
-_NUM_SEP_RE = re.compile(r"[-;,/\s]")
+_HOUSE_NUM_RE = re.compile(r"\s*(\d+)")
 
 
 def house_number(raw: str) -> int | None:
     """
-    Parse the first integer from a house-number field.
+    Parse the leading integer of a house-number field.
 
-    Handles ranges like "1703;1711", "6321-6323", "100 A", plain "2211".
-    Returns None if no integer can be extracted.
+    Handles ranges like "1703;1711", "6321-6323", "100 A", "1234A", plain "2211".
+    Returns None if the field does not start with a digit.
     """
-    if not raw:
-        return None
-    try:
-        return int(_NUM_SEP_RE.split(raw.strip())[0])
-    except (ValueError, TypeError):
-        return None
+    m = _HOUSE_NUM_RE.match(raw) if isinstance(raw, str) else None
+    return int(m[1]) if m else None

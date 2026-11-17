@@ -12,6 +12,7 @@ from broombuster import holidays, normalize, schedule, trash
 from broombuster.cities import REGIONS, city_for_point, region_for_point
 
 DAYS = 60
+TRASH_LOOKUPS = 3  # uncached ReCollect lookups per feed; other homes use cached answers
 PRODID = "-//BroomBuster//Sweeping calendar//EN"
 
 
@@ -183,13 +184,19 @@ def build(
                         spot.address,
                     )
 
+    lookups = 0  # trash answers fetched (not cached) so far, at most TRASH_LOOKUPS
     for i, home in enumerate(prefs.get("homes") or []):
         region = _region_of(home)
         if region is None:
             continue
         city = city_for_point(home["lat"], home["lon"], region)
         today = now.astimezone(ZoneInfo(REGIONS[region]["tz"])).date()
-        picks = trash.pickups(city, home.get("address") or "", today, home.get("collection_day"))
+        args = (city, home.get("address") or "", today, home.get("collection_day"))
+        picks = trash.pickups(*args, network=False)
+        if picks is None and lookups < TRASH_LOOKUPS:
+            lookups += 1
+            picks = trash.pickups(*args)
+        picks = picks or {}
         label = "Home" if len(prefs.get("homes") or []) == 1 else f"Home {i + 1}"
         by_day: dict[str, list[str]] = {}
         for stream, dates in picks.items():
@@ -209,8 +216,8 @@ def build(
 
     for city, region in ({} if first_only else cities_seen).items():
         today = now.astimezone(ZoneInfo(REGIONS[region]["tz"])).date()
+        last = today + datetime.timedelta(days=days)
         for day, h in sorted(holidays.for_city(city).items()):
-            last = today + datetime.timedelta(days=DAYS)
             kind = next((k for k in _NO_SWEEP if k in h["suspends"]), None)
             if kind and today <= day <= last:
                 lines += [

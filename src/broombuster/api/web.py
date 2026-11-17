@@ -72,10 +72,25 @@ def client_ip(request: Request) -> str:
         return peer
 
 
+def client_key(ip: str) -> str:
+    """The client a limit counts against: an IPv4 address, or an IPv6 address's /64
+    (one home or phone holds a whole /64)."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 4:
+        return ip
+    if addr.ipv4_mapped:
+        return str(addr.ipv4_mapped)
+    return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+
+
 # ── Rate limits ───────────────────────────────────────────────────────────────
 # (path prefix, requests per minute per client). /address, /geocode and /locate also
 # call third-party services, so they get less.
 LIMITS = (
+    ("/api/next-sweep", 30),
     ("/api/address", 20),
     ("/api/geocode", 20),
     ("/api/locate", 20),
@@ -95,19 +110,23 @@ _WINDOW_S = 60
 
 
 class RateLimiter:
-    """Sliding-window counter per (client, bucket)."""
+    """Sliding-window counter per (client, bucket), over `window_s` seconds."""
 
-    def __init__(self) -> None:
+    def __init__(self, window_s: float = _WINDOW_S) -> None:
+        self._window = window_s
         self._hits: dict[tuple[str, str], deque[float]] = {}
         self._lock = threading.Lock()
+        self._pruned = time.monotonic()
 
     def allow(self, client: str, bucket: str, limit: int) -> bool:
         now = time.monotonic()
         with self._lock:
-            if len(self._hits) > 10_000:  # bound memory: drop idle clients
-                self._hits = {k: q for k, q in self._hits.items() if now - q[-1] < _WINDOW_S}
+            # Bound memory: drop idle clients, at most once per window.
+            if len(self._hits) > 10_000 and now - self._pruned > self._window:
+                self._hits = {k: q for k, q in self._hits.items() if now - q[-1] < self._window}
+                self._pruned = now
             q = self._hits.setdefault((client, bucket), deque())
-            while q and now - q[0] > _WINDOW_S:
+            while q and now - q[0] > self._window:
                 q.popleft()
             if len(q) >= limit:
                 return False
@@ -121,6 +140,15 @@ RATE_LIMIT = config.rate_limit_enabled()  # tests turn it off
 
 def _limit_for(path: str) -> tuple[str, int] | None:
     return next(((p, n) for p, n in LIMITS if path.startswith(p)), None)
+
+
+PHONE_PATH = "/api/cars/location"  # a phone's report: every refusal carries a `summary`
+
+
+def refusal(path: str, status: int, detail: str, headers: dict | None = None) -> JSONResponse:
+    """An error body; on the phone path also its `summary`, which the phone shows."""
+    body = {"detail": detail, **({"summary": detail} if path == PHONE_PATH else {})}
+    return JSONResponse(body, status, headers=headers)
 
 
 # ── Request size ──────────────────────────────────────────────────────────────
@@ -138,13 +166,13 @@ class BodyLimit:
         if scope["type"] == "http":
             h = dict(scope["headers"])
             if b"transfer-encoding" in h:
-                refusal = (411, "Send a Content-Length.")
+                refused = (411, "Send a Content-Length.")
             elif int(h.get(b"content-length", b"0") or 0) > MAX_BODY_BYTES:
-                refusal = (413, "Request too large.")
+                refused = (413, "Request too large.")
             else:
-                refusal = None
-            if refusal:
-                await JSONResponse({"detail": refusal[1]}, refusal[0])(scope, receive, send)
+                refused = None
+            if refused:
+                await refusal(scope["path"], *refused)(scope, receive, send)
                 return
         await self.app(scope, receive, send)
 
@@ -175,15 +203,40 @@ _sw_js: str | None = None
 _module_js: str | None = None
 
 
-def _asset_version() -> str:
-    """Hash of every script and stylesheet: changes exactly when one does."""
+def _files_hash(files: list[Path]) -> str:
     h = hashlib.sha256()
-    for f in sorted(
-        [*_FRONTEND.glob("js/*.js"), *_FRONTEND.glob("vendor/*"), _FRONTEND / "styles.css"]
-    ):
-        h.update(f.name.encode())
+    for f in sorted(files):
+        h.update(str(f.relative_to(_FRONTEND)).encode())
         h.update(f.read_bytes())
     return h.hexdigest()[:12]
+
+
+def _assets() -> list[Path]:
+    return [*_FRONTEND.glob("js/*.js"), *_FRONTEND.glob("vendor/*"), _FRONTEND / "styles.css"]
+
+
+def _asset_version() -> str:
+    """Hash of every script and stylesheet: changes exactly when one does."""
+    return _files_hash(_assets())
+
+
+# The app shell's files that are cached offline under their plain URL.
+_SHELL_FILES = (
+    "manifest.json",
+    "icon-192.png",
+    "icon-512.png",
+    "apple-touch-icon.png",
+    "favicon-32.png",
+    "icon.svg",
+    "icon-maskable-512.png",
+)
+
+
+def _shell_version() -> str:
+    """Hash of the assets, index.html and the shell files: the offline cache's name."""
+    return _files_hash(
+        [*_assets(), _FRONTEND / "index.html", *(_FRONTEND / f for f in _SHELL_FILES)]
+    )
 
 
 def index_response() -> HTMLResponse:
@@ -210,21 +263,15 @@ def module_response() -> Response:
 
 
 def service_worker_response() -> Response:
-    """sw.js with the asset hash as its cache name (so every asset change installs a
-    new worker) and the server's API path list."""
+    """sw.js with the shell hash as its cache name (so every change to a cached file
+    installs a new worker) and the server's API path list."""
     global _sw_js
     if _sw_js is None:
         v = _asset_version()
         shell = [
             "/",
             f"/styles.css?v={v}",
-            "/manifest.json",
-            "/icon-192.png",
-            "/icon-512.png",
-            "/apple-touch-icon.png",
-            "/favicon-32.png",
-            "/icon.svg",
-            "/icon-maskable-512.png",
+            *(f"/{f}" for f in _SHELL_FILES),
             *(  # as the page asks for them (index_response), so each downloads once
                 f"/{f.relative_to(_FRONTEND)}?v={v}"
                 for f in sorted(
@@ -239,7 +286,7 @@ def service_worker_response() -> Response:
         _sw_js = (
             (_FRONTEND / "sw.js")
             .read_text()
-            .replace("__VERSION__", _asset_version())
+            .replace("__VERSION__", _shell_version())
             .replace("__API_PATHS__", json.dumps(API_PATHS))
             .replace("__SHELL__", json.dumps(shell))
         )
@@ -278,12 +325,8 @@ async def http_middleware(request: Request, call_next):
     path = request.url.path
     shown = "/api/calendar/…" if path.startswith("/api/calendar/") else path  # a feed's secret
     rule = _limit_for(path) if request.method != "OPTIONS" else None
-    if rule and RATE_LIMIT and not _limiter.allow(ip, rule[0], rule[1]):
-        response = JSONResponse(
-            {"detail": "Too many requests."},
-            status_code=429,
-            headers={"Retry-After": str(_WINDOW_S)},
-        )
+    if rule and RATE_LIMIT and not _limiter.allow(client_key(ip), rule[0], rule[1]):
+        response = refusal(path, 429, "Too many requests.", {"Retry-After": str(_WINDOW_S)})
     else:
         try:
             response = await call_next(request)
@@ -294,6 +337,8 @@ async def http_middleware(request: Request, call_next):
             )
             response = JSONResponse({"detail": "Internal error."}, status_code=500)
     response.headers.update(SECURITY_HEADERS)
+    if config.base_url().startswith("https://"):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
     response.headers[
         "Content-Security-Policy" if CSP_ENFORCE else "Content-Security-Policy-Report-Only"
     ] = CSP

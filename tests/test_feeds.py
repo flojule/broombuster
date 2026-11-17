@@ -2,6 +2,9 @@
 calendar feed. No network: every fetch is monkeypatched."""
 
 import datetime
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import pytest
@@ -99,6 +102,98 @@ def test_oakland_closures_dates(monkeypatch):
     assert feeds._when("2026-10-31", "2026-10-31", "bay_area") == "Sat Oct 31"
 
 
+def test_oakland_closures_use_the_local_date(monkeypatch):
+    seen = []
+    monkeypatch.setattr(feeds, "get_json", lambda url, **p: seen.append(p["where"]) or {})
+    feeds._oakland_closures(datetime.datetime(2026, 10, 18, 2, tzinfo=datetime.UTC))
+    assert seen == ["End_date >= DATE '2026-10-17'"]  # Sat Oct 17, 7 PM PDT
+
+
+def test_511_naive_dates_and_a_failing_source(monkeypatch):
+    """A WZDx date without a zone is local time; a source that raises gives nothing."""
+
+    def zone(end):
+        props = {"start_date": "2026-10-16T08:00:00", "end_date": end, "core_details": {}}
+        return {"type": "Feature", "geometry": _LINE, "properties": props}
+
+    wzdx = {"features": [zone("2026-10-17T12:00:00"), zone("2026-10-17T10:00:00")]}
+    monkeypatch.setattr(feeds.config, "api_511_key", lambda: "k")
+    monkeypatch.setattr(feeds, "get_json", lambda url, **p: wzdx)
+
+    def broken(now):
+        raise TypeError("bad feed")
+
+    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (broken, feeds._511_work_zones))
+    got = feeds.closures("bay_area", NOW)  # NOW is 11 AM PDT
+    assert [f["properties"]["end"] for f in got] == ["2026-10-17T12:00:00"]
+
+
+def test_ttl_cache_fetches_once_for_concurrent_callers():
+    c, gate, calls = feeds.TTLCache(), threading.Event(), []
+
+    def fetch():
+        calls.append(1)
+        gate.wait(5)
+        return "v"
+
+    with ThreadPoolExecutor(8) as pool:
+        futs = [pool.submit(c.get, "k", 60, fetch) for _ in range(8)]
+        time.sleep(0.2)  # every caller is waiting on the first fetch
+        gate.set()
+        assert [f.result() for f in futs] == ["v"] * 8
+    assert len(calls) == 1
+
+
+def test_closures_wait_is_bounded(monkeypatch):
+    gate = threading.Event()
+
+    def slow(now):
+        gate.wait(5)
+        return []
+
+    def fast(now):
+        return [{"type": "Feature", "geometry": _LINE, "properties": {}}]
+
+    monkeypatch.setattr(feeds, "TIMEOUT_S", 0.3)
+    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (slow, slow, fast))
+    t0 = time.monotonic()
+    got = feeds.closures("bay_area", NOW)
+    gate.set()
+    assert len(got) == 1 and time.monotonic() - t0 < 2
+
+
+def test_a_hung_source_does_not_starve_the_others(monkeypatch):
+    """Many requests during one hung fetch: it holds one pool worker; the rest answer."""
+    gate, calls = threading.Event(), []
+
+    def hung(now):
+        calls.append(1)
+        gate.wait(5)
+        return []
+
+    def fast(now):
+        return [{"type": "Feature", "geometry": _LINE, "properties": {}}]
+
+    monkeypatch.setattr(feeds, "TIMEOUT_S", 0.3)
+    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (hung, fast))
+    try:
+        with ThreadPoolExecutor(20) as callers:
+            got = list(callers.map(lambda _: feeds.closures("bay_area", NOW), range(20)))
+    finally:
+        gate.set()
+    assert [len(g) for g in got] == [1] * 20 and len(calls) == 1
+
+
+def test_ttl_cache_waiter_gives_up_with_the_failure_result():
+    c, gate = feeds.TTLCache(wait_s=0.1), threading.Event()
+    with ThreadPoolExecutor(1) as pool:
+        owner = pool.submit(c.get, "k", 60, lambda: gate.wait(5) and "v")
+        time.sleep(0.05)
+        assert c.get("k", 60, lambda: "again") is None  # waited 0.1 s, did not refetch
+        gate.set()
+        assert owner.result() == "v"
+
+
 def test_chicago_vehicle(monkeypatch):
     seen = []
 
@@ -136,8 +231,20 @@ def test_chicago_permit_zone(monkeypatch):
         "_zones",
         pd.DataFrame(
             [
-                {"street": "NORTH WOLCOTT", "low": 1600, "high": 1688, "side": "E", "zone": "154"},
-                {"street": "NORTH WOLCOTT", "low": 1601, "high": 1699, "side": "O", "zone": "155"},
+                {
+                    "street": "NORTH WOLCOTT AVE",
+                    "low": 1600,
+                    "high": 1688,
+                    "side": "E",
+                    "zone": "154",
+                },
+                {
+                    "street": "NORTH WOLCOTT AVE",
+                    "low": 1601,
+                    "high": 1699,
+                    "side": "O",
+                    "zone": "155",
+                },
             ]
         ),
     )
@@ -147,6 +254,38 @@ def test_chicago_permit_zone(monkeypatch):
     assert rule["label"] == "Permit zone 154"
     monkeypatch.setattr(gps, "address_parts", lambda lat, lon, network=True: None)
     assert feeds.chicago_permit_zone(41.9, -87.67) == []
+
+
+def test_chicago_permit_zone_row_without_street_type(monkeypatch):
+    """A typed row wins; a row without a type ("NORTH KILDARE") is the fallback."""
+    rows = [
+        {"street": "NORTH KILDARE", "low": 3201, "high": 3299, "side": "O", "zone": "1"},
+        {"street": "NORTH KILDARE AVE", "low": 3201, "high": 3255, "side": "O", "zone": "2"},
+    ]
+    monkeypatch.setattr(feeds, "_zones", pd.DataFrame(rows))
+
+    def zones(number):
+        addr = {"house_number": number, "road": "North Kildare Avenue"}
+        monkeypatch.setattr(gps, "address_parts", lambda lat, lon, network=True: addr)
+        return [r["label"] for r in feeds.chicago_permit_zone(41.94, -87.73)]
+
+    assert zones("3255") == ["Permit zone 2"]
+    assert zones("3257") == ["Permit zone 1"]
+
+
+@pytest.mark.parametrize(
+    ("number", "road", "zone"),
+    [
+        ("2610", "West 23rd Place", "1201"),  # W 23rd St 2600-2652 is zone 567
+        ("2610", "West 23rd Street", "567"),
+        ("2610A", "West 23rd Place", "1201"),
+    ],
+)
+def test_chicago_permit_zone_by_street_type(monkeypatch, number, road, zone):
+    monkeypatch.setattr(feeds, "_zones", None)  # the committed table
+    addr = {"house_number": number, "road": road}
+    monkeypatch.setattr(gps, "address_parts", lambda lat, lon, network=True: addr)
+    assert [r["label"] for r in feeds.chicago_permit_zone(41.85, -87.69)] == [f"Permit zone {zone}"]
 
 
 def test_rules_without_geocode_never_ask_nominatim(app_client, monkeypatch):
@@ -204,6 +343,10 @@ def test_feed_events_holidays_and_format(monkeypatch):
     assert "sweep-c1-20261105" not in ics  # the odd side is not the car's
     assert "UID:trash-h1-20261127" in ics  # Thanksgiving week: Thu -> Fri
     assert ics.count("BEGIN:VALARM") >= 8
+    week = calfeed.build(
+        prefs, _spot, now=datetime.datetime(2026, 11, 1, 12, tzinfo=datetime.UTC), days=7
+    )
+    assert "Veterans Day" not in week  # Nov 11 is past the 7 days
 
 
 def test_feed_line_folding_keeps_utf8():

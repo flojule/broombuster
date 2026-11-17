@@ -21,6 +21,7 @@ const URGENCY = {
 const DEFAULT_CENTER = { lat: 38, lon: -96, zoom: 4 };  // US overview — shown only if no car/IP data
 const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16','#6366f1','#22d3ee'];
 const HOME_COLOR = '#15803d';
+const CAR_NAME_MAX = 32;  // characters in a car name (the name box and Rename)
 // A car keeps the color it was given (saved with it), so removing one never repaints the others.
 function carColor(car) { return car.color || CAR_COLORS[0]; }
 function nextCarColor() {
@@ -77,6 +78,9 @@ async function geocode(q, region) {
 const placeRules = {};
 const _rulesAt = {};  // id -> "lat,lon@fetch time slot" the rules are for
 const RULES_TTL_MS = 30 * 60 * 1000;
+const START_WAIT_MS = 8000;  // the longest startup waits on /api/cities or /api/me (a captive portal can hang)
+// The item moved (even to the same spot): its rules are fetched afresh.
+function forgetRules(id) { delete placeRules[id]; delete _rulesAt[id]; }
 async function loadRules(item, kind) {
   const at = `${item.lat},${item.lon}@${Math.floor(Date.now() / RULES_TTL_MS)}`;
   if (_rulesAt[item.id] === at) return false;
@@ -84,13 +88,16 @@ async function loadRules(item, kind) {
   const q = new URLSearchParams({ lat: item.lat, lon: item.lon, kind });
   const region = regionAt(item.lat, item.lon);
   if (region) q.set('region', region);
+  // A failure forgets only its own request (a newer one may be in flight).
+  const fail = () => { if (_rulesAt[item.id] === at) delete _rulesAt[item.id]; return false; };
   try {
     const res = await fetch('/api/rules?' + q);
-    if (!res.ok) { delete _rulesAt[item.id]; return false; }
+    if (!res.ok) return fail();
+    const rules = (await res.json()).rules || [];
     if (_rulesAt[item.id] !== at) return false;  // moved meanwhile
-    placeRules[item.id] = (await res.json()).rules || [];
+    placeRules[item.id] = rules;
     return true;
-  } catch (_) { delete _rulesAt[item.id]; return false; }
+  } catch (_) { return fail(); }
 }
 
 // An item page's section of rules: label, what it means, and the source's date.
@@ -148,22 +155,26 @@ async function loadSchedule(id, store, request, onError) {
 }
 
 // el.startEdit() edits it in place (from a menu), while canEdit(); Enter commits, Escape
-// or empty/unchanged restores original().
-function makeEditable(el, original, onCommit, canEdit = () => true) {
+// or empty/unchanged restores original(). While editing it is a textbox named `label`.
+function makeEditable(el, original, onCommit, canEdit = () => true, label = 'Address') {
+  const restore = () => { if (el.textContent !== original()) el.textContent = original(); };
   el.startEdit = () => {
     if (!canEdit()) return;
-    el.contentEditable = 'true'; el.focus();
+    el.contentEditable = 'true';
+    el.setAttribute('role', 'textbox'); el.setAttribute('aria-label', label);
+    el.focus();
     const r = document.createRange(); r.selectNodeContents(el);
     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
   };
   el.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
-    if (e.key === 'Escape') { e.stopPropagation(); el.textContent = original(); el.blur(); }  // cancels the edit only
+    if (e.key === 'Escape') { e.stopPropagation(); restore(); el.blur(); }  // cancels the edit only
   });
   el.addEventListener('blur', () => {
     el.contentEditable = 'false';
+    el.removeAttribute('role'); el.removeAttribute('aria-label');
     const v = el.textContent.trim();
-    if (!v || v === original()) { el.textContent = original(); return; }
+    if (!v || v === original()) { restore(); return; }
     onCommit(v);
   });
 }

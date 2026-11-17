@@ -269,55 +269,27 @@ def test_polygon_containment_returns_zone():
 
 
 # ---------------------------------------------------------------------------
-# city_key filter
+# Border street drawn by two cities
 # ---------------------------------------------------------------------------
 
 
-def test_city_key_filter_skips_wrong_city():
-    # Two overlapping lines, each tagged with a different city. Resolver
-    # with city_key="oakland" must ignore the SF-tagged one even if closer.
-    near = LineString([(0, 0), (100, 0)])  # 5 m from car (SF, should be skipped)
-    far = LineString([(0, 50), (100, 50)])  # 45 m from car (oakland, pick this)
-    rows = [
-        {
-            "geometry": near,
-            "STREET_NAME": "SF ST",
-            "STREET_DISPLAY": "SF St",
-            "STREET_KEY": "SFST",
-            "L_F_ADD": 100,
-            "L_T_ADD": 198,
-            "R_F_ADD": 101,
-            "R_T_ADD": 199,
-            "DAY_EVEN": None,
-            "DAY_ODD": None,
-            "DESC_EVEN": "",
-            "DESC_ODD": "",
-            "TIME_EVEN": "",
-            "TIME_ODD": "",
-            "_city": "san_francisco",
-        },
-        {
-            "geometry": far,
-            "STREET_NAME": "OAK ST",
-            "STREET_DISPLAY": "Oak St",
-            "STREET_KEY": "OAK",
-            "L_F_ADD": 100,
-            "L_T_ADD": 198,
-            "R_F_ADD": 101,
-            "R_T_ADD": 199,
-            "DAY_EVEN": None,
-            "DAY_ODD": None,
-            "DESC_EVEN": "",
-            "DESC_ODD": "",
-            "TIME_EVEN": "",
-            "TIME_ODD": "",
-            "_city": "oakland",
-        },
-    ]
-    gdf = _gdf_from_rows(rows)
-    car_lon, car_lat = _ll(50.0, 5.0)
-    resolved = resolve_car_segment(gdf, car_lat, car_lon, city_key="oakland", max_distance_m=60.0)
-    assert resolved.street_name == "OAK ST"
+@pytest.mark.parametrize(("twin_y", "city"), [(-3.0, "berkeley"), (-8.0, "oakland")])
+def test_border_twin_only_within_max_distance(twin_y, city):
+    # The nearest line (Oakland, unswept) is 35 m off; Berkeley's swept twin wins only in range.
+    def row(y, city, day):
+        return {
+            "geometry": LineString([(0, y), (100, y)]),
+            "STREET_NAME": "WOOLSEY ST",
+            "STREET_KEY": "WOOLSEY",
+            "DAY_EVEN": day,
+            "DAY_ODD": day,
+            "_city": city,
+        }
+
+    gdf = _gdf_from_rows([row(0.0, "oakland", "N"), row(twin_y, "berkeley", "M1")])
+    car_lon, car_lat = _ll(50.0, 35.0)
+    resolved = resolve_car_segment(gdf, car_lat, car_lon, max_distance_m=40.0)
+    assert resolved.segment["_city"] == city
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +328,8 @@ def test_oakland_known_coord_snaps_to_chestnut(bay_area_3857):
 def test_union_keeps_resolved_schedule(bay_area_3857, lat, lon, city):
     from broombuster import analysis
 
-    r = resolve_car_segment(bay_area_3857, lat, lon, city_key=city, max_distance_m=50.0)
+    r = resolve_car_segment(bay_area_3857, lat, lon, max_distance_m=50.0)
+    assert r.segment["_city"] == city
     even, odd = analysis.schedules_for_all_matching_rows(bay_area_3857, r)
     for side, union in ((0, even), (1, odd)):
         own = analysis.get_schedule(r.segment, side)
@@ -364,5 +337,5 @@ def test_union_keeps_resolved_schedule(bay_area_3857, lat, lon, city):
 
 
 def test_midblock_snaps_to_street(bay_area_3857):
-    r = resolve_car_segment(bay_area_3857, 37.821326, -122.280705, city_key="oakland")
+    r = resolve_car_segment(bay_area_3857, 37.821326, -122.280705)
     assert r.street_name.upper().startswith("CHESTNUT")

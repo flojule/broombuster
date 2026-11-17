@@ -42,6 +42,8 @@ from webauthn.helpers.structs import (
 
 from broombuster import config
 
+from . import web
+
 log = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -52,7 +54,11 @@ _PASSKEY_TTL_S = 300
 _INVITE_TTL_S = 7 * 86400
 _MAX_MEMBERS = 10  # people per account
 _MAX_ACCOUNTS = 10_000  # all accounts together, so the database cannot grow without bound
+_IDLE_ACCOUNT_S = 30 * 86400  # an empty account nobody signed in to for this long goes
+_SIGNUPS_PER_DAY = 20  # account sign-ups started per client (IPv4 address or IPv6 /64)
+_MAX_SESSIONS = 20  # signed-in devices per member; the least recently used goes
 _MAX_PENDING_PASSKEYS = 1000  # sign-ins in progress, all clients together
+_MAX_PENDING_PER_CLIENT = 5  # sign-ins in progress per client; the oldest goes
 _INVITE_PREFIX = "bbi_"
 _TOKEN_PREFIX = "bbc_"  # noqa: S105 (a prefix, not a password)  # phone: one car of one account
 _CAL_PREFIX = "bbk_"  # calendar feed: one account
@@ -84,11 +90,13 @@ def check_config() -> bool:
 # ── Storage ───────────────────────────────────────────────────────────────────
 _SCHEMA = (
     """CREATE TABLE IF NOT EXISTS accounts (
-        id TEXT PRIMARY KEY, prefs TEXT, created_at INTEGER NOT NULL)""",
+        id TEXT PRIMARY KEY, prefs TEXT, created_at INTEGER NOT NULL,
+        prefs_rev INTEGER NOT NULL DEFAULT 0)""",
     """CREATE TABLE IF NOT EXISTS members (
         id TEXT PRIMARY KEY,
         account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-        name TEXT NOT NULL, created_at INTEGER NOT NULL)""",
+        name TEXT NOT NULL, created_at INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL DEFAULT 0)""",
     """CREATE TABLE IF NOT EXISTS passkeys (
         credential_id TEXT PRIMARY KEY,
         member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
@@ -135,6 +143,11 @@ def init_db() -> None:
             _drop_google_schema(db)
         for stmt in _SCHEMA:
             db.execute(stmt)
+        if "prefs_rev" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:
+            db.execute("ALTER TABLE accounts ADD COLUMN prefs_rev INTEGER NOT NULL DEFAULT 0")
+        if "last_seen" not in {r["name"] for r in db.execute("PRAGMA table_info(members)")}:
+            db.execute("ALTER TABLE members ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0")
+            db.execute("UPDATE members SET last_seen = ?", (int(time.time()),))  # seen: now
 
 
 def _hash(token: str) -> str:
@@ -165,12 +178,18 @@ def _start_session(resp: Response, member_id: str, base: str) -> None:
             "INSERT INTO sessions (token_hash, expires_at, member_id) VALUES (?, ?, ?)",
             (_hash(token), now + _SESSION_TTL_S, member_id),
         )
+        db.execute(
+            "DELETE FROM sessions WHERE member_id = ? AND token_hash NOT IN (SELECT token_hash"
+            " FROM sessions WHERE member_id = ? ORDER BY expires_at DESC LIMIT ?)",
+            (member_id, member_id, _MAX_SESSIONS),
+        )
+        db.execute("UPDATE members SET last_seen = ? WHERE id = ?", (now, member_id))
     _set_cookie(resp, _SESSION_COOKIE, token, _SESSION_TTL_S, base, "/")
 
 
 def _renew_session(request: Request, response: Response) -> None:
     """Push a session's end back to _SESSION_TTL_S from now (at most daily): a session
-    in use never runs out."""
+    in use never runs out. Its member's last_seen moves with it."""
     token, now = request.cookies.get(_SESSION_COOKIE), int(time.time())
     base = _base()
     if not token or base is None:
@@ -181,6 +200,12 @@ def _renew_session(request: Request, response: Response) -> None:
             " AND expires_at < ?",
             (now + _SESSION_TTL_S, _hash(token), now, now + _SESSION_TTL_S - 86400),
         )
+        if cur.rowcount:
+            db.execute(
+                "UPDATE members SET last_seen = ?"
+                " WHERE id = (SELECT member_id FROM sessions WHERE token_hash = ?)",
+                (now, _hash(token)),
+            )
     if cur.rowcount:
         _set_cookie(response, _SESSION_COOKIE, token, _SESSION_TTL_S, base, "/")
 
@@ -223,19 +248,43 @@ def _member_count(db: sqlite3.Connection, account_id: str) -> int:
     ).fetchone()[0]
 
 
+def _prune_idle_accounts(db: sqlite3.Connection, now: int) -> None:
+    """Delete the accounts nobody uses: no cars or homes, no second member, no pending
+    invite, and no member seen (signed in or a session used) for _IDLE_ACCOUNT_S.
+    Prefs that are not valid JSON keep their account."""
+    cutoff = now - _IDLE_ACCOUNT_S
+    cur = db.execute(
+        "DELETE FROM accounts WHERE created_at < ?"
+        " AND CASE WHEN prefs IS NULL THEN 1 WHEN json_valid(prefs)"
+        " THEN json_array_length(prefs, '$.cars') = 0 AND json_array_length(prefs, '$.homes') = 0"
+        " ELSE 0 END"
+        " AND id NOT IN (SELECT account_id FROM members GROUP BY account_id HAVING COUNT(*) > 1)"
+        " AND id NOT IN (SELECT account_id FROM invites WHERE expires_at > ?)"
+        " AND id NOT IN (SELECT account_id FROM members WHERE last_seen >= ?)",
+        (cutoff, now, cutoff),
+    )
+    if cur.rowcount:
+        log.info("deleted %d idle empty accounts", cur.rowcount)
+
+
 def _add_member(db: sqlite3.Connection, member_id: str, account_id: str | None, name: str) -> None:
     """A new member, in `account_id` if given, else in a new account."""
     now = int(time.time())
     if account_id is None:
-        if db.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] >= _MAX_ACCOUNTS:
+        _prune_idle_accounts(db, now)
+        count = db.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+        if count >= _MAX_ACCOUNTS:
+            log.warning("sign-up refused: %d accounts, the cap", count)
             raise HTTPException(503, "Sign-up is closed for now.")
+        if count + 1 >= 0.9 * _MAX_ACCOUNTS:
+            log.warning("%d of %d accounts in use", count + 1, _MAX_ACCOUNTS)
         account_id = secrets.token_urlsafe(16)
         db.execute(
             "INSERT INTO accounts (id, prefs, created_at) VALUES (?, NULL, ?)", (account_id, now)
         )
     db.execute(
-        "INSERT INTO members (id, account_id, name, created_at) VALUES (?, ?, ?, ?)",
-        (member_id, account_id, name, now),
+        "INSERT INTO members (id, account_id, name, created_at, last_seen) VALUES (?, ?, ?, ?, ?)",
+        (member_id, account_id, name, now, now),
     )
 
 
@@ -269,22 +318,37 @@ def logout(request: Request):
     return resp
 
 
+@router.post("/auth/logout-everywhere")
+def logout_everywhere(user: sqlite3.Row = Depends(_signed_in_mutation)):
+    """Sign this person out on every device; their passkeys stay."""
+    with closing(_connect()) as db, db:
+        db.execute("DELETE FROM sessions WHERE member_id = ?", (user["id"],))
+    resp = Response(status_code=204)
+    resp.delete_cookie(_SESSION_COOKIE, path="/")
+    return resp
+
+
 # ── Passkeys (WebAuthn) ───────────────────────────────────────────────────────
 # Two ceremonies: create an account (or join one with an invite), and sign in. Each
 # options call parks its challenge here under a random key sent in a cookie; the verify
 # call takes it out, so a challenge answers once and only within _PASSKEY_TTL_S.
 _challenges: dict[str, dict] = {}
 _challenges_lock = threading.Lock()
+_signups = web.RateLimiter(86400)  # new accounts per client per day
 
 
-def _options_response(options, base: str, state: dict) -> Response:
+def _options_response(request: Request, options, base: str, state: dict) -> Response:
     key, now = secrets.token_urlsafe(16), time.time()
+    client = web.client_key(web.client_ip(request))
     with _challenges_lock:
         for k in [k for k, v in _challenges.items() if v["expires"] < now]:
             del _challenges[k]
+        mine = [k for k, v in _challenges.items() if v["client"] == client]  # oldest first
+        for k in mine[: max(0, len(mine) - _MAX_PENDING_PER_CLIENT + 1)]:
+            del _challenges[k]
         if len(_challenges) >= _MAX_PENDING_PASSKEYS:
             raise HTTPException(429, "Too many sign-ins in progress. Try again in a minute.")
-        _challenges[key] = {**state, "expires": now + _PASSKEY_TTL_S}
+        _challenges[key] = {**state, "client": client, "expires": now + _PASSKEY_TTL_S}
     resp = Response(options_to_json(options), media_type="application/json")
     resp.headers["Cache-Control"] = "no-store"
     _set_cookie(resp, _PASSKEY_COOKIE, key, _PASSKEY_TTL_S, base, "/auth/passkey")
@@ -324,6 +388,11 @@ def passkey_register_options(request: Request, body: NewPasskey):
     name = body.name.strip()
     if not name:
         raise HTTPException(422, "Give your name.")
+    invite = _valid_invite(body.invite)
+    # Before the passkey is made, so a refusal never leaves one the server doesn't know.
+    client = web.client_key(web.client_ip(request))
+    if not invite and web.RATE_LIMIT and not _signups.allow(client, "signup", _SIGNUPS_PER_DAY):
+        raise HTTPException(429, "Too many new accounts from here today. Try again tomorrow.")
     member_id = secrets.token_urlsafe(16)
     options = generate_registration_options(
         rp_id=_rp_id(base),
@@ -334,6 +403,7 @@ def passkey_register_options(request: Request, body: NewPasskey):
         authenticator_selection=_RESIDENT_KEY,
     )
     return _options_response(
+        request,
         options,
         base,
         {
@@ -341,7 +411,7 @@ def passkey_register_options(request: Request, body: NewPasskey):
             "challenge": options.challenge,
             "member_id": member_id,
             "name": name,
-            "invite": _valid_invite(body.invite),
+            "invite": invite,
         },
     )
 
@@ -402,7 +472,9 @@ def passkey_login_options(request: Request):
     options = generate_authentication_options(
         rp_id=_rp_id(base), user_verification=UserVerificationRequirement.REQUIRED
     )
-    return _options_response(options, base, {"purpose": "login", "challenge": options.challenge})
+    return _options_response(
+        request, options, base, {"purpose": "login", "challenge": options.challenge}
+    )
 
 
 @router.post("/auth/passkey/login/verify", status_code=204)
@@ -503,6 +575,8 @@ class Home(BaseModel):
 class Prefs(BaseModel):
     cars: list[Car] = Field(max_length=50)
     homes: list[Home] = Field(max_length=50)
+    # The prefs_rev (GET /api/me) these lists build on; None: save without the check.
+    rev: int | None = Field(None, ge=0)
 
 
 def _merge_cars(incoming: list[dict], stored: list[dict]) -> list[dict]:
@@ -528,6 +602,7 @@ def me(request: Request, response: Response):
     """Sign-in state and the account's saved prefs; `enabled` is false when sign-in is off.
 
     `user` is the signed-in person and `family` the names of everyone in their account.
+    `prefs_rev` counts the saves of `prefs`; PUT /api/me/prefs sends it back as `rev`.
     `phone_links` maps each car that has a phone token to its last report: `used`
     (any report), `moved` (last accepted one), `error` (why the last one was refused;
     null when it was accepted), times in epoch seconds.
@@ -541,7 +616,9 @@ def me(request: Request, response: Response):
     _renew_session(request, response)
     with closing(_connect()) as db:
         account_id = user["account_id"]
-        account = db.execute("SELECT prefs FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        account = db.execute(
+            "SELECT prefs, prefs_rev FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
         links = {
             r["car_id"]: {
                 "used": r["last_used"],
@@ -568,21 +645,32 @@ def me(request: Request, response: Response):
         "user": {"name": user["name"]},
         "family": family,
         "prefs": json.loads(account["prefs"]) if account and account["prefs"] else None,
+        "prefs_rev": account["prefs_rev"] if account else 0,
         "phone_links": links,
         "calendar": cal is not None,
     }
 
 
-@router.put("/api/me/prefs", status_code=204)
+@router.put("/api/me/prefs")
 def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
-    new = prefs.model_dump(mode="json", exclude_unset=True)
+    """Replace the account's cars and homes; returns the new prefs_rev as `rev`.
+
+    A save whose `rev` is not the stored prefs_rev is refused (409): another device
+    saved first, so re-read, re-apply the edit and save again.
+    """
+    new = prefs.model_dump(mode="json", exclude_unset=True, exclude={"rev"})
     account_id = user["account_id"]
     with closing(_connect()) as db, db:
         db.execute("BEGIN IMMEDIATE")  # a phone update can't slip in between read and write
+        rev = db.execute("SELECT prefs_rev FROM accounts WHERE id = ?", (account_id,)).fetchone()[
+            "prefs_rev"
+        ]
+        if prefs.rev is not None and prefs.rev != rev:
+            raise HTTPException(409, "Changed on another device.")
         new["cars"] = _merge_cars(new["cars"], _stored_prefs(db, account_id)["cars"])
         db.execute(
-            "UPDATE accounts SET prefs = ? WHERE id = ?",
-            (json.dumps(new, separators=(",", ":")), account_id),
+            "UPDATE accounts SET prefs = ?, prefs_rev = ? WHERE id = ?",
+            (json.dumps(new, separators=(",", ":")), rev + 1, account_id),
         )
         keep = [c["id"] for c in new["cars"]]
         marks = ",".join("?" * len(keep))  # placeholders only; the values are bound
@@ -590,6 +678,7 @@ def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
             f"DELETE FROM car_tokens WHERE account_id = ? AND car_id NOT IN ({marks})",  # noqa: S608
             (account_id, *keep),
         )
+    return {"rev": rev + 1}
 
 
 @router.delete("/api/me")
@@ -679,6 +768,7 @@ def create_calendar_token(request: Request, user: sqlite3.Row = Depends(_signed_
     """A new calendar feed URL (shown once); replaces any earlier one."""
     token = _CAL_PREFIX + secrets.token_urlsafe(32)
     with closing(_connect()) as db, db:
+        db.execute("BEGIN IMMEDIATE")  # two at once: the second waits, then replaces the first
         db.execute("DELETE FROM calendar_tokens WHERE account_id = ?", (user["account_id"],))
         db.execute(
             "INSERT INTO calendar_tokens (token_hash, created_at, account_id) VALUES (?, ?, ?)",

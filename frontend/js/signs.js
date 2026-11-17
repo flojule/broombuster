@@ -165,6 +165,7 @@ function _ruleRow(r) {
 // level (one request per stop; the server makes no address lookups for these), kept
 // RULES_TTL_MS (closures come and go; core.js).
 const RULES_ZOOM = 14;
+const RULES_STREET_M = 25;  // the server's rules show within this distance of a street
 const _rulesCache = new Map();  // "lat,lon" -> [rules ([] while loading), fetched at]
 let _rulesTimer = 0;
 function _spotKey() {
@@ -219,8 +220,11 @@ function renderSigns(f, live = false) {
     }
   }
   // The server's first (they carry the rule's words; a permit curb's area wins over the
-  // area drawn around it), then the map's areas of the themes it lacks.
-  const seen = new Set(), server = targetRules(live), themes = new Set(server.map(r => r.theme));
+  // area drawn around it), then the map's areas of the themes it lacks. The server's are
+  // a street's: none with no street within RULES_STREET_M (a parking lane is 10-20 m off
+  // the line the calendar reads; a block's middle is farther).
+  const near = p || streetNear(RULES_STREET_M) !== false;
+  const seen = new Set(), server = near ? targetRules(live) : [], themes = new Set(server.map(r => r.theme));
   const rules = [...server, ...overlayAreasAtTarget().filter(r => !themes.has(r.theme))]
     .filter(r => r.label && !seen.has(r.label) && seen.add(r.label)).slice(0, 4);
   // The rules apply to the whole block: a rule line sets them apart from the sides.

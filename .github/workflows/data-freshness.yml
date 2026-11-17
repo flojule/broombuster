@@ -1,0 +1,24 @@
+name: Data freshness
+
+# Date-dependent checks of the committed data (pytest -m freshness). Not ci.yml, so a
+# failure alerts by email without blocking the deploy gate.
+on:
+  schedule:
+    - cron: "0 14 1 * *"   # monthly, the 1st at 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --locked --extra api --extra dev --extra scripts   # as ci.yml: every test file imports
+      - run: uv run pytest -q -m freshness

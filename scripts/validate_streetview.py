@@ -40,7 +40,6 @@ ROOT = Path(REPO_ROOT)
 WORK = ROOT / ".validation"
 OUT = ROOT / "data" / "validation"
 LAYERS = ("sweeping", "parking")
-STALE_BEFORE = (2023, 11)  # imagery older than 3 years is not evidence of today's signs
 BOUND = 0.05
 OFFSET_M = 6.0  # a parked car's distance from the center line
 PANO_MAX_M = 20.0
@@ -49,6 +48,16 @@ _GROUPS = {"sweeping": ("scheduled", "unscheduled"), "parking": ("parking",)}
 _UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36"}
 _TILE = 512
 _DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _imagery_since(city: str) -> tuple[int, int]:
+    """(year, month) of the oldest imagery that counts as evidence of today's signs: the
+    manifest's `streetview_since`, so a rescore gives the same verdicts."""
+    since = CITIES[city].get("streetview_since")
+    if not since:
+        sys.exit(f"{city}: set streetview_since: YYYY-MM in its manifest")
+    year, month = str(since).split("-")
+    return int(year), int(month)
 
 
 def _work(city: str, layer: str) -> Path:
@@ -556,14 +565,14 @@ def _sign_rules(signs, weeks: bool = True) -> set:
     return out
 
 
-def _view_signs(meta: dict, reading: dict, view: str, recent_only: bool = True):
-    """Near-curb signs of one side from recent panoramas, read fields only; readable views."""
+def _view_signs(meta: dict, reading: dict, view: str, since: tuple[int, int]):
+    """Near-curb signs of one side from panoramas since `since`; readable views."""
     signs, good = [], 0
     dates = {p["n"]: p.get("date") for p in meta["panos"]}
     for v in reading.get("views", []):
         if v["view"] != view:
             continue
-        if recent_only and tuple(dates.get(v["pano"]) or (0, 0)) < STALE_BEFORE:
+        if tuple(dates.get(v["pano"]) or (0, 0)) < since:
             continue
         if v.get("coverage") in ("good", "partial"):
             good += 1
@@ -571,11 +580,11 @@ def _view_signs(meta: dict, reading: dict, view: str, recent_only: bool = True):
     return signs, good
 
 
-def _verdict_sweeping(rec, meta, reading) -> tuple[str, str]:
+def _verdict_sweeping(rec, meta, reading, since) -> tuple[str, str]:
     view = rec["target"]
-    if not any(tuple(p.get("date") or (0, 0)) >= STALE_BEFORE for p in meta["panos"]):
+    if not any(tuple(p.get("date") or (0, 0)) >= since for p in meta["panos"]):
         return ("no_imagery" if not meta["panos"] else "stale"), ""
-    signs, good = _view_signs(meta, reading, view)
+    signs, good = _view_signs(meta, reading, view, since)
     sweep = [s for s in signs if s["kind"] == "sweeping"]
     read = [s for s in sweep if s.get("days") and _minutes(s.get("start")) is not None]
     read = [s for s in read if _minutes(s.get("end")) is not None]
@@ -637,16 +646,16 @@ def _limits(rules) -> set:
     return out
 
 
-def _verdict_parking(rec, meta, reading) -> tuple[str, str]:
+def _verdict_parking(rec, meta, reading, since) -> tuple[str, str]:
     exp = rec["expected"]["L"]["parking"] + rec["expected"]["R"]["parking"]
     if exp and not any(_IN_SCOPE.search(r["label"] + " " + r["rule"]) for r in exp):
         return "out_of_scope", "curb rule other than a time limit or permit"
-    if not any(tuple(p.get("date") or (0, 0)) >= STALE_BEFORE for p in meta["panos"]):
+    if not any(tuple(p.get("date") or (0, 0)) >= since for p in meta["panos"]):
         return ("no_imagery" if not meta["panos"] else "stale"), ""
     want, limits = _areas(exp), _limits(exp)
     found, read, banned, good, unreadable = set(), [], False, 0, False
     for view in "LR":
-        signs, g = _view_signs(meta, reading, view)
+        signs, g = _view_signs(meta, reading, view, since)
         good += g
         unreadable |= any(s["kind"] != "other" for s in signs)
         banned |= any(s["kind"] == "no_parking" and s.get("confidence") == "high" for s in signs)
@@ -701,6 +710,7 @@ def cmd_score(a) -> None:
     work = _work(a.city, a.layer)
     recs = [json.loads(x) for x in (work / "samples.jsonl").read_text().splitlines()]
     verdict = _verdict_sweeping if a.layer == "sweeping" else _verdict_parking
+    since = _imagery_since(a.city)
     rows = []
     for rec in recs:
         meta_f = work / "images" / rec["id"] / "meta.json"
@@ -708,7 +718,7 @@ def cmd_score(a) -> None:
         if not meta_f.exists() or not read_f.exists():
             continue
         meta, reading = json.loads(meta_f.read_text()), json.loads(read_f.read_text())
-        v, why = verdict(rec, meta, reading)
+        v, why = verdict(rec, meta, reading, since)
         if review := reading.get("review"):  # a person's verdict after looking again
             v, why = review["verdict"], review["note"]
         dates = sorted(f"{d[0]}-{d[1]:02d}" for p in meta["panos"] if (d := p.get("date")))

@@ -27,6 +27,7 @@ THEMES = {
     "markets": {"name": "Farmers markets", "map": True, "near_m": 0, "applies_to": "map"},
 }
 
+GPS_MARGIN_M = 4  # a polygon applies this close outside it when the point is inside none
 AREAS = "permit_areas"  # data/<city>/permit_areas.fgb: the parking theme's areas (the map's)
 _FRONTEND = Path(REPO_ROOT) / "frontend" / "layers"
 LIVE_CLOSURES = ("bay_area",)  # regions with a live closures feed (feeds.py)
@@ -126,13 +127,17 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
         meta = THEMES[theme]
         if meta["applies_to"] != applies_to:
             continue
-        near = max(meta["near_m"], 1) * k
-        idx = gdf.sindex.query(pt.buffer(near), predicate="intersects")
+        near = meta["near_m"] * k
+        idx = gdf.sindex.query(pt.buffer(max(near, GPS_MARGIN_M * k)), predicate="intersects")
         hits = gdf.iloc[idx].copy()
         hits["_d"] = hits.geometry.distance(pt)
-        # A polygon applies inside (a 4 m margin for GPS); lines and points within near_m.
+        # A polygon applies inside, else within GPS_MARGIN_M; lines and points within near_m.
         is_poly = hits.geometry.geom_type.isin(("Polygon", "MultiPolygon"))
-        hits = hits[hits["_d"] <= is_poly.map({True: 4 * k, False: near})].sort_values("_d")
+        if (is_poly & (hits["_d"] == 0)).any():  # inside a zone: not its neighbors too
+            hits = hits[~is_poly | (hits["_d"] == 0)]
+            is_poly = is_poly.loc[hits.index]
+        hits = hits[hits["_d"] <= is_poly.map({True: GPS_MARGIN_M * k, False: near})]
+        hits = hits.sort_values("_d")
         rows = [r for _, r in hits.iterrows()]
         areas = _areas.get(region_key) if theme == "parking" else None
         if areas is not None and not rows:  # a curb's own rule is the more precise
@@ -186,9 +191,3 @@ def _to_3857(lon: float, lat: float) -> tuple[float, float]:
 
         _T = Transformer.from_crs(4326, 3857, always_xy=True)
     return _T.transform(lon, lat)
-
-
-def file_version(path: str) -> str:
-    """Short content hash of a file (cache-busting for the layer URLs)."""
-    with open(os.path.join(REPO_ROOT, path), "rb") as fh:
-        return hashlib.sha256(fh.read()).hexdigest()[:12]
