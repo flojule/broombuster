@@ -28,6 +28,9 @@ async function loadAccount() {
       showToast('Sign out first', true);
       _joinToken = null;
     }
+    // The session ended on its own (30 days unused): say so; cars stay on this device only.
+    if (!account && accountEnabled && _read('bb_signed_in')) showToast('Signed out. Sign in again to sync your cars.', true, { sticky: true });
+    _store('bb_signed_in', account ? '1' : null);
     if (!account) return;
     if (me.prefs) _store(PREFS_KEY, JSON.stringify(me.prefs));
     else if (_read(PREFS_KEY)) _putPrefs(_read(PREFS_KEY));
@@ -65,12 +68,21 @@ async function refreshFromAccount() {
     const res = await fetch('/api/me', { cache: 'no-store' });
     if (!res.ok) return;
     const me = await res.json();
+    if (!me.user) {  // the session ended meanwhile
+      account = null;
+      _store('bb_signed_in', null);
+      showToast('Signed out. Sign in again to sync your cars.', true, { sticky: true });
+      renderAccountSection();
+      return;
+    }
     phoneLinks = me.phone_links || phoneLinks;
     const moved = [];
     for (const s of me.prefs?.cars || []) {
       const car = cars.find(c => c.id === s.id);
       if (car && (s.loc_rev || 0) > (car.loc_rev || 0)) {
         Object.assign(car, { lat: s.lat, lon: s.lon, loc_rev: s.loc_rev });
+        if (s.side) car.side = s.side; else delete car.side;  // the side belongs to the old spot
+        delete carSchedules[car.id];
         moved.push(car);
       }
     }
@@ -104,6 +116,7 @@ async function _leaveAccount(request) {
   const res = await request().catch(() => null);
   if (!res?.ok) { showToast('Couldn’t reach the server', true); return; }
   account = null;
+  _store('bb_signed_in', null);
   _store(PREFS_KEY, null);  // the account's cars and homes leave this device
   location.reload();
 }

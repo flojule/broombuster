@@ -3,6 +3,7 @@ from layer_sources.py): what applies at a point, for /api/rules, and the catalog
 map's Layers menu lists (/api/cities)."""
 
 import hashlib
+import math
 import os
 from pathlib import Path
 
@@ -119,26 +120,29 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
     from any curb, anywhere inside the area as drawn on the map. It carries its map
     color (color)."""
     pt = shapely.Point(*_to_3857(lon, lat))
+    k = 1.0 / math.cos(math.radians(lat))  # EPSG:3857 units per ground meter
     out = []
     for theme, gdf in _loaded.get(region_key, {}).items():
         meta = THEMES[theme]
         if meta["applies_to"] != applies_to:
             continue
-        idx = gdf.sindex.query(pt.buffer(max(meta["near_m"], 1)), predicate="intersects")
+        near = max(meta["near_m"], 1) * k
+        idx = gdf.sindex.query(pt.buffer(near), predicate="intersects")
         hits = gdf.iloc[idx].copy()
         hits["_d"] = hits.geometry.distance(pt)
         # A polygon applies inside (a 4 m margin for GPS); lines and points within near_m.
         is_poly = hits.geometry.geom_type.isin(("Polygon", "MultiPolygon"))
-        hits = hits[hits["_d"] <= is_poly.map({True: 4, False: meta["near_m"]})].sort_values("_d")
+        hits = hits[hits["_d"] <= is_poly.map({True: 4 * k, False: near})].sort_values("_d")
         rows = [r for _, r in hits.iterrows()]
         areas = _areas.get(region_key) if theme == "parking" else None
         if areas is not None and not rows:  # a curb's own rule is the more precise
             rows += [areas.iloc[i] for i in areas.sindex.query(pt, predicate="intersects")]
-        seen = set()
+        seen = set()  # labels' parts ("Permit area F or G": both); the nearest names them
         for r in rows:
-            if r["label"] in seen:
+            parts = _label_parts(r["label"])
+            if parts & seen:
                 continue
-            seen.add(r["label"])
+            seen |= parts
             out.append(
                 {
                     "theme": theme,
@@ -150,6 +154,13 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
                 }
             )
     return out
+
+
+def _label_parts(label: str) -> set[str]:
+    """The labels a label stands for: "Permit area F or G" is "Permit area F", "Permit area G"."""
+    first, *rest = label.split(" or ")
+    head = first.rsplit(" ", 1)[0] + " " if " " in first else ""
+    return {first, *(r if " " in r else head + r for r in rest)}
 
 
 def _area_color(areas, city: str, label: str):

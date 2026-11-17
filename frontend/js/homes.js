@@ -24,7 +24,7 @@ function homeUrgency(sched) {
 function _collectionDayHTML(h) {
   const opts = ['<option value="">Not set</option>', ...BroomUrgency.WEEKDAYS.map((w, i) =>
     `<option value="${i}"${h.collection_day === i ? ' selected' : ''}>${esc(w)}</option>`)];
-  return `<label class="ce-field">Collection day <select class="field ce-collection-day">${opts.join('')}</select></label>`;
+  return `<label class="ce-field">Day <select class="field ce-collection-day">${opts.join('')}</select></label>`;
 }
 
 function homeScheduleHTML(h, sched) {
@@ -32,7 +32,7 @@ function homeScheduleHTML(h, sched) {
   const fmt = iso => { const [y, m, d] = iso.split('-').map(Number); return BroomUrgency.dayLabel({ y, m, d }); };
   const lines = sched && _nextPickups(sched).map(([stream, iso]) => `${stream}: ${fmt(iso)}`);
   if (sched?.trash_kind === 'weekly') {
-    const note = h.collection_day == null ? 'Pick your collection day.'
+    const note = h.collection_day == null ? 'Pick your trash day.'
       : sched.city === 'berkeley' ? 'On sweeping days, carts go on the parking strip.' : '';
     return schedBlockHTML(id, 'Trash day', lines?.length ? lines : [])
       .replace('<div class="sec">', `<div class="sec">${_collectionDayHTML(h)}`)
@@ -52,7 +52,7 @@ function renderHomePanel() {
     const entry = itemCard({
       id: h.id, kind: 'home', color: HOME_COLOR, name: itemName(h),
       urgency: _nextPickups(sched).length ? homeUrgency(sched) : null, addr: addrText,
-      words: { today: { short: 'Today', long: 'Pickup today' }, tomorrow: { short: 'Tomorrow', long: 'Pickup tomorrow' } }[homeUrgency(sched)],
+      words: { today: { short: 'Today', long: 'Trash day today' }, tomorrow: { short: 'Tomorrow', long: 'Trash day tomorrow' } }[homeUrgency(sched)],
       detail: homeScheduleHTML(h, sched) + rulesBlockHTML('Area', placeRules[h.id]),
     });
     entry.querySelector('.ce-collection-day')?.addEventListener('change', e => {

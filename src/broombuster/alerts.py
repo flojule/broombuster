@@ -33,7 +33,7 @@ def _nws(lat: float, lon: float):
             {
                 "title": event,
                 "until": p.get("ends") or p.get("expires") or "",
-                "detail": p.get("headline") or "",
+                "detail": "",  # NWS headline only repeats the event, times and office
                 "source": "National Weather Service",
                 "severity": p.get("severity") or "",
                 "url": "https://alerts.weather.gov/",

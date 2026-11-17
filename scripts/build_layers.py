@@ -10,6 +10,7 @@ A source that fails keeps its previous files. Commit both outputs.
 """
 
 import argparse
+import colorsys
 import os
 import sys
 from pathlib import Path
@@ -116,8 +117,8 @@ AREA_PALETTE = (
     "#0d9488",
     "#c026d3",
     "#65a30d",
-    "#a16207",
-    "#db2777",
+    "#4d7c0f",
+    "#6b21a8",
     "#4f46e5",
     "#0891b2",
     "#15803d",
@@ -125,13 +126,19 @@ AREA_PALETTE = (
 )
 
 
+def _alarm_hue(color: str) -> bool:
+    """A saturated red to orange (hue 330-50 deg): reads as the sweeping alert colors."""
+    h, _l, sat = colorsys.rgb_to_hls(*(int(color[i : i + 2], 16) / 255 for i in (1, 3, 5)))
+    return sat > 0.35 and (h * 360 >= 330 or h * 360 <= 50)
+
+
 def _area_colors(g: geopandas.GeoDataFrame) -> list[str]:
-    """Each area's color: the city's own when it publishes one, else the least used
-    palette color no touching area (within 150 m) has, taking the areas biggest first.
-    Stable for a given input, so a rebuild keeps the map's colors."""
+    """Each area's color: the city's own when it publishes one (not an alarm hue), else the
+    least used palette color no touching area (within 150 m) has, taking the areas biggest
+    first. Stable for a given input, so a rebuild keeps the map's colors."""
     color = layer_sources.COLOR
     have = g[color] if color in g else pd.Series([None] * len(g), index=g.index)
-    out = {i: c for i, c in have.items() if isinstance(c, str) and c}
+    out = {i: c for i, c in have.items() if isinstance(c, str) and c and not _alarm_hue(c)}
     near = g.geometry.buffer(150)
     for i in g.geometry.area.sort_values(ascending=False).index:
         if i in out:

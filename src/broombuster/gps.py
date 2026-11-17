@@ -4,6 +4,7 @@ Both directions go through here, so the browser never calls Nominatim itself: th
 policy's limit holds for the whole app, and a typed address stays on our server.
 """
 
+import re
 import threading
 from collections import OrderedDict
 
@@ -97,7 +98,8 @@ def reverse_address(lat: float, lon: float) -> str | None:
     addr = _lookup(lat, lon)
     if not addr:
         return None
-    street = " ".join(p for p in (addr.get("house_number"), addr.get("road")) if p)
+    hn = re.split(r"[;,]", addr.get("house_number") or "")[0].strip()  # "2412;2414": 2412
+    street = " ".join(str(p) for p in (hn, addr.get("road")) if p)
     city = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("suburb")
     return ", ".join(p for p in (street, city) if p) or None
 

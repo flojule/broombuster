@@ -330,7 +330,7 @@ DAY_TEXT_CASES = [
     ([["odd", "9AM-12PM"]], "Odd side 9AM–12PM"),
     ([["even", "8AM-10AM"], ["odd", "12PM-2PM"]], "Even 8AM–10AM, Odd 12PM–2PM"),
     ([["even", "8AM-10AM"], ["even", "12PM-2PM"]], "Even side 8AM–10AM, 12PM–2PM"),
-    ([["even", ""], ["odd", ""]], "time n/a"),
+    ([["even", ""], ["odd", ""]], ""),  # no hours (Chicago): no time
 ]
 
 

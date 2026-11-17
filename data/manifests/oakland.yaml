@@ -1,4 +1,5 @@
 name: "Oakland, CA"
+source_updated: "2021-06"   # when the city last edited its sweeping source
 center: {lat: 37.8044, lon: -122.2712}
 schema: oakland
 bbox: [37.69, -122.38, 37.90, -122.11]

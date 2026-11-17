@@ -16,7 +16,7 @@
 // areas are shaded (where a car may park), other areas are their edge, to keep the map
 // light. A shaded area the target is in is outlined and the map outside it washed out.
 const LAYER_STYLE = {
-  parking: { color: '#7c3aed', tint: 0.08, key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #db2777 0 75%, #a16207 0)' },
+  parking: { color: '#7c3aed', tint: 0.08, key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #c026d3 0 75%, #65a30d 0)' },
   meters:  { color: '#0f766e', minzoom: 17 },
   winter:  { color: '#0369a1' },
   ev:      { color: '#16a34a', minzoom: 12, fill: true, icon: 'M13.5 3 6 13.5h5L10 21l8-11h-5.2l.7-7z' },
@@ -179,12 +179,12 @@ function syncOverlays() {
 // Under the layers, the legend: the streets' colors, then the marks the street card and
 // the calendar use (CARD_MARKS, js/signs.js; a car's dot, a home's square).
 function _legendHTML() {
-  const colors = [['today', 'Today', 3], ['tomorrow', 'Tomorrow', 2], ['safe', 'Clear', 1], ['none', 'No sweeping', 0]]
+  const colors = [['today', 'Today', 3], ['tomorrow', 'Tomorrow', 2], ['safe', 'Clear', 1], ['check', 'Check sign', 1], ['none', 'No sweeping', 0]]
     .map(([u, name, w]) => `<span class="urg-${u}"><i class="lg lg-${w}"></i>${name}</span>`).join('');
   const have = new Set(_regionLayers().map(l => l.id));
   const marks = CARD_MARKS.filter(m => !m.layer || have.has(m.layer)).map(m => `<span>${markHTML({ ...m, sweep: m.key === 'sweep' })}${esc(m.name)}</span>`).join('');
   const cal = '<span><i class="cal-key cal-round" style="background:var(--muted)"></i>Your car</span>'
-            + '<span><i class="cal-key cal-square" style="background:var(--home)"></i>Home pickup</span>';
+            + '<span><i class="cal-key cal-square" style="background:var(--home)"></i>Trash day</span>';
   return `<button class="ctx-item lyr-legend-btn" role="menuitem" aria-expanded="${_legendOpen}" aria-controls="lyr-legend">`
        + `Legend<svg class="ic lyr-chev" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>`
        + `<div class="lyr-legend" id="lyr-legend" role="none"${_legendOpen ? '' : ' hidden'}><b>Sweeping</b><div class="legend">${colors}</div>`
@@ -254,11 +254,12 @@ function _closureWhen(p) {
 
 // A tap on an overlay's feature: its name, when it is on (a market's days and hours, a
 // closure's dates) or what it has (a charger's ports), and its city when the region has
-// several, in a small popup (the street tap still clears the selection, map.js).
-function overlayClick(e) {
+// several, in a small popup (the street tap still clears the selection, map.js). On a
+// street (pointsOnly) the street card says the rest.
+function overlayClick(e, pointsOnly = false) {
   const ids = overlayLayerIds();
   if (!ids.length) return;
-  const f = map.queryRenderedFeatures(e.point, { layers: ids })[0];
+  const f = map.queryRenderedFeatures(e.point, { layers: ids }).find(x => !pointsOnly || x.geometry.type === 'Point');
   _layerPopup?.remove();
   _layerPopup = null;
   if (!f) return;

@@ -5,6 +5,7 @@ async function initApp() {
   await loadAccount();  // a signed-in user's saved cars and homes replace the local copy
   renderAccountSection();
   loadPrefs();
+  loadSchedCache();  // each car's last answer, until its check comes back (offline: kept)
   initMap(cars.length ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 } : DEFAULT_CENTER);
 
   renderHomePanel();
@@ -14,7 +15,11 @@ async function initApp() {
   setInterval(loadAlerts, 10 * 60 * 1000);
 
   if (cars.length) {
-    for (const [i, car] of cars.entries()) checkCar(car, i === 0);
+    updateCarMarkers();
+    await Promise.all(cars.map((car, i) => checkCar(car, i === 0)));
+    // A car to move today or tomorrow: open on it, not on the calendar.
+    const { today, tomorrow } = urgentCars();
+    if ((today.length || tomorrow.length) && _tab === 'calendar') showTab('saved');
     return;
   }
   // No cars: device position if already allowed, else the area nearest the IP,
@@ -43,7 +48,7 @@ function tick() {
   for (const c of cars) if (carSchedules[c.id]) loadRules(c, 'car').then(n => n && renderCarsPanel());
   for (const h of homes) if (homeSchedules[h.id]) loadRules(h, 'home').then(n => n && renderHomePanel());
   const day = s => BroomUrgency.isoDay(schedNow(s));
-  const sig = [...Object.entries(carSchedules).map(([id, s]) => `${id}:${sweepUrgency(s)}:${deadlineText(s)?.long}:${day(s)}`),
+  const sig = [...cars.map(c => `${c.id}:${sweepUrgency(c)}:${carWords(c)?.long}:${day(carSchedules[c.id])}`),
                ...Object.entries(homeSchedules).map(([id, s]) => `${id}:${day(s)}`)].join('|');
   if (sig === _liveUrgencySig) return;
   _liveUrgencySig = sig;
@@ -55,12 +60,23 @@ setInterval(tick, 60 * 1000);
 // Hidden: save pending edits and stop following the position. Back in the foreground
 // (iOS freezes timers meanwhile): catch the clock up at once, take any car a phone
 // moved, and follow the position again.
+// Back after an hour or more, a home-screen app may run an old release: reload when the
+// server's differs (cars, tab and map position come back).
+let _hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { _flushPrefs(); pauseHere(); return; }
+  if (document.hidden) { _hiddenAt = Date.now(); _flushPrefs(); pauseHere(); return; }
   tick();
   refreshFromAccount();
   resumeHere();
+  if (_hiddenAt && Date.now() - _hiddenAt > 3600e3) checkForUpdate();
 });
+async function checkForUpdate() {
+  const mine = document.querySelector('meta[name="app-version"]')?.content;
+  try {
+    const { version } = await (await fetch('/health', { cache: 'no-store' })).json();
+    if (mine && version && version !== mine && !isEditingIn(document.body) && !confirmDialog.open) location.reload();
+  } catch (_) {}
+}
 
 // ── Locate button: center on the device and show the "you are here" dot ─────
 btnLocate.addEventListener('click', () => locateWith(btnLocate, (lat, lon, acc) => {

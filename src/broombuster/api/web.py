@@ -173,6 +173,7 @@ _FRONTEND = Path(config.REPO_ROOT) / "frontend"
 _ASSET = re.compile(r"""(["'])/?((?:js|vendor)/[\w.\-]+\.(?:js|mjs|css)|styles\.css)\1""")
 _index_html: str | None = None
 _sw_js: str | None = None
+_module_js: str | None = None
 
 
 def _asset_version() -> str:
@@ -198,14 +199,26 @@ def index_response() -> HTMLResponse:
     return HTMLResponse(_index_html, headers={"Cache-Control": "no-cache"})
 
 
+def module_response() -> Response:
+    """js/maplibre-global.js with its imports versioned like the page's assets, so the
+    map library is cached for good instead of revalidated at every launch."""
+    global _module_js
+    if _module_js is None:
+        v = _asset_version()
+        src = (_FRONTEND / "js" / "maplibre-global.js").read_text()
+        _module_js = _ASSET.sub(lambda m: f"{m[1]}/{m[2]}?v={v}{m[1]}", src)
+    return Response(_module_js, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
 def service_worker_response() -> Response:
     """sw.js with the asset hash as its cache name (so every asset change installs a
     new worker) and the server's API path list."""
     global _sw_js
     if _sw_js is None:
+        v = _asset_version()
         shell = [
             "/",
-            "/styles.css",
+            f"/styles.css?v={v}",
             "/manifest.json",
             "/icon-192.png",
             "/icon-512.png",
@@ -213,8 +226,8 @@ def service_worker_response() -> Response:
             "/favicon-32.png",
             "/icon.svg",
             "/icon-maskable-512.png",
-            *(
-                f"/{f.relative_to(_FRONTEND)}"
+            *(  # as the page asks for them (index_response), so each downloads once
+                f"/{f.relative_to(_FRONTEND)}?v={v}"
                 for f in sorted(
                     [
                         *_FRONTEND.glob("js/*.js"),

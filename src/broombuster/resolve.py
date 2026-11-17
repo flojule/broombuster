@@ -15,6 +15,7 @@ The schedule, side and address label all come from this one result.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -34,6 +35,11 @@ CAR_MAX_DISTANCE_M = 50.0
 # A border street drawn by two cities: how much farther (EPSG:3857 m) the other city's swept
 # line may be than an unswept nearest line and still win (Woolsey St, Oakland | Berkeley).
 BORDER_EXTRA_M = 10.0
+
+
+def mercator_scale(lat: float) -> float:
+    """EPSG:3857 units per ground meter at a latitude."""
+    return 1.0 / math.cos(math.radians(lat))
 
 
 class NoSegmentNearby(Exception):
@@ -86,10 +92,11 @@ def resolve_car_segment(
     """
     car_x, car_y = _TRANSFORMER_4326_TO_3857.transform(lon, lat)
     car_pt = Point(car_x, car_y)
+    k = mercator_scale(lat)
 
     # Search radius: wider than max_distance_m so polygons that enclose the
     # car but whose bbox center is distant are still found.
-    search_buffer = max(max_distance_m * 3.0, 100.0)
+    search_buffer = max(max_distance_m * 3.0, 100.0) * k
     cand = np.asarray(gdf_3857.sindex.query(car_pt.buffer(search_buffer)))
 
     # Vectorised over the candidates (in sindex order, so ties resolve as a
@@ -128,7 +135,7 @@ def resolve_car_segment(
         j = _swept_border_twin(gdf_3857, cand[lines], dists, int(np.argmin(dists)), car_pt)
         best_line_idx, best_line_dist = int(cand[lines[j]]), float(dists[j])
 
-    if best_line_idx is None or best_line_dist > max_distance_m:
+    if best_line_idx is None or best_line_dist > max_distance_m * k:
         raise NoSegmentNearby(
             f"No street segment within {max_distance_m:.0f} m of ({lat:.5f}, {lon:.5f})"
         )
@@ -148,7 +155,7 @@ def resolve_car_segment(
         street_name=normalize.clean_text(row.get("STREET_NAME")),
         street_display=normalize.clean_text(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
         side=side,
-        distance_m=float(best_line_dist),
+        distance_m=float(best_line_dist) / k,
         projected_point=(px, py),
         is_polygon=False,
     )
@@ -275,23 +282,26 @@ def even_on_left(row) -> bool | None:
 
 
 def _nearest_vertex_pair(geom, proj_pt):
-    """Return (ax, ay, bx, by) of the line segment in `geom` whose midpoint
-    is closest to the projected point. Handles LineString and
-    MultiLineString. Returns (None, None, None, None) on empty/degenerate.
+    """Return (ax, ay, bx, by) of the line segment in `geom` that holds the projected point
+    (the segment nearest it). Handles LineString and MultiLineString. Returns
+    (None, None, None, None) on empty/degenerate.
     """
     coords = _coords_for(geom, proj_pt)
     if not coords or len(coords) < 2:
         return None, None, None, None
 
-    target = (proj_pt.x, proj_pt.y)
+    px, py = proj_pt.x, proj_pt.y
     best = None
     best_d = float("inf")
     for i in range(len(coords) - 1):
         ax, ay = coords[i][0], coords[i][1]
         bx, by = coords[i + 1][0], coords[i + 1][1]
-        mx = 0.5 * (ax + bx)
-        my = 0.5 * (ay + by)
-        d = (mx - target[0]) ** 2 + (my - target[1]) ** 2
+        dx, dy = bx - ax, by - ay
+        len2 = dx * dx + dy * dy
+        if len2 == 0:
+            continue
+        t = min(1.0, max(0.0, ((px - ax) * dx + (py - ay) * dy) / len2))
+        d = (ax + t * dx - px) ** 2 + (ay + t * dy - py) ** 2
         if d < best_d:
             best_d = d
             best = (ax, ay, bx, by)

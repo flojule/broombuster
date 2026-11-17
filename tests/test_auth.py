@@ -114,6 +114,22 @@ def test_expired_session_is_ignored(env, client, monkeypatch):
     assert client.get("/api/me").json()["user"] is None
 
 
+def test_session_in_use_is_renewed(env, client, monkeypatch):
+    """/api/me pushes a session ending within a day of the full term back to the full term,
+    and re-sets the cookie; a fresh session is left alone."""
+    _sign_in(client, monkeypatch)
+    with auth._connect() as db:
+        full = db.execute("SELECT expires_at FROM sessions").fetchone()[0]
+    r = client.get("/api/me")
+    assert r.json()["user"] and "bb_session" not in r.headers.get("set-cookie", "")
+    with auth._connect() as db:
+        db.execute("UPDATE sessions SET expires_at = ?", (full - 2 * 86400,))
+    r = client.get("/api/me")
+    assert r.json()["user"] and "bb_session=" in r.headers["set-cookie"]
+    with auth._connect() as db:
+        assert db.execute("SELECT expires_at FROM sessions").fetchone()[0] >= full
+
+
 # ── Phone position updates ────────────────────────────────────────────────────
 OAKLAND = {"lat": 37.821326, "lon": -122.280705}  # Chestnut St: swept
 ORIGIN = {"Origin": BASE}
@@ -441,3 +457,16 @@ def test_drops_the_google_era_schema(tmp_path, monkeypatch):
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'users'").fetchone()
         assert db.execute("SELECT COUNT(*) FROM members").fetchone()[0] == 0
         assert [r[1] for r in db.execute("PRAGMA table_info(car_tokens)")].count("account_id") == 1
+
+
+def test_merge_keeps_the_side_picked_for_the_stored_position():
+    """A side picked here (no position change) is saved; a side picked for another
+    position never lands on the stored one."""
+    stored = [{"id": "c1", "lat": 1.0, "lon": 2.0, "loc_rev": 5, "side": "even"}]
+    pick = [{"id": "c1", "lat": 1.0, "lon": 2.0, "loc_rev": 5, "side": "odd"}]
+    assert auth._merge_cars(pick, stored)[0]["side"] == "odd"
+    old_client = [{"id": "c1", "lat": 1.0, "lon": 2.0, "loc_rev": 5}]
+    assert auth._merge_cars(old_client, stored)[0]["side"] == "even"
+    stale = [{"id": "c1", "lat": 9.0, "lon": 9.0, "loc_rev": 4, "side": "odd"}]
+    got = auth._merge_cars(stale, stored)[0]
+    assert (got["lat"], got["side"]) == (1.0, "even")

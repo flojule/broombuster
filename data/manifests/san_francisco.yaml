@@ -1,4 +1,5 @@
 name: "San Francisco, CA"
+source_updated: "2026-05"   # when the city last edited its sweeping source
 center: {lat: 37.7749, lon: -122.4194}
 schema: sf
 bbox: [37.70, -122.53, 37.84, -122.35]
