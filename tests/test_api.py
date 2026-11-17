@@ -250,6 +250,15 @@ _SIGNS = [
     (37.86440, -122.28508, "M2", "9AM–12PM", "odd"),
     # Berkeley Way, south side (2024-07): "12:30 PM to 3:30 PM, 2nd Tuesday"
     (37.87215, -122.27504, "T2", "12:30PM–3:30PM", "even"),
+    # Berryman St 1821-1899, Berkeley, north side (2025-03): "12:30 PM to 3:30 PM, 2nd
+    # Thursday each month" (no PDF row: data/berkeley/corrections.yaml)
+    (37.88324, -122.27478, "TH2", "12:30PM–3:30PM", "odd"),
+    # Bancroft Way 2800-2830, Berkeley, south side (2025-03): "12:30 PM to 3:30 PM, 4th
+    # Wednesday each month" (the map leaves the block unclassed; the PDF lists it)
+    (37.86923, -122.25130, "W4", "12:30PM–3:30PM", "even"),
+    # Hopkins St 1137-1199, Berkeley, north side: PDF row "Hopkins N 1100 1498 1st Fri PM"
+    # (even numbers, north letter); the plate there is unreadable (2024-07)
+    (37.87626, -122.29216, "F1", "12:30PM–3:30PM", "odd"),
 ]
 
 

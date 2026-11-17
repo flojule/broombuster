@@ -108,6 +108,7 @@ def data_codes(all_rows):
         if normalize.is_text(c)
         and not analysis.is_no_sweep_code(c)
         and c not in analysis.UNDATED_CODES
+        and c != "NT"  # scripts/citykit.COURTESY: shown as its description, no days
     )
 
 

@@ -1,0 +1,4 @@
+# Rows of the built StreetSweeping.geojson where posted signs (Street View) contradict the PDFs: rows equal to `match` get `set`.
+- match: {STREET_NAME: BERRYMAN ST, L_F_ADD: "1821.0"}   # Berryman St 1821-1899; the PDFs list no north-side row
+  set: {DAY_ODD: TH2, DESC_ODD: 2nd Thu, TIME_ODD: "12:30PM–3:30PM"}
+  sign: "aud-ber-05, 2025-03: odd curb, 2 plates NO PARKING 12:30 PM TO 3:30 PM 2ND THURSDAY EACH MONTH"

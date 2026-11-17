@@ -74,10 +74,35 @@ def test_berkeley_rows_land_on_their_block_and_side():
     out = berkeley.join(rows, lines).set_index(["STREET_NAME", "R_F_ADD"])
     west = out.loc[("WEST ST", 2300)]
     assert (west.DAY_EVEN, west.DAY_ODD) == ("F1", "M2")  # the sign read on the street
-    assert pd.isna(out.loc[("WEST ST", 1700)].DAY_EVEN)  # enforced, schedule unknown
+    assert out.loc[("WEST ST", 1700)].DAY_EVEN == "POSTED"  # enforced, schedule unknown
     assert out.loc[("ACTON CRES", 1400)].DAY_EVEN == "F1"
     assert out.loc[("ACTON ST", 1400)].DAY_EVEN == "M2"
-    assert out.loc[("MC GEE AVE", 1300)].DAY_EVEN == "NS"  # opted out: nobody ticketed
+    assert out.loc[("MC GEE AVE", 1300)].DAY_EVEN == "NS"  # opted out: not swept
+
+
+def test_berkeley_side_letter_beats_slipped_numbers_and_renumbered_streets_still_land():
+    # Drawn west to east: the left side faces north.
+    lines = geopandas.GeoDataFrame(
+        [
+            _centerline("HOPKINS", "ST", (1101, 1199), (1100, 1198)),
+            _centerline("EUNICE", "ST", (1101, 1199), (1100, 1198), sweep="industry"),
+            _centerline("ETON", "CT", (1, 25), (2, 24)),
+        ],
+        crs="EPSG:4326",
+    )
+    rows = berkeley.rows_from(
+        [
+            "22 Hopkins S 1100 1498 2nd Mon PM Cedar Sacramento",
+            "61 Hopkins N 1100 1498 1st Fri PM Sacramento San Pablo",  # N side, even numbers
+            "43 Eunice S 1100 1198 3rd Wed AM Sutter Terminus",
+            "63 Eton Ct W 3200 3298 3rd Fri AM Claremont Cul De Sac",
+        ]
+    )
+    out = berkeley.join(rows, lines).set_index("STREET_NAME")
+    assert (out.loc["HOPKINS ST"].DAY_EVEN, out.loc["HOPKINS ST"].DAY_ODD) == ("M2", "F1")
+    eunice = out.loc["EUNICE ST"]  # not enforced: swept, no tickets
+    assert (eunice.DAY_EVEN, eunice.DESC_EVEN) == ("NT", "3rd Wed, 9AM–12PM, no tickets")
+    assert out.loc["ETON CT"].DAY_EVEN == "F3"  # the city's centerline numbers it 1-25
 
 
 # ── Alameda ──────────────────────────────────────────────────────────────────
