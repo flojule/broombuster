@@ -214,6 +214,37 @@ def test_daytime_only_holiday_in_js():
     assert [it["time"] for it in days[0]["items"]] == ["12AM–6AM"]
 
 
+# On a daytime-only holiday (SFMTA): a window with any night cleaning (12AM-6AM) is on.
+DAYTIME_CASES = [
+    ("12AM-6AM", False),
+    ("5AM-7AM", False),  # starts in night cleaning
+    ("5:59AM-8AM", False),
+    ("6AM-8AM", True),
+    ("9AM-11AM", True),
+    ("PM", True),  # afternoon route
+    ("AM", False),  # morning route: from midnight
+    ("10PM-12AM", True),  # ends at midnight: all of it that day's daytime
+    ("10PM-2AM", False),  # runs into 12AM-2AM night cleaning
+    ("11:59PM-12:30AM", False),
+    ("", False),  # untimed: assumed on
+]
+
+
+@pytest.mark.parametrize("time,off", DAYTIME_CASES)
+def test_daytime_only_holiday_window_boundaries(time, off):
+    vets = datetime.date(2026, 11, 11)  # SF Veterans Day: sweeping_day
+    assert (holidays.sweep_suspended("san_francisco", vets, schedule.time_window(time))) == (
+        "Veterans Day" if off else None
+    )
+
+
+@needs_node
+def test_daytime_only_holiday_rule_is_the_same_in_js():
+    skip = {"daytime": {"20261111": "Veterans Day"}}
+    got = js(*[("sweepsOn", ["W", 2026, 11, 11, skip, t]) for t, _ in DAYTIME_CASES])
+    assert got == [not off for _, off in DAYTIME_CASES]
+
+
 def test_sweep_days_skip_city_holidays():
     entries = {"even": [["W", "", "8AM-10AM"]], "odd": []}
     nov4, nov18 = datetime.date(2026, 11, 4), datetime.date(2026, 11, 18)

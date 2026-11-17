@@ -155,8 +155,11 @@
   // `service` ('sweeping', 'trash') is suspended: {dayKey: holiday name}. The functions
   // below take this as an optional `skip` (no sweeping on those days).
   var _skipCache = typeof WeakMap === 'function' ? new WeakMap() : null;
-  // Sweeps starting at or after this minute are "daytime" (holidays.DAYTIME_FROM).
+  // Night cleaning runs 12AM until this minute (holidays.DAYTIME_FROM).
   var DAYTIME_FROM = 6 * 60;
+  // Whether window w ([start, end], end < start past midnight; null when untimed) has no
+  // night cleaning: off on a daytime-only holiday (holidays.daytime).
+  function daytime(w) { return !!w && w[0] >= DAYTIME_FROM && w[0] < w[1]; }
   function holidaySkip(cityHolidays, service) {
     if (!cityHolidays) return null;
     var byService = _skipCache && _skipCache.get(cityHolidays);
@@ -182,10 +185,7 @@
     if (skip) {
       var k = dayKey(y, m, d);
       if (skip[k]) return false;
-      if (skip.daytime && skip.daytime[k]) {
-        var w = timeWindow(time);
-        if (w && w[0] >= DAYTIME_FROM && w[0] < w[1]) return false;
-      }
+      if (skip.daytime && skip.daytime[k] && daytime(timeWindow(time))) return false;
     }
     var r = codeRule(code);
     if (!r) return false;
