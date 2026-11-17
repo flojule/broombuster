@@ -235,7 +235,7 @@ def test_oakland_layer_codes_become_grammar_codes_and_windows():
         ("EESSH", "MTWTHF", "Everyday except Saturday, Sunday & Holidays"),
         ("MF", "MTWTHF", "Every Mon to Fri"),
         ("TH1", "TH1", "1st Thurs"),
-        ("missing", "MISSING", None),
+        ("missing", "POSTED", "Schedule not published: check the posted sign"),
     ):
         r = _oakland(DAY_EVEN=raw, TIME_EVEN="M2")
         assert (code, desc) == (r.DAY_EVEN, r.DESC_EVEN), raw

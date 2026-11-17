@@ -74,6 +74,8 @@ _OAKLAND_DAY_DESC = {
     "O": "There is no this side of the street",
     "DM": "It is shown in the different map.",
     "MS": "Major street uses 2 lines, not center line.",
+    # Not a domain value: the layer's blank-schedule marker (San Leandro St, 85 sides).
+    "MISSING": "Schedule not published: check the posted sign",  # scripts/citykit.UNKNOWN_DESC
 }
 # Source codes the sweep-code grammar reads differently (or not at all) -> grammar code.
 # Holidays are suspended for every code (data/holidays/oakland.yaml).
@@ -84,6 +86,7 @@ _OAKLAND_DAY_CODE = {
     "FW": "W1",
     "S": "POSTED",  # swept, day unknown: no dates, the description and hours shown
     "SU": "POSTED",
+    "MISSING": "POSTED",  # schedule not in the layer: the sign decides
 }
 _OAKLAND_DAY_NAME = {"M": "Mon", "T": "Tues", "W": "Wed", "TH": "Thurs", "F": "Fri"}
 _OAKLAND_ORDINAL = {"1": "1st", "2": "2nd", "3": "3rd", "4": "4th", "5": "5th"}
