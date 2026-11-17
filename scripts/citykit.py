@@ -9,12 +9,14 @@ schedule in words; a side whose schedule the source does not give gets UNKNOWN
 
 from __future__ import annotations
 
+import datetime
 import re
+import zoneinfo
 
 import geopandas
 import pandas as pd
 
-from broombuster import normalize
+from broombuster import normalize, schedule
 
 COURTESY = "NT"  # swept, nobody ticketed: the description is shown, never urgent
 UNKNOWN = "POSTED"  # analysis.UNDATED_CODES: the day only the posted sign gives
@@ -95,6 +97,56 @@ def side_entry(text, time=None, *, enforced=True) -> tuple[str | None, str | Non
     return hit[0], hit[1], t
 
 
+# Schedules the weekday grammar cannot hold (seasonal, every 2 or 4 weeks) become a
+# "DATES:" code spelling out this year's and next year's sweep days.
+def sweep_years() -> tuple[int, int]:
+    """This year and next, Pacific time."""
+    year = datetime.datetime.now(zoneinfo.ZoneInfo("America/Los_Angeles")).year
+    return year, year + 1
+
+
+def month_dates(text, year: int, month: int) -> list[datetime.date]:
+    """Days of a month that schedule words name, each weekday with the ordinals before it:
+    "2nd Friday and 5th Monday" -> that month's 2nd Friday and 5th Monday."""
+    out, start = [], 0
+    for m in _DAY_RE.finditer(text):
+        code = code_from_text(text[start : m.end()])[0]
+        start = m.end()
+        day = datetime.date(year, month, 1)
+        while day.month == month:
+            if schedule.sweeps_on(code, day):
+                out.append(day)
+            day += datetime.timedelta(1)
+    return sorted(out)
+
+
+def cycle_dates(first: datetime.date, weeks: int, years) -> list[datetime.date]:
+    """The days of `years` that are a whole number of `weeks`-week cycles from `first`."""
+    step = datetime.timedelta(weeks=weeks)
+    day = first + step * ((datetime.date(min(years), 1, 1) - first).days // step.days)
+    out = []
+    while day.year <= max(years):
+        if day.year in years:
+            out.append(day)
+        day += step
+    return out
+
+
+def dates_code(days, off=frozenset()) -> str:
+    """The DATES code of `days`; a day in `off` (a no-sweep holiday) moves to the next
+    weekday not in `off`."""
+    out = set()
+    for day in days:
+        while day in off:
+            day += datetime.timedelta(1)
+            while day.weekday() >= 5:
+                day += datetime.timedelta(1)
+        out.add(day)
+    if not out:
+        raise ValueError("no sweep days")
+    return "DATES:" + ",".join(d.isoformat() for d in sorted(out))
+
+
 # County street centerlines -> standard columns. `url` and `where` go in the city
 # manifest's source.arcgis; the build reads the saved GeoJSON with centerlines().
 COUNTY_CENTERLINES = {
@@ -103,6 +155,18 @@ COUNTY_CENTERLINES = {
         "city_where": "MUNL='{code}' OR MUNR='{code}'",
         "name": "STREET",
         "ranges": ("FRADDL", "TOADDL", "FRADDR", "TOADDR"),
+    },
+    "solano": {
+        "url": "https://services2.arcgis.com/SCn6czzcqKAFwdGU/arcgis/rest/services/Road_Centerlines/FeatureServer/0",
+        "city_where": "incmuni_l='{code}' OR incmuni_r='{code}'",
+        "name": "fulladdr_label_abbrv",
+        "ranges": ("fromaddr_l", "toaddr_l", "fromaddr_r", "toaddr_r"),
+    },
+    "napa": {
+        "url": "https://services1.arcgis.com/Ko5rxt00spOfjMqj/arcgis/rest/services/RoadCenterlines_Public/FeatureServer/0",
+        "city_where": "MuniLeft='{code}' OR MuniRight='{code}'",
+        "name": "FullName",
+        "ranges": ("FromLeft", "ToLeft", "FromRight", "ToRight"),
     },
 }
 
