@@ -65,3 +65,35 @@ def test_zones_to_blocks_takes_the_zone_holding_most_of_a_line():
     )
     out = citykit.zones_to_blocks(lines, zones)
     assert out["STREET_NAME"].tolist() == ["A ST"] and out["Day"].tolist() == ["Mon"]
+
+
+def test_courtesy_entry_merges_lists_and_keeps_notes():
+    got = citykit.courtesy_entry(
+        ["Friday - Week 1", "Friday - Week 2", "Friday - Week 3", "Friday - Week 4",
+         "Monday - Week 2", "Monday - Week 4", "Tuesday - Weekly",
+         "1st Monday of the Month (partial)", "Every Other Week (Thursday)"]
+    )  # fmt: skip
+    assert got == (
+        "NT",
+        "2nd & 4th Mon; Every Tue, Fri; 1st Mon (partial); Every Other Week (Thursday), no tickets",
+        None,
+    )
+    assert (
+        citykit.courtesy_entry(["1st Tuesday"], note="Apr–Oct")[1] == "1st Tue, Apr–Oct, no tickets"
+    )
+    assert citykit.courtesy_entry([]) == (None, None, None)
+
+
+def test_between_keeps_the_blocks_from_one_cross_street_to_another():
+    pts = [(-122.50 + 0.001 * i, 37.9) for i in range(5)]
+    main = [LineString([pts[i], pts[i + 1]]) for i in range(4)]
+    cross = [LineString([(p[0], 37.899), p]) for p in (pts[1], pts[3])]
+    lines = geopandas.GeoDataFrame(
+        {"STREET_NAME": ["MAIN ST"] * 4 + ["ELMA ST", "CORNWALL ST"]},
+        geometry=main + cross,
+        crs="EPSG:4326",
+    )
+    lines["STREET_KEY"] = lines["STREET_NAME"].map(citykit.normalize.street_name)
+    assert sorted(citykit.between(lines, "Main Ave", "Elma", "Cornwall")) == [1, 2]
+    assert citykit.blocks_named(lines, "Main Ave").index.tolist() == [0, 1, 2, 3]  # no MAIN AVE
+    assert citykit.between(lines, "Main", "Elma", "Nowhere").empty

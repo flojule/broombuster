@@ -1,0 +1,11 @@
+# Trash (Bay Cities Refuse): the hauler publishes no holiday schedule. Assumed the rule of the
+# other Southern Marin haulers (Mill Valley Refuse, Marin Sanitary): no collection on Christmas
+# Day and New Year's Day, collected the next day.
+# Sweeping: no holiday published.
+source: https://www.baycitiesrefuse.com/
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

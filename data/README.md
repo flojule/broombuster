@@ -30,6 +30,12 @@ equals the source.
 | Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced` |
 | Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS) | signed sides only |
 | Chicago | Data Portal zones, one dataset per year | same dataset | every zone |
+| San Rafael | city sweeper zones 2025 (ArcGIS), Apr–Oct 2026 | city swept streets (ArcGIS) | Canal residential zone only (No Parking Mon 8–10 AM signs read in Street View); elsewhere NT: page says "Move cars", no ordinance in SRMC 5.40/5.60, no signs seen |
+| Mill Valley | Mill Valley Refuse street lists | Marin County roads (MarinMap, as is) | none (NT): no ordinance or request found, no signs seen |
+| Corte Madera | Mill Valley Refuse street lists + Town public works PDF | Marin County roads | none (NT): Town page asks nothing of parked cars, no signs seen |
+| Tiburon | Mill Valley Refuse street lists | Marin County roads | none (NT): no ordinance or request found, no signs seen |
+| Sausalito | city sweeping table | Marin County roads | none (NT): "please try to minimize on-street parking", no signs seen |
+| Belvedere | city route lists (route N = week N, Thu or Fri) | Marin County roads | none (NT): page asks nothing of parked cars, no signs seen |
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.

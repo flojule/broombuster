@@ -1,0 +1,20 @@
+name: "Mill Valley, CA"
+source_updated: "2026-11"   # Mill Valley Refuse Service's sweeping lists, as read
+center: {lat: 37.9060, lon: -122.5450}
+schema: prebuilt
+bbox: [37.885, -122.578, 37.930, -122.514]
+fgb_path: data/mill_valley/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/mill_valley_refuse.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Mill Valley Refuse: the user picks the day
+source:
+  local_path: data/mill_valley/StreetSweeping.geojson
+  build: scripts/build_mill_valley_geojson.py
+  arcgis:
+    # Marin County roads (MarinMap, provided as is): blocks and address ranges.
+    centerlines.geojson:
+      url: https://services6.arcgis.com/T8eS7sop5hLmgRRH/arcgis/rest/services/Roads/FeatureServer/0
+      where: "City='Mill Valley'"
+  notes: |
+    The build reads the Mill Valley tab of
+    https://www.millvalleyrefuse.com/residential-street-sweeping (the city's sweeping contractor).

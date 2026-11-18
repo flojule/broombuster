@@ -95,6 +95,46 @@ def side_entry(text, time=None, *, enforced=True) -> tuple[str | None, str | Non
     return hit[0], hit[1], t
 
 
+_CODE_RE = re.compile(r"^((?:TH|SU|M|T|W|F|S)+)(E|[1-5]+)$")
+_NOTE_RE = re.compile(r"\s*\(([^)]*)\)")
+
+
+def courtesy_entry(texts, note=None) -> tuple[str | None, str | None, None]:
+    """COURTESY entry of a block named in several schedule lists: per weekday the union of
+    its weeks, weekdays with the same weeks grouped ("Every Fri; 2nd & 4th Mon"; weeks 1-4
+    read as every week). A "(note)" stays with its schedule; words code_from_text cannot
+    read are kept as written. `note` (a season) goes before "no tickets"."""
+    weeks, kept = {}, []
+    for text in texts:
+        found = _NOTE_RE.search(text)
+        bare = code_from_text(_NOTE_RE.sub("", text)) if found else None
+        hit = code_from_text(text)
+        m = _CODE_RE.match(hit[0]) if hit else None
+        if bare:
+            kept.append(f"{bare[1]} ({found[1].strip()})")
+        elif m:
+            ords = set(range(1, 6)) if m[2] == "E" else {int(d) for d in m[2]}
+            for day in re.findall(r"TH|SU|M|T|W|F|S", m[1]):
+                weeks.setdefault(day, set()).update(ords)
+        else:
+            kept.append(normalize.clean_text(text))
+    groups: dict[frozenset, list[str]] = {}
+    for day in sorted(weeks, key=_ORDER.index):
+        ords = weeks[day] if not weeks[day] >= {1, 2, 3, 4} else {1, 2, 3, 4, 5}
+        groups.setdefault(frozenset(ords), []).append(day)
+    parts = []
+    for ords, days in groups.items():
+        dayword = ", ".join(normalize.WEEKDAYS[_ORDER.index(d)] for d in days)
+        if len(ords) == 5:
+            parts.append(f"Every {dayword}")
+        else:
+            parts.append(f"{normalize.pretty_ordinals(''.join(map(str, sorted(ords))))} {dayword}")
+    words = "; ".join(dict.fromkeys(p for p in parts + kept if p))
+    if not words:
+        return None, None, None
+    return COURTESY, f"{words}{f', {note}' if note else ''}, no tickets", None
+
+
 # County street centerlines -> standard columns. `url` and `where` go in the city
 # manifest's source.arcgis; the build reads the saved GeoJSON with centerlines().
 COUNTY_CENTERLINES = {
@@ -103,6 +143,13 @@ COUNTY_CENTERLINES = {
         "city_where": "MUNL='{code}' OR MUNR='{code}'",
         "name": "STREET",
         "ranges": ("FRADDL", "TOADDL", "FRADDR", "TOADDR"),
+    },
+    # MarinMap (County of Marin) roads, provided as is; city_where codes: the City field.
+    "marin": {
+        "url": "https://services6.arcgis.com/T8eS7sop5hLmgRRH/arcgis/rest/services/Roads/FeatureServer/0",
+        "city_where": "City='{code}'",
+        "name": "Street_Nam",
+        "ranges": ("FrAddL", "ToAddL", "FrAddR", "ToAddR"),
     },
 }
 
@@ -162,11 +209,66 @@ def blocks_by_name(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFram
     return lines[lines["STREET_KEY"] == normalize.street_name(str(name))]
 
 
+def blocks_named(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFrame:
+    """Lines named `name`, spaces ignored ("Bayview Avenue" matches BAY VIEW AVE); the type
+    counts when `name` has one and a line has it ("Oak Avenue" is not OAK PL, "Oak" is
+    either, "Monona Lane" is MONONA DR when no MONONA LN exists)."""
+    key = normalize.street_name(str(name)).replace(" ", "")
+    typed = normalize.street_name_typed(str(name)).replace(" ", "")
+    by_key = lines[lines["STREET_KEY"].str.replace(" ", "") == key]
+    if typed == key:
+        return by_key
+    by_type = by_key["STREET_NAME"].map(normalize.street_name_typed).str.replace(" ", "")
+    return by_key[by_type == typed] if (by_type == typed).any() else by_key
+
+
 def in_range(lines: geopandas.GeoDataFrame, lo: int, hi: int) -> pd.Series:
     """Rows whose address range (either side) overlaps [lo, hi]."""
     cols = lines[["L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"]]
     a, b = cols.min(axis=1), cols.max(axis=1)
     return (a <= hi) & (b >= lo)
+
+
+def end_points(geom) -> tuple[tuple, tuple]:
+    parts = getattr(geom, "geoms", [geom])
+    return tuple(round(c, 6) for c in parts[0].coords[0][:2]), tuple(
+        round(c, 6) for c in parts[-1].coords[-1][:2]
+    )
+
+
+def between(lines: geopandas.GeoDataFrame, street, a, b) -> pd.Index:
+    """Index of the blocks of `street` on the shortest run of blocks from where street `a`
+    meets it to where street `b` does ("Throckmorton Ave (Elma to Cornwall)"); empty when
+    either crossing is missing. Blocks join at shared end points."""
+    adj: dict[tuple, list] = {}
+    for i, geom in blocks_named(lines, street).geometry.items():
+        p, q = end_points(geom)
+        adj.setdefault(p, []).append((i, q))
+        adj.setdefault(q, []).append((i, p))
+
+    def crossings(name):
+        pts = {e for g in blocks_named(lines, name).geometry for e in end_points(g)}
+        return [n for n in adj if n in pts]
+
+    best = None
+    for start in crossings(a):
+        prev, queue = {start: None}, [start]
+        while queue:
+            node = queue.pop(0)
+            for i, nxt in adj[node]:
+                if nxt not in prev:
+                    prev[nxt] = (node, i)
+                    queue.append(nxt)
+        for end in crossings(b):
+            if end not in prev or end == start:
+                continue
+            path, node = [], end
+            while prev[node]:
+                node, i = prev[node]
+                path.append(i)
+            if best is None or len(path) < len(best):
+                best = path
+    return pd.Index(best or [])
 
 
 def parity_sides(row) -> dict[str, str]:

@@ -199,3 +199,80 @@ def test_sf_daytime_holiday_keeps_night_cleaning():
     entries = {"even": [["W", "", "8AM–10AM"], ["W", "", "2AM–6AM"]], "odd": []}
     (_, items), = schedule.sweep_days(entries, "san_francisco", vets, vets)  # fmt: skip
     assert items == [("even", "2AM–6AM")]
+
+
+# ── Marin: Mill Valley Refuse lists, Corte Madera DPW PDF, Sausalito table ───
+
+
+def test_mvrs_lists_read_town_tabs_headings_and_items():
+    import mvrs
+
+    page = (
+        '<div class="elementor-tab-title elementor-tab-mobile-title" data-tab="1">Tiburon</div>'
+        '<span class="data-table-header-text">1st Tuesday of the Month</span>'
+        '<li>Andrew Dr.</li><li class="li_col2">Ned&#8217;s Way</li>'
+        '<span class="data-table-header-text">1st Friday the Month</span>'
+        "<li>Via Paraiso E. &amp; W.</li><li>Hilary Dr. (Avenida Miraflores to Howard)</li>"
+    )
+    got = mvrs.lists(page)["Tiburon"]
+    assert got[0] == ("Andrew Dr.", "1st Tuesday of the Month") and len(got) == 4
+    assert mvrs.street_parts(got[1][0]) == (["NEDS WAY"], "")
+    assert mvrs.street_parts(got[2][0]) == (["VIA PARAISO E", "VIA PARAISO W"], "")
+    assert mvrs.street_parts(got[3][0]) == (["HILARY DR"], "Avenida Miraflores to Howard")
+
+
+def test_corte_madera_dpw_rejoins_wrapped_limits():
+    import build_corte_madera_geojson as cm
+
+    rows = cm.dpw_rows(
+        [
+            "Town of Corte Department of Public Works Fall and Winter",
+            "Streets Swept on the 3rd Monday of the Month",
+            " Walnut Ave.",
+            " Willow Ave. (from Tamalpais",
+            " Fifer Ave.  Palm Ave.",
+            "Ave. to Baltimore Ave.)",
+        ]
+    )
+    assert [r[0] for r in rows] == [
+        "Walnut Ave.",
+        "Willow Ave. (from Tamalpais Ave. to Baltimore Ave.)",
+        "Fifer Ave.",
+        "Palm Ave.",
+    ]
+    assert rows[0][1] == "3rd Monday of the Month (Town crew, fall and winter)"
+
+
+def test_sausalito_rows_split_streets_and_limits():
+    import build_sausalito_geojson as sausalito
+
+    page = "".join(
+        f"<tr><td>{a}</td><td>{b}</td></tr>"
+        for a, b in [
+            ("Name of Street", "Sweeping Schedule"),
+            ("Cazneau - Marie to Platt", "Monday - Week 1"),
+            ("Alexander and South", "Tuesday - Weekly"),
+            ("Buchanan Dr. and Ct.", "Wednesday - Week 4"),
+            ("Fourth and Third (200 and 300 Blocks)", "Wednesday - Week 3"),
+            ("Sweep Parking Lots", "Thursday - Week 2"),
+            ("Kendall Ct.", "Wednesday - Week 1"),
+        ]
+    )
+    assert sausalito.rows(page) == [
+        ("Cazneau", "Marie to Platt", "Monday - Week 1"),
+        ("Alexander", "", "Tuesday - Weekly"),
+        ("South", "", "Tuesday - Weekly"),
+        ("Buchanan Dr", "", "Wednesday - Week 4"),
+        ("Buchanan Ct", "", "Wednesday - Week 4"),
+        ("Fourth", "200 and 300 Blocks", "Wednesday - Week 3"),
+        ("Third", "200 and 300 Blocks", "Wednesday - Week 3"),
+        ("Kendell Ct", "", "Wednesday - Week 1"),
+    ]
+
+
+def test_san_rafael_zones_courtesy_but_the_signed_canal_zone():
+    import build_san_rafael_geojson as sr
+
+    assert sr.zone_entry("Canal Residential", "Weekly (Mondays)") == ("ME", "Every Mon", "8AM–10AM")
+    assert sr.zone_entry("29", "1st Tuesday")[1] == "1st Tue, Apr–Oct 2026, no tickets"
+    assert sr.zone_entry("PSPD", "Fridays 4/10, 4/17")[1] == "Fridays 4/10, 4/17 2026, no tickets"
