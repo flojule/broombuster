@@ -118,7 +118,7 @@
     }
     .btn-sm { position: relative; min-height: 36px; padding: 0 14px; font-size: var(--fs-md); }
     /* Smaller-looking controls still take a 44 px touch (an invisible margin around them). */
-    :is(.btn-sm, .cal-area, .toast-btn)::after { content: ''; position: absolute; inset: -6px -2px; }
+    :is(.btn-sm, .toast-btn)::after { content: ''; position: absolute; inset: -6px -2px; }
     .btn-plain { background: var(--fill); color: var(--text); }        /* secondary: grey fill */
     .btn-tinted { background: var(--tint-bg); color: var(--tint-fg); } /* in a section: blue tint */
     .btn-wide { width: 100%; }
@@ -543,8 +543,6 @@
     .cal-hol { text-decoration: line-through; text-decoration-color: var(--muted); }
     .cal-past { color: var(--muted); }  /* days gone by: not counted as ahead (muted digits stay AA) */
     .cal-past :is(.cal-dots, .cal-bar) { opacity: .5; }
-    .cal-areas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-    .cal-area { position: relative; min-height: 36px; padding: 2px 12px; font-size: var(--fs-sm); }
 
     .cal-nav { width: var(--tap); height: var(--tap); font-size: 1.15rem; color: var(--tint-fg); }
     /* One grid of weeks for both views: it fills what the sheet leaves (the sheet's heights
@@ -569,11 +567,9 @@
                   display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); line-height: 1.3; }
     .cal-hero { display: flex; flex-direction: column; padding: 0 4px; }
     .cal-verdict { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -.01em; }
-    .cal-sub { color: var(--muted); }
     .cal-rows { flex: none; display: flex; flex-direction: column; background: var(--group); border-radius: var(--r-md); }
     .cal-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 12px; }
     .cal-row + .cal-row { border-top: 1px solid var(--hairline); }
-    .cal-rbar { flex: none; width: 3px; height: 16px; border-radius: 2px; }
     .cal-row .cal-key { flex: none; margin: 0; }
     .cal-rl { flex: 1 1 auto; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cal-rr { flex: 0 1 auto; min-width: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
