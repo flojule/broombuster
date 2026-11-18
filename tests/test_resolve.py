@@ -377,7 +377,9 @@ def test_validated_cars_resolve_to_their_street(bay_area_3857):
         assert want in keys, (cid, name, r.label)
 
 
-def test_car_beside_a_street_without_data_is_not_covered(bay_area_3857):
-    """Wilma Chan Way (Alameda) has no data row; Atlantic Ave is 24 m away."""
+def test_car_farther_than_the_limit_from_every_row_is_not_covered(bay_area_3857):
+    """Alameda: 23 m from 8th St, the nearest row, is not covered; 15 m from Wilma Chan Way is."""
     assert resolve.CAR_MAX_DISTANCE_M == 20.0
-    assert resolve.nearest_segment(bay_area_3857, 37.7800, -122.2750) is None
+    assert resolve.nearest_segment(bay_area_3857, 37.7700, -122.2726) is None
+    near = resolve.nearest_segment(bay_area_3857, 37.7800, -122.2750)
+    assert near.segment["STREET_NAME"] == "WILMA CHAN WAY"

@@ -88,10 +88,35 @@ def test_berkeley_rows_land_on_their_block_and_side():
     out = berkeley.join(rows, lines).set_index(["STREET_NAME", "R_F_ADD"])
     west = out.loc[("WEST ST", 2300)]
     assert (west.DAY_EVEN, west.DAY_ODD) == ("F1", "M2")  # the sign read on the street
-    assert pd.isna(out.loc[("WEST ST", 1700)].DAY_EVEN)  # enforced, schedule unknown
+    assert out.loc[("WEST ST", 1700)].DAY_EVEN == "POSTED"  # enforced, schedule unknown
     assert out.loc[("ACTON CRES", 1400)].DAY_EVEN == "F1"
     assert out.loc[("ACTON ST", 1400)].DAY_EVEN == "M2"
-    assert out.loc[("MC GEE AVE", 1300)].DAY_EVEN == "NS"  # opted out: nobody ticketed
+    assert out.loc[("MC GEE AVE", 1300)].DAY_EVEN == "NS"  # opted out: not swept
+
+
+def test_berkeley_side_letter_beats_slipped_numbers_and_renumbered_streets_still_land():
+    # Drawn west to east: the left side faces north.
+    lines = geopandas.GeoDataFrame(
+        [
+            _centerline("HOPKINS", "ST", (1101, 1199), (1100, 1198)),
+            _centerline("EUNICE", "ST", (1101, 1199), (1100, 1198), sweep="industry"),
+            _centerline("ETON", "CT", (1, 25), (2, 24)),
+        ],
+        crs="EPSG:4326",
+    )
+    rows = berkeley.rows_from(
+        [
+            "22 Hopkins S 1100 1498 2nd Mon PM Cedar Sacramento",
+            "61 Hopkins N 1100 1498 1st Fri PM Sacramento San Pablo",  # N side, even numbers
+            "43 Eunice S 1100 1198 3rd Wed AM Sutter Terminus",
+            "63 Eton Ct W 3200 3298 3rd Fri AM Claremont Cul De Sac",
+        ]
+    )
+    out = berkeley.join(rows, lines).set_index("STREET_NAME")
+    assert (out.loc["HOPKINS ST"].DAY_EVEN, out.loc["HOPKINS ST"].DAY_ODD) == ("M2", "F1")
+    eunice = out.loc["EUNICE ST"]  # not enforced: swept, no tickets
+    assert (eunice.DAY_EVEN, eunice.DESC_EVEN) == ("NT", "3rd Wed, 9AM–12PM, no tickets")
+    assert out.loc["ETON CT"].DAY_EVEN == "F3"  # the city's centerline numbers it 1-25
 
 
 # ── Alameda ──────────────────────────────────────────────────────────────────
@@ -105,7 +130,11 @@ def test_alameda_only_signed_sides_are_enforced():
     )
     assert alameda.side_entry("All", 1, "4:00 AM - 5:30 AM") == ("E", "Every day", "4AM–5:30AM")
     assert alameda.side_entry("Monday", 1, "")[2] is None  # signed, hours not on file
-    assert alameda.side_entry("Monday", 0, "8:00 AM - 11:00 AM")[0] == "NS"
+    assert alameda.side_entry("Monday", 0, "8:00 AM - 11:00 AM") == (
+        "NT",
+        "Every Mon, 8AM–11AM, no tickets",
+        None,
+    )
     assert alameda.side_entry("None", 0, "N/A") == (None, None, None)
 
 
@@ -272,6 +301,41 @@ def test_milpitas_route_labels_and_boundary_streets():
                      "H": "Wednesday 2nd & 4th"}  # fmt: skip
 
 
+def test_alameda_renamed_and_unranged_blocks_find_their_centerline():
+    def block(street, rng, even, odd, signed=1):
+        keys = ("FrAddressLeft", "ToAddressLeft", "FrAddressRight", "ToAddressRight")
+        return {"FullStreetName": street, **dict(zip(keys, rng, strict=True)),
+                "SweepEven": even, "SignEven": signed, "PostedTime_Even": "",
+                "SweepOdd": odd, "SignOdd": signed, "PostedTime_Odd": ""}  # fmt: skip
+
+    sched = pd.DataFrame(
+        [
+            block("CONSTITUTION WY", (1601, 1699, 1600, 1698), "Thursday", "Thursday"),
+            block("ENCINAL AV", (None,) * 4, "Wednesday", "Thursday"),
+            block("ENCINAL AV", (None,) * 4, "Friday", "Thursday"),
+            block("AUGHINBAUGH WY", (1100, 1198, 1101, 1199), "Tuesday", "Tuesday", signed=0),
+        ]
+    )
+    short = LineString([(0, 0), (0.001, 0)])
+    keys = ("FRADDL", "TOADDL", "FRADDR", "TOADDR")
+    lines = geopandas.GeoDataFrame(
+        [
+            {"STREET": "WILMA CHAN WY", **dict(zip(keys, ("1601", "1699", "1600", "1698"),
+                                                   strict=True)), "geometry": _LINE},
+            {"STREET": "ENCINAL AV", **dict.fromkeys(keys), "geometry": short},
+            {"STREET": "AUGHINBAUGH WY", **dict(zip(keys, ("1000", "1098", "1001", "1099"),
+                                                    strict=True)), "geometry": _LINE},
+        ],
+        crs="EPSG:4326",
+    )  # fmt: skip
+    out = alameda.join(sched, lines).set_index("STREET_NAME")
+    assert out.loc["WILMA CHAN WAY"].DAY_EVEN == "THE"
+    encinal = out.loc["ENCINAL AVE"]  # two unranged blocks, told apart by nothing
+    assert encinal.geometry.equals(short)
+    assert (encinal.DAY_EVEN, encinal.DAY_ODD) == ("POSTED", "THE")
+    assert "AUGHINBAUGH WAY" not in out.index  # no county block 1100: dropped, unsigned
+
+
 # ── Oakland ──────────────────────────────────────────────────────────────────
 
 
@@ -294,7 +358,7 @@ def test_oakland_layer_codes_become_grammar_codes_and_windows():
         ("EESSH", "MTWTHF", "Everyday except Saturday, Sunday & Holidays"),
         ("MF", "MTWTHF", "Every Mon to Fri"),
         ("TH1", "TH1", "1st Thurs"),
-        ("missing", "MISSING", None),
+        ("missing", "POSTED", "Schedule not published: check the posted sign"),
     ):
         r = _oakland(DAY_EVEN=raw, TIME_EVEN="M2")
         assert (code, desc) == (r.DAY_EVEN, r.DESC_EVEN), raw

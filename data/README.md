@@ -25,10 +25,10 @@ equals the source.
 
 | City | Schedule | Blocks and sides | Enforced where |
 |---|---|---|---|
-| Oakland | city sweeping layer (ArcGIS; behind the city's map) | same layer | codes other than no-sweep |
-| San Francisco | DataSF `yhqp-riqs` | same dataset | every row |
-| Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced` |
-| Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS) | signed sides only |
+| Oakland | city sweeping layer (ArcGIS; behind the city's map) | same layer | codes other than no-sweep; `MISSING` -> `POSTED` |
+| San Francisco | DataSF `yhqp-riqs` | same dataset; rows without geometry take the cnn's centerline (`3psu-pn9h`); curbs outside the county (Census TIGER) dropped | weekday rows; `Holiday` rows not used |
+| Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced`, or blank with a PDF row; enforced without a PDF row -> `POSTED`; `exempt` (opted out) -> `NS`; other classes -> `NT` |
+| Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS), city names renamed to the county's | signed sides; unsigned -> `NT` |
 | Chicago | Data Portal zones, one dataset per year | same dataset | every zone |
 | Vacaville | Recology layer (ArcGIS): weekly, or every other week (green / yellow calendar) | same layer (Solano County centerlines) | every row: no source says unticketed; no signs on 3 Street View blocks |
 | Sonoma County (unincorporated) | Recology layer (ArcGIS): 4-week rotation per 2026 calendar, or weekly | same layer, no ranges | every row: Recology asks to move cars; no signs on 3 Street View blocks |
@@ -66,7 +66,9 @@ San Mateo County centerlines: County of San Mateo ISD GIS, which cannot vouch fo
 | Milpitas | Milpitas Sanitation routes (ArcGIS), no hours | county centerlines | enforcement not published per street: every block (pilot areas sign a 2-hour window, not published) |
 | Los Gatos | town route polygons (ArcGIS) | county centerlines | none: no parking restrictions (NT) |
 
-Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
+SF `Holiday` rows (824, every one on a curb with weekday rows) are Public Works' holiday runs; the
+holidays file follows SFMTA enforcement. SF sides follow `blockside` where `cnnrightleft` names the
+opposite curb (`schemas.sf_on_left`). Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.
 
 ## Manifest keys
