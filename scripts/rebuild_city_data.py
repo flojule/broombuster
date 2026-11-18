@@ -32,11 +32,14 @@ def _download(url: str, dest: Path) -> None:
 
 
 def input_files(city_key: str) -> list[Path]:
-    """Local paths of the manifest's `source.files`: a URL lands next to `local_path`."""
+    """Local paths of the manifest's `source.files`: a URL lands next to `local_path`,
+    named by its last path segment (query dropped)."""
     src = CITIES[city_key]["source"]
     here = (_ROOT / src["local_path"]).parent
     return [
-        here / f.rsplit("/", 1)[-1] if f.startswith(("http://", "https://")) else _ROOT / f
+        here / f.split("?")[0].rsplit("/", 1)[-1]
+        if f.startswith(("http://", "https://"))
+        else _ROOT / f
         for f in src.get("files", [])
     ]
 

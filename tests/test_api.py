@@ -259,6 +259,9 @@ _SIGNS = [
     # Hopkins St 1137-1199, Berkeley, north side: PDF row "Hopkins N 1100 1498 1st Fri PM"
     # (even numbers, north letter); the plate there is unreadable (2024-07)
     (37.87626, -122.29216, "F1", "12:30PM–3:30PM", "odd"),
+    # Chenery St, Surrey St - Elk St, SF, north side (2022-05): "10 AM to 12 noon, 2nd and
+    # 4th Friday"; DataSF's blockside is right, its cnnrightleft points to the other curb
+    (37.73583, -122.43925, "F24", "10AM–12PM", "even"),
 ]
 
 
@@ -325,6 +328,16 @@ def test_both_sides_of_a_block_drawn_apart_are_kept(client):
     data = _check(client, {"lat": 37.71744, "lon": -122.44024, "region": "bay_area"})
     assert data["address"].startswith("Mission St")
     assert data["schedule_even"] and data["schedule_odd"]
+
+
+def test_curb_across_the_county_line_is_not_swept_by_sf(client):
+    """Mission St, Sickles Ave - Huron Ave: from 37.70849,-122.45360 west the county line runs
+    down the centerline (Census TIGER); the south curb there is Daly City's."""
+    data = _check(client, {"lat": 37.70833, "lon": -122.45392, "region": "bay_area"})
+    assert data["car_side"] == "even"
+    assert not data["schedule_even"] and data["schedule_odd"]
+    data = _check(client, {"lat": 37.70860, "lon": -122.45310, "region": "bay_area"})
+    assert data["car_side"] == "even" and data["schedule_even"]
 
 
 def test_point_without_street_data_is_not_covered(client):

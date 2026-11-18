@@ -253,6 +253,26 @@ def _left_compass(geom):
     return _COMPASS_SECTORS[round(angle / 45) % 8]
 
 
+def sf_on_left(lr, blockside, geom) -> bool | None:
+    """True when an SF row's curb is left of geom's digitized direction, None when unknown.
+
+    blockside wins over cnnrightleft when they point to opposite curbs: the posted signs
+    follow blockside (Chenery St cnn 3933000, Street View 2022-05: 2nd & 4th Fri on North).
+    """
+    lr = str(lr).strip().upper()
+    if lr not in ("L", "R"):
+        return None
+    left = lr == "L"
+    side = _COMPASS_CANON.get(str(blockside).strip().upper())
+    geo_left = _left_compass(geom)
+    if side and geo_left:
+        geo = geo_left if left else _OPPOSITE_SIDE[geo_left]
+        gap = _COMPASS_SECTORS.index(side) - _COMPASS_SECTORS.index(geo)
+        if abs((gap + 4) % 8 - 4) > 2:
+            left = not left
+    return left
+
+
 def _side_label(compass):
     """ "NorthEast" -> "Northeast"; None stays None."""
     return compass[0] + compass[1:].lower() if isinstance(compass, str) else None
@@ -357,8 +377,12 @@ def _normalize_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     # compass labels shown instead of "Even" / "Odd".
     lr_col = col("cnnrightleft")
     if lr_col:
-        lr = out[lr_col].fillna("").astype(str).str.strip().str.upper()
-        is_l, is_r = lr == "L", lr == "R"
+        on_left = [
+            sf_on_left(lr, side, g)
+            for lr, side, g in zip(out[lr_col], raw_side, out.geometry, strict=True)
+        ]
+        is_l = pd.Series([v is True for v in on_left], index=out.index)
+        is_r = pd.Series([v is False for v in on_left], index=out.index)
         is_even, is_odd = is_even | is_l, is_odd | is_r
         known = is_l | is_r
         for cn, v in (("L_F_ADD", 0), ("L_T_ADD", 0), ("R_F_ADD", 1), ("R_T_ADD", 1)):

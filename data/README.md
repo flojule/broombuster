@@ -25,13 +25,15 @@ equals the source.
 
 | City | Schedule | Blocks and sides | Enforced where |
 |---|---|---|---|
-| Oakland | city sweeping layer (ArcGIS; behind the city's map) | same layer | codes other than no-sweep |
-| San Francisco | DataSF `yhqp-riqs` | same dataset | every row |
-| Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced` |
-| Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS) | signed sides only |
+| Oakland | city sweeping layer (ArcGIS; behind the city's map) | same layer | codes other than no-sweep; `MISSING` -> `POSTED` |
+| San Francisco | DataSF `yhqp-riqs` | same dataset; rows without geometry take the cnn's centerline (`3psu-pn9h`); curbs outside the county (Census TIGER) dropped | weekday rows; `Holiday` rows not used |
+| Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced`, or blank with a PDF row; enforced without a PDF row -> `POSTED`; `exempt` (opted out) -> `NS`; other classes -> `NT` |
+| Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS), city names renamed to the county's | signed sides; unsigned -> `NT` |
 | Chicago | Data Portal zones, one dataset per year | same dataset | every zone |
 
-Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
+SF `Holiday` rows (824, every one on a curb with weekday rows) are Public Works' holiday runs; the
+holidays file follows SFMTA enforcement. SF sides follow `blockside` where `cnnrightleft` names the
+opposite curb (`schemas.sf_on_left`). Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.
 
 ## Manifest keys
