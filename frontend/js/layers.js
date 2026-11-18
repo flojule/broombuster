@@ -208,6 +208,14 @@ function legendHTML() {
                                   ['check', 'Check sign', 1], ['none', 'No sweeping', 0]]
     .map(([u, name, w]) => `<li><i class="lg lg-${w} lg-${u}"></i>${name}</li>`).join('') + '</ul>';
 }
+// The key on the map (index.html #map-key), under the map buttons (styles.css --ctrl-h).
+const mapKey = document.getElementById('map-key');
+mapKey.innerHTML = legendHTML();
+function placeMapKey() {
+  document.documentElement.style.setProperty('--ctrl-h', document.getElementById('map-ctrl').offsetHeight + 'px');
+}
+placeMapKey();
+window.addEventListener('resize', placeMapKey);
 // The legend folds under its own row: open until folded (remembered on this device).
 let _legendOpen = _read('bb_legend') !== '0';
 

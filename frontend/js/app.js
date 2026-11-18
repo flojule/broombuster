@@ -100,4 +100,12 @@ btnLocate.addEventListener('click', () => locateWith(btnLocate, (lat, lon, acc) 
 }));
 
 // ── Service Worker ────────────────────────────────────────────────────────────
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// A new release takes over an open page (sw.js claims it): say so, with Reload, rather than
+// keep running the old scripts. The first install (no worker before) says nothing.
+if ('serviceWorker' in navigator) {
+  const hadWorker = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadWorker) showToast('A new version is ready', false, { sticky: true, action: { label: 'Reload', run: () => location.reload() } });
+  });
+}

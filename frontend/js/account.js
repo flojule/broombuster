@@ -400,5 +400,22 @@ function renderAccountSection() {
   const fill = (id, nodes) => document.getElementById(id).replaceChildren(...(accountEnabled ? nodes : []));
   fill('set-account', account ? _signedInSection() : _signedOutSection());
   fill('set-calendar', account ? _section('Calendar', _calendarItems()) : []);
-  fill('set-danger', account ? _section('', [_deleteAccountItem()]) : []);
+  // Signed out (or no sign-in): what this device keeps can be cleared here.
+  document.getElementById('set-danger').replaceChildren(...(account ? (accountEnabled ? _section('', [_deleteAccountItem()]) : [])
+    : cars.length || homes.length ? _section('', [_clearSavedItem()]) : []));
+}
+// Removes every car and home saved on this device (asked first).
+function _clearSavedItem() {
+  const el = _menuItem('Remove saved cars and homes', async () => {
+    if (!await askConfirm('Remove all saved cars and homes?', 'They are removed from this device.', 'Remove')) return;
+    clearSelection();
+    cars = []; homes = []; carSchedules = {}; homeSchedules = {};
+    _store(SCHED_KEY, null);
+    savePrefs();
+    updateCarMarkers(); updateHomeMarkers(); renderHomePanel();
+    renderAccountSection();
+    showToast('Saved cars and homes removed');
+  });
+  el.classList.add('danger');
+  return el;
 }

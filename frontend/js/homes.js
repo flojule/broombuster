@@ -110,12 +110,23 @@ function homeChanged(h) {
   checkHome(h.id);
 }
 
+// Returns the undo: the home back where it was, with its schedule.
 function removeHome(id) {
+  const i = homes.findIndex(h => h.id === id), home = homes[i], sched = homeSchedules[id];
   homes = homes.filter(h => h.id !== id);
   delete homeSchedules[id];
   savePrefs();
   updateHomeMarkers();
   renderHomePanel();
+  return () => {
+    if (homes.some(h => h.id === id)) return;
+    homes.splice(Math.min(i, homes.length), 0, home);
+    if (sched) homeSchedules[id] = sched;
+    savePrefs();
+    updateHomeMarkers();
+    renderHomePanel();
+    if (!sched) checkHome(id);
+  };
 }
 
 function checkAllHomes() { for (const h of homes) checkHome(h.id); }

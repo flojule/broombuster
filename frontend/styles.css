@@ -26,6 +26,8 @@
       --shadow-1: 0 4px 14px rgba(0,0,0,.14);   /* floating controls */
       --shadow-2: 0 10px 34px rgba(0,0,0,.20);  /* floating panels, menus */
       --tap: 44px;                              /* minimum touch target */
+      /* Type scale (sizes; weights 400 text, 600 labels and actions, 700 titles and verdicts). */
+      --fs-2xs: .64rem; --fs-xs: .7rem; --fs-sm: .76rem; --fs-md: .82rem; --fs-lg: .9rem; --fs-xl: 1.05rem; --fs-title: 1.4rem;
       --edge: 12px;  /* gap between floating panels / map buttons and the screen edge */
       --panel-w: min(340px, 100vw - 24px);  /* desktop: the sheet as a left panel (narrow at 400% zoom) */
       --sheet-ease: cubic-bezier(.32, .72, 0, 1);  /* the iOS sheet curve (no bounce) */
@@ -39,6 +41,8 @@
       /* Rule glyphs on the street card, as street signs (js/signs.js; js/layers.js matches). */
       --rule-allow: var(--home); --rule-meter: #4b5563; --rule-snow: #1d4ed8; --rule-ban: #dc2626;
       --pin-halo: #ffffff;  /* the outline that sets a pin's glyph off the map */
+      /* Toasts and the connection chip: dark on the light theme, light on the dark one. */
+      --toast-bg: #1e293b; --toast-fg: #f1f5f9; --toast-err: #7f1d1d; --toast-btn: rgba(255,255,255,.16);
 
       /* Layers: map pins (MapLibre markers) < crosshair 15 < place banner 20 < street signs 21
          < map controls 24 < sheet 25 < menus 200 < toasts 9999. */
@@ -76,7 +80,7 @@
                         --rim: inset 0 0 0 1px var(--border); --blur: none; }
     }
     /* Clear: controls over the map. Regular: menus and the alert. */
-    :is(#map-ctrl, #place-banner, .area-label, #tabbar) {
+    :is(#map-ctrl, #map-key, #place-banner, .area-label, #tabbar) {
       background: var(--glass); box-shadow: var(--rim), var(--shadow-1);
       -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
     }
@@ -107,9 +111,9 @@
     .btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       min-height: var(--tap); padding: 0 18px; background: var(--blue); color: #fff;
-      border-radius: var(--pill); font-size: .88rem; font-weight: 600; text-decoration: none;
+      border-radius: var(--pill); font-size: var(--fs-lg); font-weight: 600; text-decoration: none;
     }
-    .btn-sm { position: relative; min-height: 36px; padding: 0 14px; font-size: .8rem; }
+    .btn-sm { position: relative; min-height: 36px; padding: 0 14px; font-size: var(--fs-md); }
     /* Smaller-looking controls still take a 44 px touch (an invisible margin around them). */
     :is(.btn-sm, .cal-area, .toast-btn)::after { content: ''; position: absolute; inset: -6px -2px; }
     .btn-plain { background: var(--fill); color: var(--text); }        /* secondary: grey fill */
@@ -152,7 +156,13 @@
       display: flex; flex-direction: column; align-items: center;
       border-radius: var(--pill);
     }
-    body.placing #map-ctrl { display: none; }
+    body.placing #map-ctrl, body.placing #map-key { display: none; }
+    /* The street colors on the map, under its buttons (--ctrl-h: their height, js/layers.js). */
+    #map-key { position: absolute; z-index: 24; right: calc(var(--inset-r) + var(--edge));
+               top: calc(var(--inset-t) + var(--edge) + var(--ctrl-h, 132px) + 8px);
+               padding: 6px 8px; border-radius: var(--r-sm); pointer-events: none; }
+    #map-key .legend { grid-template-columns: auto; gap: 2px; font-size: var(--fs-2xs); }
+    #map-key .lg { width: 12px; margin-right: 4px; }
     body.naming #signs { display: none; }  /* the name box sits where the sign does on a phone */
     .map-btn {
       position: relative; width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center;
@@ -163,24 +173,24 @@
     /* Layers menu: one switch row per layer, its map color as the key. */
     .lyr-item[aria-checked="true"] .lyr-check { opacity: 1; }
     .lyr-check { margin-left: auto; opacity: 0; color: var(--blue); }
-    .lyr-label small { display: block; font-size: .7rem; color: var(--muted); }
+    .lyr-label small { display: block; font-size: var(--fs-xs); color: var(--muted); }
     .lyr-key { flex: none; width: 14px; height: 14px; border-radius: 4px; background: var(--k); }
     img.lyr-key { width: 18px; height: 18px; margin: -2px; background: none; }
     .lyr-legend-btn { margin-top: 4px; border-top: 1px solid var(--hairline); border-radius: 0 0 calc(var(--r-menu) - 6px) calc(var(--r-menu) - 6px);
-                      color: var(--muted); font-size: .82rem; }
+                      color: var(--muted); font-size: var(--fs-md); }
     .lyr-chev { margin-left: auto; transition: transform .2s; }
     .lyr-legend-btn[aria-expanded="true"] .lyr-chev { transform: rotate(90deg); }
-    .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 10px; font-size: .72rem; }
-    .lyr-legend > b { font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+    .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 10px; font-size: var(--fs-xs); }
+    .lyr-legend > b { font-size: var(--fs-xs); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
     .legend { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-weight: 600; }
-    .lyr-note { padding: 6px 12px 8px; font-size: .7rem; color: var(--muted); max-width: 260px; line-height: 1.35; }
-    .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: .8rem;
+    .lyr-note { padding: 6px 12px 8px; font-size: var(--fs-xs); color: var(--muted); max-width: 260px; line-height: 1.35; }
+    .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: var(--fs-md);
       background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
     .lyr-popup .maplibregl-popup-tip { display: none; }
     .lyr-popup span { display: block; }
     .lyr-name { font-weight: 600; }
     .lyr-when { font-variant-numeric: tabular-nums; }
-    .lyr-city { font-size: .7rem; color: var(--muted); }
+    .lyr-city { font-size: var(--fs-xs); color: var(--muted); }
 
     /* ── Map container ── */
     #map-container { height: 100%; position: relative; }
@@ -198,7 +208,7 @@
       z-index: 20; display: none; align-items: center; gap: 8px;
       color: var(--text);
       border-radius: var(--pill); padding: 6px 6px 6px 16px;
-      font-size: .82rem; font-weight: 600;
+      font-size: var(--fs-md); font-weight: 600;
       white-space: nowrap; pointer-events: auto;
     }
     #place-banner.active { display: flex; }
@@ -215,28 +225,30 @@
     @keyframes menu-in { from { opacity: 0; transform: scale(.3); } 40% { opacity: 1; } }
     #search-box { width: min(300px, calc(100vw - 2 * var(--edge))); }
     #search-box .field { width: 100%; min-height: var(--tap); }
+    #search-box .search-msg { padding: 6px 8px 2px; font-size: var(--fs-sm); color: var(--urg-today); }
+    #search-box .search-msg:empty { display: none; }
     .ctx-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--tap); padding: 0 12px;
-                border-radius: calc(var(--r-menu) - 6px); text-align: left; font-size: .9rem; }
+                border-radius: calc(var(--r-menu) - 6px); text-align: left; font-size: var(--fs-lg); }
     .ctx-item:hover, .ctx-item:focus-visible { background: var(--fill); }
     .pop-menu hr { height: 0; margin: 5px 12px; border: none; border-top: 1px solid var(--hairline); }  /* a group break */
 
     /* ── Sections (as iOS grouped lists), on every tab: a small caps label over a rounded
        box holding text (.sec) or tappable rows (.sec.rows); a muted note under or in one. ── */
-    .sec-label { margin: 8px 14px 0; font-size: .7rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+    .sec-label { margin: 8px 14px 0; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
     .sec { display: flex; flex-direction: column; gap: 3px; padding: 12px 16px; background: var(--group); border-radius: var(--r-group);
-           font-size: .82rem; line-height: 1.4; }
+           font-size: var(--fs-md); line-height: 1.4; }
     .sec .btn { align-self: flex-start; }
     .sec.rows { gap: 0; padding: 4px 0; }
     .menu-item { display: flex; align-items: center; width: 100%; min-height: var(--tap); padding: 0 16px; text-align: left;
-                 color: var(--text); font-size: .88rem; font-weight: 500; text-decoration: none; overflow-wrap: anywhere; }
+                 color: var(--text); font-size: var(--fs-lg); font-weight: 400; text-decoration: none; overflow-wrap: anywhere; }
     .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
     :is(button, a).menu-item:hover { background: var(--fill); }
     :is(button, a).menu-item { color: var(--tint-fg); }  /* an action; a plain row keeps the text color */
-    .note { margin: 0 14px; font-size: .74rem; color: var(--muted); line-height: 1.4; font-weight: 400; }
+    .note { margin: 0 14px; font-size: var(--fs-sm); color: var(--muted); line-height: 1.4; font-weight: 400; }
     .sec .note { margin: 0; }
     .rows .note { padding: 6px 16px 8px; }
     .rows .link-field { margin: 6px 16px; }
-    .about { font-size: .7rem; line-height: 1.45; }
+    .about { font-size: var(--fs-xs); line-height: 1.45; }
     .about a { color: inherit; }
     /* Destructive actions; after the row styles so it wins over their color. */
     .danger, .menu-item.danger { color: var(--urg-today); }
@@ -245,7 +257,7 @@
     /* The account's sections (js/account.js) join the tab's column. */
     .set-slot { display: contents; }
     .seg { flex: none; display: flex; padding: 3px; gap: 2px; background: var(--fill); border-radius: var(--pill); }
-    .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: .8rem; font-weight: 500;
+    .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: var(--fs-md); font-weight: 400;
                   transition: background-color .2s, box-shadow .2s; }
     .seg button[aria-checked="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); font-weight: 600; }
 
@@ -300,20 +312,20 @@
     }
     /* An item's page: ‹ back to the list before its title (as an iOS navigation bar). */
     .tab-head:has(#btn-item-back:not([hidden])) { padding-left: 14px; gap: 8px; }
-    .tab-title { flex: 1; min-width: 0; font-size: 1.4rem; font-weight: 700; letter-spacing: -.01em;
+    .tab-title { flex: 1; min-width: 0; font-size: var(--fs-title); font-weight: 700; letter-spacing: -.01em;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
     .tab-title[contenteditable="true"] { cursor: text; border-bottom: 2px solid var(--blue); user-select: text; }
     /* The content runs under the glass tab bar and fades out at the sheet's foot. */
     .tab-body {
       flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y pinch-zoom;
-      padding: 0 14px var(--bar-space); display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
+      padding: 0 14px var(--bar-space); display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-md);
       /* Faded out above the tab bar, so no text runs under it at any height (--bar-space). */
       -webkit-mask-image: linear-gradient(#000 calc(100% - var(--bar-space) - 16px), transparent calc(100% - var(--bar-space) + 8px));
       mask-image: linear-gradient(#000 calc(100% - var(--bar-space) - 16px), transparent calc(100% - var(--bar-space) + 8px));
     }
     :is(.head-btn, .round-btn) { flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
     .head-btn { color: var(--muted); }
-    .text-btn { min-height: var(--tap); padding: 0 8px; color: var(--tint-fg); font-size: .9rem; font-weight: 600; }
+    .text-btn { min-height: var(--tap); padding: 0 8px; color: var(--tint-fg); font-size: var(--fs-lg); font-weight: 600; }
     .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem; background: var(--fill); }
     .round-btn::after { content: ''; position: absolute; inset: -4px; }  /* 44 pt touch target */
     #btn-add, #btn-item-more { color: var(--blue); }
@@ -340,7 +352,7 @@
     }
     #tabbar [role="tab"] {
       flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 1px; min-height: 48px; border-radius: var(--pill); font-size: .7rem; font-weight: 600; color: var(--text);
+      gap: 1px; min-height: 48px; border-radius: var(--pill); font-size: var(--fs-xs); font-weight: 600; color: var(--text);
     }
     #tabbar [role="tab"] svg.ic { width: 24px; height: 24px; }
     #tabbar [aria-selected="true"] { color: var(--tint-fg); }
@@ -349,12 +361,12 @@
     .tab-badge.soon { background: var(--card); box-shadow: inset 0 0 0 3px var(--urg-tomorrow), 0 0 0 2px var(--card); }  /* tomorrow: a ring, not color alone */
     /* Saved: the verdict line, then one grouped list of cars and homes (as Find My's
        Items list); an open item hides the rest and shows its own page. */
-    #saved-summary .note { margin: 0; font-size: .8rem; }
-    #saved-summary { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; font-weight: 600; }
+    #saved-summary .note { margin: 0; font-size: var(--fs-md); }
+    #saved-summary { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-md); font-weight: 600; }
     #saved-summary:empty { display: none; }
     /* Nothing saved: what saving does, and the two ways to start. */
     .empty-saved { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; font-weight: 400; }
-    .empty-saved .note { margin: 0 2px; font-size: .82rem; }
+    .empty-saved .note { margin: 0 2px; font-size: var(--fs-md); }
     .empty-btns { display: flex; gap: 8px; }
     .empty-btns .btn { flex: 1; }
     body.placing .empty-btns { display: none; }  /* the banner's "Set here" is the one action */
@@ -365,7 +377,7 @@
     .lg-today { background: var(--line-today); } .lg-tomorrow { background: var(--line-tomorrow); }
     .lg-safe { background: var(--line-safe); } .lg-none { background: var(--line-none); }
     .lg-check { background: repeating-linear-gradient(90deg, var(--line-check) 0 4px, transparent 4px 7px); }
-    .lg-3 { height: 4px; } .lg-2 { height: 3px; } .lg-1 { height: 2px; } .lg-0 { height: 1px; }
+    .lg-3 { height: 8px; } .lg-2 { height: 6px; } .lg-1, .lg-0 { height: 4px; }
     #item-list { flex: none; display: flex; flex-direction: column; background: var(--group); border-radius: var(--r-group); overflow: hidden; }
     #item-list:empty { display: none; }
     .car-entry { position: relative; display: flex; flex-direction: column; gap: 8px; }
@@ -378,12 +390,12 @@
               background: var(--car-color); color: #fff; --icon-hole: var(--car-color); font-size: 18px; }
     .ce-dot svg.ic { width: 1em; height: 1em; }
     .ce-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-    .ce-name { font-weight: 600; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ce-addr { font-size: .76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    .ce-name { font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ce-addr { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
                outline: none; border-bottom: 1px solid transparent; user-select: none; }
     .ce-addr[contenteditable="true"] { font-size: 16px; white-space: normal; color: var(--text); border-bottom-color: var(--blue); user-select: text; cursor: text; }
     /* The verdict: colored words with an icon (never color alone), no tinted row. */
-    .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
+    .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
     .st-long, .car-entry.selected .st-short { display: none; }
     .car-entry.selected .st-long { display: inline; }
     .ce-detail { display: flex; flex-direction: column; gap: 6px; }
@@ -402,11 +414,11 @@
     body.dark .car-entry.selected[data-urg="tomorrow"] .ce-header { background: color-mix(in srgb, var(--urg-tomorrow) 18%, var(--card)); }
     .car-entry.selected :is(.ce-dot, .ce-name) { display: none; }
     .car-entry.selected .ce-text { width: 100%; }
-    .car-entry.selected .ce-status { font-size: 1.05rem; font-weight: 700; white-space: normal; }
+    .car-entry.selected .ce-status { font-size: var(--fs-xl); font-weight: 700; white-space: normal; }
     /* Sweeping on a car's page: the other side of the street, muted. */
-    .tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: .7rem; font-weight: 700;
+    .tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: var(--fs-xs); font-weight: 700;
                         background: color-mix(in srgb, currentColor 12%, transparent); }
-    .car-entry.selected .ce-addr { font-size: .8rem; white-space: normal; }
+    .car-entry.selected .ce-addr { font-size: var(--fs-md); white-space: normal; }
     .car-entry:not(.selected) .ce-city { display: none; }  /* a row: the street address only (js/cars.js _addrHTML) */
     .car-entry.selected .ce-addr:empty::before { content: 'No address'; opacity: .6; }
     /* The car's side of the street (where the sides differ): one choice per side with its sweeping. */
@@ -419,11 +431,13 @@
     .ce-pick[aria-checked="true"] .ce-radio { border: 6px solid var(--blue); }
     .ce-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--urg-today); }
     .ce-error .btn { flex: none; }
+    .ce-header .ce-btn-retry { flex: none; }
+    .car-entry.selected .ce-header .ce-btn-retry { display: none; }  /* the page's section has its own */
     .ce-token { width: 100%; margin: 4px 0; font-family: ui-monospace, monospace; }
     /* A setting inside a section (the home's collection day): label left, control right. */
     .ce-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--tap); }
     .ce-field input.field { width: 8.5em; text-transform: uppercase; }
-    .alert-line { flex-basis: 100%; font-weight: 400; display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; font-size: .8rem; line-height: 1.35; }
+    .alert-line { flex-basis: 100%; font-weight: 400; display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; font-size: var(--fs-md); line-height: 1.35; }
     .alert-line small { color: var(--muted); }
     /* Rules at a car (permit area, meter, closure): one line each, the source in grey. */
     .ce-rule span { color: var(--muted); }
@@ -436,10 +450,10 @@
     #confirm-dialog[open] { animation: alert-in .35s var(--spring); }
     @keyframes alert-in { from { opacity: 0; transform: scale(1.12); } 50% { opacity: 1; } }
     #confirm-dialog::backdrop { background: rgba(0,0,0,.28); }
-    #confirm-title { padding: 0 4px 6px; font-size: 1.05rem; font-weight: 700; }
-    #confirm-msg { padding: 0 4px 18px; font-size: .84rem; line-height: 1.4; }
+    #confirm-title { padding: 0 4px 6px; font-size: var(--fs-xl); font-weight: 700; }
+    #confirm-msg { padding: 0 4px 18px; font-size: var(--fs-md); line-height: 1.4; }
     .dlg-btns { display: flex; gap: 10px; }
-    .dlg-btns button { flex: 1; min-height: 48px; border-radius: var(--pill); font-size: .95rem; font-weight: 600;
+    .dlg-btns button { flex: 1; min-height: 48px; border-radius: var(--pill); font-size: var(--fs-lg); font-weight: 600;
                        background: var(--fill); color: var(--text); }
     .dlg-btns .dlg-danger { color: var(--urg-today); }
 
@@ -469,13 +483,13 @@
     .sc { display: flex; flex-direction: column; gap: 5px; width: max-content; padding: 8px 10px 9px;
           max-width: min(260px, calc(100vw - 3 * var(--edge) - var(--tap) - var(--inset-l) - var(--inset-r)));  /* clear of the map buttons */
           border-radius: var(--r-md); background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-1);
-          font-size: .8rem; line-height: 1.3; }  /* read walking to the car: rows 12.8 px, labels from 10.6 px */
+          font-size: var(--fs-md); line-height: 1.3; }  /* read walking to the car: rows 12.8 px, labels from 10.6 px */
     .sc-head { display: flex; align-items: center; gap: 6px; }
-    .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: .7rem; font-weight: 800; }
-    .sc-street { min-width: 0; font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+    .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: var(--fs-xs); font-weight: 700; }
+    .sc-street { min-width: 0; font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
-    .sc-side { flex: none; min-width: 3.1em; padding-top: 1px; font-size: .72rem; font-weight: 600; color: var(--muted); }
+    .sc-side { flex: none; min-width: 3.1em; padding-top: 1px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
     .sc-side.ghost { visibility: hidden; }  /* a side's next row: its text lines up with the first */
     .sc-mark { flex: none; }
     .sc-bar { align-self: stretch; width: 3px; border-radius: 2px; }
@@ -496,13 +510,13 @@
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
       width: auto; margin: 0; padding: 8px 16px; border-radius: var(--pill);
-      color: var(--text); font-size: .85rem; font-weight: 700;
+      color: var(--text); font-size: var(--fs-md); font-weight: 700;
     }
 
     .cal-scroll::-webkit-scrollbar { display: none; }
     .cal-day {
       position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      min-width: 0; border-radius: var(--r-sm); font-size: .75rem; line-height: 1.15; color: var(--text);
+      min-width: 0; border-radius: var(--r-sm); font-size: var(--fs-sm); line-height: 1.15; color: var(--text);
       font-variant-numeric: tabular-nums; scroll-snap-align: start;
     }
     /* Days outside the month in the header (.cal-out, js/calendar.js): muted digits; in the
@@ -531,14 +545,14 @@
     .cal-past { color: var(--muted); }  /* days gone by: not counted as ahead (muted digits stay AA) */
     .cal-past :is(.cal-dots, .cal-bar) { opacity: .5; }
     .cal-areas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-    .cal-area { position: relative; min-height: 36px; padding: 2px 12px; font-size: .74rem; }
+    .cal-area { position: relative; min-height: 36px; padding: 2px 12px; font-size: var(--fs-sm); }
 
     .cal-nav { width: var(--tap); height: var(--tap); font-size: 1.15rem; color: var(--tint-fg); }
     /* One grid of weeks for both views: it fills what the sheet leaves (the sheet's heights
        fit whole weeks), down to the one week the small sheet shows; then it neither scrolls
        nor shows the day details (a swipe steps a week, js/calendar.js). */
     :is(.cal-wds, .cal-grid) { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
-    .cal-wds { flex: none; font-size: .64rem; letter-spacing: .04em; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
+    .cal-wds { flex: none; font-size: var(--fs-2xs); letter-spacing: .04em; color: var(--muted); font-weight: 600; padding-bottom: 2px; }
     .cal-scroll { flex: 1 1 0; min-height: 40px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
                   scroll-snap-type: y mandatory; scrollbar-width: none; }
     #ic-cal.cal-small .cal-scroll { overflow-y: hidden; touch-action: none; scroll-snap-type: none; }  /* hidden weeks are no snap points */
@@ -546,10 +560,10 @@
     /* Dragged up, the weeks below unfold under the finger (those above stay hidden). */
     #sheet.dragging #ic-cal .cal-near { visibility: visible; }
     .cal-grid { grid-auto-rows: 40px; }
-    .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: .62rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+    .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: var(--fs-2xs); font-weight: 700; color: var(--muted); text-transform: uppercase; }
     .sw-now .cal-mo, .sw-next .cal-mo { color: inherit; }
     /* The selected day: its date and three lines (more scroll), so the sheet's heights stay put. */
-    .cal-detail { flex: none; height: calc(4 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: .74rem; line-height: 1.4; }
+    .cal-detail { flex: none; height: calc(4 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: var(--fs-sm); line-height: 1.4; }
     .cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 2px; }
     /* A car's mark is round, a home's pickup square (the dots above, the keys here). */
     :is(.cal-dot, .cal-key).cal-round { border-radius: 50%; }
@@ -591,6 +605,7 @@
       --tint-fg: #93b4f8; --home: #4ade80;
       --rule-allow: var(--home); --rule-meter: #9ca3af; --rule-snow: #60a5fa; --rule-ban: #f87171;  /* 3:1 on the card */
       --pin-halo: #111418;
+      --toast-bg: #e2e8f0; --toast-fg: #0f172a; --toast-err: #fecaca; --toast-btn: rgba(15,23,42,.12);
       /* On the dark land (#1d232b): today 6.3:1, tomorrow 4.8:1, check 3.5:1, clear 3.3:1, none 1.8:1. */
       --line-today: #ff7a7a; --line-tomorrow: #c97a2a; --line-safe: #3a7f55; --line-check: #6b7787; --line-none: #404a57;
     }
@@ -603,22 +618,24 @@
       pointer-events: none; align-items: center;
     }
     .toast {
-      background: #1e293b; color: #f1f5f9; padding: 9px 16px;
-      border-radius: var(--pill); font-size: .82rem; font-weight: 500;
+      background: var(--toast-bg); color: var(--toast-fg); padding: 9px 16px;
+      border-radius: var(--pill); font-size: var(--fs-md); font-weight: 600;
       box-shadow: 0 6px 20px rgba(0,0,0,.3); pointer-events: none;
       animation: toast-in .2s ease, toast-out .3s ease 2.7s forwards;
       width: max-content; max-width: min(420px, calc(100vw - 2 * var(--edge))); text-align: center;
     }
-    .toast.error { background: #7f1d1d; animation: toast-in .2s ease; pointer-events: auto;
-                   display: flex; align-items: center; gap: 10px; padding-right: 6px; }
+    .toast.error { background: var(--toast-err); animation: toast-in .2s ease; }
+    body.dark .toast.error { color: #450a0a; }
+    /* With a button (Retry, Undo, Reload): it takes taps. */
+    .toast:has(.toast-btn) { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding-right: 6px; }
     .toast-btn { position: relative; min-height: 32px; padding: 0 10px; border-radius: var(--pill); font-weight: 700;
-                 background: rgba(255,255,255,.16); color: #fff; }
+                 background: var(--toast-btn); color: inherit; }
 
     /* Offline, can't reach the server, loading streets: a chip at the top of the map. */
     /* Under the street card (--signs-h: its height and a gap, from js/signs.js), never over it. */
     #net-chip { position: absolute; z-index: 22; top: calc(var(--inset-t) + var(--edge) + var(--signs-h, 0px)); left: calc(var(--inset-l) + var(--edge));
-                padding: 6px 12px; border-radius: var(--pill); background: #1e293b; color: #f1f5f9;
-                font-size: .8rem; font-weight: 600; box-shadow: var(--shadow-1); pointer-events: none; }
+                padding: 6px 12px; border-radius: var(--pill); background: var(--toast-bg); color: var(--toast-fg);
+                font-size: var(--fs-md); font-weight: 600; box-shadow: var(--shadow-1); pointer-events: none; }
     @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
     @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
 
@@ -668,7 +685,8 @@
       .tab-title { font-size: 1.2rem; }
       #tabbar::before { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
       /* Words only (as a Mac segmented control): three of them fit the panel's width. */
-      #tabbar [role="tab"] { min-width: 0; min-height: 34px; font-size: .78rem; }
+      #tabbar [role="tab"] { min-width: 0; min-height: 34px; font-size: var(--fs-sm); }
+      @media (pointer: coarse) { #tabbar [role="tab"] { min-height: var(--tap); } }  /* a tablet: finger-sized */
       #tabbar [role="tab"] svg.ic { display: none; }
       .tab-badge { top: 3px; left: auto; right: 3px; width: 8px; height: 8px; }
       #map-ctrl, #signs { top: var(--edge); }

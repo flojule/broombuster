@@ -80,7 +80,7 @@ function _rowHTML({ divider, cont, side, ghost, when, color, mark, text, detail 
        + (side === undefined ? '' : `<span class="sc-side${ghost ? ' ghost' : ''}" aria-hidden="true">${esc(side)}</span>`)
        + `<span class="sr-only">${esc(said || `${text} ${detail}`.trim())}</span>`
        + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail">${_keepTimes(esc(detail))}</span>` : ''}</span>`
-       + `${when ? _whenBadge(when) : ''}</div>`;
+       + `${when ? _whenBadge(when, true) : ''}</div>`;
 }
 // Escaped text with each time range ("8am–9pm", "7 - 9AM") kept on one line.
 const _TIME_RANGE = /\d{1,2}(?::\d\d)?\s*(?:[ap]\.?m\.?)?\s*[-–]\s*\d{1,2}(?::\d\d)?\s*[ap]\.?m\.?/gi;
@@ -106,7 +106,7 @@ function _sweepRows(sec, now, skip) {
   }
   return lines.map((l, i) => ({
     ...(i ? more : first),
-    text: l.days, detail: l.time, said: `${side}: ${!i && soon ? `swept ${u}; ` : ''}sweeping ${l.days} ${l.time}`.trim(),
+    text: l.days, detail: l.time, said: `${side}: ${!i && soon ? `swept ${(first.when?.text || u).toLowerCase()}; ` : ''}sweeping ${l.days} ${l.time}`.trim(),
   }));
 }
 
@@ -117,8 +117,9 @@ function _whenHTML(secs, now, skip) {
   return isSoon(_sideUrgency(secs[0], now, skip)) ? _whenBadge(whenOf(secs[0].entries, now, skip)) : '';
 }
 // The badge: {u, text} (whenOf).
-function _whenBadge({ u, text }) {
-  return `<b class="sc-when" style="background:var(--urg-${u}-bg)">${esc(text)}</b>`;
+// `said`: the row's words already say it (screen readers skip the badge).
+function _whenBadge({ u, text }, said = false) {
+  return `<b class="sc-when" style="background:var(--urg-${u}-bg)"${said ? ' aria-hidden="true"' : ''}>${esc(text)}</b>`;
 }
 
 // A mark: a bar (sweeping) in its color, or a rule's glyph (index.html i-<kind>).
@@ -227,6 +228,7 @@ function renderSigns(f, live = false) {
     _signsKey = html;
     signsEl.hidden = !html;
     signsEl.innerHTML = html;
+    signsEl.setAttribute('aria-label', street ? `${street}, at the target` : 'Street at the target');
     fitSigns();
   }
   if (placing && !live) _placeBannerStreet(f);  // read out once the map stops (role=status)
