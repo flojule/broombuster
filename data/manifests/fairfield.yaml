@@ -1,0 +1,23 @@
+name: "Fairfield, CA"
+source_updated: "2026-11"   # when the city last edited its residential sweeping areas
+center: {lat: 38.2570, lon: -122.0540}
+schema: prebuilt
+bbox: [38.16, -122.16, 38.31, -121.95]
+fgb_path: data/fairfield/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/fairfield.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Republic Services: the user picks the day
+source:
+  local_path: data/fairfield/StreetSweeping.geojson
+  build: scripts/build_fairfield_geojson.py
+  arcgis:
+    # Residential areas: regular schedule, this fall's schedule per month (Nov-Jan).
+    zones.geojson: https://services1.arcgis.com/A14KNJpxNyBTu19J/arcgis/rest/services/Street_Sweeping_Residential_Areas/FeatureServer/0
+    # Commercial routes: street lines with their schedule.
+    commercial.geojson: https://services1.arcgis.com/A14KNJpxNyBTu19J/arcgis/rest/services/Street_Sweeping_Commercial_Areas/FeatureServer/0
+    # Solano County road centerlines, city-owned: the blocks the areas are laid onto.
+    centerlines.geojson:
+      url: https://services2.arcgis.com/SCn6czzcqKAFwdGU/arcgis/rest/services/Road_Centerlines/FeatureServer/0
+      where: "(incmuni_l='FAIRFIELD' OR incmuni_r='FAIRFIELD') AND roadowner='City of Fairfield'"
+  notes: |
+    The city's map: https://www.fairfield.ca.gov/sweep (Street Sweeping Schedule Map).

@@ -1,0 +1,10 @@
+# Trash (Recology Vacaville Solano): drivers service every holiday except Christmas and New
+# Year's Day; that day's pickups are the next day. 2026-01-01 and 2027-12-25 follow that rule.
+# Sweeping: nothing says it stops on holidays, so no holiday is assumed.
+source: https://www.recology.com/recology-vacaville-solano/holiday-calendar/
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

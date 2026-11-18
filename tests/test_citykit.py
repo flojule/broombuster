@@ -1,5 +1,6 @@
 """scripts/citykit.py: schedule words to sweep codes, posted windows, zones onto blocks."""
 
+import datetime
 import sys
 from pathlib import Path
 
@@ -65,3 +66,24 @@ def test_zones_to_blocks_takes_the_zone_holding_most_of_a_line():
     )
     out = citykit.zones_to_blocks(lines, zones)
     assert out["STREET_NAME"].tolist() == ["A ST"] and out["Day"].tolist() == ["Mon"]
+
+
+def test_month_dates_give_each_weekday_its_own_ordinals():
+    days = citykit.month_dates("2nd Friday and 5th Monday", 2026, 11)
+    assert days == [datetime.date(2026, 11, 13), datetime.date(2026, 11, 30)]
+    assert citykit.month_dates("Second and Fourth Thursday", 2026, 2) == [
+        datetime.date(2026, 2, 12),
+        datetime.date(2026, 2, 26),
+    ]
+
+
+def test_cycle_dates_keep_the_cycle_across_years():
+    days = citykit.cycle_dates(datetime.date(2022, 1, 10), 2, (2026,))
+    assert days[:2] == [datetime.date(2026, 1, 5), datetime.date(2026, 1, 19)]
+    assert len(days) == 26 and {d.year for d in days} == {2026}
+
+
+def test_dates_code_moves_holidays_to_the_next_weekday():
+    thanksgiving, xmas = datetime.date(2026, 11, 26), datetime.date(2026, 12, 25)
+    code = citykit.dates_code([thanksgiving, xmas], {thanksgiving, xmas})
+    assert code == "DATES:2026-11-27,2026-12-28"

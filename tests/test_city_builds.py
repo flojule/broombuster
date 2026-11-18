@@ -1,6 +1,7 @@
 """The city build scripts (scripts/build_*_geojson.py) and the Oakland normalizer, on
 synthetic rows: how a published schedule row lands on a block and a side."""
 
+import datetime
 import sys
 from pathlib import Path
 
@@ -15,7 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 pytest.importorskip("pdfplumber")  # the `scripts` extra
 
 import build_alameda_geojson as alameda
+import build_benicia_geojson as benicia
 import build_berkeley_geojson as berkeley
+import build_fairfield_geojson as fairfield
+import build_napa_geojson as napa
+import build_sonoma_county_geojson as sonoma_county
+import build_vacaville_geojson as vacaville
 
 _LINE = LineString([(0, 0), (1, 0)])
 
@@ -199,3 +205,66 @@ def test_sf_daytime_holiday_keeps_night_cleaning():
     entries = {"even": [["W", "", "8AM–10AM"], ["W", "", "2AM–6AM"]], "odd": []}
     (_, items), = schedule.sweep_days(entries, "san_francisco", vets, vets)  # fmt: skip
     assert items == [("even", "2AM–6AM")]
+
+
+# ── North Bay: rotations and seasonal schedules as DATES codes ───────────────
+
+
+def _dates(code, month=None):
+    days = [datetime.date.fromisoformat(d) for d in code.removeprefix("DATES:").split(",")]
+    return [d for d in days if month is None or (d.year, d.month) == month]
+
+
+def test_vacaville_weeks_1_and_3_are_every_other_week():
+    code, desc = vacaville.entry("Monday", "Weeks 1 & 3", (2026,))
+    assert _dates(code)[:2] == [datetime.date(2026, 1, 5), datetime.date(2026, 1, 19)]
+    assert datetime.date(2026, 3, 30) in _dates(code)  # a 5th Monday: not a week of the month
+    assert desc == "Every other Mon, green weeks"
+    assert _dates(vacaville.entry("Friday", "Weeks 2 & 4", (2026,))[0])[0].day == 2
+    assert vacaville.entry("Wednesday", "Weekly", (2026,))[0] == "WE"
+    with pytest.raises(ValueError):
+        vacaville.entry("Monday", "Biweekly", (2026,))
+
+
+def test_sonoma_county_slots_repeat_every_4_weeks():
+    code, desc = sonoma_county.entry("Tuesday", "1", (2026,))
+    assert _dates(code)[:2] == [datetime.date(2026, 1, 13), datetime.date(2026, 2, 10)]
+    assert desc == "Tue every 4 weeks"
+    assert sonoma_county.entry("Thursday", "1234", (2026,))[0] == "THE"
+
+
+def test_fairfield_fall_months_take_the_published_exceptions():
+    zone = {
+        "OBJECTID": 1,
+        "Regular_Schedule": "4th Friday",
+        "Base_Fall_Schedule": "2nd and 4th Friday",
+        "FallSweep_Nov": "2nd Friday and 5th Monday",
+        "FallSweep_Dec": "2nd Friday and 4th Monday",
+        "FallSweep_Jan": None,
+    }
+    off = {datetime.date(2026, 11, 26), datetime.date(2026, 12, 25)}
+    code, desc = fairfield.residential_entry(zone, (2026, 2027), off)
+    assert [d.day for d in _dates(code, (2026, 11))] == [13, 30]
+    assert [d.day for d in _dates(code, (2026, 12))] == [11, 28]
+    assert [d.day for d in _dates(code, (2027, 1))] == [8, 22]  # no exception: base fall
+    assert [d.day for d in _dates(code, (2026, 2))] == [27]
+    assert desc == "4th Fri; Nov–Jan 2nd & 4th Fri"
+
+
+def test_napa_leaf_season_doubles_and_holidays_move():
+    route = {
+        "RouteName": "Th4",
+        "StandardRt": "Fourth Thursday",
+        "Leaf_Rte": "Second and Fourth Thursday",
+    }
+    code, _ = napa.entry(route, (2026,), {datetime.date(2026, 11, 26)})
+    assert [d.day for d in _dates(code, (2026, 9))] == [24]
+    assert [d.day for d in _dates(code, (2026, 11))] == [12, 27]  # Thanksgiving -> Friday
+    assert napa.entry({"RouteName": "MF"}, (2026,), set())[0] == "MFE"
+
+
+def test_benicia_brochure_overrides_the_city_layer():
+    assert benicia.entry("Third Tuesday") == ("TH24", "2nd & 4th Thu", None)
+    assert benicia.entry("Every Monday and Friday Morning") == ("FE", "Every Fri", "AM")
+    assert benicia.entry("Every Thursday Night")[:2] == ("THE", "Every Thu night")
+    assert benicia.entry("First Wednesday")[0] == "W1"

@@ -1,0 +1,22 @@
+name: "Benicia, CA"
+source_updated: "2025-01"   # Republic Services' 2025 sweeping brochure
+center: {lat: 38.0620, lon: -122.1560}
+schema: prebuilt
+bbox: [38.03, -122.20, 38.10, -122.10]
+fgb_path: data/benicia/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/benicia.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Republic Services: the user picks the day
+source:
+  local_path: data/benicia/StreetSweeping.geojson
+  build: scripts/build_benicia_geojson.py
+  arcgis:
+    # The city's sweeping areas and high-priority routes (one schedule each).
+    zones.geojson: https://services5.arcgis.com/eclQh1J6mUFYeV4m/arcgis/rest/services/Street_Sweeping_Schedule/FeatureServer/0
+    # Solano County road centerlines, city-owned: the blocks the areas are laid onto.
+    centerlines.geojson:
+      url: https://services2.arcgis.com/SCn6czzcqKAFwdGU/arcgis/rest/services/Road_Centerlines/FeatureServer/0
+      where: "(incmuni_l='BENICIA' OR incmuni_r='BENICIA') AND roadowner='City of Benicia'"
+  notes: |
+    Republic Services' 2025 brochure (industrial area, downtown, 100 blocks off First Street):
+    https://www.republicservices.com/cms/documents/municipality/ca/contra-costa-county/Benicia-Street-Sweeping-Schedule-2025.pdf

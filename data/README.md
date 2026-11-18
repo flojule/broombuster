@@ -30,6 +30,11 @@ equals the source.
 | Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced` |
 | Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS) | signed sides only |
 | Chicago | Data Portal zones, one dataset per year | same dataset | every zone |
+| Vacaville | Recology layer (ArcGIS): weekly, or every other week (green / yellow calendar) | same layer (Solano County centerlines) | every row: no source says unticketed; no signs on 3 Street View blocks |
+| Sonoma County (unincorporated) | Recology layer (ArcGIS): 4-week rotation per 2026 calendar, or weekly | same layer, no ranges | every row: Recology asks to move cars; no signs on 3 Street View blocks |
+| Fairfield | city residential areas (monthly, twice Nov–Jan) and commercial routes (ArcGIS) | Solano County centerlines (ArcGIS), city-owned | every row: no source says unticketed; no signs on 3 Street View blocks |
+| Benicia | city areas (ArcGIS, 2023) + Republic Services 2025 brochure (industrial, downtown, 100 blocks off First St) | Solano County centerlines (ArcGIS), city-owned | every row: brochure asks to move cars; no signs on 3 Street View blocks |
+| Napa | city route areas (ArcGIS): monthly, twice Oct–Jan | city sweeping-contract segments (ArcGIS) | every row: city asks to move cars; no signs on 3 Street View blocks |
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.

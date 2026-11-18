@@ -1,0 +1,18 @@
+name: "Sonoma County, CA"
+source_updated: "2026-07"   # when Recology last edited its sweeping layer
+center: {lat: 38.40, lon: -122.75}
+schema: prebuilt
+bbox: [38.22, -123.02, 38.53, -122.46]
+fgb_path: data/sonoma_county/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/sonoma_county.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Recology Sonoma Marin: the user picks the day
+source:
+  local_path: data/sonoma_county/StreetSweeping.geojson
+  build: scripts/build_sonoma_county_geojson.py
+  arcgis:
+    # Recology's 2026 layer for unincorporated Sonoma County: weekday and rotation week.
+    schedule.geojson: https://services2.arcgis.com/YRDInqI2lQMNM8xP/arcgis/rest/services/Sonoma_County_2026_County_Street_Sweep_Schedule/FeatureServer/0
+  notes: |
+    Map and 2026 rotation calendar on
+    https://www.recology.com/recology-sonoma-marin/unincorporated-sonoma-county/schedule/

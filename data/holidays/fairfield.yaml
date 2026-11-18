@@ -1,0 +1,13 @@
+# Trash (Republic Services): pickups on or after New Year's Day, Thanksgiving and Christmas
+# are one day late that week.
+# Sweeping (the city's Street Sweeping Residential Areas layer): no sweeping on the same
+# three days; those streets are swept the next day (the build moves the DATES codes).
+source: https://www.republicservices.com/municipality/fairfield-ca
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [sweeping, trash]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [sweeping, trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [sweeping, trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [sweeping, trash]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [sweeping, trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [sweeping, trash]}
