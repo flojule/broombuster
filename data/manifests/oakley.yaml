@@ -1,0 +1,22 @@
+name: "Oakley, CA"
+source_updated: "2025-03"   # when the city last edited its sweeping source
+center: {lat: 37.993, lon: -121.700}
+schema: prebuilt
+bbox: [37.96, -121.76, 38.02, -121.62]
+fgb_path: data/oakley/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/oakley.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Mt. Diablo Resource Recovery: the user picks the day
+source:
+  local_path: data/oakley/StreetSweeping.geojson
+  build: scripts/build_oakley_geojson.py
+  arcgis:
+    # The city's sweeping route lines: which streets are swept.
+    routes.geojson: https://services8.arcgis.com/ql5SF28UZRL4qU2a/arcgis/rest/services/Street_Sweeping/FeatureServer/211
+  files:
+    # The city's alphabetical street list (March 2025): schedule per street.
+    - https://www.oakleyca.gov/DocumentCenter/View/671/Street-Sweeping-List.pdf
+    # Contra Costa County streets: Census TIGER/Line EDGES (citykit.COUNTY_CENTERLINES).
+    - https://www2.census.gov/geo/tiger/TIGER2026/EDGES/tl_2026_06013_edges.zip
+  notes: |
+    Both are linked from https://www.oakleyca.gov/263/Maps

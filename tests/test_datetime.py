@@ -108,6 +108,7 @@ def data_codes(all_rows):
         if normalize.is_text(c)
         and not analysis.is_no_sweep_code(c)
         and c not in analysis.UNDATED_CODES
+        and c != "NT"  # no tickets: shown by its description (DISPLAY_CASES)
     )
 
 
@@ -303,6 +304,8 @@ DISPLAY_CASES = [
         [["POSTED", "Day as posted on the signs", "9AM-12PM"]],
         ["Day as posted on the signs · 9AM–12PM"],
     ),
+    # No tickets (Pittsburg zones without code enforcement): the description only.
+    ([["NT", "1st & 3rd Tue, 6AM–4PM, no tickets", None]], ["1st & 3rd Tue, 6AM–4PM, no tickets"]),
     ([["MWF", "Every Mon, Wed, Fri", "9:00AM-12:00PM"]], ["Mon, Wed, Fri · 9AM–12PM"]),
     ([["MTWTHF", "", "8AM-10AM"]], ["Mon–Fri · 8AM–10AM"]),
     ([["E", "Everyday", "9:00AM-12:00PM"]], ["Every day · 9AM–12PM"]),

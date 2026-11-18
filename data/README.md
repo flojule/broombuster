@@ -30,6 +30,10 @@ equals the source.
 | Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced` |
 | Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS) | signed sides only |
 | Chicago | Data Portal zones, one dataset per year | same dataset | every zone |
+| San Ramon | city zones (ArcGIS), named by schedule | Contra Costa streets: Census TIGER/Line EDGES 2026 (public domain) | every zone; tickets not published (assumed); "Commercial" zone `POSTED` |
+| Danville | town zones (ArcGIS): monthly day | Contra Costa TIGER/Line EDGES | every zone; tickets not published (assumed); corridors (twice a month) and downtown (weekly) not in the source |
+| Oakley | city street list (PDF, 2025-03) | city route lines (ArcGIS) on Contra Costa TIGER/Line EDGES | every listed street; tickets not published (assumed) |
+| Pittsburg | city zones and commercial routes (ArcGIS) | Contra Costa TIGER/Line EDGES | zones with `Code_Enforcement = Yes`, others `NT`; commercial routes assumed enforced |
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.

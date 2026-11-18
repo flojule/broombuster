@@ -7,15 +7,17 @@ from pathlib import Path
 import geopandas
 import pandas as pd
 import pytest
-from shapely.geometry import LineString
+from shapely.geometry import LineString, MultiLineString, box
 
-from broombuster import holidays, schedule, schemas
+from broombuster import holidays, normalize, schedule, schemas
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 pytest.importorskip("pdfplumber")  # the `scripts` extra
 
 import build_alameda_geojson as alameda
 import build_berkeley_geojson as berkeley
+import build_oakley_geojson as oakley
+import build_pittsburg_geojson as pittsburg
 
 _LINE = LineString([(0, 0), (1, 0)])
 
@@ -147,6 +149,75 @@ def test_alameda_block_takes_the_centerline_of_its_street_and_range():
     kitty = out.loc["KITTYHAWK RD"]
     assert kitty.geometry.equals(far) and kitty.DAY_EVEN == "FE"
     assert (kitty.L_F_ADD, kitty.R_F_ADD) == (301, 300)  # the centerline's own left / right
+
+
+# ── Contra Costa (TIGER/Line centerlines) ────────────────────────────────────
+
+
+def _street(name, y, ranges=(None, None, None, None), x=-121.9):
+    """A centerline row (citykit.centerlines columns) running east 90 m at latitude y."""
+    keys = ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD")
+    return {"STREET_NAME": name, "STREET_KEY": normalize.street_name(name),
+            **dict(zip(keys, ranges, strict=True)),
+            "geometry": LineString([(x, y), (x + 0.001, y)])}  # fmt: skip
+
+
+def _gdf(rows):
+    return geopandas.GeoDataFrame(rows, crs="EPSG:4326")
+
+
+def test_pittsburg_commercial_route_wins_and_unenforced_zones_are_nt():
+    lines = _gdf([
+        _street("RAILROAD AVE", 38.0, (100, 198, 101, 199)),
+        _street("ELM ST", 38.002, (198, 100, 199, 101)),  # TIGER: high to low
+        _street("OAK ST", 38.002, x=-121.895),
+    ])  # fmt: skip
+    zone = {"SweepingTime": "6:00 am - 4:00 pm", "geometry": None}
+    residential = _gdf([
+        {**zone, "Schedule": "1st and 3rd Thrusday", "Code_Enforcement": "No",
+         "geometry": box(-121.9005, 37.9995, -121.8985, 38.0025)},
+        {**zone, "Schedule": "2nd and 4th Monday", "Code_Enforcement": "Yes",
+         "geometry": box(-121.8955, 37.9995, -121.8935, 38.0025)},
+    ])  # fmt: skip
+    commercial = _gdf(
+        [
+            {
+                "Schedule": "A - Every Tuesday & Thursday",
+                "geometry": _street("", 38.00001)["geometry"],
+            }
+        ]
+    )
+    out = pittsburg.build(residential, commercial, lines).set_index("STREET_NAME")
+    assert out.loc["RAILROAD AVE", "DAY_EVEN"] == "TTHE" and pd.isna(
+        out.loc["RAILROAD AVE", "TIME_ODD"]
+    )
+    elm = out.loc["ELM ST"]
+    assert (elm.DAY_EVEN, elm.DESC_ODD) == ("NT", "1st & 3rd Thu, 6AM–4PM, no tickets")
+    assert (elm.L_F_ADD, elm.L_T_ADD) == (100, 198)
+    assert tuple(out.loc["OAK ST", ["DAY_ODD", "TIME_EVEN"]]) == ("M24", "6AM–4PM")
+
+
+def test_oakley_list_rows_and_streets_it_gives_several_schedules():
+    by_name = oakley.schedules([
+        "STREET ROUTE SWEEP DAY COD FROM TO",
+        "Acorn Dr 4 2nd & 4th Monday of each month R Solitude Dr Harvest Cir",
+        "Main St Art 1st & 3rd Friday of each month A Vintage Parkway Empire Ave",
+        "Carol Ln 1 1st & 3rd Tuesday of each month R Main St Oakley Rd",
+        "Carol Ln 2 1st & 3rd Thursday of each month R Oakley Rd End",
+        "Mailcoat Ave 2 1st & 3rd Thursday of each month R Main St End",
+        "Lot",
+    ])  # fmt: skip
+    assert by_name["MAIN"] == {"1st & 3rd Friday"} and len(by_name["CAROL"]) == 2
+    streets = [_street(n, 38.0 + 0.002 * i) for i, n in
+               enumerate(("ACORN DR", "MALICOAT AVE", "CAROL LN", "SLOAN WAY"))]  # fmt: skip
+    routes = _gdf([
+        {"geometry": MultiLineString([s["geometry"] for s in streets[:3]])},
+        {"geometry": streets[3]["geometry"]},
+    ])  # fmt: skip
+    out = oakley.build(by_name, routes, _gdf(streets)).set_index("STREET_NAME")["DAY_EVEN"]
+    assert out["ACORN DR"] == "M24" and out["MALICOAT AVE"] == "TH13"  # spelled MAILCOAT
+    assert out["CAROL LN"] == "TH13"  # the one its route's other streets have
+    assert out["SLOAN WAY"] == "POSTED"  # not listed, nothing to go by
 
 
 # ── Oakland ──────────────────────────────────────────────────────────────────

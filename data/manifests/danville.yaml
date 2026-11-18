@@ -1,0 +1,20 @@
+name: "Danville, CA"
+source_updated: "2024-09"   # when the town last edited its sweeping source
+center: {lat: 37.815, lon: -121.960}
+schema: prebuilt
+bbox: [37.77, -122.03, 37.85, -121.89]
+fgb_path: data/danville/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/danville.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Republic Services (RecycleSmart): the user picks the day
+source:
+  local_path: data/danville/StreetSweeping.geojson
+  build: scripts/build_danville_geojson.py
+  arcgis:
+    # The town's monthly sweeping zones (SCHEDULE2 "2nd Thursday of Month").
+    zones.geojson: https://services7.arcgis.com/Q1ummDfB2x5H3vGe/arcgis/rest/services/StreetSweeping/FeatureServer/1
+  files:
+    # Contra Costa County streets: Census TIGER/Line EDGES (citykit.COUNTY_CENTERLINES).
+    - https://www2.census.gov/geo/tiger/TIGER2026/EDGES/tl_2026_06013_edges.zip
+  notes: |
+    The zone map (http://arcg.is/W0jSz) is linked from https://www.danville.ca.gov/188/Streets-Street-Lights

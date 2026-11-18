@@ -96,13 +96,22 @@ def side_entry(text, time=None, *, enforced=True) -> tuple[str | None, str | Non
 
 
 # County street centerlines -> standard columns. `url` and `where` go in the city
-# manifest's source.arcgis; the build reads the saved GeoJSON with centerlines().
+# manifest's source.arcgis (a file download: source.files); the build reads the saved
+# file with centerlines().
 COUNTY_CENTERLINES = {
     "alameda": {
         "url": "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0",
         "city_where": "MUNL='{code}' OR MUNR='{code}'",
         "name": "STREET",
         "ranges": ("FRADDL", "TOADDL", "FRADDR", "TOADDR"),
+    },
+    # Census TIGER/Line EDGES (public domain), in the manifest's source.files; the county's
+    # own CCC_Streets layer derives from licensed TomTom Dynamap data.
+    "contra_costa": {
+        "url": "https://www2.census.gov/geo/tiger/TIGER2026/EDGES/tl_2026_06013_edges.zip",
+        "read_where": "MTFCC IN ('S1200', 'S1400', 'S1730')",  # streets, no freeways or paths
+        "name": "FULLNAME",
+        "ranges": ("LFROMADD", "LTOADD", "RFROMADD", "RTOADD"),
     },
 }
 
@@ -111,7 +120,7 @@ def centerlines(path, county: str) -> geopandas.GeoDataFrame:
     """A county centerline GeoJSON as STREET_NAME, STREET_KEY, L_F_ADD .. R_T_ADD, geometry
     (EPSG:4326); lines without a name are dropped."""
     spec = COUNTY_CENTERLINES[county]
-    raw = geopandas.read_file(path).to_crs("EPSG:4326")
+    raw = geopandas.read_file(path, where=spec.get("read_where")).to_crs("EPSG:4326")
     name = raw[spec["name"]] if isinstance(spec["name"], str) else _join(raw, spec["name"])
     out = geopandas.GeoDataFrame(
         {"STREET_NAME": name.fillna("").astype(str).str.split().str.join(" ").str.upper()},
@@ -155,6 +164,30 @@ def zones_to_blocks(
     out = ln.drop(columns=["_len"]).merge(best[["_line", "_zone"]], on="_line")
     out = out.merge(zn[["_zone", *zcols]], on="_zone", suffixes=("", "_zone"))
     return out.drop(columns=["_line", "_zone"]).to_crs("EPSG:4326")
+
+
+def routes_to_blocks(
+    lines: geopandas.GeoDataFrame, routes: geopandas.GeoDataFrame, width_m=15, min_share=0.8
+) -> geopandas.GeoDataFrame:
+    """zones_to_blocks for route lines: each line with the columns of the route it runs
+    along (at least min_share of its length within width_m of the route)."""
+    utm = routes.to_crs("EPSG:26910")
+    zones = utm.set_geometry(utm.geometry.buffer(width_m)).to_crs("EPSG:4326")
+    return zones_to_blocks(lines, zones, min_share)
+
+
+def both_sides(blocks: geopandas.GeoDataFrame, entries) -> geopandas.GeoDataFrame:
+    """Standard-schema rows: each block with its (code, desc, time) entry on both sides;
+    each side's range low to high (TIGER runs some high to low)."""
+    cols = ["STREET_NAME", "L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD", "geometry"]
+    out, entries = blocks[cols].reset_index(drop=True), list(entries)
+    for f, t in (("L_F_ADD", "L_T_ADD"), ("R_F_ADD", "R_T_ADD")):
+        lo, hi = out[[f, t]].min(axis=1, skipna=False), out[[f, t]].max(axis=1, skipna=False)
+        out[f], out[t] = lo, hi
+    for side in ("EVEN", "ODD"):
+        for i, col in enumerate(("DAY", "DESC", "TIME")):
+            out[f"{col}_{side}"] = [e[i] for e in entries]
+    return out[out["DAY_EVEN"].notna()].reset_index(drop=True)
 
 
 def blocks_by_name(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFrame:
