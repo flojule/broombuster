@@ -11,12 +11,13 @@
 // menu swatch when features differ. icon: the glyph of a point layer's marker (a 24 px
 // SVG path, white on the color); fill: the glyph is filled, else stroked; line: more of
 // the glyph, stroked (a carrot's leaves).
-// minzoom: hidden zoomed out (meters are many). An area is a thin line in its color (no
-// fill: red, orange and green on the map mean sweeping); dash: the line dashed;
+// minzoom: hidden zoomed out (meters are many). An area is a thin line in its color;
+// tint: instead a light fill of that opacity and a soft band inside the edge, both under
+// the street colors (permit areas); dash: the line dashed;
 // focus: the area the target is in is outlined (permit areas).
 // Red, orange and green are the street colors' (today, tomorrow, clear): no layer takes them.
 const LAYER_STYLE = {
-  parking: { color: '#7c3aed', focus: true, key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #c026d3 0 75%, #2563eb 0)' },
+  parking: { color: '#7c3aed', focus: true, tint: ['interpolate', ['linear'], ['zoom'], 12, 0.12, 17, 0.08], key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #c026d3 0 75%, #2563eb 0)' },
   meters:  { color: cssVar('--rule-meter'), minzoom: 16 },  // sign colors, as the card
   winter:  { color: cssVar('--rule-snow') },
   ev:      { color: '#0369a1', minzoom: 12, fill: true, icon: 'M13.5 3 6 13.5h5L10 21l8-11h-5.2l.7-7z' },
@@ -75,6 +76,9 @@ const _ids = id => ['fill', 'line', 'pt', 'rim', 'here', 'curb2'].map(k => `${LA
 // Permit areas zoomed in to CURB_ZOOM: the permit curbs in their area's color (a second
 // permit striped over it) instead of the area's edge and outline.
 const CURB_ZOOM = 15;
+// A tinted area's band (px) inside its edge (a positive offset is inside, as map.js BAND_W).
+const TINT_BAND_W = ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 5, 16, 7];
+const TINT_BAND_OFFSET = ['interpolate', ['linear'], ['zoom'], 11, 1, 14, 2.5, 16, 3.5];
 const _fadeIn = (a, b) => ['interpolate', ['linear'], ['zoom'], CURB_ZOOM - 0.5, a, CURB_ZOOM + 0.5, b];
 // The layers a tap names a feature of.
 function overlayLayerIds() {
@@ -127,12 +131,16 @@ function _addOverlay(layer) {
   const meters = layer.id === 'meters', curbs = layer.id === 'parking';
   const edgeOpacity = a => curbs ? _fadeIn(a, 0) : a;
   const add = (def, before) => { if (!map.getLayer(def.id)) map.addLayer({ ...base, ...def }, before); };
-  // Areas: a fill (clear, or the tint) under the streets, which a tap or the target finds,
-  // and without a tint a thin edge in the area's color (darker when pale) over them; the
-  // area at the target outlined.
+  // Areas: a fill (clear, or the tint) under the streets, which a tap or the target finds;
+  // with a tint a soft band inside the edge under them, else a thin edge in the area's
+  // color (darker when pale) over them; the area at the target outlined.
   const edge = ['coalesce', ['get', 'edge'], color];
-  add({ id: fill, type: 'fill', filter: poly, paint: { 'fill-color': color, 'fill-opacity': 0 } }, below);
-  if (!meters) {
+  add({ id: fill, type: 'fill', filter: poly, paint: { 'fill-color': color, 'fill-opacity': st.tint || 0 } }, below);
+  if (st.tint) {  // a soft band inside the edge, under the streets: never read as a street line
+    add({ id: rim, type: 'line', filter: poly, layout: { 'line-join': 'round' },
+          paint: { 'line-color': color, 'line-width': TINT_BAND_W, 'line-offset': TINT_BAND_OFFSET,
+                   'line-opacity': edgeOpacity(0.35) } }, below);
+  } else if (!meters) {
     add({ id: rim, type: 'line', filter: poly, layout: { 'line-join': 'round' },
           paint: { 'line-color': edge, 'line-width': EDGE_W, 'line-opacity': edgeOpacity(0.9),
                    ...(st.dash ? { 'line-dasharray': [3, 2] } : {}) } }, over);
@@ -208,14 +216,6 @@ function legendHTML() {
                                   ['check', 'Check sign', 1], ['none', 'No sweeping', 0]]
     .map(([u, name, w]) => `<li><i class="lg lg-${w} lg-${u}"></i>${name}</li>`).join('') + '</ul>';
 }
-// The key on the map (index.html #map-key), under the map buttons (styles.css --ctrl-h).
-const mapKey = document.getElementById('map-key');
-mapKey.innerHTML = legendHTML();
-function placeMapKey() {
-  document.documentElement.style.setProperty('--ctrl-h', document.getElementById('map-ctrl').offsetHeight + 'px');
-}
-placeMapKey();
-window.addEventListener('resize', placeMapKey);
 // The legend folds under its own row: open until folded (remembered on this device).
 let _legendOpen = _read('bb_legend') !== '0';
 

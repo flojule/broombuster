@@ -403,7 +403,6 @@ function syncRegion() {
   _ensureAreaLabels();
   const zoomedOut = map.getZoom() < AREA_ZOOM;
   for (const m of _areaMarkers.values()) m.getElement().hidden = !zoomedOut;
-  mapKey.hidden = zoomedOut;  // area labels, no street colors
   const c = map.getCenter();
   const key = zoomedOut ? null : regionAt(c.lat, c.lng);
   if (key) _region = key;
