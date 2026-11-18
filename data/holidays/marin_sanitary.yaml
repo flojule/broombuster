@@ -1,0 +1,10 @@
+# Trash (Marin Sanitary Service: San Rafael): no collection on Christmas Day and New Year's
+# Day, collected the following Saturday: the next day for Fri Dec 25 2026 and Fri Jan 1 2027.
+# Sweeping: no holiday published.
+source: https://marinsanitaryservice.com/support/holiday-calendar/
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

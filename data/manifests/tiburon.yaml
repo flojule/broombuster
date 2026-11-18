@@ -1,0 +1,20 @@
+name: "Tiburon, CA"
+source_updated: "2026-11"   # Mill Valley Refuse Service's sweeping lists, as read
+center: {lat: 37.8890, lon: -122.4620}
+schema: prebuilt
+bbox: [37.854, -122.512, 37.921, -122.420]
+fgb_path: data/tiburon/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/mill_valley_refuse.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Mill Valley Refuse: the user picks the day
+source:
+  local_path: data/tiburon/StreetSweeping.geojson
+  build: scripts/build_tiburon_geojson.py
+  arcgis:
+    # Marin County roads (MarinMap, provided as is): blocks and address ranges.
+    centerlines.geojson:
+      url: https://services6.arcgis.com/T8eS7sop5hLmgRRH/arcgis/rest/services/Roads/FeatureServer/0
+      where: "City='Tiburon'"
+  notes: |
+    The build reads the Tiburon tab of
+    https://www.millvalleyrefuse.com/residential-street-sweeping (the town's sweeping contractor).

@@ -107,6 +107,12 @@ _EXPECTED = {
     "danville": [(_XMAS_NEW_YEAR, ["trash"], "date")],
     "oakley": [(_XMAS_NEW_YEAR, ["trash"], "date")],
     "pittsburg": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "san_rafael": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
+    "mill_valley": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
+    "corte_madera": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
+    "tiburon": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
+    "sausalito": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
+    "belvedere": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
 }
 _SF_DAYTIME_YEARS = {2026}  # SFMTA has not published 2027's daytime-only holidays
 _ALSO_SUSPENDED = {("san_francisco", datetime.date(2026, 1, 1)): "trash"}  # Recology moved pickups
