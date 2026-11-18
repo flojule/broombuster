@@ -1,0 +1,18 @@
+name: "South San Francisco, CA"
+center: {lat: 37.6547, lon: -122.4256}
+schema: prebuilt
+bbox: [37.63, -122.48, 37.68, -122.37]
+fgb_path: data/south_san_francisco/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2021-12"
+holidays: data/holidays/south_san_francisco.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # South San Francisco Scavenger
+source:
+  local_path: data/south_san_francisco/StreetSweeping.geojson
+  build: scripts/build_south_san_francisco_geojson.py
+  arcgis:
+    # The city's sweeping lookup: blocks with sweep day and weeks, posted No Parking day and time.
+    schedule.geojson: https://services5.arcgis.com/inY93B27l4TSbT7h/arcgis/rest/services/streetsweeping/FeatureServer/0
+  notes: |
+    Lookup dashboard linked from
+    https://www.ssfca.gov/Departments/Public-Works/Divisions/Maintenance-Operations-Division

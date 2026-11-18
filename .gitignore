@@ -19,6 +19,7 @@ data/**/*.dbf
 data/**/*.prj
 data/**/*.cpg
 data/**/*.zip
+data/**/*.html
 
 # Editor swap files
 *.swp

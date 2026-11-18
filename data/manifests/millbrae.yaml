@@ -1,0 +1,21 @@
+name: "Millbrae, CA"
+center: {lat: 37.5983, lon: -122.3987}
+schema: prebuilt
+bbox: [37.58, -122.43, 37.62, -122.37]
+fgb_path: data/millbrae/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2024-11"
+holidays: data/holidays/ssf_scavenger.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # South San Francisco Scavenger
+source:
+  local_path: data/millbrae/StreetSweeping.geojson
+  build: scripts/build_millbrae_geojson.py
+  arcgis:
+    # The city's sweeping map: parcels with address, sweep day and hours, car removal posted or requested.
+    parcels.geojson: https://services6.arcgis.com/paH4j1JG3JAZKLhE/arcgis/rest/services/StreetSweepingMap/FeatureServer/0
+    # San Mateo County street centerlines in Millbrae.
+    centerlines.geojson:
+      url: https://gis.smcgov.org/maps/rest/services/ISD/SMC_COUNTY_GIS/MapServer/4
+      where: "incmuni_l='MILLBRAE' OR incmuni_r='MILLBRAE'"
+  notes: |
+    The map is linked from https://www.ci.millbrae.ca.us/departments/public-works/street-sweeping

@@ -45,6 +45,16 @@ equals the source.
 | Tiburon | Mill Valley Refuse street lists | Marin County roads | none (NT): no ordinance or request found, no signs seen |
 | Sausalito | city sweeping table | Marin County roads | none (NT): "please try to minimize on-street parking", no signs seen |
 | Belvedere | city route lists (route N = week N, Thu or Fri) | Marin County roads | none (NT): page asks nothing of parked cars, no signs seen |
+| South San Francisco | city sweeping lookup (ArcGIS, 2021): day, weeks, posted No Parking | same layer | posted No Parking only; sweeping itself NT; "Mon-Tue" signs POSTED (side not on file) |
+| Daly City | city schedule page: odd / even side weekday and hours | county centerlines (ArcGIS) by name, parts by cross streets | every listed side; block of a multi-part street not placed: POSTED |
+| San Mateo | city sweeping parcels (ArcGIS): day, weeks, hours | county centerlines, side by address parity | every side (city names no unticketed sides); bi-weekly Saturday: POSTED |
+| Millbrae | city sweeping parcels (ArcGIS): day, hours, car removal | county centerlines, side by address parity | "posted mandatory car removal"; "requested" NT; no word kept enforced |
+| San Bruno | city sweeping routes (ArcGIS): weeks, day, hours | county centerlines within 15 m of a curb route | routes with posted hours; others NT |
+| San Mateo County (unincorporated) | county Public Works routes (ArcGIS) | same layer | routes with hours (ordinance schedules); others NT |
+| Burlingame | city sweeping sections (ArcGIS, 2018): day, hours, track | county centerlines in the section | weekly and downtown sections; tracks A / B NT |
+| Menlo Park | city sweeping districts (ArcGIS): day, seasonal frequency | county centerlines in the district | none: NT (no hours or signs published) |
+
+San Mateo County centerlines: County of San Mateo ISD GIS, which cannot vouch for their accuracy.
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.

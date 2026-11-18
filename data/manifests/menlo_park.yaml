@@ -1,0 +1,20 @@
+name: "Menlo Park, CA"
+center: {lat: 37.4526, lon: -122.184}
+schema: prebuilt
+bbox: [37.41, -122.23, 37.50, -122.13]
+fgb_path: data/menlo_park/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/recology_san_mateo_county.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Recology San Mateo County
+source:
+  local_path: data/menlo_park/StreetSweeping.geojson
+  build: scripts/build_menlo_park_geojson.py
+  arcgis:
+    # The city's sweeping districts: weekday and frequency per season.
+    districts.geojson: https://utility.arcgis.com/usrsvcs/servers/12c35e9bef5c44f49161703e8e239c4f/rest/services/StreetSweeping/MapServer/0
+    # San Mateo County street centerlines in Menlo Park.
+    centerlines.geojson:
+      url: https://gis.smcgov.org/maps/rest/services/ISD/SMC_COUNTY_GIS/MapServer/4
+      where: "incmuni_l='MENLO PARK' OR incmuni_r='MENLO PARK'"
+  notes: |
+    Program page: https://menlopark.gov/Government/Departments/Public-Works/Maintenance-Division/Street-sweeping-schedule

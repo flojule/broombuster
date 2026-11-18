@@ -1,6 +1,6 @@
 bay_area:
   name: "Bay Area"
-  cities: [oakland, san_francisco, berkeley, alameda, vacaville, sonoma_county, fairfield, benicia, napa, san_ramon, danville, oakley, pittsburg, san_rafael, mill_valley, corte_madera, tiburon, sausalito, belvedere]
+  cities: [oakland, san_francisco, berkeley, alameda, vacaville, sonoma_county, fairfield, benicia, napa, san_ramon, danville, oakley, pittsburg, san_rafael, mill_valley, corte_madera, tiburon, sausalito, belvedere, south_san_francisco, daly_city, san_mateo, millbrae, san_bruno, san_mateo_county, burlingame, menlo_park]
   center: {lat: 37.820, lon: -122.295}
   zoom: 11.5
   tz: "America/Los_Angeles"

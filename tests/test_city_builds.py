@@ -416,3 +416,84 @@ def test_san_rafael_zones_courtesy_but_the_signed_canal_zone():
     assert sr.zone_entry("Canal Residential", "Weekly (Mondays)") == ("ME", "Every Mon", "8AM–10AM")
     assert sr.zone_entry("29", "1st Tuesday")[1] == "1st Tue, Apr–Oct 2026, no tickets"
     assert sr.zone_entry("PSPD", "Fridays 4/10, 4/17")[1] == "Fridays 4/10, 4/17 2026, no tickets"
+
+
+# ── San Mateo County cities ──────────────────────────────────────────────────
+
+import build_daly_city_geojson as daly_city  # noqa: E402
+import build_san_bruno_geojson as san_bruno  # noqa: E402
+import build_san_mateo_county_geojson as smc  # noqa: E402
+import build_south_san_francisco_geojson as ssf  # noqa: E402
+import citykit  # noqa: E402
+
+
+def test_daly_city_page_rows_split_parts_and_fix_hours():
+    page = (
+        "<tr><td><p>Bellevue Avenue</p></td>"
+        "<td><ul><li>South Side - Wednesday<br>Between 6 <abbr>am</abbr> and 8 am</li>"
+        "<li>South Side - Wednesday<br>Between 11 am and 1 p m</li></ul></td>"
+        "<td><ul><li>North Side - Tuesday<br>Between Noon and 2 pm</li>"
+        "<li>North Side - Tuesday<br>Between 9:30 am and 11:</li></ul></td>"
+        "<td><ul><li>Peoria Street to Pope Street</li>"
+        "<li>Pope Street to South Hill</li></ul></td></tr>"
+        "<tr><td><p>Amhurst Court</p></td><td><p>Both Sides - Wednesday Between 11 pm and 1 pm</p>"
+        "</td><td><p>City of Colma</p></td><td><p>N/A</p></td></tr>"
+    )
+    rows = daly_city.rows_from(page)
+    assert [(r["name"], r["part"]) for r in rows] == [
+        ("BELLEVUE AVENUE", "Peoria Street to Pope Street"),
+        ("BELLEVUE AVENUE", "Pope Street to South Hill"),
+        ("AMHURST COURT", ""),
+    ]
+    assert rows[0]["ODD"] == ("WE", "Every Wed", "6AM–8AM")
+    assert rows[0]["EVEN"] == ("TE", "Every Tue", "12PM–2PM")
+    assert rows[1]["ODD"][2] == "11AM–1PM" and rows[1]["EVEN"][2] == "9:30AM–11AM"
+    assert rows[2]["ODD"][2] == "11AM–1PM" and rows[2]["EVEN"] == (None, None, None)
+    assert daly_city.street("90 th (Ninetieth) Street") == "90TH STREET"
+
+
+def test_san_bruno_routes_posted_or_courtesy_and_two_cycles():
+    assert san_bruno.entry("1st & 3rd Tuesday", "9 a.m. - 11 a.m.", None) == (
+        "T13", "1st & 3rd Tue", "9AM–11AM")  # fmt: skip
+    assert san_bruno.entry("2nd & 4th Monday", "No specified time", "curbs")[0] == "NT"
+    assert san_bruno.entry("Monday - Thursday", "6 a.m. - 7 a.m.", None)[0] == "MTWTHE"
+    assert san_bruno.entry("3rd Thursday", "9 a.m. - 11 a.m.", "Eastside 3rd Friday ONLY")[0] == (
+        "THF3")  # fmt: skip
+    code, desc, _ = san_bruno.entry("1st & 3rd Monday / 2nd & 4th Thursday", "9 - 11 a.m.", None)
+    days = code.removeprefix("DATES:").split(",")
+    assert "2026-11-02" in days and "2026-11-12" in days and "2026-11-09" not in days
+    assert desc == "1st & 3rd Mon and 2nd & 4th Thu"
+
+
+def test_ssf_signs_win_over_the_unposted_sweep():
+    row = {"NoParkDay": "Monday-Tuesday", "NoParkTime": "8am to 11am", "NewDays": "", "DAY": ""}
+    assert ssf.entry(row) == ("POSTED", "Mon on one side, Tue on the other", "8AM–11AM")
+    row = {"NoParkDay": "Everyday", "NoParkTime": "3am to 5am", "NewDays": "", "DAY": ""}
+    assert ssf.entry(row) == ("E", "Every day", "3AM–5AM")
+    row = {"NoParkDay": "", "NoParkTime": "", "NewDays": "Wednesday 1/3", "DAY": "Wednesday"}
+    assert ssf.entry(row)[:2] == ("NT", "1st & 3rd Wed, no tickets")
+
+
+def test_smc_hours_mean_ordinance_schedule():
+    assert smc.entry("2nd & 4th Thursday of the month 1pm - 3.30pm") == (
+        "TH24", "2nd & 4th Thu", "1PM–3:30PM")  # fmt: skip
+    assert smc.entry("1st & 3rd Thursday of the month")[0] == "NT"
+
+
+def test_address_points_land_on_their_block_side():
+    lines = geopandas.GeoDataFrame(
+        {
+            "STREET_NAME": ["ELM ST", "ELM ST"],
+            "STREET_KEY": ["ELM", "ELM"],
+            "L_F_ADD": [101, 201],
+            "L_T_ADD": [199, 299],
+            "R_F_ADD": [100, 200],
+            "R_T_ADD": [198, 298],
+        },
+        geometry=[_LINE, LineString([(1, 0), (2, 0)])],
+        crs="EPSG:4326",
+    )
+    pts = pd.DataFrame({"STREET_KEY": "ELM", "NUM": ["110", "112", "114", "131", "250"],
+                        "SCHEDULE": ["Mon", "Mon", "Tue", "Fri", "Wed"]})  # fmt: skip
+    out = citykit.address_blocks(lines, pts, lambda s: citykit.side_entry(s))
+    assert list(out["DAY_EVEN"]) == ["ME", "WE"] and list(out["DAY_ODD"]) == ["FE", None]

@@ -85,7 +85,10 @@ _OAKLAND = [_NEW_YEAR, _MLK, ("Presidents Day", _nth(2, 0, 3)), ("Farmworkers Da
 _SF_DAYTIME = [_MLK, ("Presidents' Day", _nth(2, 0, 3)), _MEMORIAL, _JUNETEENTH, _JULY_4, _LABOR,
                ("Indigenous Peoples Day", _nth(10, 0, 2)), _VETERANS, _DAY_AFTER]  # fmt: skip
 _CHICAGO = [_NEW_YEAR, _MEMORIAL, _JULY_4, _LABOR, _THANKSGIVING, _CHRISTMAS]
-_XMAS_NEW_YEAR = [_NEW_YEAR, _CHRISTMAS]  # Republic Services (RecycleSmart), Mt. Diablo RR
+_XMAS_NEW_YEAR = [_NEW_YEAR, _CHRISTMAS]  # most haulers: Republic, Recology, MVRS, SSF Scavenger
+_DALY = [_NEW_YEAR, _MLK, ("Presidents' Day", _nth(2, 0, 3)), _MEMORIAL, _JUNETEENTH, _JULY_4,
+         _LABOR, _VETERANS, _THANKSGIVING, _DAY_AFTER, _CHRISTMAS]  # fmt: skip
+_SSF = [*_DALY[:7], ("Indigenous Peoples Day", _nth(10, 0, 2)), *_DALY[7:]]
 
 # city: [(holidays, suspends, observed)]; observed: "date" (the date only), "both" (plus the
 # weekday a weekend date is observed on), "weekday" (only the observed weekday).
@@ -95,27 +98,38 @@ _EXPECTED = {
     "berkeley": [(_TRASH, ["trash"], "date")],
     "alameda": [(_TRASH, ["trash"], "date")],
     "chicago_all": [(_CHICAGO, ["trash"], "date")],
-    "vacaville": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
+    "vacaville": [(_XMAS_NEW_YEAR, ["trash"], "date")],
     "sonoma_county": [
         ([_NEW_YEAR, _LABOR, _THANKSGIVING, _CHRISTMAS], ["trash"], "date"),
         ([_JULY_4], ["trash"], "weekday"),
     ],
     "fairfield": [(_TRASH, ["sweeping", "trash"], "date")],
-    "benicia": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
+    "benicia": [(_XMAS_NEW_YEAR, ["trash"], "date")],
     "napa": [(_TRASH, ["sweeping", "trash"], "date")],
     "san_ramon": [(_TRASH, ["trash"], "date")],
     "danville": [(_XMAS_NEW_YEAR, ["trash"], "date")],
     "oakley": [(_XMAS_NEW_YEAR, ["trash"], "date")],
     "pittsburg": [(_XMAS_NEW_YEAR, ["trash"], "date")],
-    "san_rafael": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
-    "mill_valley": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
-    "corte_madera": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
-    "tiburon": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
-    "sausalito": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
-    "belvedere": [([_NEW_YEAR, _CHRISTMAS], ["trash"], "date")],
+    "san_rafael": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "mill_valley": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "corte_madera": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "tiburon": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "sausalito": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "belvedere": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "south_san_francisco": [(_XMAS_NEW_YEAR, ["trash"], "date"), (_SSF, ["sweeping"], "weekday")],
+    "daly_city": [(_XMAS_NEW_YEAR, ["trash"], "date"), (_DALY, ["sweeping"], "weekday")],
+    "millbrae": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "san_mateo": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "san_bruno": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "san_mateo_county": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "burlingame": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "menlo_park": [(_XMAS_NEW_YEAR, ["trash"], "date")],
 }
 _SF_DAYTIME_YEARS = {2026}  # SFMTA has not published 2027's daytime-only holidays
 _ALSO_SUSPENDED = {("san_francisco", datetime.date(2026, 1, 1)): "trash"}  # Recology moved pickups
+_ALSO_SUSPENDED |= {(city, day): "trash" for city in ("south_san_francisco", "daly_city")
+                    for day in (datetime.date(2026, 1, 1), datetime.date(2026, 12, 25),
+                                datetime.date(2027, 1, 1))}  # fmt: skip
 
 
 def _expected(city, year):
