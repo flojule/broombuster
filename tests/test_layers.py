@@ -35,6 +35,7 @@ def test_committed_layer_files_keep_only_the_schema(city, theme):
     extra = [layer_sources.COLOR] if layer_sources.COLOR in gdf else []  # a city's own colors
     assert list(gdf.columns) == [*layer_sources.COLUMNS, *extra, "geometry"]
     assert len(gdf) and gdf.crs.to_epsg() == 4326
+    assert gdf.geometry.is_valid.all() and shapely.get_type_id(gdf.geometry.values).max() < 7
     lat0, lon0, lat1, lon1 = CITIES[city]["bbox"]
     minx, miny, maxx, maxy = gdf.total_bounds
     eps = 1e-6
@@ -60,6 +61,8 @@ def test_client_geojson_is_small_and_has_rule_text_only_for_popups(region):
         assert path.stat().st_size < 3_000_000, path
         fc = json.loads(path.read_text())
         assert fc["features"]
+        shapes = [shapely.geometry.shape(f["geometry"]) for f in fc["features"]]
+        assert all(g.is_valid and g.geom_type != "GeometryCollection" for g in shapes), path
         props = set().union(*(f["properties"] for f in fc["features"]))
         assert props == (
             {"label", "city", "color", "edge", "color2", "kind"}

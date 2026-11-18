@@ -39,7 +39,10 @@ def _write_fgb(gdf, path: Path) -> None:
 def _clip(gdf, city_key: str):
     """Only the city (some sources are county- or statewide), schema columns only."""
     lat0, lon0, lat1, lon1 = CITIES[city_key]["bbox"]
+    gdf = gdf.set_geometry(gdf.geometry.map(layer_sources.polygonal))
     gdf = gdf.clip(shapely.box(lon0, lat0, lon1, lat1))
+    gdf = gdf.set_geometry(gdf.geometry.map(layer_sources.polygonal))
+    gdf = gdf[gdf.geometry.notna()]
     cols = [c for c in (*layer_sources.COLUMNS, layer_sources.COLOR) if c in gdf]
     return gdf[~gdf.geometry.is_empty][[*cols, "geometry"]]
 

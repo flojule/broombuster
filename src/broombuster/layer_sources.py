@@ -177,6 +177,20 @@ def _out(gdf: geopandas.GeoDataFrame, label, rule, asof: str) -> geopandas.GeoDa
     return gdf[[*COLUMNS, "geometry"]].reset_index(drop=True)
 
 
+def polygonal(geom):
+    """A valid geometry: polygons made valid keep their polygon parts only (make_valid and
+    clipping leave stray lines and points); any other geometry is returned as is."""
+    if geom is None or geom.is_empty or geom.geom_type in ("Point", "LineString"):
+        return geom
+    if geom.is_valid and geom.geom_type in ("Polygon", "MultiPolygon"):
+        return geom
+    parts = shapely.get_parts(shapely.get_parts(shapely.make_valid(geom)))
+    polys = [p for p in parts if p.geom_type == "Polygon" and not p.is_empty]
+    if not polys:
+        return geom if geom.is_valid else shapely.make_valid(geom)
+    return polys[0] if len(polys) == 1 else shapely.MultiPolygon(polys)
+
+
 def _clean(geom, min_area: float):
     """Drop parts and holes under min_area (m², EPSG:3857 units near enough here)."""
     parts = getattr(geom, "geoms", [geom])
@@ -665,7 +679,8 @@ def dump_json(gdf: geopandas.GeoDataFrame, theme: str = "") -> str:
     if theme in POPUP_RULE and "rule" in gdf:
         keep.append("rule")
     gdf = gdf[["label", "city", *keep, "geometry"]].copy()
-    gdf["geometry"] = shapely.set_precision(gdf.geometry.values, 1e-6, mode="pointwise")
+    gdf["geometry"] = [polygonal(g) for g in shapely.set_precision(gdf.geometry.values, 1e-6)]
+    gdf = gdf[~shapely.is_empty(gdf.geometry.values) & ~shapely.is_missing(gdf.geometry.values)]
     fc = json.loads(gdf.to_json(drop_id=True))
     for f in fc["features"]:  # a property a feature lacks is left out, not null
         f["properties"] = {k: v for k, v in f["properties"].items() if v is not None}
