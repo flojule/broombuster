@@ -5,6 +5,10 @@
       --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #3b7a53;  /* text and swatches: AA on card tints; clear is quiet */
       --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
       --urg-check: #475569;  /* swept, day unknown: neither alarm nor clear */
+      /* Street lines (map, legend, street card; js/core.js lineColor), by contrast with the
+         land (#f3f3f1): today 5.3:1, tomorrow 3.2:1, check 3.3:1 (dashed), clear 3.1:1, no
+         sweeping 1.4:1 (it recedes). */
+      --line-today: #c8102e; --line-tomorrow: #e8590c; --line-safe: #4f9a6a; --line-check: #7b8797; --line-none: #c9d0d8;
       --card: #ffffff; --text: #1e293b;
       --muted: #526071; --border: #e2e8f0;
       /* Corner radii (iOS 26): concentric, so a box inside another keeps an even margin
@@ -23,7 +27,7 @@
       --shadow-2: 0 10px 34px rgba(0,0,0,.20);  /* floating panels, menus */
       --tap: 44px;                              /* minimum touch target */
       --edge: 12px;  /* gap between floating panels / map buttons and the screen edge */
-      --panel-w: 340px;  /* desktop: the sheet as a left panel */
+      --panel-w: min(340px, 100vw - 24px);  /* desktop: the sheet as a left panel (narrow at 400% zoom) */
       --sheet-ease: cubic-bezier(.32, .72, 0, 1);  /* the iOS sheet curve (no bounce) */
       --spring: cubic-bezier(.34, 1.3, .64, 1);    /* a small bounce: menus, the tab pill (refined below) */
       --inset-t: env(safe-area-inset-top, 0px);     /* the notch / Dynamic Island (home-screen app only) */
@@ -89,6 +93,7 @@
     }
     :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
     body.dark :focus-visible { outline-color: #93b4f8; }  /* 3:1 on the dark card */
+    .maplibregl-canvas:focus-visible { outline-offset: -4px; }  /* inside: the map clips anything outside */
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
     [hidden] { display: none !important; }
@@ -167,7 +172,7 @@
     .lyr-legend-btn[aria-expanded="true"] .lyr-chev { transform: rotate(90deg); }
     .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 10px; font-size: .72rem; }
     .lyr-legend > b { font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-    .lyr-legend .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-weight: 600; }
+    .legend { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-weight: 600; }
     .lyr-note { padding: 6px 12px 8px; font-size: .7rem; color: var(--muted); max-width: 260px; line-height: 1.35; }
     .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: .8rem;
       background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
@@ -250,8 +255,7 @@
        edges, and its bottom corners and the tab bar's ends share the screen corners' centers
        (concentric: one gap along the sides, the bottom and around the corners):
          sheet radius = --screen-r - the sheet's gap; tab bar radius = --screen-r - the bar's gap.
-       The top corners are smaller (32 px), so a 36 px round button 14 px in from them is
-       concentric too (14 + 18 = 32). --m (js/sheet.js) takes it all from open (0) to hidden
+       The top corners are smaller (32 px); the header's buttons sit under the grabber. --m (js/sheet.js) takes it all from open (0) to hidden
        (1), following the finger while dragged: the content fades, and the sheet closes in on
        the tab bar (56 px, ends 28 px round) to become its capsule.
        Desktop: a panel on the left, the calendar's height, with the tabs as a segmented control. */
@@ -266,7 +270,8 @@
       --bar-r: calc(var(--screen-r) - var(--bar-gap));
       --bar-in: calc(var(--bar-gap) - var(--sheet-gap));
       --r-top: min(32px, var(--sheet-r));
-      --bar-space: calc(2 * var(--bar-r) + var(--bar-in) + 12px);  /* the content's room for the tab bar */
+      --bar-lift: max(var(--bar-in), calc(var(--inset-b) - var(--sheet-gap)));  /* the tab bar's bottom: clear of the home indicator */
+      --bar-space: calc(2 * var(--bar-r) + var(--bar-lift) + 12px);  /* the content's room for the tab bar */
       position: absolute; left: var(--sheet-gap); right: var(--sheet-gap); bottom: var(--sheet-gap); z-index: 25; height: 220px;
       display: flex; flex-direction: column; overflow: clip;
       background: var(--card); border-radius: var(--r-top) var(--r-top) var(--sheet-r) var(--sheet-r);
@@ -283,15 +288,15 @@
     .tab, #sheet-grabber { opacity: clamp(0, 1 - 3 * var(--m), 1); transition: opacity .25s .15s; }
     #sheet.retracted { pointer-events: none; }
     #sheet.retracted :is(.tab, #sheet-grabber) { visibility: hidden; transition: opacity .15s, visibility 0s .15s; }
-    #sheet-grabber { position: absolute; z-index: 1; top: 0; left: 50%; width: 120px; height: 16px; transform: translateX(-50%);
+    /* 24 px tall, over the headers' top padding (their buttons start below it). */
+    #sheet-grabber { position: absolute; z-index: 1; top: 0; left: 50%; width: 96px; height: 24px; transform: translateX(-50%);
                      display: flex; align-items: center; justify-content: center; cursor: grab; }
-    #sheet-grabber::after { content: ''; position: absolute; inset: 0 0 -6px; }
     #sheet-grabber span { width: 36px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 28%, transparent); }
     .tab { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-    /* Buttons 14 px from the top and sides, concentric with the top corners; the title on their line. */
+    /* Buttons 14 px from the sides and under the grabber (24 px); the title on their line. */
     .tab-head {
-      flex: none; display: flex; align-items: center; gap: 4px; height: 58px;
-      padding: 14px 14px 8px 20px; user-select: none;
+      flex: none; display: flex; align-items: center; gap: 4px; height: 68px;
+      padding: 24px 14px 8px 20px; user-select: none;
     }
     /* An item's page: ‹ back to the list before its title (as an iOS navigation bar). */
     .tab-head:has(#btn-item-back:not([hidden])) { padding-left: 14px; gap: 8px; }
@@ -302,8 +307,9 @@
     .tab-body {
       flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y pinch-zoom;
       padding: 0 14px var(--bar-space); display: flex; flex-direction: column; gap: 8px; font-size: .8rem;
-      -webkit-mask-image: linear-gradient(#000 calc(100% - 34px), transparent calc(100% - 6px));
-      mask-image: linear-gradient(#000 calc(100% - 34px), transparent calc(100% - 6px));
+      /* Faded out above the tab bar, so no text runs under it at any height (--bar-space). */
+      -webkit-mask-image: linear-gradient(#000 calc(100% - var(--bar-space) - 16px), transparent calc(100% - var(--bar-space) + 8px));
+      mask-image: linear-gradient(#000 calc(100% - var(--bar-space) - 16px), transparent calc(100% - var(--bar-space) + 8px));
     }
     :is(.head-btn, .round-btn) { flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
     .head-btn { color: var(--muted); }
@@ -317,7 +323,7 @@
        A red dot on Saved: a car must move today. */
     #tabbar {
       --pad: calc(var(--bar-r) - 24px);
-      position: absolute; left: var(--bar-in); right: var(--bar-in); bottom: var(--bar-in); height: calc(2 * var(--bar-r));
+      position: absolute; left: var(--bar-in); right: var(--bar-in); bottom: var(--bar-lift); height: calc(2 * var(--bar-r));
       display: flex; padding: var(--pad); border-radius: var(--pill);
       box-shadow: inset 0 0 0 1px var(--hairline), 0 4px 16px rgba(0,0,0,.1);  /* on the sheet: its hairline */
       transition: left .4s var(--sheet-ease), right .4s var(--sheet-ease), bottom .4s var(--sheet-ease),
@@ -340,7 +346,7 @@
     #tabbar [aria-selected="true"] { color: var(--tint-fg); }
     .tab-badge { position: absolute; top: 4px; left: calc(50% + 7px); width: 10px; height: 10px; border-radius: 50%;
                  background: var(--urg-today); box-shadow: 0 0 0 2px var(--card); }
-    .tab-badge.soon { background: var(--urg-tomorrow); }  /* a car must move tomorrow */
+    .tab-badge.soon { background: var(--card); box-shadow: inset 0 0 0 3px var(--urg-tomorrow), 0 0 0 2px var(--card); }  /* tomorrow: a ring, not color alone */
     /* Saved: the verdict line, then one grouped list of cars and homes (as Find My's
        Items list); an open item hides the rest and shows its own page. */
     #saved-summary .note { margin: 0; font-size: .8rem; }
@@ -354,8 +360,11 @@
     body.placing .empty-btns { display: none; }  /* the banner's "Set here" is the one action */
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
     .urg-safe { color: var(--urg-safe); } .urg-check { color: var(--urg-check); } .urg-none { color: var(--muted); }
-    /* Legend swatch: line thickness mirrors the map (today thickest). */
-    .lg { display: inline-block; width: 16px; border-radius: 2px; background: currentColor; vertical-align: middle; margin-right: 5px; }
+    /* Legend swatch: the map's line color and thickness (today thickest), Check sign dashed. */
+    .lg { display: inline-block; width: 16px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+    .lg-today { background: var(--line-today); } .lg-tomorrow { background: var(--line-tomorrow); }
+    .lg-safe { background: var(--line-safe); } .lg-none { background: var(--line-none); }
+    .lg-check { background: repeating-linear-gradient(90deg, var(--line-check) 0 4px, transparent 4px 7px); }
     .lg-3 { height: 4px; } .lg-2 { height: 3px; } .lg-1 { height: 2px; } .lg-0 { height: 1px; }
     #item-list { flex: none; display: flex; flex-direction: column; background: var(--group); border-radius: var(--r-group); overflow: hidden; }
     #item-list:empty { display: none; }
@@ -389,6 +398,8 @@
                                      border-radius: var(--r-group); background: var(--group); cursor: default; }
     .car-entry.selected[data-urg="today"] .ce-header { background: color-mix(in srgb, var(--urg-today) 8%, var(--card)); }
     .car-entry.selected[data-urg="tomorrow"] .ce-header { background: color-mix(in srgb, var(--urg-tomorrow) 8%, var(--card)); }
+    body.dark .car-entry.selected[data-urg="today"] .ce-header { background: color-mix(in srgb, var(--urg-today) 18%, var(--card)); }
+    body.dark .car-entry.selected[data-urg="tomorrow"] .ce-header { background: color-mix(in srgb, var(--urg-tomorrow) 18%, var(--card)); }
     .car-entry.selected :is(.ce-dot, .ce-name) { display: none; }
     .car-entry.selected .ce-text { width: 100%; }
     .car-entry.selected .ce-status { font-size: 1.05rem; font-weight: 700; white-space: normal; }
@@ -479,6 +490,8 @@
                display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }  /* two lines at most */
     .sc-detail { font-weight: 400; color: var(--muted); }
     .sc-time { white-space: nowrap; }  /* "7–9AM" never breaks */
+    /* Short screens: the card would cover the target; it keeps its first two rows (js/signs.js). */
+    #signs.compact :is(.sc-row ~ .sc-row ~ .sc-row, .sc-rule, .sc-rule ~ .sc-row) { display: none; }
 
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
@@ -497,12 +510,15 @@
        Street days: soft tiles, a light tint of the clear color; red today, orange tomorrow
        (as on the map and the street card), tinted with the date in that color. */
     .cal-out { color: var(--muted); }
-    #ic-cal:not(.cal-small) .cal-out:not(.sw-now, .sw-next) { color: color-mix(in srgb, var(--muted) 55%, transparent); background: none; }
-    #ic-cal:not(.cal-small) .cal-out .cal-dots { visibility: hidden; }
-    .sw-day  { background: color-mix(in srgb, var(--urg-safe) 12%, transparent); }
-    body.dark .sw-day { background: color-mix(in srgb, var(--urg-safe) 10%, transparent); }  /* muted digits stay AA */
+    #ic-cal:not(.cal-small) .cal-out:not(.sw-now, .sw-next) { background: none; }
+    #ic-cal:not(.cal-small) .cal-out:not(.sw-now, .sw-next) :is(.cal-dots, .cal-bar) { visibility: hidden; }
+    /* A street day: a bar under the date (3:1 on the sheet) in the clear color; red today,
+       orange tomorrow, on a tint with the date in that color. */
+    .cal-bar { display: none; width: 14px; height: 3px; margin-top: 2px; border-radius: 2px; background: var(--urg-safe); }
+    .sw-day .cal-bar { display: block; }
     .sw-now  { background: color-mix(in srgb, var(--urg-today) 15%, transparent);    color: var(--urg-today); font-weight: 700; }
     .sw-next { background: color-mix(in srgb, var(--urg-tomorrow) 15%, transparent); color: var(--urg-tomorrow); font-weight: 700; }
+    :is(.sw-now, .sw-next) .cal-bar { background: currentColor; }
     /* Today: its date on a disc. Selected: a ring in the day's text color. */
     .sw-today .cal-n { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%;
                        background: var(--text); color: var(--card); font-weight: 700; }
@@ -512,7 +528,8 @@
     .cal-dot { width: 5px; height: 5px; }
     /* A no-sweep holiday: struck through, so a weekly street day reads as canceled. */
     .cal-hol { text-decoration: line-through; text-decoration-color: var(--muted); }
-    .cal-past { opacity: .4; }  /* days gone by: not counted as ahead */
+    .cal-past { color: var(--muted); }  /* days gone by: not counted as ahead (muted digits stay AA) */
+    .cal-past :is(.cal-dots, .cal-bar) { opacity: .5; }
     .cal-areas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
     .cal-area { position: relative; min-height: 36px; padding: 2px 12px; font-size: .74rem; }
 
@@ -552,6 +569,8 @@
     .pin.selected { font-size: 39px; }
     .pin.selected::before { content: ''; position: absolute; z-index: -1; left: 50%; bottom: -3px; width: 85%; height: 25%;
                             transform: translateX(-50%); border-radius: 50%; background: color-mix(in srgb, var(--pin) 35%, transparent); }
+    /* A found address: a blue pin there (the target goes to its curb, js/ui.js). */
+    .pin.search-pin { --pin: var(--blue); font-size: 26px; pointer-events: none; }
     /* The spot a new car is being named at: its pin to be, faded. */
     .pin.temp { opacity: .75; pointer-events: none; }
     /* You are here: a blue dot, and the fix's accuracy as a halo (--halo: diameter, from JS). */
@@ -572,6 +591,8 @@
       --tint-fg: #93b4f8; --home: #4ade80;
       --rule-allow: var(--home); --rule-meter: #9ca3af; --rule-snow: #60a5fa; --rule-ban: #f87171;  /* 3:1 on the card */
       --pin-halo: #111418;
+      /* On the dark land (#1d232b): today 6.3:1, tomorrow 4.8:1, check 3.5:1, clear 3.3:1, none 1.8:1. */
+      --line-today: #ff7a7a; --line-tomorrow: #c97a2a; --line-safe: #3a7f55; --line-check: #6b7787; --line-none: #404a57;
     }
 
     /* ── Toast notifications ── */
@@ -594,7 +615,8 @@
                  background: rgba(255,255,255,.16); color: #fff; }
 
     /* Offline, can't reach the server, loading streets: a chip at the top of the map. */
-    #net-chip { position: absolute; z-index: 22; top: calc(var(--inset-t) + var(--edge)); left: 50%; transform: translateX(-50%);
+    /* Under the street card (--signs-h: its height and a gap, from js/signs.js), never over it. */
+    #net-chip { position: absolute; z-index: 22; top: calc(var(--inset-t) + var(--edge) + var(--signs-h, 0px)); left: calc(var(--inset-l) + var(--edge));
                 padding: 6px 12px; border-radius: var(--pill); background: #1e293b; color: #f1f5f9;
                 font-size: .8rem; font-weight: 600; box-shadow: var(--shadow-1); pointer-events: none; }
     @keyframes toast-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -630,7 +652,7 @@
       /* The calendar sets the panel's height for every tab: it stays laid out (unseen) under
          the others, which take no height of their own (contain: size) and scroll in it. */
       #sheet { left: calc(var(--inset-l) + var(--edge)); top: var(--edge); bottom: auto; right: auto; width: var(--panel-w); height: auto;
-               max-height: calc(100% - 2 * var(--edge)); display: grid; grid-template-rows: auto minmax(0, 1fr); transition: none;
+               max-height: calc(100% - 2 * var(--edge) - var(--inset-b)); display: grid; grid-template-rows: auto minmax(0, 1fr); transition: none;
                border-radius: var(--r-sheet); --bar-space: 12px; }
       /* The same capsule and pill as a segmented control at the top. */
       #tabbar { --pad: 3px; grid-row: 1; position: relative; left: auto; right: auto; bottom: auto; height: auto;
@@ -650,7 +672,8 @@
       #tabbar [role="tab"] svg.ic { display: none; }
       .tab-badge { top: 3px; left: auto; right: 3px; width: 8px; height: 8px; }
       #map-ctrl, #signs { top: var(--edge); }
-      #signs { left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
+      #signs, #net-chip { left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
+      #net-chip { top: calc(var(--edge) + var(--signs-h, 0px)); }
       .zoom-btn { display: flex; }
       /* Calendar: one month (six 40 px week rows, js/calendar.js), the day details under it. */
       .cal-scroll { flex: none; height: calc(6 * 40px + 5 * 3px); overflow-y: hidden; scroll-snap-type: none; }
@@ -658,4 +681,10 @@
       /* Centered in the map area right of the panel. */
       #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--inset-l) + var(--panel-w) + var(--edge)) / 2); }
       #toast-container { bottom: 24px; left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
+    }
+    /* A phone on its side: the panel is the screen's height and the month scrolls in it, so
+       the day details stay in view. */
+    @media (orientation: landscape) and (max-height: 500px) {
+      #sheet { height: calc(100% - 2 * var(--edge) - var(--inset-b)); }
+      .cal-scroll { flex: 1 1 0; height: auto; min-height: 43px; overflow-y: auto; }
     }

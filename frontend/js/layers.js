@@ -11,17 +11,18 @@
 // menu swatch when features differ. icon: the glyph of a point layer's marker (a 24 px
 // SVG path, white on the color); fill: the glyph is filled, else stroked; line: more of
 // the glyph, stroked (a carrot's leaves).
-// minzoom: hidden zoomed out (meters are many). An area is a thin line in its color;
-// tint: instead a fill of that opacity, no line (permit areas, under the street colors);
+// minzoom: hidden zoomed out (meters are many). An area is a thin line in its color (no
+// fill: red, orange and green on the map mean sweeping); dash: the line dashed;
 // focus: the area the target is in is outlined (permit areas).
+// Red, orange and green are the street colors' (today, tomorrow, clear): no layer takes them.
 const LAYER_STYLE = {
-  parking: { color: '#7c3aed', focus: true, tint: ['interpolate', ['linear'], ['zoom'], 13, 0.2, 17, 0.14], key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #c026d3 0 75%, #65a30d 0)' },
+  parking: { color: '#7c3aed', focus: true, key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #c026d3 0 75%, #2563eb 0)' },
   meters:  { color: cssVar('--rule-meter'), minzoom: 16 },  // sign colors, as the card
   winter:  { color: cssVar('--rule-snow') },
-  ev:      { color: '#16a34a', minzoom: 12, fill: true, icon: 'M13.5 3 6 13.5h5L10 21l8-11h-5.2l.7-7z' },
-  fire:    { color: cssVar('--rule-ban') },
-  markets: { color: '#c2410c', fill: true, icon: 'M3.5 20.5 12 9.6a3.3 3.3 0 0 1 4.9 4.1z', line: 'M15.4 8.6l.9-4.6M16.4 9.6l4.4-1.2M15.9 9.1l3.6-3.6' },
-  closures: { color: cssVar('--rule-ban') },
+  ev:      { color: '#0369a1', minzoom: 12, fill: true, icon: 'M13.5 3 6 13.5h5L10 21l8-11h-5.2l.7-7z' },
+  fire:    { color: '#9d174d', dash: true },  // dark magenta, dashed: not a street swept today
+  markets: { color: '#7e22ce', fill: true, icon: 'M3.5 20.5 12 9.6a3.3 3.3 0 0 1 4.9 4.1z', line: 'M15.4 8.6l.9-4.6M16.4 9.6l4.4-1.2M15.9 9.1l3.6-3.6' },
+  closures: { color: '#334155' },  // slate, dashed (every line layer is)
 };
 const LAYER_PREFIX = 'lyr-';
 const LAYER_GRAY = '#475569';  // a layer with no color of its own
@@ -130,10 +131,11 @@ function _addOverlay(layer) {
   // and without a tint a thin edge in the area's color (darker when pale) over them; the
   // area at the target outlined.
   const edge = ['coalesce', ['get', 'edge'], color];
-  add({ id: fill, type: 'fill', filter: poly, paint: { 'fill-color': color, 'fill-opacity': st.tint || 0 } }, below);
-  if (!meters && !st.tint) {
+  add({ id: fill, type: 'fill', filter: poly, paint: { 'fill-color': color, 'fill-opacity': 0 } }, below);
+  if (!meters) {
     add({ id: rim, type: 'line', filter: poly, layout: { 'line-join': 'round' },
-          paint: { 'line-color': edge, 'line-width': EDGE_W, 'line-opacity': edgeOpacity(0.9) } }, over);
+          paint: { 'line-color': edge, 'line-width': EDGE_W, 'line-opacity': edgeOpacity(0.9),
+                   ...(st.dash ? { 'line-dasharray': [3, 2] } : {}) } }, over);
   }
   if (st.focus) {
     add({ id: here, type: 'line', filter: poly, layout: { 'line-join': 'round' },
@@ -195,11 +197,16 @@ function syncOverlays() {
 
 // Under the layers, the legend: the streets' colors (the card's rows name their marks).
 function _legendHTML() {
-  const colors = [['today', 'Today', 3], ['tomorrow', 'Tomorrow', 2], ['safe', 'Clear', 1], ['check', 'Check sign', 1], ['none', 'No sweeping', 0]]
-    .map(([u, name, w]) => `<span class="urg-${u}"><i class="lg lg-${w}"></i>${name}</span>`).join('');
-  return `<button class="ctx-item lyr-legend-btn" role="menuitem" aria-expanded="${_legendOpen}" aria-controls="lyr-legend">`
+  return `<button class="ctx-item lyr-legend-btn" aria-expanded="${_legendOpen}" aria-controls="lyr-legend">`
        + `Legend<svg class="ic lyr-chev" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>`
-       + `<div class="lyr-legend" id="lyr-legend" role="none"${_legendOpen ? '' : ' hidden'}><b>Street colors</b><div class="legend">${colors}</div></div>`;
+       + `<div class="lyr-legend" id="lyr-legend"${_legendOpen ? '' : ' hidden'}><b>Street colors</b>${legendHTML()}</div>`;
+}
+// The street colors as the map draws them (styles.css --line-*, .lg): a swatch each, its
+// thickness as the map's (today thickest), Check sign dashed.
+function legendHTML() {
+  return '<ul class="legend">' + [['today', 'Today', 3], ['tomorrow', 'Tomorrow', 2], ['safe', 'Clear', 1],
+                                  ['check', 'Check sign', 1], ['none', 'No sweeping', 0]]
+    .map(([u, name, w]) => `<li><i class="lg lg-${w} lg-${u}"></i>${name}</li>`).join('') + '</ul>';
 }
 // The legend folds under its own row: open until folded (remembered on this device).
 let _legendOpen = _read('bb_legend') !== '0';
@@ -213,13 +220,13 @@ function _layerKey(id) { return LAYER_STYLE[id]?.key || LAYER_STYLE[id]?.color |
 function _renderLayersMenu() {
   const list = _regionLayers();
   layersMenu.innerHTML = (list.length
-    ? list.map(l => `<button class="ctx-item lyr-item" role="menuitemcheckbox" data-layer="${esc(l.id)}"`
+    ? list.map(l => `<button class="ctx-item lyr-item" role="switch" data-layer="${esc(l.id)}"`
         + ` aria-checked="${_isOn(l.id)}">` + (LAYER_STYLE[l.id]?.icon
           ? `<img class="lyr-key" alt="" src="${esc(_iconCanvas(l.id).toDataURL())}">`
           : `<i class="lyr-key" style="--k:${esc(_layerKey(l.id))}"></i>`)
         + `<span class="lyr-label">${esc(l.name)}${_hiddenHere(l.id) ? '<small>Zoom in to see</small>' : ''}</span>`
         + `<svg class="ic lyr-check" aria-hidden="true"><use href="#i-check"/></svg></button>`).join('')
-    : '<p class="lyr-note">No extra layers here.</p><button class="ctx-item" role="menuitem" data-layer="">Close</button>')
+    : '<p class="lyr-note">No extra layers here.</p><button class="ctx-item" data-layer="">Close</button>')
     + _legendHTML();
 }
 

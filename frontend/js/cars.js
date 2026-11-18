@@ -3,8 +3,9 @@
 // otherwise a failure only shows on the card, with Retry.
 async function checkCar(car, loud = false) {
   const warmupTimer = loud && setTimeout(() => showToast('Server warming up'), 5000);
+  // Offline the card says so ("Offline · as of …"); a toast would only repeat the chip.
   const data = await loadSchedule(car.id, carSchedules, () => postCheck(car.lat, car.lon),
-                                  loud ? msg => showToast(msg, true, { retry: () => checkCar(car, true) }) : null);
+                                  loud ? msg => navigator.onLine && showToast(msg, true, { retry: () => checkCar(car, true) }) : null);
   clearTimeout(warmupTimer);
   if (data) { data._at = Date.now(); _saveSchedCache(); upgradeAddress(car, data); }
   updateCarMarkers();  // re-renders the cards (data, or the Retry state)
@@ -77,13 +78,17 @@ function moveCar(car, lat, lon) {
 function startPlacing(editId = null, kind = 'car') {
   closeNameBox();
   const p = placing = { kind, editId };
+  // The street under the target follows as the map moves (js/signs.js _placeBannerStreet).
   placeBannerText.innerHTML = icon(editId ? 'pin' : kind)
-    + `<span><span class="sr-only">${editId ? 'Set location of' : 'Place'} ${kind}: </span>Pan to the spot</span>`;
+    + `<span><span class="sr-only">${editId ? 'Set location of' : 'Place'} ${kind}: </span><span class="pb-street">Pan to the spot</span></span>`;
   if (!isDesktop()) setCompact(true);
   document.body.classList.add('placing');
   placeBanner.classList.add('active');
   _crosshair.classList.add('placing');
+  btnConfirmPlace.focus();
+  syncHistory();
   if (!map) return;
+  renderTargetInfo();
   map.getCanvas().style.cursor = 'crosshair';
   if (editId) return;
   const goHere = (lat, lon) => map.jumpTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 17), padding: mapPadding() });
@@ -104,11 +109,17 @@ function stopPlacing() {
   _crosshair.classList.remove('placing');
   if (map) map.getCanvas().style.cursor = '';
   setCompact(false);
+  syncHistory();
 }
 
 // Commit at the current map center (the point the crosshair marks).
 function confirmPlacementAtCenter() {
   if (!map || !placing) return;
+  // Zoomed out the target covers a block: zoom in on it first.
+  if (map.getZoom() < PLACE_ZOOM) { map.easeTo({ zoom: PLACE_ZOOM + 1 }); return; }
+  // A second click of a double-click lands on the map once the banner is gone: no zoom.
+  map.doubleClickZoom.disable();
+  setTimeout(() => map.doubleClickZoom.enable(), 500);
   const { lat, lng } = map.getCenter();
   const { kind, editId } = placing;
   stopPlacing();
@@ -194,9 +205,11 @@ ctxAddHome.addEventListener('click', () => { closeMenu(); addHome(pendingLat, pe
 // ── Name box (arrow popup at the pending location) ─────────────────────────────
 // Anchored MapLibre popup whose tip points at the spot the car will sit. Drops a
 // temp pin under the tip.
+let _nameReturn = null;  // what had focus before the name box (it gets it back)
 function openNameBox(lat, lon) {
   if (!map) return;
   closeNameBox();
+  _nameReturn = document.activeElement;
   pendingLat = lat; pendingLon = lon;
   _tempPin = { lat, lon }; updateTempPin();
   document.body.classList.add('naming');  // the street sign would cover the box
@@ -231,15 +244,23 @@ function openNameBox(lat, lon) {
   }).setLngLat([lon, lat]).setDOMContent(row).addTo(map);
   _namePopup.on('close', () => { _namePopup = null; _nameInput = null; document.body.classList.remove('naming'); });
   setTimeout(() => { input.focus(); input.select(); }, 30);
+  syncHistory();
 }
 
 // Close the name box and drop its pending spot and temp pin.
-function closeNameBox() {
+function closeNameBox(refocus = true) {
+  const had = !!_namePopup;
   _namePopup?.remove();
   _namePopup = null; _nameInput = null;
   document.body.classList.remove('naming');
   _tempPin = null; updateTempPin();
   pendingLat = pendingLon = null;
+  if (!had) return;
+  // Focus back where it was (gone or hidden: the map), never lost to the page.
+  const back = _nameReturn?.isConnected && _nameReturn.offsetParent ? _nameReturn : map?.getCanvas();
+  _nameReturn = null;
+  if (refocus && document.activeElement === document.body) back?.focus();
+  syncHistory();
 }
 
 function savePendingCar() {
@@ -248,7 +269,7 @@ function savePendingCar() {
                 lat: pendingLat, lon: pendingLon, color: nextCarColor() };
   touchCarLocation(car);
   cars.push(car);
-  closeNameBox();
+  closeNameBox(false);  // the car's page takes focus
   savePrefs();
   updateCarMarkers();
   openItem(car.id);  // its page: the schedule as it loads
@@ -266,7 +287,7 @@ function defaultCarName() {
 
 // ── Cards (cars and homes share the shell) ────────────────────────────────────
 // Region-local clock for a /check response (the car's region, not the selected one).
-function schedNow(sched) { return regionNow(sched?.region || _region); }
+function schedNow(sched) { return regionNow(sched?.region || _region, undefined, sched?.tz); }
 
 // The car's side of the street: the one its owner picked, else null, and then both sides
 // count (a pin or a GPS fix lands either side of the centerline as easily; the server's
@@ -293,9 +314,13 @@ function sweepUrgency(car) {
 // Why the car's verdict is 'check', in words: {short, long}.
 function _checkWords(car) {
   const sched = carSchedules[car.id], now = schedNow(sched);
-  if (sched.covered === false) return { short: 'No data', long: 'No sweeping data here. Check the signs.' };
+  if (sched.covered === false) {
+    const n = sched.nearby_street;
+    return { short: 'No data', long: n ? `No sweeping data here (nearest street: ${n.name}, ${n.m} m). Check the signs.`
+                                     : 'No sweeping data here. Check the signs.' };
+  }
   const expired = _sweepEntries(car).some(e => BroomUrgency.unknownReason(e.code, now) === 'expired');
-  return { short: 'Check sign', long: expired ? `No ${now.y} dates yet. Check the signs.` : 'Sweeping day: check the sign' };
+  return { short: 'Check sign', long: expired ? `${noDatesText(_sweepEntries(car), now)}. Check the signs.` : 'Sweeping day: check the sign' };
 }
 
 // When to move, in words (urgency.js sweepDeadline): `short` for a Saved row, `long`
@@ -337,8 +362,14 @@ function clearUntilText(car) {
 function carWords(car) {
   const u = sweepUrgency(car);
   if (u === 'check') return _checkWords(car);
-  const dl = deadlineText(car);
-  return dl ? { short: dl.short, long: `Move ${dl.long}` } : clearUntilText(car);
+  const dl = deadlineText(car), w = dl ? { short: dl.short, long: `Move ${dl.long}` } : clearUntilText(car);
+  return w && _otherSideUnknown(car) ? { short: w.short, long: `${w.long} · other side: check the sign` } : w;
+}
+// Side not picked, and one side's day is only on the sign: the verdict is the other side's.
+function _otherSideUnknown(car) {
+  const sched = carSchedules[car.id], now = schedNow(sched);
+  if (carSide(car) || !sched || sched.covered === false) return false;
+  return [sched.schedule_even, sched.schedule_odd].some(r => BroomUrgency.entries(r).some(e => BroomUrgency.unknownReason(e.code, now)));
 }
 
 // Verdict: icon + words (never color alone); the row shows the short form, the item's
@@ -351,7 +382,7 @@ function _statusHTML(u, words) {
 
 // When a cached schedule was fetched, on the region clock: "2:10PM", "Nov 14 2:10PM".
 function _asOf(sched) {
-  const at = regionNow(sched.region, new Date(sched._at)), now = schedNow(sched);
+  const at = regionNow(sched.region, new Date(sched._at), sched.tz), now = schedNow(sched);
   const day = BroomUrgency.dayKey(at) === BroomUrgency.dayKey(now) ? '' : BroomUrgency.dayLabel(at).replace(/^\S+ /, '') + ' ';
   return day + BroomUrgency.clockText(at.min);
 }

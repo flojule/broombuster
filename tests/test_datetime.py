@@ -554,3 +554,49 @@ def test_format_dates_by_month_across_years():
 def test_calendar_day_text_for_a_known_side_has_no_side_label():
     items = [{"side": "even", "time": "9AM-11AM"}]
     assert js(("dayText", [items, ["West", "East"], True])) == ["9AM–11AM"]
+
+
+@needs_node
+def test_a_year_round_date_list_runs_out_but_a_season_ends():
+    """Past its last date a list covering the year has no off-season: the day is unknown
+    ('check'), while a seasonal list (Chicago, Apr-Nov) is over until next spring ('safe')."""
+    dates = ",".join(f"2027-{m:02d}-14" for m in range(1, 13))
+    year_round = [{"code": "DATES:" + dates, "time": ""}]
+    seasonal = [{"code": "DATES:2026-04-01,2026-06-01,2026-11-15", "time": ""}]
+    after = {"y": 2027, "m": 12, "d": 15, "min": 600}
+    winter = {"y": 2026, "m": 12, "d": 1, "min": 600}
+    got = js(
+        ("checkDaySweeping", [year_round, after, None]),
+        ("seasonOver", [year_round, after]),
+        ("checkDaySweeping", [seasonal, winter, None]),
+        ("seasonOver", [seasonal, winter]),
+    )
+    assert got == ["check", None, "safe", {"y": 2026}]
+
+
+@needs_node
+def test_date_lists_across_a_new_year():
+    """A monthly list Jul-Jun is year-round (runs out after June); a Nov-Mar season is over
+    until Nov 14 and runs out once that day passes without new dates."""
+    span = ",".join(f"{2026 + (m < 7)}-{m:02d}-14" for m in (*range(7, 13), *range(1, 7)))
+    winter = "2026-11-14,2026-12-14,2027-01-14,2027-02-14,2027-03-14"
+    got = js(
+        ("unknownReason", ["DATES:" + span, {"y": 2027, "m": 7, "d": 20, "min": 600}]),
+        ("unknownReason", ["DATES:" + winter, {"y": 2027, "m": 7, "d": 20, "min": 600}]),
+        ("unknownReason", ["DATES:" + winter, {"y": 2027, "m": 11, "d": 15, "min": 600}]),
+    )
+    assert got == ["expired", "", "expired"]
+
+
+@needs_node
+def test_a_sweep_after_midnight_is_tonight_not_today():
+    """18:30 Tue, Wed 12-6AM: 'today' (move tonight) though Tue's own window is over."""
+    entries = [{"code": "W", "time": "12AM-6AM"}, {"code": "T", "time": "12AM-6AM"}]
+    tue_evening = now(datetime.date(2026, 11, 17), 18, 30)
+    tue_night = now(datetime.date(2026, 11, 17), 3, 0)
+    got = js(
+        ("checkDaySweeping", [entries, tue_evening, None]),
+        ("sweptLaterToday", [entries, tue_evening, None]),
+        ("sweptLaterToday", [entries, tue_night, None]),
+    )
+    assert got == ["today", False, True]

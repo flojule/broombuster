@@ -81,7 +81,7 @@ function itemName(item) {
 }
 
 function applySelection() {
-  if (_selectedId && !selectedItem()) _selectedId = null;  // it was removed
+  if (_selectedId && !selectedItem()) { _selectedId = null; syncHistory(); }  // it was removed
   for (const [id, m] of [..._carMarkers, ..._homeMarkers]) m.getElement().classList.toggle('selected', id === _selectedId);
   for (const el of sheet.querySelectorAll('.car-entry')) {
     const sel = el.dataset.id === _selectedId, head = el.querySelector('.ce-header');
@@ -115,6 +115,7 @@ btnItemBack.addEventListener('click', () => { clearSelection(); btnAdd.focus(); 
 function selectItem(id) {
   _selectedId = id;
   applySelection();
+  syncHistory();
 }
 
 function clearSelection() {

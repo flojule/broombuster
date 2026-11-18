@@ -71,8 +71,8 @@
 
     <!-- Top right (map controls): layers, zoom (desktop), locate. -->
     <div id="map-ctrl">
-      <button id="btn-layers" class="map-btn" title="Map layers" aria-label="Map layers" aria-haspopup="menu" aria-expanded="false" aria-controls="layers-menu"><svg class="ic"><use href="#i-layers"/></svg></button>
-      <button id="btn-search" class="map-btn" title="Find an address" aria-label="Find an address" aria-haspopup="dialog" aria-expanded="false" aria-controls="search-box"><svg class="ic"><use href="#i-search"/></svg></button>
+      <button id="btn-layers" class="map-btn" title="Map layers" aria-label="Map layers" aria-haspopup="dialog" aria-expanded="false" aria-controls="layers-menu"><svg class="ic"><use href="#i-layers"/></svg></button>
+      <button id="btn-search" class="map-btn" title="Find an address" aria-label="Find an address" aria-expanded="false" aria-controls="search-box"><svg class="ic"><use href="#i-search"/></svg></button>
       <button id="btn-zoom-in" class="map-btn zoom-btn" title="Zoom in" aria-label="Zoom in"><svg class="ic"><use href="#i-plus"/></svg></button>
       <button id="btn-zoom-out" class="map-btn zoom-btn" title="Zoom out" aria-label="Zoom out"><svg class="ic"><use href="#i-minus"/></svg></button>
       <button id="btn-locate" class="map-btn" title="Show my location" aria-label="Show my location"><svg class="ic"><use href="#i-locate"/></svg></button>
@@ -81,7 +81,7 @@
     <!-- Floating pill shown during place mode: pan so the center target sits on
          the spot, then confirm. (Right-click is the desktop alternative.) -->
     <div id="place-banner">
-      <span id="place-banner-text"></span>
+      <span id="place-banner-text" role="status"></span>
       <button id="btn-confirm-place" class="btn btn-sm">Set here</button>
       <button id="btn-cancel-place" class="btn btn-sm btn-plain">Cancel</button>
     </div>
@@ -173,7 +173,7 @@
 </form>
 
 <!-- Map layers (permit areas, meters, …) of the area on the map, and the legend; filled by js/layers.js -->
-<div id="layers-menu" class="pop-menu" role="menu" aria-label="Map layers" hidden></div>
+<div id="layers-menu" class="pop-menu" role="dialog" aria-label="Map layers" hidden></div>
 
 <!-- "…" menu on an item's page: its settings; filled by js/cars.js -->
 <div id="item-menu" class="pop-menu" role="menu" aria-label="More" hidden></div>

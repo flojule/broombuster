@@ -172,16 +172,26 @@ function removeTileLayers() {
 // Paint that follows the theme, by the layer's metadata.bbTheme (also js/layers.js; the
 // basemap switch re-applies it, js/ui.js): ward lines; a zone's thin edge (rim); the halo
 // and outline of the zone at the target (focus); edge labels.
+// Street lines: 'line:<key>' (key: the feature-state, 'urgency' or a side's), solid and
+// clear where the verdict is Check sign (drawn dashed by 'check'); 'casing:<key>' under them.
 function themePaint(kind) {
   const dark = document.body.classList.contains('dark');
   const halo = dark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
+  const [k, key] = kind.split(':');
+  if (k === 'line') return { 'line-color': _urgCase('line', key, u => u === 'check' ? 'rgba(0,0,0,0)' : lineColor(u)) };
+  if (k === 'check') return { 'line-color': lineColor('check') };
+  // Dark under today and tomorrow (red from orange by more than hue), light under Clear
+  // (a light basemap's paths are the same thin green).
+  if (k === 'casing') {
+    return { 'line-color': ['match', ['coalesce', ['feature-state', key], ''],
+      'safe', dark ? 'rgba(0,0,0,0)' : 'rgba(255,255,255,0.95)', dark ? 'rgba(0,0,0,0.75)' : 'rgba(15,23,42,0.55)'] };
+  }
   return {
     ward:  { 'line-color': dark ? 'rgba(245,248,252,0.75)' : 'rgba(20,28,46,0.7)' },
     rim:   { 'line-color': dark ? 'rgba(255,255,255,0.6)' : 'rgba(30,41,59,0.7)' },
     halo:  { 'line-color': halo },
     focus: { 'line-color': dark ? '#e2e8f0' : '#0f172a' },
     label: { 'text-color': dark ? '#e2e8f0' : '#334155', 'text-halo-color': dark ? '#111827' : '#ffffff' },
-    casing: { 'line-color': dark ? 'rgba(0,0,0,0.75)' : 'rgba(15,23,42,0.55)' },
   }[kind];
 }
 const themed = (kind, paint = {}) => ({ metadata: { bbTheme: kind }, paint: { ...paint, ...themePaint(kind) } });
@@ -250,7 +260,9 @@ function addTilePaintLayers() {
   const below = firstLabelLayer();
   const addLayer = def => map.addLayer({ source: TILES_SOURCE, 'source-layer': TILES_SRC_LAYER, ...def }, below);
   const zone = ['==', ['get', 'render_type'], 'polygon'];
-  addLayer({ id: 'zones-fill', type: 'fill', filter: zone, paint: { 'fill-color': _urgCase('fill') } });
+  // Zoomed out, the fills fade (a city's zones would flood the map).
+  addLayer({ id: 'zones-fill', type: 'fill', filter: zone,
+             paint: { 'fill-color': _urgCase('fill'), 'fill-opacity': ['interpolate', ['linear'], ['zoom'], AREA_ZOOM, 0.35, 13, 1] } });
   // The street at the target: a soft blue glow under its color. Every street has the
   // layer; feature-state `active` shows one (setActiveFeature). Zoomed out past
   // STREET_ZOOM a tile line is every street of one schedule (scripts/build_pmtiles.py): none.
@@ -272,38 +284,53 @@ function addTilePaintLayers() {
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     ...themed('ward', { 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.0, 13, 2.0, 16, 3.2, 18, 4.5] }),
   });
-  // Under a street swept today or tomorrow: a dark casing, so its red or orange stands
-  // off the basemap (and red from orange by more than hue).
-  const cased = key => ['match', ['coalesce', ['feature-state', key], ''], 'today', 1, 'tomorrow', 1, 0];
+  // Under a street swept today or tomorrow, a dark casing; under Clear, a light one (themePaint).
+  const cased = key => ['match', ['coalesce', ['feature-state', key], ''], 'today', 1, 'tomorrow', 1, 'safe', 1, 0];
+  // Zoomed out, the lines fade in (a city of colored streets would flood the map); from
+  // SIDE_ZOOM a street whose sides differ is drawn as its two sides instead.
+  const single = ['case', ['has', 'even_left'], 0, 1];
+  // `on`: 1, or an expression that hides some (a zoom curve must be the outermost expression).
+  const lineOpacity = (on = 1) => ['interpolate', ['linear'], ['zoom'],
+    AREA_ZOOM, ['*', 0.45, on], 13, on, SIDE_ZOOM - 0.01, on, SIDE_ZOOM, ['*', on, single]];
+  const isLine = ['==', ['get', 'render_type'], 'line'], sided = ['all', isLine, ['has', 'even_left']];
   addLayer({
-    id: 'zones-casing', type: 'line', filter: ['==', ['get', 'render_type'], 'line'],
+    id: 'zones-casing', type: 'line', filter: isLine,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    ...themed('casing', { 'line-width': _lineWidth('urgency', 1, 2),
-      'line-opacity': ['step', ['zoom'], cased('urgency'), SIDE_ZOOM, ['case', ['has', 'even_left'], 0, cased('urgency')]] }),
+    ...themed('casing:urgency', { 'line-width': _lineWidth('urgency', 1, 2),
+      'line-opacity': lineOpacity(cased('urgency')) }),
   });
   for (const side of ['even', 'odd']) {
     addLayer({
-      id: `zones-casing-${side}`, type: 'line',
-      minzoom: SIDE_ZOOM, filter: ['all', ['==', ['get', 'render_type'], 'line'], ['has', 'even_left']],
+      id: `zones-casing-${side}`, type: 'line', minzoom: SIDE_ZOOM, filter: sided,
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
-      ...themed('casing', { 'line-width': _lineWidth(`urgency_${side}`, 0.6, 2), 'line-offset': _sideOffset(side),
-                            'line-opacity': cased(`urgency_${side}`) }),
+      ...themed(`casing:urgency_${side}`, { 'line-width': _lineWidth(`urgency_${side}`, 0.6, 2), 'line-offset': _sideOffset(side),
+                                            'line-opacity': cased(`urgency_${side}`) }),
     });
   }
   addLayer({
-    id: 'zones-line', type: 'line',
-    filter: ['==', ['get', 'render_type'], 'line'],
+    id: 'zones-line', type: 'line', filter: isLine,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': _urgCase('line'), 'line-width': _lineWidth(),
-             'line-opacity': ['step', ['zoom'], 1, SIDE_ZOOM, ['case', ['has', 'even_left'], 0, 1]] },
+    ...themed('line:urgency', { 'line-width': _lineWidth(), 'line-opacity': lineOpacity() }),
   });
   for (const side of ['even', 'odd']) {
     addLayer({
-      id: `zones-side-${side}`, type: 'line',
-      minzoom: SIDE_ZOOM, filter: ['all', ['==', ['get', 'render_type'], 'line'], ['has', 'even_left']],
+      id: `zones-side-${side}`, type: 'line', minzoom: SIDE_ZOOM, filter: sided,
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
-      paint: { 'line-color': _urgCase('line', `urgency_${side}`), 'line-width': _lineWidth(`urgency_${side}`, 0.6),
-               'line-offset': _sideOffset(side) },
+      ...themed(`line:urgency_${side}`, { 'line-width': _lineWidth(`urgency_${side}`, 0.6), 'line-offset': _sideOffset(side) }),
+    });
+  }
+  // Check sign: dashed, so it never reads as the solid grey of No sweeping.
+  const isCheck = key => ['case', ['==', ['feature-state', key], 'check'], 1, 0];
+  addLayer({
+    id: 'zones-check', type: 'line', filter: isLine,
+    ...themed('check', { 'line-width': _lineWidth(), 'line-dasharray': [2, 1.5],
+      'line-opacity': lineOpacity(isCheck('urgency')) }),
+  });
+  for (const side of ['even', 'odd']) {
+    addLayer({
+      id: `zones-check-${side}`, type: 'line', minzoom: SIDE_ZOOM, filter: sided,
+      ...themed('check', { 'line-width': _lineWidth(`urgency_${side}`, 0.6), 'line-offset': _sideOffset(side),
+                           'line-dasharray': [2, 1.5], 'line-opacity': isCheck(`urgency_${side}`) }),
     });
   }
   // Over the streets: each zone's rim, then the zone at the target outlined (feature-state

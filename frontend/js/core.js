@@ -1,22 +1,25 @@
-// Every urgency surface reads this one table: card color (CSS vars in
-// styles.css), labels, and the map paint (MapLibre needs literal colors).
+// Every urgency surface reads this one table: card color (CSS vars in styles.css) and
+// labels. Street lines (map, legend, street card) take styles.css --line-<urgency>, per
+// theme (lineColor); MapLibre needs literal colors.
 // band: a zone's inner edge band (js/map.js), opaque; its opacity is set there.
 const URGENCY = {
   today:    { color: 'var(--urg-today)',    short: 'Today', icon: 'alert',
-              fill: 'rgba(220,60,60,0.55)',  band: '#d33a3a', line: 'tomato' },
+              fill: 'rgba(220,60,60,0.55)',  band: '#d33a3a' },
   tomorrow: { color: 'var(--urg-tomorrow)', short: 'Tomorrow', icon: 'alert',
-              fill: 'rgba(230,130,20,0.40)', band: '#d97706', line: 'orange' },
+              fill: 'rgba(230,130,20,0.40)', band: '#d97706' },
   // Clear is quiet (a muted green): only today and tomorrow should catch the eye.
   safe:     { color: 'var(--urg-safe)',     short: 'Clear', icon: 'check',
-              fill: 'rgba(63,140,92,0.12)',  band: '#3f8c5c', line: 'rgba(63,140,92,0.6)' },
+              fill: 'rgba(63,140,92,0.12)',  band: '#3f8c5c' },
   // Swept, but the data can't say when (the day is on the posted sign only, the city's
-  // season dates ran out, or no data at a car): never shown as clear.
+  // season dates ran out, or no data at a car): never shown as clear; a dashed line.
   check:    { color: 'var(--urg-check)',    short: 'Check sign', icon: 'help',
-              fill: 'rgba(100,116,139,0.18)', band: '#64748b', line: '#64748b' },
+              fill: 'rgba(100,116,139,0.18)', band: '#64748b' },
   // Map only: a street or zone with no sweeping at all (not a car verdict).
   none:     { color: 'var(--muted)',       short: 'No sweeping',
-              fill: 'rgba(120,130,150,0.10)', band: '#64748b', line: '#94a3b8' },
+              fill: 'rgba(120,130,150,0.10)', band: '#64748b' },
 };
+// A street line's color in the current theme (styles.css --line-<urgency>).
+const lineColor = u => getComputedStyle(document.body).getPropertyValue(`--line-${u}`).trim();
 
 // Today and tomorrow: the urgencies that get a tag ("Today" in its urgency color, .tag).
 const isSoon = u => u === 'today' || u === 'tomorrow';
@@ -195,6 +198,8 @@ let _tempPin        = null;   // {lat,lon} while naming a new car
 let _selectedId     = null;   // the one selected car or home (its card is open)
 let _region          = null;   // region key under the map center (null: none nearby)
 const REGION_RADIUS  = 1.5;    // degrees: a region applies this close to its center
+const STREET_READ_ZOOM = 13;   // from this zoom the target reads one street (the card, the calendar); tile lines are single streets from 12
+const PLACE_ZOOM     = 15;     // placing a car or home: zoomed in this far, so the spot is a curb, not a block
 const AREA_ZOOM      = 10;     // below this the map shows area labels instead of streets (= the tiles' minzoom, scripts/build_pmtiles.py)
 const isDesktop = () => window.matchMedia('(min-width: 768px), (orientation: landscape) and (max-height: 500px)').matches;  // = styles.css desktop layout
 
@@ -212,11 +217,19 @@ function regionAt(lat, lon) { return nearestRegion(lat, lon, REGION_RADIUS); }
 
 // The one clock for sweeping and trash days: {y, m, d, min} in the region's
 // timezone (the browser's until /cities has loaded), now or at the Date `when`.
-function regionNow(regionKey, when) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz, when); }
+// `tz`: the zone when /cities has none (a /check answer carries its own).
+function regionNow(regionKey, when, tz) { return BroomUrgency.nowForTimeZone(regions[regionKey]?.tz || tz, when); }
 
-// A city's no-sweep holidays ({dayKey: name}; null: none known), from /cities.
-function sweepSkip(regionKey, city) {
-  return BroomUrgency.holidaySkip(regions[regionKey]?.holidays?.[city], 'sweeping');
+// A city's no-sweep holidays ({dayKey: name}; null: none known), from /cities, else
+// `own` (a /check answer's).
+function sweepSkip(regionKey, city, own) {
+  return BroomUrgency.holidaySkip(regions[regionKey]?.holidays?.[city] || own, 'sweeping');
+}
+// A date list that has run out (urgency.js unknownReason 'expired'): "No 2027 dates yet", or
+// for a year-round list ended this year, "No dates after Dec 23".
+function noDatesText(entries, now) {
+  const last = BroomUrgency.lastDate(BroomUrgency.entries(entries));
+  return last && last.y >= now.y ? `No dates after ${BroomUrgency.dayLabel(last).replace(/^\S+ /, '')}` : `No ${now.y} dates yet`;
 }
 // "Oakland" for a city key ('' when unknown).
 function cityName(city) {
@@ -224,7 +237,7 @@ function cityName(city) {
   return '';
 }
 // The same for a /check response (the car's own region and city).
-function schedSkip(sched) { return sched ? sweepSkip(sched.region || _region, sched.city) : null; }
+function schedSkip(sched) { return sched ? sweepSkip(sched.region || _region, sched.city, sched.holidays) : null; }
 
 // ── Map (MapLibre) ────────────────────────────────────────────────────────────
 let map = null;
@@ -237,23 +250,21 @@ let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
 let _nameInput     = null;  // <input> inside the active name popup
 
 const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-band', 'zones-ward', 'zones-casing', 'zones-casing-even',
-                      'zones-casing-odd', 'zones-line', 'zones-side-even', 'zones-side-odd', 'zones-edge', 'zones-here-halo', 'zones-here', 'zones-label'];
+                      'zones-casing-odd', 'zones-line', 'zones-side-even', 'zones-side-odd', 'zones-check', 'zones-check-even',
+                      'zones-check-odd', 'zones-edge', 'zones-here-halo', 'zones-here', 'zones-label'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
 // Vector tile source; per-feature urgency arrives via feature-state.
 const TILES_SOURCE     = 'zones-tiles';
 const TILES_SRC_LAYER  = 'zones';
-function _urgCase(prop, key = 'urgency') {
-  // MapLibre expression: pick color from feature-state `key` ('urgency', or one side's
-  // 'urgency_even' / 'urgency_odd'). A feature whose urgency is not computed yet stays
-  // transparent rather than flashing "Clear" blue.
+// MapLibre expression: pick color from feature-state `key` ('urgency', or one side's
+// 'urgency_even' / 'urgency_odd'); `color(u)` gives an urgency's color (default: its
+// URGENCY `prop`). A feature whose urgency is not computed yet stays transparent rather
+// than flashing "Clear".
+function _urgCase(prop, key = 'urgency', color = u => URGENCY[u][prop]) {
   return [
     'match', ['coalesce', ['feature-state', key], ''],
-    'today',    URGENCY.today[prop],
-    'tomorrow', URGENCY.tomorrow[prop],
-    'safe',     URGENCY.safe[prop],
-    'check',    URGENCY.check[prop],
-    'none',     URGENCY.none[prop],
+    ...['today', 'tomorrow', 'safe', 'check', 'none'].flatMap(u => [u, color(u)]),
     'rgba(0,0,0,0)',
   ];
 }

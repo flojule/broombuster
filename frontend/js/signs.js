@@ -96,11 +96,11 @@ function _sideUrgency({ entries }, now, skip) {
 // and carries "Today" / "Tomorrow" when that side is swept then.
 function _sweepRows(sec, now, skip) {
   const { lines, side, tag, entries } = sec, u = _sideUrgency(sec, now, skip), soon = isSoon(u);
-  const color = URGENCY[lines.length ? u : u === 'check' ? 'check' : 'none'].line;
-  const first = { mark: 'bar', color, ...(tag ? { side: tag, when: soon && u } : {}) };
+  const color = `var(--line-${lines.length ? u : u === 'check' ? 'check' : 'none'})`;
+  const first = { mark: 'bar', color, ...(tag ? { side: tag, when: soon && whenOf(entries, now, skip) } : {}) };
   const more = { mark: 'bar', color, cont: true, ...(tag ? { side: tag, ghost: true } : {}) };
   if (!lines.length) {  // none, or none left: Chicago's season is over, or its dates ran out
-    const text = !entries.length ? 'No sweeping' : u === 'check' ? `No ${now.y} dates yet`
+    const text = !entries.length ? 'No sweeping' : u === 'check' ? noDatesText(entries, now)
       : BroomUrgency.seasonOver(entries, now) ? 'Season over' : 'No sweeping';
     return [{ ...first, text, said: `${side}: ${text.toLowerCase()}` }];
   }
@@ -114,11 +114,11 @@ function _sweepRows(sec, now, skip) {
 // zone) is swept then. When the sides differ, each side's row carries its own.
 function _whenHTML(secs, now, skip) {
   if (secs.length !== 1) return '';
-  const u = _sideUrgency(secs[0], now, skip);
-  return isSoon(u) ? _whenBadge(u) : '';
+  return isSoon(_sideUrgency(secs[0], now, skip)) ? _whenBadge(whenOf(secs[0].entries, now, skip)) : '';
 }
-function _whenBadge(u) {
-  return `<b class="sc-when" style="background:var(--urg-${u}-bg)">${esc(URGENCY[u].short)}</b>`;
+// The badge: {u, text} (whenOf).
+function _whenBadge({ u, text }) {
+  return `<b class="sc-when" style="background:var(--urg-${u}-bg)">${esc(text)}</b>`;
 }
 
 // A mark: a bar (sweeping) in its color, or a rule's glyph (index.html i-<kind>).
@@ -197,7 +197,9 @@ function renderSigns(f, live = false) {
     });
     const same = JSON.stringify(sides[0].lines) === JSON.stringify(sides[1].lines);
     if (p.render_type === 'polygon' || same) {
-      secs = [{ ...sides[0], side: p.render_type === 'polygon' ? 'Zone' : 'Both sides', tag: '' }];
+      // Alike on screen; the verdict still reads both sides' entries (codes can differ).
+      secs = [{ ...sides[0], entries: [...sides[0].entries, ...sides[1].entries],
+                side: p.render_type === 'polygon' ? 'Zone' : 'Both sides', tag: '' }];
     } else {
       // The side higher (or further left) on screen first.
       const ev = _evenSideDirection(f), names = sideNames(f);
@@ -225,9 +227,46 @@ function renderSigns(f, live = false) {
     _signsKey = html;
     signsEl.hidden = !html;
     signsEl.innerHTML = html;
+    fitSigns();
   }
+  if (placing && !live) _placeBannerStreet(f);  // read out once the map stops (role=status)
   // Screen readers hear the street and its first rows once the map stops (not while panning).
   const said = rows.length ? [street, ...rows.filter(r => r.said).slice(0, 3).map(r => r.said)].filter(Boolean).join('. ') : '';
   if (!live && signsLive.textContent !== said) signsLive.textContent = said;
 }
 const signsLive = document.getElementById('signs-live');
+
+// "Today", "Tonight 12AM" (the sweep that makes it today starts after midnight: today's
+// own window is over) or "Tomorrow": {u, text} for entries swept today or tomorrow.
+function whenOf(entries, now, skip) {
+  const u = BroomUrgency.checkDaySweeping(entries, now, skip);
+  if (u !== 'today' || BroomUrgency.sweptLaterToday(entries, now, skip)) return { u, text: URGENCY[u].short };
+  const d = BroomUrgency.sweepDeadline(entries, now, skip);
+  return { u, text: d?.at ? `Tonight ${d.at === 'midnight' ? '12AM' : d.at}` : 'Tonight' };
+}
+
+// Short screens: the card keeps its first rows when it would reach the target (styles.css
+// #signs.compact); the connection chip sits under it (--signs-h).
+function fitSigns() {
+  signsEl.classList.remove('compact');
+  const box = signsEl.hidden ? null : signsEl.getBoundingClientRect();
+  if (box && !isDesktop()) {
+    const area = document.getElementById('map-container').getBoundingClientRect();
+    const targetTop = area.top + (area.height - mapPadding().bottom) / 2 - 14;
+    if (box.bottom > targetTop) signsEl.classList.add('compact');
+  }
+  const h = signsEl.hidden ? 0 : signsEl.offsetHeight + 6;
+  document.documentElement.style.setProperty('--signs-h', h + 'px');
+}
+window.addEventListener('resize', fitSigns);
+
+// Placing: the banner names the street the target is on ("On Valencia St"), or says there
+// is none, so the car is never matched to a street silently.
+function _placeBannerStreet(f) {
+  const el = placeBannerText.querySelector('.pb-street');
+  if (!el) return;
+  const street = f?.properties?.street;
+  const text = map && map.getZoom() < PLACE_ZOOM ? 'Zoom in to the spot'
+    : f ? (street && street !== 'N/A' ? `On ${street}` : 'On a zone') : 'No street here';
+  if (el.textContent !== text) el.textContent = text;
+}
