@@ -1,0 +1,11 @@
+# Trash (Recology San Bruno): no pickup on Christmas and New Year's Day; pickups on and after
+# the holiday that week are one day later. The 2026-27 dates are the hauler's yearly
+# closures (its page lists them as TBD). Sweeping: "may be canceled ... on certain
+# holidays", none named.
+source: https://www.recology.com/recology_news/2025-winter-holiday-schedule-update/
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

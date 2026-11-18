@@ -1,0 +1,10 @@
+# Trash (South San Francisco Scavenger: Millbrae): no pickup on Christmas and New Year's Day;
+# that pickup is the next day. Christmas 2027 is the hauler's yearly closure, not yet listed.
+# Sweeping: no holidays published.
+source: https://ssfscavenger.com/holiday-schedule/
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

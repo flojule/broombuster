@@ -1,0 +1,23 @@
+name: "Daly City, CA"
+center: {lat: 37.6879, lon: -122.4702}
+schema: prebuilt
+bbox: [37.65, -122.51, 37.71, -122.40]
+fgb_path: data/daly_city/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/daly_city.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Republic Services Daly City
+source:
+  local_path: data/daly_city/StreetSweeping.geojson
+  build: scripts/build_daly_city_geojson.py
+  files:
+    # The schedule page (per street: odd and even side weekday, posted hours), saved by hand:
+    # curl -o data/daly_city/schedule.html https://www.dalycity.org/460/Street-Sweeping-Schedule
+    # (the site answers 404 to the Python user agent of rebuild_city_data.py).
+    - data/daly_city/schedule.html
+  arcgis:
+    # San Mateo County street centerlines in Daly City.
+    centerlines.geojson:
+      url: https://gis.smcgov.org/maps/rest/services/ISD/SMC_COUNTY_GIS/MapServer/4
+      where: "incmuni_l='DALY CITY' OR incmuni_r='DALY CITY'"
+  notes: |
+    Schedule page: https://www.dalycity.org/460/Street-Sweeping-Schedule

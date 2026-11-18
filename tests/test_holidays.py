@@ -85,6 +85,10 @@ _OAKLAND = [_NEW_YEAR, _MLK, ("Presidents Day", _nth(2, 0, 3)), ("Farmworkers Da
 _SF_DAYTIME = [_MLK, ("Presidents' Day", _nth(2, 0, 3)), _MEMORIAL, _JUNETEENTH, _JULY_4, _LABOR,
                ("Indigenous Peoples Day", _nth(10, 0, 2)), _VETERANS, _DAY_AFTER]  # fmt: skip
 _CHICAGO = [_NEW_YEAR, _MEMORIAL, _JULY_4, _LABOR, _THANKSGIVING, _CHRISTMAS]
+_SMC_TRASH = [_NEW_YEAR, _CHRISTMAS]  # San Mateo County haulers (Recology, SSF Scavenger, Republic)
+_DALY = [_NEW_YEAR, _MLK, ("Presidents' Day", _nth(2, 0, 3)), _MEMORIAL, _JUNETEENTH, _JULY_4,
+         _LABOR, _VETERANS, _THANKSGIVING, _DAY_AFTER, _CHRISTMAS]  # fmt: skip
+_SSF = [*_DALY[:7], ("Indigenous Peoples Day", _nth(10, 0, 2)), *_DALY[7:]]
 
 # city: [(holidays, suspends, observed)]; observed: "date" (the date only), "both" (plus the
 # weekday a weekend date is observed on), "weekday" (only the observed weekday).
@@ -94,9 +98,20 @@ _EXPECTED = {
     "berkeley": [(_TRASH, ["trash"], "date")],
     "alameda": [(_TRASH, ["trash"], "date")],
     "chicago_all": [(_CHICAGO, ["trash"], "date")],
+    "south_san_francisco": [(_SMC_TRASH, ["trash"], "date"), (_SSF, ["sweeping"], "weekday")],
+    "daly_city": [(_SMC_TRASH, ["trash"], "date"), (_DALY, ["sweeping"], "weekday")],
+    "millbrae": [(_SMC_TRASH, ["trash"], "date")],
+    "san_mateo": [(_SMC_TRASH, ["trash"], "date")],
+    "san_bruno": [(_SMC_TRASH, ["trash"], "date")],
+    "san_mateo_county": [(_SMC_TRASH, ["trash"], "date")],
+    "burlingame": [(_SMC_TRASH, ["trash"], "date")],
+    "menlo_park": [(_SMC_TRASH, ["trash"], "date")],
 }
 _SF_DAYTIME_YEARS = {2026}  # SFMTA has not published 2027's daytime-only holidays
 _ALSO_SUSPENDED = {("san_francisco", datetime.date(2026, 1, 1)): "trash"}  # Recology moved pickups
+_ALSO_SUSPENDED |= {(city, day): "trash" for city in ("south_san_francisco", "daly_city")
+                    for day in (datetime.date(2026, 1, 1), datetime.date(2026, 12, 25),
+                                datetime.date(2027, 1, 1))}  # fmt: skip
 
 
 def _expected(city, year):
@@ -141,7 +156,9 @@ def test_oakland_and_sf_suspend_sweeping_others_only_trash():
 def test_for_region_is_the_client_copy():
     reg = holidays.for_region("bay_area")
     assert reg["oakland"]["2026-11-11"] == {"name": "Veterans Day", "suspends": ["sweeping"]}
-    assert set(reg) == {"oakland", "san_francisco", "berkeley", "alameda"}
+    assert set(reg) == {"oakland", "san_francisco", "berkeley", "alameda",
+                        "south_san_francisco", "daly_city", "san_mateo", "millbrae", "san_bruno",
+                        "san_mateo_county", "burlingame", "menlo_park"}  # fmt: skip
 
 
 # ── Sweep dates: Python vs urgency.js ────────────────────────────────────────

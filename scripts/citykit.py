@@ -104,6 +104,12 @@ COUNTY_CENTERLINES = {
         "name": "STREET",
         "ranges": ("FRADDL", "TOADDL", "FRADDR", "TOADDR"),
     },
+    "san_mateo": {
+        "url": "https://gis.smcgov.org/maps/rest/services/ISD/SMC_COUNTY_GIS/MapServer/4",
+        "city_where": "incmuni_l='{code}' OR incmuni_r='{code}'",
+        "name": "fullrdname",
+        "ranges": ("fromaddr_l", "toaddr_l", "fromaddr_r", "toaddr_r"),
+    },
 }
 
 
@@ -157,6 +163,20 @@ def zones_to_blocks(
     return out.drop(columns=["_line", "_zone"]).to_crs("EPSG:4326")
 
 
+def zone_blocks(lines: geopandas.GeoDataFrame, zones: geopandas.GeoDataFrame, entry, min_share=0.5):
+    """Standard-schema rows: lines in a zone (zones_to_blocks) take entry(zone row) ->
+    (code, desc, time) on both sides; zones whose entry has no code are left out."""
+    entries = [entry(r) for _, r in zones.iterrows()]
+    cols = {
+        f"{col}_{side}": [e[i] for e in entries]
+        for side in ("EVEN", "ODD")
+        for i, col in enumerate(("DAY", "DESC", "TIME"))
+    }
+    zones = zones[["geometry"]].assign(**cols)
+    out = zones_to_blocks(lines, zones[zones["DAY_EVEN"].notna()], min_share)
+    return out.drop(columns="STREET_KEY").reset_index(drop=True)
+
+
 def blocks_by_name(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFrame:
     """Lines whose STREET_KEY equals the key of `name` ("Mission Street" matches MISSION ST)."""
     return lines[lines["STREET_KEY"] == normalize.street_name(str(name))]
@@ -167,6 +187,34 @@ def in_range(lines: geopandas.GeoDataFrame, lo: int, hi: int) -> pd.Series:
     cols = lines[["L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"]]
     a, b = cols.min(axis=1), cols.max(axis=1)
     return (a <= hi) & (b >= lo)
+
+
+def address_blocks(
+    lines: geopandas.GeoDataFrame, points: pd.DataFrame, entry
+) -> geopandas.GeoDataFrame:
+    """Standard-schema rows from address points (STREET_KEY, NUM, SCHEDULE): each block side
+    takes entry(the most common SCHEDULE of the points on its street, inside its address
+    range, of its parity) -> (code, desc, time); blocks with neither side swept are dropped."""
+    pts = points.assign(NUM=pd.to_numeric(points["NUM"], errors="coerce"))
+    pts = pts.dropna(subset=["NUM", "SCHEDULE"])
+    groups = dict(iter(pts.groupby("STREET_KEY")))
+    cols = lines[["L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"]]
+    out = lines.copy()
+    for side in ("EVEN", "ODD"):
+        out[f"DAY_{side}"] = out[f"DESC_{side}"] = out[f"TIME_{side}"] = None
+    for i, key, lo, hi in zip(lines.index, lines["STREET_KEY"], cols.min(axis=1),
+                              cols.max(axis=1), strict=True):  # fmt: skip
+        grp = groups.get(key)
+        if grp is None or pd.isna(lo):
+            continue
+        hit = grp[(grp["NUM"] >= lo) & (grp["NUM"] <= hi)]
+        for side, par in (("EVEN", 0), ("ODD", 1)):
+            vals = hit.loc[hit["NUM"] % 2 == par, "SCHEDULE"]
+            if not vals.empty:
+                cells = [f"DAY_{side}", f"DESC_{side}", f"TIME_{side}"]
+                out.loc[i, cells] = entry(vals.mode().iloc[0])
+    out = out[out["DAY_EVEN"].notna() | out["DAY_ODD"].notna()]
+    return out.drop(columns="STREET_KEY").reset_index(drop=True)
 
 
 def parity_sides(row) -> dict[str, str]:

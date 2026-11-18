@@ -1,0 +1,16 @@
+name: "San Mateo County (unincorporated), CA"
+center: {lat: 37.4742, lon: -122.3428}
+schema: prebuilt
+bbox: [37.24, -122.52, 37.71, -122.16]
+fgb_path: data/san_mateo_county/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/recology_san_mateo_county.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Recology San Mateo County (bayside areas; the coast has other haulers)
+source:
+  local_path: data/san_mateo_county/StreetSweeping.geojson
+  build: scripts/build_san_mateo_county_geojson.py
+  arcgis:
+    # County Public Works sweeping routes: street lines with schedule words (hours where adopted by ordinance).
+    routes.geojson: https://gis.smcgov.org/maps/rest/services/PW/Roads/FeatureServer/0
+  notes: |
+    Map and printable schedules: https://www.smcgov.org/publicworks/street-sweeping-maps-and-schedules

@@ -30,6 +30,16 @@ equals the source.
 | Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced` |
 | Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS) | signed sides only |
 | Chicago | Data Portal zones, one dataset per year | same dataset | every zone |
+| South San Francisco | city sweeping lookup (ArcGIS, 2021): day, weeks, posted No Parking | same layer | posted No Parking only; sweeping itself NT; "Mon-Tue" signs POSTED (side not on file) |
+| Daly City | city schedule page: odd / even side weekday and hours | county centerlines (ArcGIS) by name, parts by cross streets | every listed side; block of a multi-part street not placed: POSTED |
+| San Mateo | city sweeping parcels (ArcGIS): day, weeks, hours | county centerlines, side by address parity | every side (city names no unticketed sides); bi-weekly Saturday: POSTED |
+| Millbrae | city sweeping parcels (ArcGIS): day, hours, car removal | county centerlines, side by address parity | "posted mandatory car removal"; "requested" NT; no word kept enforced |
+| San Bruno | city sweeping routes (ArcGIS): weeks, day, hours | county centerlines within 15 m of a curb route | routes with posted hours; others NT |
+| San Mateo County (unincorporated) | county Public Works routes (ArcGIS) | same layer | routes with hours (ordinance schedules); others NT |
+| Burlingame | city sweeping sections (ArcGIS, 2018): day, hours, track | county centerlines in the section | weekly and downtown sections; tracks A / B NT |
+| Menlo Park | city sweeping districts (ArcGIS): day, seasonal frequency | county centerlines in the district | none: NT (no hours or signs published) |
+
+San Mateo County centerlines: County of San Mateo ISD GIS, which cannot vouch for their accuracy.
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.
