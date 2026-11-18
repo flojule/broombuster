@@ -32,6 +32,8 @@ _TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857"
 # Max car-to-centerline distance for the car and home flows: past it, a car is likelier on a
 # street without data than on the nearest one (every validation point lies within 16 m).
 CAR_MAX_DISTANCE_M = 20.0
+# Past CAR_MAX_DISTANCE_M, how far the car's page still names the nearest street.
+NEARBY_STREET_M = 60.0
 
 # A border street drawn by two cities: how much farther (EPSG:3857 m) the other city's swept
 # line may be than an unswept nearest line and still win (Woolsey St, Oakland | Berkeley).
@@ -271,6 +273,34 @@ def _determine_side(geom, car_pt, proj_pt, row) -> str | None:
     if left_parity == "odd":
         return "even"
     return None
+
+
+_COMPASS = ("East", "Southeast", "South", "Southwest", "West", "Northwest", "North", "Northeast")
+
+
+def side_labels(resolved: ResolvedCar | None) -> tuple[str, str]:
+    """(even, odd) side names as the street card gives them (js/signs.js sideNames): the
+    row's SIDE_EVEN / SIDE_ODD, else the compass point each side lies at, else Even / Odd."""
+    labels = analysis.side_labels(resolved.segment if resolved else None)
+    if resolved is None or resolved.is_polygon or labels != analysis.DEFAULT_SIDE_LABELS:
+        return labels
+    left = even_on_left(resolved.segment)
+    at = Point(*resolved.projected_point)
+    ax, ay, bx, by = _nearest_vertex_pair(resolved.segment.geometry, at)
+    if left is None or ax is None or (ax, ay) == (bx, by):
+        return labels
+    ex, ey = (ay - by, bx - ax) if left else (by - ay, ax - bx)  # the even side's normal (y north)
+    i = round(math.atan2(-ey, ex) / (math.pi / 4)) % 8  # screen angle, y down (as the card)
+    return _COMPASS[i], _COMPASS[(i + 4) % 8]
+
+
+def nearby_street(gdf_3857, lat: float, lon: float) -> tuple[str, float] | None:
+    """(name, meters) of the nearest street within NEARBY_STREET_M (past CAR_MAX_DISTANCE_M)."""
+    try:
+        r = resolve_car_segment(gdf_3857, lat, lon, max_distance_m=NEARBY_STREET_M)
+    except NoSegmentNearby:
+        return None
+    return (r.label, r.distance_m) if r.label and not r.is_polygon else None
 
 
 def even_on_left(row) -> bool | None:

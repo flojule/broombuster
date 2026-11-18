@@ -88,7 +88,8 @@ function openMenu(menu, anchor, at = null) {
   menu.style.left = left + 'px';
   menu.style.top = top + 'px';
   menu.style.transformOrigin = `${ox - left}px ${oy - top}px`;
-  menu.querySelector('button')?.focus();
+  (menu.querySelector('input, button'))?.focus();
+  syncHistory();
 }
 // Returns whether a menu was open.
 function closeMenu(refocus = false) {
@@ -99,9 +100,19 @@ function closeMenu(refocus = false) {
   anchor?.setAttribute('aria-expanded', 'false');
   sheet.inert = false;
   if (refocus) anchor?.focus();
+  syncHistory();
   return true;
 }
 document.addEventListener('keydown', e => {
+  // Tab stays in the menu (it is modal), going round from its last control to its first.
+  if (_openMenu && e.key === 'Tab') {
+    const fs = [..._openMenu.menu.querySelectorAll('button, input')].filter(el => !el.disabled && el.offsetParent);
+    if (!fs.length) return;
+    const i = fs.indexOf(document.activeElement), j = e.shiftKey ? (i <= 0 ? fs.length - 1 : i - 1) : (i + 1) % fs.length;
+    e.preventDefault();
+    fs[j].focus();
+    return;
+  }
   if (!_openMenu || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
   const items = [..._openMenu.menu.querySelectorAll('button')];
   if (!items.length) return;
@@ -120,6 +131,27 @@ function menuButton(btn, menu, beforeOpen) {
   });
 }
 document.addEventListener('click', e => { if (_openMenu && !_openMenu.menu.contains(e.target)) closeMenu(); });
+
+// ── Back button: one history entry while anything closable is open (a menu, the name
+// box, placing, an item's page); Back closes the top one (as Escape does, js/data.js), so it
+// never leaves the app with something open. Closed by other means, the entry is taken back.
+let _historyQueued = false, _ownBack = false;
+const _layerOpen = () => !!(_openMenu || _namePopup || placing || _selectedId);
+function syncHistory() {
+  if (_historyQueued) return;
+  _historyQueued = true;
+  queueMicrotask(() => {  // several changes in one step (a menu replacing another): one decision
+    _historyQueued = false;
+    const ours = history.state?.bb === 1;
+    if (_layerOpen() && !ours) history.pushState({ bb: 1 }, '');
+    else if (!_layerOpen() && ours && !_ownBack) { _ownBack = true; history.back(); }
+  });
+}
+window.addEventListener('popstate', () => {
+  if (_ownBack) { _ownBack = false; syncHistory(); return; }
+  dismissLayer(false);
+  syncHistory();  // more open: a new entry for them
+});
 
 // ── Radio groups (Appearance, a car's side): one Tab stop, the checked radio (else the
 // first); the arrow keys check the next or previous one, as native radios do.
@@ -208,7 +240,7 @@ const _crosshair  = document.getElementById('center-crosshair');
 // are forgiving on touch): the street nearest the center (the box can hold a cross
 // street), else the zone there, else null.
 function _centerFeature() {
-  if (!map) return null;
+  if (!map || map.getZoom() < STREET_READ_ZOOM) return null;  // zoomed out a line is a block of streets
   const layers = HOVER_LAYERS.filter(l => !!map.getLayer(l));
   if (!layers.length) return null;
   const c = map.project(map.getCenter()), pad = 9;
@@ -238,7 +270,7 @@ function streetNear(m) {
 }
 
 // The segment of a street (line feature) nearest the screen point c: {d: distance (px),
-// dir: [dx, dy] its drawing direction on screen}; null for a zone.
+// dir: [dx, dy] its drawing direction on screen, at: the nearest point on it}; null for a zone.
 function nearestSegment(f, c) {
   const g = f.geometry;
   const parts = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
@@ -249,14 +281,18 @@ function nearestSegment(f, c) {
       const a = pts[i], b = pts[i + 1], dx = b.x - a.x, dy = b.y - a.y;
       const t = Math.max(0, Math.min(1, ((c.x - a.x) * dx + (c.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
       const d = Math.hypot(a.x + t * dx - c.x, a.y + t * dy - c.y);
-      if (!best || d < best.d) best = { d, dir: [dx, dy] };
+      if (!best || d < best.d) best = { d, dir: [dx, dy], at: { x: a.x + t * dx, y: a.y + t * dy } };
     }
   }
   return best;
 }
 
-// ── Find an address: the map centers there (the target reads its street) ───────
+// ── Find an address: the map goes there, with a pin on the address and the target on
+// the curb of the nearest street with data (the card and calendar read that street).
+// Searched in the region on the map, then everywhere (a cold open shows no region).
 const btnSearch = document.getElementById('btn-search'), searchBox = document.getElementById('search-box');
+const SNAP_M = 60;  // the address's street: within this distance of the geocoded point
+let _searchPin = null;
 menuButton(btnSearch, searchBox);
 btnSearch.addEventListener('click', () => { if (!searchBox.hidden) searchBox.q.focus(); });
 searchBox.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeMenu(true); } });
@@ -264,13 +300,48 @@ searchBox.addEventListener('submit', async e => {
   e.preventDefault();
   const q = searchBox.q.value.trim();
   if (!q || !map) return;
+  const c = map.getCenter(), region = map.getZoom() >= AREA_ZOOM ? _region || regionAt(c.lat, c.lng) : null;
   let hit;
-  try { hit = await geocode(q, _region || nearestRegion(map.getCenter().lat, map.getCenter().lng)); }
+  try { hit = await geocode(q, region) || (region ? await geocode(q, null) : null); }
   catch (_) { showToast('Couldn’t look up the address', true); return; }
   if (!hit) { showToast('Address not found', true); return; }
-  closeMenu();
-  map.jumpTo({ center: [hit.lon, hit.lat], zoom: 17 });
+  closeMenu(true);
+  goToAddress(hit, q);
 });
+function goToAddress(hit, label) {
+  _searchPin = placeMarker(_searchPin, hit, () => {
+    const el = document.createElement('div');
+    el.className = 'pin search-pin';
+    el.innerHTML = '<svg class="ic"><use class="pin-halo" href="#i-pin"/><use href="#i-pin"/></svg>';
+    return el;
+  });
+  _searchPin.getElement().setAttribute('aria-label', label);
+  _searchPin.getElement().title = label;
+  map.jumpTo({ center: [hit.lon, hit.lat], zoom: 17 });
+  // The street the address names ("1500 Valencia St": VALENCIA), when it is among those near.
+  const words = label.toUpperCase().replace(/[^A-Z0-9 ]/g, ' ');
+  const named = f => {
+    const n = String(f.properties.street || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/)
+      .filter(w => w.length > 2 && !/^(ST|AVE|BLVD|STREET|AVENUE|ROAD|DRIVE|WAY|LANE|PLACE|COURT)$/.test(w));
+    return n.length > 0 && n.every(w => new RegExp(`\\b${w}\\b`).test(words));
+  };
+  // Once the streets there have loaded: the target onto the nearest curb line of that street,
+  // else of any street.
+  map.once('idle', () => {
+    const p = map.project([hit.lon, hit.lat]), r = SNAP_M / metersPerPx(hit.lat);
+    const layers = ['zones-line', 'zones-side-even', 'zones-side-odd'].filter(l => map.getLayer(l));
+    let best = null;
+    try {
+      for (const f of map.queryRenderedFeatures([[p.x - r, p.y - r], [p.x + r, p.y + r]], { layers })) {
+        const n = nearestSegment(f, p);
+        if (!n) continue;
+        n.named = named(f);
+        if (!best || n.named > best.named || (n.named === best.named && n.d < best.d)) best = n;
+      }
+    } catch (_) {}
+    if (best && best.d <= r) map.easeTo({ center: map.unproject([best.at.x, best.at.y]), duration: 300 });
+  });
+}
 
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());

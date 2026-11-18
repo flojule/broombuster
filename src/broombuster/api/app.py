@@ -168,20 +168,27 @@ def check(req: CheckRequest):
         if loc.resolved
         else ([], [])
     )
+    inside = loc.resolved is not None or resolve.in_region(loc.region, req.lat, req.lon)
+    city = loc.city_key if inside else None
+    days = {d.isoformat(): h for d, h in holidays.for_city(city).items()} if city else None
+    near = None
+    if loc.resolved is None and inside and loc.gdf_3857 is not None:
+        near = resolve.nearby_street(loc.gdf_3857, req.lat, req.lon)
     return {
         "region": loc.region,
-        "city": loc.city_key,
+        "city": city,
+        # The region's clock and the city's no-sweep days, so the verdict never falls back
+        # to the browser's zone when /api/cities failed.
+        "tz": REGIONS[loc.region]["tz"],
+        "holidays": days,
         "address": address,
         "address_pending": pending,
         "car_side": loc.resolved.side if loc.resolved else None,
-        "side_labels": list(
-            analysis.side_labels(loc.resolved.segment)
-            if loc.resolved
-            else analysis.DEFAULT_SIDE_LABELS
-        ),
+        "side_labels": list(resolve.side_labels(loc.resolved)),
         "schedule_even": even,
         "schedule_odd": odd,
         "covered": loc.resolved is not None,
+        "nearby_street": {"name": near[0], "m": round(near[1])} if near else None,
     }
 
 
@@ -295,7 +302,7 @@ def _car_spot(lat: float, lon: float) -> calfeed.CarSpot | None:
         loc.city_key,
         address,
         {"even": [list(e) for e in even], "odd": [list(o) for o in odd]},
-        analysis.side_labels(loc.resolved.segment),
+        resolve.side_labels(loc.resolved),
     )
 
 

@@ -13,8 +13,15 @@ mapDiv.addEventListener('contextmenu', e => {
     if (!_fromTouch(e)) { map.jumpTo({ center: at }); confirmPlacementAtCenter(); }
     return;
   }
-  openCtxMenu(at, e.clientX, e.clientY);
+  if (!_zoomToPlace(at)) openCtxMenu(at, e.clientX, e.clientY);
 });
+// Zoomed out, a spot is a block or more: the first press zooms in there instead (true).
+function _zoomToPlace(at) {
+  if (map.getZoom() >= PLACE_ZOOM) return false;
+  map.easeTo({ center: at, zoom: Math.max(PLACE_ZOOM + 1, map.getZoom()) });
+  showToast('Zoomed in: press and hold again to add here');
+  return true;
+}
 // Held still for 500 ms with one finger; a pan, a second finger or lifting cancels it.
 let _press = null;  // AbortController of the pending press
 mapDiv.addEventListener('touchstart', e => {
@@ -25,8 +32,8 @@ mapDiv.addEventListener('touchstart', e => {
   const ac = _press = new AbortController(), opts = { passive: true, signal: ac.signal };
   const timer = setTimeout(() => {
     ac.abort();
-    const rect = mapDiv.getBoundingClientRect();
-    openCtxMenu(map.unproject([x0 - rect.left, y0 - rect.top]), x0, y0);
+    const rect = mapDiv.getBoundingClientRect(), at = map.unproject([x0 - rect.left, y0 - rect.top]);
+    if (!_zoomToPlace(at)) openCtxMenu(at, x0, y0);
     // Lifting the finger must not also tap the map (or close the menu it just opened).
     mapDiv.addEventListener('touchend', ev => ev.preventDefault(), { once: true, passive: false });
   }, 500);
@@ -39,22 +46,25 @@ mapDiv.addEventListener('touchstart', e => {
   mapDiv.addEventListener('touchcancel', () => ac.abort(), opts);
 }, { passive: true });
 
-// Holistic Escape: dismiss whichever transient UI is open (one layer per
-// press), then close the open item, then shrink the sheet.
-document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  // Editable fields own Escape locally (cancel rename / close name input);
-  // don't cascade into dismissing layers or deselecting the card.
-  const ae = document.activeElement;
-  if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+// Holistic Escape (and Back, js/ui.js): dismiss whichever transient UI is open (one layer
+// per press), then close the open item, then (Escape only) shrink the sheet.
+function dismissLayer(lower = true) {
   if (confirmDialog.open) return;  // the dialog cancels itself
   let dismissed = false;
   if (closeMenu(true))                     dismissed = true;
   if (_namePopup)                          { closeNameBox(); dismissed = true; }
   if (placing)                             { stopPlacing();  dismissed = true; }
   if (dismissed) return;
-  if (_selectedId) { clearSelection(); return; }
-  if (!isDesktop()) lowerSheet();
+  if (_selectedId) { clearSelection(); btnAdd.focus(); return; }
+  if (lower && !isDesktop()) lowerSheet();
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  // Editable fields own Escape locally (cancel rename / close name input);
+  // don't cascade into dismissing layers or deselecting the card.
+  const ae = document.activeElement;
+  if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+  dismissLayer();
 });
 
 

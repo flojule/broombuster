@@ -65,6 +65,25 @@ def test_check_without_street_falls_back_to_coords(client):
     assert data["schedule_even"] == data["schedule_odd"] == []
 
 
+@pytest.mark.parametrize(
+    "lat,lon,labels",
+    [(37.879778, -122.272768, ["West", "East"]), (37.851977, -122.244351, ["South", "North"])],
+)
+def test_check_names_sides_as_the_street_card(client, lat, lon, labels):
+    """Without SIDE_EVEN / SIDE_ODD in the data, the sides are the compass points they lie at
+    (js/signs.js sideNames), and the answer carries the region's clock."""
+    data = _check(client, {"lat": lat, "lon": lon})
+    assert data["side_labels"] == labels
+    assert data["tz"] == "America/Los_Angeles" and data["holidays"]
+
+
+def test_uncovered_car_names_the_street_nearby_and_no_city_far_away(client):
+    near = _check(client, {"lat": 37.7605, "lon": -122.4212})  # 23 m off Valencia St
+    assert near["covered"] is False and near["nearby_street"]["name"] == "Valencia St"
+    far = _check(client, {"lat": 36.17, "lon": -115.14})  # Las Vegas
+    assert far["city"] is None and far["nearby_street"] is None
+
+
 def test_check_rejects_bad_coordinates(client):
     assert client.post("/api/check", json={"lat": 91, "lon": 0}).status_code == 422
 

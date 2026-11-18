@@ -83,6 +83,7 @@ function applyMapInsets(animate = true) {
   if (!map) return;
   const cur = map.getPadding();
   if (cur.left !== pad.left || cur.bottom !== pad.bottom) map.easeTo({ padding: pad, duration: animate ? 400 : 0 });
+  if (typeof fitSigns === 'function') fitSigns();  // the target moved: the street card may now reach it
 }
 
 // ── Dragging (phone) ──────────────────────────────────────────────────────────

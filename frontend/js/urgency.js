@@ -279,20 +279,35 @@
     if (UNDATED[code.trim().toUpperCase()] === 1) return 'sign';
     var r = codeRule(code);
     if (!r || !r.dates || !r.dates.length) return '';
-    var last = r.dates[r.dates.length - 1];
-    if (last.y >= now.y) return '';
-    var start = 1232;  // the last season's first month and day, as m * 100 + d
+    var last = r.dates[r.dates.length - 1], first = null;
     for (var i = 0; i < r.dates.length; i++) {
-      if (r.dates[i].y === last.y) start = Math.min(start, r.dates[i].m * 100 + r.dates[i].d);
+      if (r.dates[i].y === last.y) { first = r.dates[i]; break; }  // the last season's first date
     }
-    return now.y > last.y + 1 || now.m * 100 + now.d >= start ? 'expired' : '';
+    // A year-round list (its season's gap shorter than YEAR_ROUND_GAP days) has run out the day
+    // after its last date: no off-season follows.
+    var gap = diffDays(last, { y: last.y + 1, m: first.m, d: first.d });
+    if (gap < YEAR_ROUND_GAP && dayKey(now.y, now.m, now.d) > dayKey(last.y, last.m, last.d)) return 'expired';
+    if (last.y >= now.y) return '';
+    return now.y > last.y + 1 || now.m * 100 + now.d >= first.m * 100 + first.d ? 'expired' : '';
+  }
+  var YEAR_ROUND_GAP = 45;
+
+  // The last date of entries' date lists ({y, m, d}), else null.
+  function lastDate(entries) {
+    var last = null;
+    for (var i = 0; i < entries.length; i++) {
+      var r = codeRule(entries[i].code), d = r && r.dates && r.dates[r.dates.length - 1];
+      if (d && (!last || dayKey(d.y, d.m, d.d) > dayKey(last.y, last.m, last.d))) last = d;
+    }
+    return last;
   }
 
   // A list of dates whose last date is past (Chicago after its season): {y} of that
-  // season, else null.
+  // season, else null (also for a year-round list: unknownReason says 'expired').
   function seasonOver(entries, now) {
     var last = null, k = dayKey(now.y, now.m, now.d);
     for (var i = 0; i < entries.length; i++) {
+      if (unknownReason(entries[i].code, now)) return null;
       var r = codeRule(entries[i].code);
       if (!r || !r.dates) return null;
       var d = r.dates[r.dates.length - 1];
@@ -328,6 +343,19 @@
       }
     }
     return tomorrow ? 'tomorrow' : unknown ? 'check' : 'safe';
+  }
+
+  // Whether a window today is still to come or on (all day when untimed), or yesterday's
+  // runs past midnight into now: the first two reasons checkDaySweeping says 'today'.
+  // False when only tomorrow's early start (LEAD_MIN) makes it today: the sweep is tonight.
+  function sweptLaterToday(entries, now, skip) {
+    var yst = addDays(now, -1);
+    for (var i = 0; i < entries.length; i++) {
+      var code = entries[i].code, t = entries[i].time || '', w = timeWindow(t), overnight = w && w[1] < w[0];
+      if (sweepsOn(code, now.y, now.m, now.d, skip, t) && (!w || overnight || now.min <= w[1])) return true;
+      if (overnight && now.min <= w[1] && sweepsOn(code, yst.y, yst.m, yst.d, skip, t)) return true;
+    }
+    return false;
   }
 
   // "9AM", "9:30AM", "12PM"; 0 or 1440 is "midnight".
@@ -541,6 +569,7 @@
     WEEKDAY_CODES: WEEKDAY_CODES,
     NO_SWEEP_CODES: NO_SWEEP_CODES,
     checkDaySweeping: checkDaySweeping,
+    sweptLaterToday: sweptLaterToday,
     sweepDeadline: sweepDeadline,
     clockText: clockText,
     sweepsOn: sweepsOn,
@@ -551,6 +580,7 @@
     isNoSweepCode: isNoSweepCode,
     unknownReason: unknownReason,
     seasonOver: seasonOver,
+    lastDate: lastDate,
     sweepDays: sweepDays,
     timeDisplay: timeDisplay,
     timeWindow: timeWindow,

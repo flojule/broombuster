@@ -115,6 +115,7 @@ btnItemBack.addEventListener('click', () => { clearSelection(); btnAdd.focus(); 
 function selectItem(id) {
   _selectedId = id;
   applySelection();
+  syncHistory();
 }
 
 function clearSelection() {
