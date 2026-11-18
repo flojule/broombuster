@@ -1,0 +1,12 @@
+# Trash (Milpitas Sanitation): no collection on Thanksgiving, Christmas and New Year's Day;
+# pickups are one day later (New Year's Day: that day only).
+# Sweeping: "some exceptions for holidays", no list published, so no holiday is assumed.
+source: https://www.milpitassanitation.com/pickup-schedule
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

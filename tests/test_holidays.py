@@ -135,6 +135,10 @@ _EXPECTED = {
     "san_leandro": [(_TRASH, ["trash"], "date")],
     "albany": [(_TRASH, ["trash"], "date")],
     "hayward": [(_TRASH, ["trash"], "date"), (_HAYWARD, ["sweeping"], "weekday")],
+    "san_jose": [(_TRASH, ["trash"], "date")],
+    "cupertino": [(_TRASH, ["trash"], "date")],
+    "milpitas": [(_TRASH, ["trash"], "date")],
+    "los_gatos": [(_TRASH, ["trash"], "date")],
 }
 _SF_DAYTIME_YEARS = {2026}  # SFMTA has not published 2027's daytime-only holidays
 _ALSO_SUSPENDED = {("san_francisco", datetime.date(2026, 1, 1)): "trash"}  # Recology moved pickups

@@ -22,9 +22,11 @@ import build_berkeley_geojson as berkeley
 import build_emeryville_geojson as emeryville
 import build_fairfield_geojson as fairfield
 import build_hayward_geojson as hayward
+import build_milpitas_geojson as milpitas
 import build_napa_geojson as napa
 import build_oakley_geojson as oakley
 import build_pittsburg_geojson as pittsburg
+import build_san_jose_geojson as san_jose
 import build_san_leandro_geojson as san_leandro
 import build_sonoma_county_geojson as sonoma_county
 import build_vacaville_geojson as vacaville
@@ -228,6 +230,46 @@ def test_oakley_list_rows_and_streets_it_gives_several_schedules():
     assert out["ACORN DR"] == "M24" and out["MALICOAT AVE"] == "TH13"  # spelled MAILCOAT
     assert out["CAROL LN"] == "TH13"  # the one its route's other streets have
     assert out["SLOAN WAY"] == "POSTED"  # not listed, nothing to go by
+
+
+# ── San Jose / Milpitas ──────────────────────────────────────────────────────
+
+
+def _sj(**row):
+    base = {"DAYSWEPT": "Tuesday", "WEEKSWEPT": "Odd", "ROUTETYPE": "Signed Route",
+            "POSTEDTIME": "", "SIDEOFROAD": "Both"}  # fmt: skip
+    return pd.Series({**base, **row})
+
+
+def test_san_jose_signs_give_days_and_hours():
+    res = _sj(WEEKSWEPT=2, POSTEDTIME="7AM to NOON  12:30PM to 5PM")
+    assert san_jose.residential_entry(res) == ("T2", "2nd Tue", "7AM–5PM")
+    assert san_jose.span("8AM to NOON  1PM to 5PM  9AM to NOON 1PM to 4PM") == "8AM–5PM"
+    assert san_jose.residential_entry(_sj(WEEKSWEPT=2, ROUTETYPE="Non-Signed Route"))[0] == "NT"
+    assert san_jose.major_entry(_sj(POSTEDTIME="No Parking Tuesday 1am-6am")) == (
+        "TE", "Every Tue", "1AM–6AM")  # fmt: skip
+    assert san_jose.major_entry(_sj(POSTEDTIME="1am to 6am"))[:2] == ("T13", "1st & 3rd Tue")
+    assert san_jose.major_entry(_sj(POSTEDTIME="No Parking 3am-6am Any Day"))[0] == "E"
+    stop = san_jose.major_entry(_sj(POSTEDTIME="No Stopping Anytime"))
+    assert stop[0] == "NT" and "No Stopping Anytime" in stop[1]
+
+
+def test_san_jose_compass_side_lands_on_its_parity():
+    east_west = LineString([(0, 0), (1, 0)])  # drawn eastward: left is north
+    assert san_jose.compass_side(east_west, "North") == "L"
+    assert san_jose.compass_side(east_west, "South") == "R"
+    rec = {"L_F_ADD": 101.0, "L_T_ADD": 199.0, "R_F_ADD": None, "R_T_ADD": None}
+    assert san_jose._parity(rec, "L") == "ODD" and san_jose._parity(rec, "R") == "EVEN"
+
+
+def test_milpitas_route_labels_and_boundary_streets():
+    routes = pd.DataFrame({"ResSweepDay": ["B- Tuesday 1st & 3rd Week",
+                                           "D- Thursday 1st & 3rd Week",
+                                           "H- Wednsday 2nd & 4th Week",
+                                           "B-Tuesday Left D-Tuesday Right"]})  # fmt: skip
+    sched = milpitas.route_schedules(routes)
+    assert sched == {"B": "Tuesday 1st & 3rd", "D": "Thursday 1st & 3rd",
+                     "H": "Wednesday 2nd & 4th"}  # fmt: skip
 
 
 # ── Oakland ──────────────────────────────────────────────────────────────────

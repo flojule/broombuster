@@ -1,0 +1,22 @@
+name: "Los Gatos, CA"
+center: {lat: 37.2266, lon: -121.9747}
+schema: prebuilt
+bbox: [37.18, -122.01, 37.26, -121.92]
+fgb_path: data/los_gatos/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2026-07"
+holidays: data/holidays/los_gatos.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # West Valley Recycles: the user picks the day
+source:
+  local_path: data/los_gatos/StreetSweeping.geojson
+  build: scripts/build_los_gatos_geojson.py
+  arcgis:
+    # Sweeping route polygons: route and schedule label.
+    routes.geojson: https://services3.arcgis.com/JAU7IM34hqT9y9ew/arcgis/rest/services/StreetSweepingRoutes/FeatureServer/0
+    # Santa Clara County street centerlines in the town (citykit.COUNTY_CENTERLINES).
+    centerlines.geojson:
+      url: https://maps.santaclaracounty.gov/server/rest/services/opendata/SCCGISHUB/MapServer/21
+      where: "(INCMUNI_L='LOS GATOS' OR INCMUNI_R='LOS GATOS') AND OWNER='PUB' AND ROADCLASS NOT IN ('Freeway', 'Ramp', 'Walkway', 'Expressway')"
+  notes: |
+    Program page: https://losgatosca.gov/103/Streets (2026 calendar PDF); no parking
+    restrictions on sweeping days: https://losgatosca.gov/3013/Parking-FAQs

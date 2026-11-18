@@ -61,6 +61,10 @@ San Mateo County centerlines: County of San Mateo ISD GIS, which cannot vouch fo
 | San Leandro | city zones, commercial routes, posted streets (ArcGIS) | county centerlines (ArcGIS), both sides | every block (enforcement unpublished); posted streets: check the sign |
 | Hayward | city PDF: week, weekday per address range and parity; window not given (all day) | county centerlines (ArcGIS) | every row (city: cited on sweeping days) |
 | Albany | city zone pages, transcribed in `albany/zones.yaml`: odd side 3rd, even side 4th Wed/Thu, window per zone | county centerlines (ArcGIS) | every listed street |
+| San Jose | city routes (ArcGIS, CC BY City of San Jose): residential day/week/posted hours; major roads one row per side | city centerlines by `CENTERLINEID` | `Signed Route` rows; residential two-window signs (one window per side, side not published) get one span on both sides |
+| Cupertino | city signed segments + 8 zones (ArcGIS) | county centerlines (ArcGIS) | signed segments; zones NT |
+| Milpitas | Milpitas Sanitation routes (ArcGIS), no hours | county centerlines | enforcement not published per street: every block (pilot areas sign a 2-hour window, not published) |
+| Los Gatos | town route polygons (ArcGIS) | county centerlines | none: no parking restrictions (NT) |
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.

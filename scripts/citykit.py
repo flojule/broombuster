@@ -231,6 +231,13 @@ COUNTY_CENTERLINES = {
         "name": "fullrdname",
         "ranges": ("fromaddr_l", "toaddr_l", "fromaddr_r", "toaddr_r"),
     },
+    "santa_clara": {
+        "url": "https://maps.santaclaracounty.gov/server/rest/services/opendata/SCCGISHUB/MapServer/21",
+        "city_where": "(INCMUNI_L='{code}' OR INCMUNI_R='{code}') AND OWNER='PUB'"
+        " AND ROADCLASS NOT IN ('Freeway', 'Ramp', 'Walkway', 'Expressway')",
+        "name": "FULLRDNAME",
+        "ranges": ("FROMADDR_L", "TOADDR_L", "FROMADDR_R", "TOADDR_R"),
+    },
 }
 
 
@@ -355,6 +362,30 @@ def blocks_along(
         for i, r in zip(near.index, near["index_right"], strict=True)
         if ln[i].intersection(buf[r]).length >= min_share * ln[i].length
     ]
+
+
+def lines_along(
+    lines: geopandas.GeoDataFrame,
+    segs: geopandas.GeoDataFrame,
+    name: str | None = None,
+    buffer_m: float = 12.0,
+    min_share: float = 0.5,
+) -> geopandas.GeoDataFrame:
+    """Each line running along a segment of another layer (at least min_share of its length
+    within buffer_m of it), with the segment's columns and `_src`, its index in `lines`.
+    With `name` (the segments' street-name column) only where both names share their first
+    word after a direction ("N PARK VICTORIA DR" and "PARK VICTORIA DR"). Both EPSG:4326."""
+    zones = segs.to_crs("EPSG:26910")
+    zones["geometry"] = zones.geometry.buffer(buffer_m)
+    out = zones_to_blocks(lines.assign(_src=lines.index), zones.to_crs("EPSG:4326"), min_share)
+    if name:
+        out = out[out[name].map(_first_word) == out["STREET_NAME"].map(_first_word)]
+    return out.reset_index(drop=True)
+
+
+def _first_word(name) -> str:
+    words = [w for w in str(name).upper().split() if w not in ("N", "S", "E", "W")]
+    return {"MT": "MOUNT", "ST": "SAINT"}.get(words[0], words[0]) if words else ""
 
 
 def blocks_by_name(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFrame:
