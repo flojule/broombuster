@@ -226,7 +226,7 @@ function _applyDark(on) {
       const under = ours.filter(l => l.type !== 'symbol' && l.type !== 'circle'), over = ours.filter(l => !under.includes(l));
       const at = base.findIndex(l => l.id === firstLabelLayer(base));
       const layers = at < 0 ? [...base, ...under, ...over] : [...base.slice(0, at), ...under, ...base.slice(at), ...over];
-      const srcs = Object.fromEntries(Object.entries(prev.sources).filter(([k]) => k === TILES_SOURCE || overlay(k)));
+      const srcs = Object.fromEntries(Object.entries(prev.sources).filter(([k]) => k === TILES_SOURCE || k === LABELS_SOURCE || overlay(k)));
       return { ...next, sources: { ...next.sources, ...srcs }, layers };
     } });
     map.once('idle', () => { scheduleUrgencyUpdate(); remarkTarget(); });

@@ -6,7 +6,7 @@ const URGENCY = {
   today:    { color: 'var(--urg-today)',    short: 'Today', icon: 'alert',
               fill: 'rgba(220,60,60,0.55)',  band: '#d33a3a' },
   tomorrow: { color: 'var(--urg-tomorrow)', short: 'Tomorrow', icon: 'alert',
-              fill: 'rgba(230,130,20,0.40)', band: '#d97706' },
+              fill: 'rgba(245,159,0,0.40)',  band: '#e69500' },
   // Clear is quiet (a muted green): only today and tomorrow should catch the eye.
   safe:     { color: 'var(--urg-safe)',     short: 'Clear', icon: 'check',
               fill: 'rgba(63,140,92,0.12)',  band: '#3f8c5c' },
@@ -251,7 +251,8 @@ let _nameInput     = null;  // <input> inside the active name popup
 
 const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-band', 'zones-ward', 'zones-casing', 'zones-casing-even',
                       'zones-casing-odd', 'zones-line', 'zones-side-even', 'zones-side-odd', 'zones-check', 'zones-check-even',
-                      'zones-check-odd', 'zones-edge', 'zones-here-halo', 'zones-here', 'zones-label'];
+                      'zones-check-odd', 'zones-permit-l', 'zones-permit-r', 'zones-sched', 'zones-edge',
+                      'zones-here-halo', 'zones-here', 'zones-label'];
 const HOVER_LAYERS = ['zones-fill', 'zones-line'];
 
 // Vector tile source; per-feature urgency arrives via feature-state.

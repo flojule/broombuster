@@ -2,13 +2,13 @@
     :root {
       --blue: #2563eb;
       /* Urgency colors (cards, banner, legend); the map paint lives in core.js URGENCY. */
-      --urg-today: #b91c1c; --urg-tomorrow: #c2410c; --urg-safe: #3b7a53;  /* text and swatches: AA on card tints; clear is quiet */
-      --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #c2410c;  /* calendar fills under white text */
+      --urg-today: #b91c1c; --urg-tomorrow: #b45309; --urg-safe: #3b7a53;  /* text and swatches: AA on card tints; clear is quiet */
+      --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #b45309;  /* calendar fills under white text */
       --urg-check: #475569;  /* swept, day unknown: neither alarm nor clear */
       /* Street lines (map, legend, street card; js/core.js lineColor), by contrast with the
-         land (#f3f3f1): today 5.3:1, tomorrow 3.2:1, check 3.3:1 (dashed), clear 3.1:1, no
-         sweeping 1.4:1 (it recedes). */
-      --line-today: #c8102e; --line-tomorrow: #e8590c; --line-safe: #4f9a6a; --line-check: #7b8797; --line-none: #c9d0d8;
+         land (#f3f3f1): today 5.3:1, tomorrow 1.9:1 (amber, on its dark casing), check 3.3:1
+         (dashed), clear 3.1:1, no sweeping 1.4:1 (it recedes). */
+      --line-today: #c8102e; --line-tomorrow: #f59f00; --line-safe: #4f9a6a; --line-check: #7b8797; --line-none: #c9d0d8;
       --card: #ffffff; --text: #1e293b;
       --muted: #526071; --border: #e2e8f0;
       /* Corner radii (iOS 26): concentric, so a box inside another keeps an even margin
@@ -180,13 +180,6 @@
     .legend li:last-child { grid-column: span 2; }  /* five items: the last on its own row */
     #layers-menu { width: 220px; }  /* the same width with the legend folded or open */
     .lyr-note { padding: 6px 12px 8px; font-size: var(--fs-xs); color: var(--muted); max-width: 260px; line-height: 1.35; }
-    .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: var(--fs-md);
-      background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
-    .lyr-popup .maplibregl-popup-tip { display: none; }
-    .lyr-popup span { display: block; }
-    .lyr-name { font-weight: 600; }
-    .lyr-when { font-variant-numeric: tabular-nums; }
-    .lyr-city { font-size: var(--fs-xs); color: var(--muted); }
 
     /* ── Map container ── */
     #map-container { height: 100%; position: relative; }
@@ -518,14 +511,14 @@
       font-variant-numeric: tabular-nums; scroll-snap-align: start;
     }
     /* Days outside the month in the header (.cal-out, js/calendar.js): muted digits; in the
-       month view, light digits without the street tint or dots (today's red or orange stays).
-       Street days: soft tiles, a light tint of the clear color; red today, orange tomorrow
+       month view, light digits without the street tint or dots (today's red or amber stays).
+       Street days: soft tiles, a light tint of the clear color; red today, amber tomorrow
        (as on the map and the street card), tinted with the date in that color. */
     .cal-out { color: var(--muted); }
     #ic-cal:not(.cal-small) .cal-out:not(.sw-now, .sw-next) { background: none; }
     #ic-cal:not(.cal-small) .cal-out:not(.sw-now, .sw-next) :is(.cal-dots, .cal-bar) { visibility: hidden; }
     /* A street day: a bar under the date (3:1 on the sheet) in the clear color; red today,
-       orange tomorrow, on a tint with the date in that color. */
+       amber tomorrow, on a tint with the date in that color. */
     .cal-bar { display: none; width: 14px; height: 3px; margin-top: 2px; border-radius: 2px; background: var(--urg-safe); }
     .sw-day .cal-bar { display: block; }
     .sw-now  { background: color-mix(in srgb, var(--urg-today) 15%, transparent);    color: var(--urg-today); font-weight: 700; }
@@ -599,13 +592,13 @@
     body.dark {
       --card: #1e293b; --text: #e2e8f0;
       --muted: #94a3b8; --border: #334155;
-      --urg-today: #f87171; --urg-tomorrow: #fb923c; --urg-safe: #7cc495; --urg-check: #cbd5e1;
+      --urg-today: #f87171; --urg-tomorrow: #fbbf24; --urg-safe: #7cc495; --urg-check: #cbd5e1;
       --tint-fg: #93b4f8; --home: #4ade80;
       --rule-allow: var(--home); --rule-meter: #9ca3af; --rule-snow: #60a5fa; --rule-ban: #f87171;  /* 3:1 on the card */
       --pin-halo: #111418;
       --toast-bg: #e2e8f0; --toast-fg: #0f172a; --toast-err: #fecaca; --toast-btn: rgba(15,23,42,.12);
-      /* On the dark land (#1d232b): today 6.3:1, tomorrow 4.8:1, check 3.5:1, clear 3.3:1, none 1.8:1. */
-      --line-today: #ff7a7a; --line-tomorrow: #c97a2a; --line-safe: #3a7f55; --line-check: #6b7787; --line-none: #404a57;
+      /* On the dark land (#1d232b): today 6.3:1, tomorrow 8.5:1, check 3.5:1, clear 3.3:1, none 1.8:1. */
+      --line-today: #ff7a7a; --line-tomorrow: #f2b33d; --line-safe: #3a7f55; --line-check: #6b7787; --line-none: #404a57;
     }
 
     /* ── Toast notifications ── */

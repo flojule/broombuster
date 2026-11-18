@@ -47,7 +47,7 @@ def test_street_features_merge_lines_per_schedule_below_street_zoom():
     assert {f["properties"]["street"] for f in low} == {""}
 
 
-def test_layer_features_start_curbs_at_curb_zoom_and_skip_null_geometry():
+def test_layer_features_skip_curbs_and_null_geometry():
     pt = {"type": "Point", "coordinates": [0, 0]}
     coll = {
         "features": [
@@ -56,8 +56,64 @@ def test_layer_features_start_curbs_at_curb_zoom_and_skip_null_geometry():
             {"type": "Feature", "properties": None, "geometry": pt},
         ]
     }
-    got = [f.get("tippecanoe") for f in build_pmtiles.layer_features(coll)]
-    assert got == [{"minzoom": build_pmtiles._CURB_MINZOOM}, None]
+    assert [f["properties"] for f in build_pmtiles.layer_features(coll)] == [None]
+
+
+_DEG = 1 / build_pmtiles._M_PER_DEG  # degrees per meter at latitude 0
+
+
+def _len_m(geom):
+    return geom.length / _DEG
+
+
+def test_trim_at_crossings_cuts_only_ends_that_meet_another_street():
+    """A block ends CORNER_TRIM_M short of a crossing street; an end that continues the same
+    street, or meets nothing, stays; a short block loses at most 30% per end; the low-zoom
+    line keeps the whole geometry."""
+    n = 100 * _DEG
+    recs = [
+        _rec([(0, 0), (0, n)], "A ST", []),
+        _rec([(0, n), (0, 2 * n)], "A ST", []),
+        _rec([(0, n), (n, n)], "B ST", []),
+        _rec([(n, n), (n, n + 10 * _DEG)], "C ST", []),
+    ]
+    build_pmtiles.trim_at_crossings(recs)
+    trim = build_pmtiles.CORNER_TRIM_M
+    assert [round(_len_m(r["geometry"]), 1) for r in recs] == [
+        100 - trim,
+        100 - trim,
+        100 - 2 * trim,
+        7.0,
+    ]
+    assert recs[0]["geometry"].coords[0] == (0, 0)  # the end that meets nothing stays
+    assert round(recs[1]["geometry"].coords[0][1] / _DEG, 1) == 100 + trim
+    feats = list(build_pmtiles.street_features(recs))
+    low = next(f for f in feats if f.get("tippecanoe", {}).get("maxzoom"))
+    assert round(_len_m(sg.MultiLineString(low["geometry"]["coordinates"]))) == 310
+
+
+def test_permit_sides_name_each_curb_side_of_the_nearest_parallel_line():
+    """A permit curb names the side it is on (left / right of the drawing direction) of the
+    nearest parallel line; a crossing curb and a far one name nothing; the tile feature
+    carries pl / pr."""
+    n = 100 * _DEG
+
+    def curb(coords, color):
+        geom = {"type": "LineString", "coordinates": coords}
+        return {"type": "Feature", "properties": {"kind": "curb", "color": color}, "geometry": geom}
+
+    recs = [_rec([(0, 0), (n, 0)], "A ST", []), _rec([(0, 3 * n), (n, 3 * n)], "B ST", [])]
+    curbs = [
+        curb([(10 * _DEG, 12 * _DEG), (90 * _DEG, 12 * _DEG)], "#111111"),  # north: left
+        curb([(90 * _DEG, -12 * _DEG), (10 * _DEG, -12 * _DEG)], "#222222"),  # south, drawn back
+        curb([(50 * _DEG, -40 * _DEG), (50 * _DEG, 40 * _DEG)], "#333333"),  # crossing
+        curb([(10 * _DEG, 60 * _DEG), (90 * _DEG, 60 * _DEG)], "#444444"),  # 60 m off: none
+    ]
+    build_pmtiles.permit_sides(recs, curbs)
+    assert recs[0]["permit"] == {"l": "#111111", "r": "#222222"}
+    assert "permit" not in recs[1]
+    props = next(build_pmtiles.street_features(recs))["properties"]
+    assert (props["pl"], props["pr"]) == ("#111111", "#222222")
 
 
 def test_catalog_lists_layer_tiles_only_for_the_current_geojson(tmp_path, monkeypatch):

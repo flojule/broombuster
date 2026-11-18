@@ -128,7 +128,7 @@ function _dayAria(layers, k, p, today) {
 }
 
 // Street days: red today while its window is to come or on (as the map says it, _ptrUrg),
-// orange tomorrow (red when it starts tonight, after midnight: _ptrTonight), else a bar (styles.css).
+// amber tomorrow (red when it starts tonight, after midnight: _ptrTonight), else a bar (styles.css).
 function _streetCls(layers, k, today) {
   if (!layers.ptr.has(k)) return '';
   if (k === _ymdKey(today)) return 'sw-day' + (_ptrUrg === 'today' && !_ptrTonight ? ' sw-now' : '');

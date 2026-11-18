@@ -731,7 +731,7 @@ function _alertsHTML() {
 
 // Above the Saved list: with nothing saved, the two ways to start; then the alerts in
 // effect where cars and homes are (each row says its own verdict). The tab's dot: red
-// while a car must move today, orange tomorrow.
+// while a car must move today, amber tomorrow.
 function updateSavedSummary() {
   const { today, tomorrow } = urgentCars();
   const due = today.length ? ['today', today] : tomorrow.length ? ['tomorrow', tomorrow] : null;
