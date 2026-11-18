@@ -195,7 +195,7 @@ let _tempPin        = null;   // {lat,lon} while naming a new car
 let _selectedId     = null;   // the one selected car or home (its card is open)
 let _region          = null;   // region key under the map center (null: none nearby)
 const REGION_RADIUS  = 1.5;    // degrees: a region applies this close to its center
-const AREA_ZOOM      = 9;      // below this the map shows area labels instead of streets
+const AREA_ZOOM      = 10;     // below this the map shows area labels instead of streets (= the tiles' minzoom, scripts/build_pmtiles.py)
 const isDesktop = () => window.matchMedia('(min-width: 768px), (orientation: landscape) and (max-height: 500px)').matches;  // = styles.css desktop layout
 
 // Region whose center is nearest (lat, lon) within `radius` degrees (default: any distance); else null.

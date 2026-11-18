@@ -24,11 +24,24 @@ self.addEventListener('fetch', event => {
   // are range requests, which Safari has mishandled through a worker, and never offline.
   if (url.origin !== location.origin || url.pathname.startsWith('/tiles/')
       || API_PATHS.some(p => url.pathname.startsWith(p))) return;
-  // Network first so a deploy is never masked by a stale cached shell; the cache is the
-  // fallback offline and while the server answers 5xx (a restart). A page falls back to "/".
   const nav = event.request.mode === 'navigate', get = event.request.method === 'GET';
   const cached = () => caches.match(event.request, { ignoreSearch: true })
     .then(hit => hit || (nav ? caches.match('/') : undefined));
+  // A file named by its content hash (?v=, api/web.py) never changes: cache first, kept
+  // once fetched; offline without it, any cached copy.
+  if (get && url.searchParams.has('v')) {
+    event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request).then(res => {
+      if (res.status === 200) {
+        const copy = res.clone();
+        event.waitUntil(caches.open(CACHE).then(cache => cache.put(event.request, copy)));
+      }
+      return res;
+    }, cached)));
+    return;
+  }
+  // The page and other files: network first so a deploy is never masked by a stale cached
+  // shell; the cache is the fallback offline and while the server answers 5xx (a restart).
+  // A page falls back to "/".
   event.respondWith(
     fetch(event.request)
       .then(res => (get && res.status >= 500 ? cached().then(hit => hit || res) : res))

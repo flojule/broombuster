@@ -65,6 +65,7 @@ function attachMapListeners() {
   // Follow the map center to its region (mounts its tiles) and recolor newly
   // loaded tile features once the map settles.
   map.on('moveend', syncRegion);
+  map.on('zoomend', syncOverlaysForZoom);  // a layer the zoom hid loads once shown (js/layers.js)
   map.on('zoom', () => { if (_here) updateHereMarker(); });  // the accuracy halo is in meters
   map.on('idle', scheduleUrgencyUpdate);
   // Color tiles as they arrive, not only once the whole map is idle: until then
@@ -112,12 +113,55 @@ function whenStyleReady(cb) {
 // ── Vector-tile rendering (PMTiles) ───────────────────────────────────────────
 let _tilesRegion      = null;   // region currently mounted as a tile source
 let _pmtilesProtocol  = false;  // pmtiles:// protocol registered once
-let _featStateCache   = new Map();  // feature id -> [{urgency, urgency_even?, urgency_odd?}, y-m-d-minute it was computed]
-let _featSchedCache   = new Map();  // feature id -> { parsed sched entries, whether the street has no sweeping }
+let _tilesUrl         = null;   // archive URL mounted (a new tiles_version remounts)
+let _verdicts         = new Map();  // city|split|sched -> {urgency, urgency_even?, urgency_odd?} for _verdictStamp
+let _verdictStamp     = '';         // region-local y-m-d-minute the verdicts are for
+let _featState        = new Map();  // feature id of the last pass -> verdict object written to it
 let _urgencyTimer     = null;
 
+// The region's street archive; ?v=<content hash> (immutable) when /api/cities gives one.
 function _archiveUrl(region) {
-  return 'pmtiles://' + window.location.origin + '/tiles/' + region + '.pmtiles';
+  const v = regions[region]?.tiles_version;
+  return 'pmtiles://' + window.location.origin + '/tiles/' + region + '.pmtiles' + (v ? '?v=' + encodeURIComponent(v) : '');
+}
+
+// The pmtiles protocol's tile loader with concurrent requests for one tile shared and the
+// last tiles kept (TILE_CACHE_BYTES), so tiles MapLibre drops and asks again for are not refetched.
+const TILE_CACHE_BYTES = 8 * 1024 * 1024;
+function cachedTileLoader(load) {
+  const done = new Map(), pending = new Map();
+  let bytes = 0;
+  const keep = (url, data) => {
+    done.set(url, data); bytes += data.byteLength;
+    for (const [k, d] of done) { if (bytes <= TILE_CACHE_BYTES) break; done.delete(k); bytes -= d.byteLength; }
+  };
+  return (params, abort) => {
+    const url = params.url;
+    const hit = done.get(url);
+    if (hit) { done.delete(url); done.set(url, hit); return Promise.resolve({ data: hit.slice() }); }
+    let p = pending.get(url);
+    if (!p) {
+      const ac = new AbortController();
+      p = { ac, users: 0, res: load(params, ac).then(r => {
+        if (r.data && params.type !== 'json') keep(url, r.data);
+        return r;
+      }).finally(() => { if (pending.get(url) === p) pending.delete(url); }) };
+      pending.set(url, p);
+    }
+    p.users++;
+    // A caller's abort ends its wait; the fetch stops when no caller is left.
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        if (--p.users === 0) { p.ac.abort(); pending.delete(url); }
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      abort.signal.addEventListener('abort', onAbort, { once: true });
+      p.res.then(r => {
+        abort.signal.removeEventListener('abort', onAbort);
+        if (!abort.signal.aborted) resolve(params.type === 'json' ? r : { ...r, data: r.data && r.data.slice() });
+      }, e => { abort.signal.removeEventListener('abort', onAbort); reject(e); });
+    });
+  };
 }
 
 function removeTileLayers() {
@@ -160,6 +204,7 @@ const HALO_W  = ['interpolate', ['linear'], ['zoom'], 11, 4, 16, 8, 18, 11];
 // Zoomed in this far, a line whose sides differ (tile property even_left) is drawn as
 // two, one per side, each in its own urgency color; the single line hides.
 const SIDE_ZOOM = 15;
+const STREET_ZOOM = 12;  // tile lines are single streets from here (scripts/build_pmtiles.py _LOW_MAXZOOM + 1)
 const _isSplit = ['==', ['get', 'even_left'], true];  // even side left of the drawing direction
 // Offset (px) of one side's line: left of the drawing direction is negative.
 function _sideOffset(side) {
@@ -207,9 +252,10 @@ function addTilePaintLayers() {
   const zone = ['==', ['get', 'render_type'], 'polygon'];
   addLayer({ id: 'zones-fill', type: 'fill', filter: zone, paint: { 'fill-color': _urgCase('fill') } });
   // The street at the target: a soft blue glow under its color. Every street has the
-  // layer; feature-state `active` shows one (setActiveFeature).
+  // layer; feature-state `active` shows one (setActiveFeature). Zoomed out past
+  // STREET_ZOOM a tile line is every street of one schedule (scripts/build_pmtiles.py): none.
   addLayer({
-    id: 'zones-active', type: 'line', filter: ['!', zone],
+    id: 'zones-active', type: 'line', filter: ['!', zone], minzoom: STREET_ZOOM,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': 'rgba(59,130,246,0.35)', 'line-blur': 2, 'line-opacity': focusOn('active'),
              'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 14, 18, 20] },
@@ -294,10 +340,12 @@ function setActiveFeature(id) {
   swapState(_tileAt, 'active', _activeId, id);
   _activeId = id;
 }
-// The basemap switched (js/ui.js): feature-state may be gone or kept; mark the target afresh.
+// The basemap switched (js/ui.js): feature-state may be gone or kept; mark the target and
+// check the street colors afresh.
 function remarkTarget() {
   if (map.getSource(TILES_SOURCE)) swapState(_tileAt, 'active', _activeId, null);
   _activeId = null;
+  _featState = new Map();
   resetOverlayMarks();
   renderTargetInfo();
 }
@@ -334,18 +382,21 @@ function syncRegion() {
   ensureTiles();
 }
 
+// Waits for /api/cities to answer or fail (_citiesSettled, js/data.js): the archive URL
+// carries its tiles_version.
 function ensureTiles() {
-  if (!map || !_region) return;
+  if (!map || !_region || !_citiesSettled) return;
   whenStyleReady(() => {
     const region = _region;  // now, not when queued: an older callback must not switch back
     if (!_pmtilesProtocol) {
-      try { maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile); } catch (_) {}
+      try { maplibregl.addProtocol('pmtiles', cachedTileLoader(new pmtiles.Protocol().tile)); } catch (_) {}
       _pmtilesProtocol = true;
     }
-    if (_tilesRegion !== region) {
+    if (_tilesUrl !== _archiveUrl(region)) {
       removeTileLayers();
-      _featStateCache.clear(); _featSchedCache.clear();
-      map.addSource(TILES_SOURCE, { type: 'vector', url: _archiveUrl(region) });
+      _verdicts = new Map(); _verdictStamp = ''; _featState = new Map();
+      _tilesUrl = _archiveUrl(region);
+      map.addSource(TILES_SOURCE, { type: 'vector', url: _tilesUrl });
       addTilePaintLayers();
       _tilesRegion = region;
     }
@@ -361,44 +412,51 @@ function scheduleUrgencyUpdate() {
   _urgencyTimer = setTimeout(() => { _urgencyTimer = null; applyUrgencyStates(); }, 50);
 }
 
-// Compute urgency for every in-view tile feature and push it to feature-state,
-// which drives the paint expressions. A verdict is reused only within the
-// region-local minute it was computed (a window may close at any minute), and
-// feature-state is written only when it differs (a style switch can drop it).
+// A tile feature's colors now ({urgency, urgency_even?, urgency_odd?}): one verdict per
+// city, schedule and side split, reused within the region-local minute it is for.
+function _verdictFor(props, now) {
+  const split = 'even_left' in props, key = props.city + '|' + split + '|' + (props.sched || '');
+  let u = _verdicts.get(key);
+  if (u) return u;
+  const entries = tileEntries(props);
+  // Same test as the calendar's "No sweeping": nothing real to display.
+  const none = !tileSchedLines(props).length;
+  const skip = sweepSkip(_tilesRegion, props.city);
+  // No line to show is no sweeping, unless the data can't tell (Chicago's dates ran out).
+  const verdict = es => !es.length || (none && !es.some(e => BroomUrgency.unknownReason(e.code, now))) ? 'none'
+    : BroomUrgency.checkDaySweeping(es, now, skip);
+  u = { urgency: verdict(entries) };
+  if (split) {
+    u.urgency_even = verdict(entries.filter(e => e.side === 'even'));
+    u.urgency_odd = verdict(entries.filter(e => e.side === 'odd'));
+  }
+  _verdicts.set(key, u);
+  return u;
+}
+
+// Push every loaded tile feature's colors to feature-state, which drives the paint
+// expressions. A feature is checked again only when its verdict object changed (a new
+// minute, a remount, a basemap switch: remarkTarget), and written only when it differs.
 function applyUrgencyStates() {
   if (!map || !_tilesRegion || !map.getSource(TILES_SOURCE)) return;
   const now = regionNow(_tilesRegion);
   const stamp = now.y + '-' + now.m + '-' + now.d + '-' + now.min;
+  if (stamp !== _verdictStamp) { _verdicts = new Map(); _verdictStamp = stamp; }
   let feats;
   try { feats = map.querySourceFeatures(TILES_SOURCE, { sourceLayer: TILES_SRC_LAYER }); }
   catch (_) { return; }
+  const seen = new Map();  // only the loaded features' ids are kept
   for (const f of feats) {
-    if (f.id === undefined || f.id === null) continue;
-    let u = _featStateCache.get(f.id);
-    u = u && u[1] === stamp ? u[0] : null;
-    if (u === null) {
-      let sched = _featSchedCache.get(f.id);
-      if (sched === undefined) {
-        const entries = tileEntries(f.properties);
-        // Same test as the calendar's "No sweeping": nothing real to display.
-        sched = { entries, none: !tileSchedLines(f.properties).length, split: 'even_left' in f.properties };
-        _featSchedCache.set(f.id, sched);
-      }
-      const skip = sweepSkip(_tilesRegion, f.properties.city);
-      // No line to show is no sweeping, unless the data can't tell (Chicago's dates ran out).
-      const verdict = es => !es.length || (sched.none && !es.some(e => BroomUrgency.unknownReason(e.code, now))) ? 'none'
-        : BroomUrgency.checkDaySweeping(es, now, skip);
-      u = { urgency: verdict(sched.entries) };
-      if (sched.split) {
-        u.urgency_even = verdict(sched.entries.filter(e => e.side === 'even'));
-        u.urgency_odd = verdict(sched.entries.filter(e => e.side === 'odd'));
-      }
-      _featStateCache.set(f.id, [u, stamp]);
-    }
-    const target = { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id: f.id };
+    const id = f.id;
+    if (id === undefined || id === null || seen.has(id)) continue;
+    const u = _verdictFor(f.properties, now);
+    seen.set(id, u);
+    if (_featState.get(id) === u) continue;
+    const target = { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id };
     const cur = map.getFeatureState(target);
     if (Object.keys(u).some(k => cur[k] !== u[k])) map.setFeatureState(target, u);
   }
+  _featState = seen;
 }
 
 // A tile feature's raw schedule entries [{code, time, desc, side}] ([] if unreadable).
