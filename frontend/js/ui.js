@@ -149,6 +149,8 @@ function syncHistory() {
 }
 window.addEventListener('popstate', () => {
   if (_ownBack) { _ownBack = false; syncHistory(); return; }
+  // Only Forward lands on our entry (opening a layer after Back drops the forward one): its layer is closed.
+  if (history.state?.bb === 1) { history.back(); return; }
   dismissLayer(false);
   syncHistory();  // more open: a new entry for them
 });
@@ -318,6 +320,9 @@ function goToAddress(hit, label) {
   _searchPin.getElement().setAttribute('aria-label', label);
   _searchPin.getElement().title = label;
   map.jumpTo({ center: [hit.lon, hit.lat], zoom: 17 });
+  let moved = false;  // the user panned before the streets loaded: leave the map where they put it
+  const onMove = e => { if (e.originalEvent) moved = true; };
+  map.on('movestart', onMove);
   // The street the address names ("1500 Valencia St": VALENCIA), when it is among those near.
   const words = label.toUpperCase().replace(/[^A-Z0-9 ]/g, ' ');
   const named = f => {
@@ -328,6 +333,8 @@ function goToAddress(hit, label) {
   // Once the streets there have loaded: the target onto the nearest curb line of that street,
   // else of any street.
   map.once('idle', () => {
+    map.off('movestart', onMove);
+    if (moved) return;
     const p = map.project([hit.lon, hit.lat]), r = SNAP_M / metersPerPx(hit.lat);
     const layers = ['zones-line', 'zones-side-even', 'zones-side-odd'].filter(l => map.getLayer(l));
     let best = null;
