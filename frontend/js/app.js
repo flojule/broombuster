@@ -100,12 +100,20 @@ btnLocate.addEventListener('click', () => locateWith(btnLocate, (lat, lon, acc) 
 }));
 
 // ── Service Worker ────────────────────────────────────────────────────────────
-// A new release takes over an open page (sw.js claims it): say so, with Reload, rather than
-// keep running the old scripts. The first install (no worker before) says nothing.
+// A new worker takes over an open page (sw.js claims it). The page itself loads network
+// first, so it is usually current already: offer Reload only when the server's release
+// differs from this page's (a tab left open across a deploy).
 if ('serviceWorker' in navigator) {
   const hadWorker = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('/sw.js').catch(() => {});
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (hadWorker) showToast('A new version is ready', false, { sticky: true, action: { label: 'Reload', run: () => location.reload() } });
+  navigator.serviceWorker.addEventListener('controllerchange', async () => {
+    if (!hadWorker) return;
+    const mine = document.querySelector('meta[name="app-version"]')?.content;
+    try {
+      const { version } = await (await fetch('/health', { cache: 'no-store' })).json();
+      if (mine && version && version !== mine) {
+        showToast('A new version is ready', false, { sticky: true, action: { label: 'Reload', run: () => location.reload() } });
+      }
+    } catch (_) {}
   });
 }

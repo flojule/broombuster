@@ -8,7 +8,7 @@ function showToast(msg, isError = false, opts = {}) {
   if (typeof opts === 'number') opts = { ms: opts };
   if ([..._toastContainer.children].some(t => t.dataset.msg === msg)) return;
   const el = document.createElement('div');
-  el.className = 'toast' + (isError ? ' error' : '');
+  el.className = 'toast' + (isError ? ' error' : '') + (opts.retry || opts.action || opts.sticky ? ' has-btn' : '');
   el.dataset.msg = msg;
   el.append(Object.assign(document.createElement('span'), { textContent: msg }));
   const btn = (text, label, onClick) => {
@@ -55,7 +55,8 @@ window.addEventListener('online', () => {
 // Chrome and Android offer Install (their install prompt); Safari on iPhone, which has
 // none, gets the steps.
 let _installPrompt = null;
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _installPrompt = e; });
+// Held for after the first save; once offered, the browser's own prompts are left alone.
+window.addEventListener('beforeinstallprompt', e => { if (_read('bb_install_hint')) return; e.preventDefault(); _installPrompt = e; });
 function offerInstall() {
   if (_read('bb_install_hint')) return;
   if (_installPrompt) {
@@ -306,7 +307,7 @@ const btnSearch = document.getElementById('btn-search'), searchBox = document.ge
 const SNAP_M = 60;  // the address's street: within this distance of the geocoded point
 let _searchPin = null;
 menuButton(btnSearch, searchBox);
-btnSearch.addEventListener('click', () => { if (!searchBox.hidden) searchBox.q.focus(); });
+btnSearch.addEventListener('click', () => { if (!searchBox.hidden) { searchMsg.textContent = ''; searchBox.q.focus(); } });
 searchBox.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeMenu(true); } });
 // A failed search says why under the field, which stays open to fix the address.
 const searchMsg = searchBox.querySelector('.search-msg');

@@ -402,13 +402,14 @@ function renderAccountSection() {
   fill('set-calendar', account ? _section('Calendar', _calendarItems()) : []);
   // Signed out (or no sign-in): what this device keeps can be cleared here.
   document.getElementById('set-danger').replaceChildren(...(account ? (accountEnabled ? _section('', [_deleteAccountItem()]) : [])
-    : cars.length || homes.length ? _section('', [_clearSavedItem()]) : []));
+    : (cars.length || homes.length) && !_read('bb_signed_in') ? _section('', [_clearSavedItem()]) : []));
 }
 // Removes every car and home saved on this device (asked first).
 function _clearSavedItem() {
   const el = _menuItem('Remove saved cars and homes', async () => {
     if (!await askConfirm('Remove all saved cars and homes?', 'They are removed from this device.', 'Remove')) return;
     clearSelection();
+    _setBase(null);  // a later sign-in takes the account's lists, never "all removed here"
     cars = []; homes = []; carSchedules = {}; homeSchedules = {};
     _store(SCHED_KEY, null);
     savePrefs();

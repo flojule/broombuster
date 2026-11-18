@@ -158,11 +158,13 @@
     }
     body.placing #map-ctrl, body.placing #map-key { display: none; }
     /* The street colors on the map, under its buttons (--ctrl-h: their height, js/layers.js). */
-    #map-key { position: absolute; z-index: 24; right: calc(var(--inset-r) + var(--edge));
+    /* Under the street card (z 21) where they meet on a narrow phone: the card matters more. */
+    #map-key { position: absolute; z-index: 20; right: calc(var(--inset-r) + var(--edge));
                top: calc(var(--inset-t) + var(--edge) + var(--ctrl-h, 132px) + 8px);
                padding: 6px 8px; border-radius: var(--r-sm); pointer-events: none; }
     #map-key .legend { grid-template-columns: auto; gap: 2px; font-size: var(--fs-2xs); }
     #map-key .lg { width: 12px; margin-right: 4px; }
+    @media (max-height: 500px) { #map-key { display: none; } }  /* a phone on its side: no room under the buttons */
     body.naming #signs { display: none; }  /* the name box sits where the sign does on a phone */
     .map-btn {
       position: relative; width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center;
@@ -431,8 +433,8 @@
     .ce-pick[aria-checked="true"] .ce-radio { border: 6px solid var(--blue); }
     .ce-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--urg-today); }
     .ce-error .btn { flex: none; }
-    .ce-header .ce-btn-retry { flex: none; }
-    .car-entry.selected .ce-header .ce-btn-retry { display: none; }  /* the page's section has its own */
+    .ce-row-retry { align-self: flex-start; margin: -6px 0 10px 56px; }  /* under the row's name: not inside its button */
+    .car-entry.selected .ce-row-retry { display: none; }  /* the page's section has its own */
     .ce-token { width: 100%; margin: 4px 0; font-family: ui-monospace, monospace; }
     /* A setting inside a section (the home's collection day): label left, control right. */
     .ce-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--tap); }
@@ -627,7 +629,7 @@
     .toast.error { background: var(--toast-err); animation: toast-in .2s ease; }
     body.dark .toast.error { color: #450a0a; }
     /* With a button (Retry, Undo, Reload): it takes taps. */
-    .toast:has(.toast-btn) { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding-right: 6px; }
+    .toast.has-btn { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding-right: 6px; }
     .toast-btn { position: relative; min-height: 32px; padding: 0 10px; border-radius: var(--pill); font-weight: 700;
                  background: var(--toast-btn); color: inherit; }
 

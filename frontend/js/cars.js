@@ -180,9 +180,14 @@ itemMenu.addEventListener('click', async e => {
       btnItemMore.focus();
       return;
     }
+    // A phone-linked car loses its token on the server once removed: no Undo for it.
+    const linked = car && car.id in phoneLinks;
     const undo = car ? removeCar(car.id) : removeHome(item.id);
     (btnAdd.hidden ? savedSummary.querySelector('[data-add]') : btnAdd)?.focus();  // nothing left: "Add car"
-    showToast(`${name} removed`, false, { ms: 6000, action: { label: 'Undo', run: undo } });
+    showToast(`${name} removed`, false, linked ? {} : { ms: 6000, action: { label: 'Undo', run: () => {
+      undo();
+      carsPanel.querySelector(`.car-entry[data-id="${CSS.escape(item.id)}"] .ce-header`)?.focus();  // focus back on its row
+    } } });
   }
 });
 
@@ -445,8 +450,8 @@ function itemCard({ id, kind, color, name, urgency, words, addr, detail, retry =
         <span class="ce-addr" contenteditable="false">${_addrHTML(addr, id)}</span>
       </span>
       ${urgency ? _statusHTML(urgency, words) : ''}
-      ${retry ? '<button class="btn btn-sm btn-tinted ce-btn-retry">Retry</button>' : ''}
     </div>
+    ${retry ? '<button class="btn btn-sm btn-tinted ce-btn-retry ce-row-retry">Retry</button>' : ''}
     <div class="ce-detail">${detail}</div>`;
   entry.addEventListener('click', e => {
     if (_selectedId === id || e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
