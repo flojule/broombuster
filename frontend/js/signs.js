@@ -143,9 +143,9 @@ const _MARK = {
 function _ruleRow(r) {
   const { text, detail } = ruleText(r);
   const kind = r.theme === 'meters' ? 'meter' : r.theme === 'winter' ? 'winter' : r.theme === 'closures' ? 'ban'
-    : r.theme === 'fire' ? 'fire'
+    : r.theme === 'fire' ? 'fire' : r.theme === 'ev' ? 'ev' : r.theme === 'markets' ? 'market'
     : /^Permit (area|zone) /.test(text) ? 'permit' : /\b(h|min) limit$/.test(text) ? 'limit' : 'ban';
-  return { mark: kind, color: kind === 'permit' && r.color || _MARK[kind], text, detail, said: detail ? `${text}: ${detail}` : text };
+  return { mark: kind, color: (kind === 'permit' || kind === 'ev' || kind === 'market') && r.color || _MARK[kind], text, detail, said: detail ? `${text}: ${detail}` : text };
 }
 
 // Rules at the target, by spot (~10 m): fetched once the map stops, zoomed in to street
@@ -208,13 +208,14 @@ function renderSigns(f, live = false) {
       if (ev && (Math.abs(ev[1]) >= Math.abs(ev[0]) ? ev[1] > 0 : ev[0] > 0)) secs.reverse();
     }
   }
-  // The server's first (they carry the rule's words; a permit curb's area wins over the
-  // area drawn around it), then the map's areas of the themes it lacks. The server's are
+  // A marker at the target first (a charger, a market), then the server's (they carry the
+  // rule's words; a permit curb's area wins over the area drawn around it), then the map's
+  // areas of the themes it lacks. The server's are
   // a street's: none with no street within RULES_STREET_M (a parking lane is 10-20 m off
   // the line the calendar reads; a block's middle is farther).
   const near = p || streetNear(RULES_STREET_M) !== false;
   const seen = new Set(), server = near ? targetRules(live) : [], themes = new Set(server.map(r => r.theme));
-  const rules = [...server, ...overlayAreasAtTarget().filter(r => !themes.has(r.theme))]
+  const rules = [...overlayMarkersAtTarget(), ...server, ...overlayAreasAtTarget().filter(r => !themes.has(r.theme))]
     .filter(r => r.label && !seen.has(r.label) && seen.add(r.label)).slice(0, 4);
   const rows = [...secs.flatMap(s => _sweepRows(s, now, skip)),
                 ...(rules.length ? [...(secs.length ? [{ divider: true }] : []), ...rules.map(_ruleRow)] : [])];

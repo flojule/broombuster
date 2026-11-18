@@ -3,8 +3,8 @@
 // scripts/build_layers.py). Turned on, a layer is drawn under the street colors (points
 // above them, and an area's thin rim), so sweeping stays the first thing the map says.
 // The parking rules start on, places (EV charging, markets) off; what is switched is
-// remembered on this device. A tap on a layer's feature names it (and a market's days, a
-// closure's dates); an area the target is in shows on the street card (overlayAreasAtTarget).
+// remembered on this device. A tapped marker comes under the target; the street card names
+// the areas and markers there (overlayAreasAtTarget, overlayMarkersAtTarget).
 // color: the layer's color; a feature's own `color` (each permit area its own: the
 // city's, else one its neighbors lack; scripts/build_layers.py) wins, edged in its
 // `edge` when it is pale. key: the Layers
@@ -15,7 +15,7 @@
 // tint: instead a light fill of that opacity and a soft band inside the edge, both under
 // the street colors (permit areas); dash: the line dashed;
 // focus: the area the target is in is outlined (permit areas).
-// Red, orange and green are the street colors' (today, tomorrow, clear): no layer takes them.
+// Red, amber and green are the street colors' (today, tomorrow, clear): no layer takes them.
 const LAYER_STYLE = {
   parking: { color: '#7c3aed', focus: true, tint: ['interpolate', ['linear'], ['zoom'], 12, 0.12, 17, 0.08], key: 'conic-gradient(#7c3aed 0 25%, #0d9488 0 50%, #c026d3 0 75%, #2563eb 0)' },
   meters:  { color: cssVar('--rule-meter'), minzoom: 16 },  // sign colors, as the card
@@ -34,7 +34,6 @@ let _layersOff = new Set(LAYERS_OFF_DEFAULT);
 try { const s = _read('bb_layers_off'); if (s) _layersOff = new Set(JSON.parse(s)); } catch (_) {}
 const _isOn = id => !_layersOff.has(id);
 let _layersRegion = null;  // region whose overlays are on the map
-let _layerPopup = null;
 
 function _regionLayers() { return regions[_tilesRegion || _region]?.layers || []; }
 
@@ -71,19 +70,38 @@ function _ensureIcon(id) {
 }
 
 // Style layer ids of an overlay: [area fill (clear: a tap or the target finds the area),
-// line, point, area edge, the area at the target's outline, a curb's second permit].
-const _ids = id => ['fill', 'line', 'pt', 'rim', 'here', 'curb2'].map(k => `${LAYER_PREFIX}${id}-${k}`);
-// Permit areas zoomed in to CURB_ZOOM: the permit curbs in their area's color (a second
-// permit striped over it) instead of the area's edge and outline.
-const CURB_ZOOM = 15;
+// line, point, area edge, the area at the target's outline].
+const _ids = id => ['fill', 'line', 'pt', 'rim', 'here'].map(k => `${LAYER_PREFIX}${id}-${k}`);
+// Permit areas zoomed in to CURB_ZOOM (js/map.js): each curb's permit as a dotted edge beside
+// its street color (zones-permit-*) instead of the area's band and outline.
 // A tinted area's band (px) inside its edge (a positive offset is inside, as map.js BAND_W).
 const TINT_BAND_W = ['interpolate', ['linear'], ['zoom'], 11, 2, 14, 5, 16, 7];
 const TINT_BAND_OFFSET = ['interpolate', ['linear'], ['zoom'], 11, 1, 14, 2.5, 16, 3.5];
 const _fadeIn = (a, b) => ['interpolate', ['linear'], ['zoom'], CURB_ZOOM - 0.5, a, CURB_ZOOM + 0.5, b];
-// The layers a tap names a feature of.
-function overlayLayerIds() {
-  return _regionLayers().flatMap(l => { const [fill, line, pt] = _ids(l.id); return [fill, line, pt]; })
-    .filter(id => map?.getLayer(id));
+// The marker layers (EV charging, markets) turned on.
+function _markerLayerIds() {
+  return _regionLayers().filter(l => LAYER_STYLE[l.id]?.icon).map(l => _ids(l.id)[2]).filter(id => map?.getLayer(id));
+}
+// The marker drawn within `pad` px of screen point p (the nearest), else null.
+function _markerAt(p, pad) {
+  const ids = _markerLayerIds();
+  if (!ids.length) return null;
+  let fs;
+  try { fs = map.queryRenderedFeatures([[p.x - pad, p.y - pad], [p.x + pad, p.y + pad]], { layers: ids }); } catch (_) { return null; }
+  const d = f => { const q = map.project(f.geometry.coordinates); return Math.hypot(q.x - p.x, q.y - p.y); };
+  return fs.filter(f => f.geometry.type === 'Point').sort((a, b) => d(a) - d(b))[0] || null;
+}
+// A tap: the marker under it, as [lon, lat] (the map moves it under the target), else null.
+function markerTapped(p) { return _markerAt(p, 14)?.geometry.coordinates || null; }
+// The marker at the target as a card rule ({theme, label, rule, color}; rule: a market's
+// days and hours, a charger's ports), or none.
+function overlayMarkersAtTarget() {
+  if (!map) return [];
+  const f = _markerAt(map.project(map.getCenter()), 10);
+  if (!f) return [];
+  const theme = f.layer.id.slice(LAYER_PREFIX.length, -'-pt'.length), p = f.properties;
+  return [{ theme, label: p.label || p.title || '', rule: p.rule || '', city: p.city,
+            color: p.color || LAYER_STYLE[theme]?.color || LAYER_GRAY }];
 }
 
 function _removeOverlay(id) {
@@ -119,7 +137,7 @@ function _addOverlay(layer) {
       ? { type: 'vector', url: 'pmtiles://' + window.location.origin + layer.tiles }
       : { type: 'geojson', data: layer.url, generateId: true });
   }
-  const [fill, line, pt, rim, here, curb2] = _ids(layer.id);
+  const [fill, line, pt, rim, here] = _ids(layer.id);
   const below = map.getLayer('zones-fill') ? 'zones-fill' : undefined;  // under the street colors
   const over = firstLabelLayer();  // over them, under the basemap's names
   // The source (a tiled one: its layer, named as the theme) and the zoom it shows from.
@@ -128,8 +146,8 @@ function _addOverlay(layer) {
   const lines = is('LineString', 'MultiLineString');
   const curb = ['==', ['get', 'kind'], 'curb'];
   const poly = ['all', is('Polygon', 'MultiPolygon'), ['!', curb]];
-  const meters = layer.id === 'meters', curbs = layer.id === 'parking';
-  const edgeOpacity = a => curbs ? _fadeIn(a, 0) : a;
+  const meters = layer.id === 'meters', permits = layer.id === 'parking';
+  const edgeOpacity = a => permits ? _fadeIn(a, 0) : a;
   const add = (def, before) => { if (!map.getLayer(def.id)) map.addLayer({ ...base, ...def }, before); };
   // Areas: a fill (clear, or the tint) under the streets, which a tap or the target finds;
   // with a tint a soft band inside the edge under them, else a thin edge in the area's
@@ -149,17 +167,9 @@ function _addOverlay(layer) {
     add({ id: here, type: 'line', filter: poly, layout: { 'line-join': 'round' },
           paint: { 'line-color': edge, 'line-width': HERE_W, 'line-opacity': edgeOpacity(focusOn('here')) } }, over);
   }
-  if (curbs) {  // thin and light: the street colors read first
-    const width = ['interpolate', ['linear'], ['zoom'], CURB_ZOOM, 1.2, 18, 3];
-    add({ id: line, type: 'line', filter: ['all', lines, curb], minzoom: CURB_ZOOM - 0.5,
-          paint: { 'line-color': color, 'line-width': width, 'line-opacity': _fadeIn(0, 0.45) } }, below);
-    add({ id: curb2, type: 'line', filter: ['all', lines, curb, ['has', 'color2']], minzoom: CURB_ZOOM - 0.5,
-          paint: { 'line-color': ['get', 'color2'], 'line-width': width, 'line-opacity': _fadeIn(0, 0.45),
-                   'line-dasharray': [1.5, 1.5] } }, below);
-  }
   // Lines: dashed (a closure); meters' blocks solid, thin and gray, along the street.
   if (!map.getLayer(line)) map.addLayer({ id: line, type: 'line', ...base,
-    filter: lines, layout: meters ? { 'line-cap': 'round' } : {},
+    filter: ['all', lines, ['!', curb]], layout: meters ? { 'line-cap': 'round' } : {},
     paint: meters
       ? { 'line-color': color, 'line-opacity': 0.6, 'line-width': ['interpolate', ['linear'], ['zoom'], 16, 1.5, 18, 3] }
       : { 'line-color': color, 'line-opacity': 0.8, 'line-dasharray': [2, 1.5],
@@ -200,6 +210,9 @@ function syncOverlays() {
   _layersRegion = region;
   for (const l of _regionLayers()) {
     if (_isOn(l.id)) _addOverlay(l); else _removeOverlay(l.id);
+  }
+  for (const id of ['zones-permit-l', 'zones-permit-r']) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', permitEdgesOn() ? 'visible' : 'none');
   }
 }
 
@@ -261,49 +274,6 @@ layersMenu.addEventListener('click', e => {
   layersMenu.querySelector(`[data-layer="${CSS.escape(id)}"]`)?.focus();
   whenStyleReady(syncOverlays);
 });
-
-// A closure's dates in the region's time: "Mon Oct 20, 9AM–5PM", or "Mon Oct 20 – Wed Oct 22".
-// start/end are ISO date-times, UTC when they end in Z or an offset (feeds.py).
-function _closureWhen(p) {
-  const at = iso => {
-    if (/(Z|[+-]\d\d:?\d\d)$/.test(iso)) return regionNow(_tilesRegion || _region, new Date(iso));
-    const p = BroomUrgency.parseIso(iso);
-    return p && { ...p, min: p.min ?? 0 };
-  };
-  const a = p.start && at(p.start), b = p.end && at(p.end);
-  if (!a) return '';
-  const day = BroomUrgency.dayLabel;
-  if (!b) return day(a);
-  if (day(a) === day(b)) return `${day(a)}, ${BroomUrgency.clockText(a.min)}–${BroomUrgency.clockText(b.min)}`;
-  return `${day(a)} – ${day(b)}`;
-}
-
-// A tap on an overlay's feature: its name, when it is on (a market's days and hours, a
-// closure's dates) or what it has (a charger's ports), and its city when the region has
-// several, in a small popup (the street tap still clears the selection, map.js). On a
-// street (pointsOnly) the street card says the rest.
-function overlayClick(e, pointsOnly = false) {
-  const ids = overlayLayerIds();
-  if (!ids.length) return;
-  const f = map.queryRenderedFeatures(e.point, { layers: ids }).find(x => !pointsOnly || x.geometry.type === 'Point');
-  _layerPopup?.remove();
-  _layerPopup = null;
-  if (!f) return;
-  const p = f.properties, el = document.createElement('div');
-  const line = (cls, text) => {
-    if (!text) return;
-    const s = el.appendChild(document.createElement('span'));
-    s.className = cls;
-    s.textContent = text;
-  };
-  line('lyr-name', p.label || p.title || '');  // closures: a title
-  line('lyr-when', p.start ? _closureWhen(p) : p.rule);
-  line('lyr-city', _regionCities() > 1 ? cityName(p.city) : '');  // "Permit area A" is in Berkeley and in Oakland
-  _layerPopup = new maplibregl.Popup({ closeButton: false, className: 'lyr-popup', offset: 12, maxWidth: '260px' })
-    .setLngLat(f.geometry.type === 'Point' ? f.geometry.coordinates : e.lngLat).setDOMContent(el).addTo(map);
-}
-
-function _regionCities() { return Object.keys(regions[_tilesRegion || _region]?.cities || {}).length; }
 
 // The shaded areas the target is in: outlined (feature-state `here`, no filter: see
 // setActiveFeature, js/map.js).

@@ -41,11 +41,10 @@ function attachMapListeners() {
     // a stray tap — a tap during place mode is ignored so panning can't misfire.
     if (placing) return;
     if (_namePopup) return;  // name box open: taps don't open windows or close it
-    // A tapped street comes under the target, so the card and calendar read it; then only a
-    // point (a market, a charger) names itself, else a permit area, meter, … (js/layers.js).
-    const street = _streetAt(e.point);
-    overlayClick(e, street);
-    if (street) map.easeTo({ center: e.lngLat });
+    // A tapped marker (a charger, a market) or street comes under the target, so the card
+    // and calendar read it (js/layers.js overlayMarkersAtTarget).
+    const marker = markerTapped(e.point);
+    if (marker || _streetAt(e.point)) map.easeTo({ center: marker || e.lngLat });
     if (_tapTimer) clearTimeout(_tapTimer);
     _tapTimer = setTimeout(() => { _tapTimer = null; clearSelection(); }, 280);
   });
@@ -166,7 +165,7 @@ function cachedTileLoader(load) {
 
 function removeTileLayers() {
   for (const id of ZONE_LAYERS) if (map.getLayer(id)) map.removeLayer(id);
-  if (map.getSource(TILES_SOURCE)) map.removeSource(TILES_SOURCE);
+  for (const id of [TILES_SOURCE, LABELS_SOURCE]) if (map.getSource(id)) map.removeSource(id);
 }
 
 // Paint that follows the theme, by the layer's metadata.bbTheme (also js/layers.js; the
@@ -180,7 +179,7 @@ function themePaint(kind) {
   const [k, key] = kind.split(':');
   if (k === 'line') return { 'line-color': _urgCase('line', key, u => u === 'check' ? 'rgba(0,0,0,0)' : lineColor(u)) };
   if (k === 'check') return { 'line-color': lineColor('check') };
-  // Dark under today and tomorrow (red from orange by more than hue), light under Clear
+  // Dark under today and tomorrow (red from amber by more than hue), light under Clear
   // (a light basemap's paths are the same thin green).
   if (k === 'casing') {
     return { 'line-color': ['match', ['coalesce', ['feature-state', key], ''],
@@ -192,8 +191,13 @@ function themePaint(kind) {
     halo:  { 'line-color': halo },
     focus: { 'line-color': dark ? '#e2e8f0' : '#0f172a' },
     label: { 'text-color': dark ? '#e2e8f0' : '#334155', 'text-halo-color': dark ? '#111827' : '#ffffff' },
+    // Curb schedules: in the side's card color when swept today or tomorrow.
+    sched: { 'text-color': ['match', ['get', 'u'], 'today', bodyVar('--urg-today'), 'tomorrow', bodyVar('--urg-tomorrow'),
+                            dark ? '#cbd5e1' : '#334155'],
+             'text-halo-color': dark ? '#111827' : '#ffffff' },
   }[kind];
 }
+const bodyVar = name => getComputedStyle(document.body).getPropertyValue(name).trim();  // per theme
 const themed = (kind, paint = {}) => ({ metadata: { bbTheme: kind }, paint: { ...paint, ...themePaint(kind) } });
 
 // A tile zone's edge (Chicago): a band of the zone's color just inside its edge, under the
@@ -211,17 +215,27 @@ const focusOn = key => ['case', ['boolean', ['feature-state', key], false], 1, 0
 const FOCUS_W = ['interpolate', ['linear'], ['zoom'], 11, 2, 16, 4, 18, 5.5];
 const HALO_W  = ['interpolate', ['linear'], ['zoom'], 11, 4, 16, 8, 18, 11];
 
-// Zoomed in this far, a line whose sides differ (tile property even_left) is drawn as
-// two, one per side, each in its own urgency color; the single line hides.
-const SIDE_ZOOM = 15;
+// Zoomed in this far, every street is drawn as its two curbs, each in its side's urgency
+// color, CURB_M from the center line (the single line hides); the tiles end each block
+// short of the crossing streets (scripts/build_pmtiles.py trim_at_crossings).
+const CURB_ZOOM = 16;
+const CURB_M = 4.5;
 const STREET_ZOOM = 12;  // tile lines are single streets from here (scripts/build_pmtiles.py _LOW_MAXZOOM + 1)
-const _isSplit = ['==', ['get', 'even_left'], true];  // even side left of the drawing direction
-// Offset (px) of one side's line: left of the drawing direction is negative.
-function _sideOffset(side) {
-  const px = { 15: 2.5, 16: 3.5, 18: 6 }, s = side === 'even' ? 1 : -1;
-  return ['interpolate', ['linear'], ['zoom'],
-    ...Object.entries(px).flatMap(([z, o]) => [Number(z), ['case', _isSplit, -o * s, o * s]])];
+// Ground meters per px at zoom z and latitude lat (512 px tiles).
+const _mPerPx = (z, lat) => 40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * 2 ** z);
+// Line offset (px) of `m` meters (plus `px`) to the `left` (an expression) of the drawing
+// direction, else to its right, at the latitude of the region's tiles.
+function curbOffset(left, m = CURB_M, px = 0) {
+  const lat = map.getCenter().lat;
+  return ['interpolate', ['linear'], ['zoom'], ...[CURB_ZOOM - 1, 16, 17, 18, 19, 20, 22].flatMap(z => {
+    const o = m / _mPerPx(z, lat) + px;
+    return [z, ['case', left, -o, o]];
+  })];
 }
+// A side's curb is left of the drawing direction: the even side when even_left (a line whose
+// sides share a schedule has none: either way).
+const _evenLeft = ['!=', ['get', 'even_left'], false];
+const curbLeft = side => side === 'even' ? _evenLeft : ['!', _evenLeft];
 
 // Where the basemap's labels start: the layer after its last road, area or building (some
 // styles put a water label among those). Street colors go there: over the roads, under
@@ -287,12 +301,12 @@ function addTilePaintLayers() {
   // Under a street swept today or tomorrow, a dark casing; under Clear, a light one (themePaint).
   const cased = key => ['match', ['coalesce', ['feature-state', key], ''], 'today', 1, 'tomorrow', 1, 'safe', 1, 0];
   // Zoomed out, the lines fade in (a city of colored streets would flood the map); from
-  // SIDE_ZOOM a street whose sides differ is drawn as its two sides instead.
-  const single = ['case', ['has', 'even_left'], 0, 1];
+  // CURB_ZOOM every street is drawn as its two curbs instead.
   // `on`: 1, or an expression that hides some (a zoom curve must be the outermost expression).
   const lineOpacity = (on = 1) => ['interpolate', ['linear'], ['zoom'],
-    AREA_ZOOM, ['*', 0.45, on], 13, on, SIDE_ZOOM - 0.01, on, SIDE_ZOOM, ['*', on, single]];
-  const isLine = ['==', ['get', 'render_type'], 'line'], sided = ['all', isLine, ['has', 'even_left']];
+    AREA_ZOOM, ['*', 0.45, on], 13, on, CURB_ZOOM - 0.01, on, CURB_ZOOM, 0];
+  const isLine = ['==', ['get', 'render_type'], 'line'];
+  const CURB_SCALE = 0.8;  // a curb's width, of a single line's
   addLayer({
     id: 'zones-casing', type: 'line', filter: isLine,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -301,9 +315,9 @@ function addTilePaintLayers() {
   });
   for (const side of ['even', 'odd']) {
     addLayer({
-      id: `zones-casing-${side}`, type: 'line', minzoom: SIDE_ZOOM, filter: sided,
+      id: `zones-casing-${side}`, type: 'line', minzoom: CURB_ZOOM, filter: isLine,
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
-      ...themed(`casing:urgency_${side}`, { 'line-width': _lineWidth(`urgency_${side}`, 0.6, 2), 'line-offset': _sideOffset(side),
+      ...themed(`casing:urgency_${side}`, { 'line-width': _lineWidth(`urgency_${side}`, CURB_SCALE, 2), 'line-offset': curbOffset(curbLeft(side)),
                                             'line-opacity': cased(`urgency_${side}`) }),
     });
   }
@@ -314,9 +328,9 @@ function addTilePaintLayers() {
   });
   for (const side of ['even', 'odd']) {
     addLayer({
-      id: `zones-side-${side}`, type: 'line', minzoom: SIDE_ZOOM, filter: sided,
+      id: `zones-side-${side}`, type: 'line', minzoom: CURB_ZOOM, filter: isLine,
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
-      ...themed(`line:urgency_${side}`, { 'line-width': _lineWidth(`urgency_${side}`, 0.6), 'line-offset': _sideOffset(side) }),
+      ...themed(`line:urgency_${side}`, { 'line-width': _lineWidth(`urgency_${side}`, CURB_SCALE), 'line-offset': curbOffset(curbLeft(side)) }),
     });
   }
   // Check sign: dashed, so it never reads as the solid grey of No sweeping.
@@ -328,11 +342,30 @@ function addTilePaintLayers() {
   });
   for (const side of ['even', 'odd']) {
     addLayer({
-      id: `zones-check-${side}`, type: 'line', minzoom: SIDE_ZOOM, filter: sided,
-      ...themed('check', { 'line-width': _lineWidth(`urgency_${side}`, 0.6), 'line-offset': _sideOffset(side),
+      id: `zones-check-${side}`, type: 'line', minzoom: CURB_ZOOM, filter: isLine,
+      ...themed('check', { 'line-width': _lineWidth(`urgency_${side}`, CURB_SCALE), 'line-offset': curbOffset(curbLeft(side)),
                            'line-dasharray': [2, 1.5], 'line-opacity': isCheck(`urgency_${side}`) }),
     });
   }
+  // Each curb's permit area (tile properties pl / pr: left / right of the drawing direction):
+  // a dotted line in the area's color just outside the curb's color, while Permit areas is on.
+  for (const [side, left] of [['l', true], ['r', false]]) {
+    addLayer({
+      id: `zones-permit-${side}`, type: 'line', minzoom: CURB_ZOOM, filter: ['all', isLine, ['has', 'p' + side]],
+      layout: { 'line-cap': 'round', 'line-join': 'round', visibility: permitEdgesOn() ? 'visible' : 'none' },
+      paint: { 'line-color': ['get', 'p' + side], 'line-width': 2, 'line-dasharray': [0.1, 2],
+               'line-offset': curbOffset(left, CURB_M, 5) },
+    });
+  }
+  // Each curb's schedule as text beside it, close in (curbLabels: a GeoJSON source).
+  if (!map.getSource(LABELS_SOURCE)) map.addSource(LABELS_SOURCE, { type: 'geojson', data: _noFeatures });
+  map.addLayer({
+    id: 'zones-sched', type: 'symbol', source: LABELS_SOURCE, minzoom: LABEL_ZOOM,
+    layout: { 'symbol-placement': 'line-center', 'text-field': ['get', 't'], 'text-size': 11,
+              'text-font': ['Noto Sans Bold'], 'text-max-angle': 30, 'text-padding': 4 },
+    ...themed('sched', { 'text-halo-width': 1.6 }),
+  }, below);
+  _labelsKey = '';
   // Over the streets: each zone's rim, then the zone at the target outlined (feature-state
   // `active`), and the zones' names along the inside of their edges (Chicago's sections
   // have no other name on the map).
@@ -453,9 +486,12 @@ function _verdictFor(props, now) {
   const verdict = es => !es.length || (none && !es.some(e => BroomUrgency.unknownReason(e.code, now))) ? 'none'
     : BroomUrgency.checkDaySweeping(es, now, skip);
   u = { urgency: verdict(entries) };
+  // A curb's color (CURB_ZOOM): its side's, or the line's when the sides share a schedule.
   if (split) {
     u.urgency_even = verdict(entries.filter(e => e.side === 'even'));
     u.urgency_odd = verdict(entries.filter(e => e.side === 'odd'));
+  } else if (props.render_type === 'line') {
+    u.urgency_even = u.urgency_odd = u.urgency;
   }
   _verdicts.set(key, u);
   return u;
@@ -484,7 +520,76 @@ function applyUrgencyStates() {
     if (Object.keys(u).some(k => cur[k] !== u[k])) map.setFeatureState(target, u);
   }
   _featState = seen;
+  updateCurbLabels();
 }
+
+// ── Curb schedules (zoomed in to LABEL_ZOOM) ──────────────────────────────────
+// Each curb's schedule ("Tu Th 6–8AM", as the card words it with days shortened) along a
+// copy of its block moved beside the curb's line: a GeoJSON source rebuilt from the tiles
+// in view once the map settles (the words come from urgency.js, as the card's).
+const LABEL_ZOOM = 17.5;
+const LABELS_SOURCE = 'zones-sched-src';
+const _noFeatures = { type: 'FeatureCollection', features: [] };
+let _labelsKey = '';  // view, minute and loaded features the labels are for
+const _M_PER_DEG = 111320;
+const _shortDays = s => s.replace(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/g, d => d.slice(0, 2)).replace(/, /g, ' ');
+
+// A [lon, lat] polyline moved `m` meters to its left (negative: right).
+function _shiftLine(c, m) {
+  return c.map((pt, i) => {
+    const a = c[Math.max(0, i - 1)], b = c[Math.min(c.length - 1, i + 1)];
+    const kx = _M_PER_DEG * Math.cos(pt[1] * Math.PI / 180);
+    const dx = (b[0] - a[0]) * kx, dy = (b[1] - a[1]) * _M_PER_DEG, n = Math.hypot(dx, dy) || 1;
+    return [pt[0] - dy / n * m / kx, pt[1] + dx / n * m / _M_PER_DEG];
+  });
+}
+
+function updateCurbLabels() {
+  const src = map?.getSource(LABELS_SOURCE);
+  if (!src || !_tilesRegion || map.getZoom() < LABEL_ZOOM - 0.5) return;
+  const now = regionNow(_tilesRegion), b = map.getBounds();
+  const key = [b.toArray().flat().map(v => v.toFixed(4)), map.getZoom().toFixed(1), _verdictStamp, _featState.size].join('|');
+  if (key === _labelsKey) return;
+  _labelsKey = key;
+  // Beside the curb's line, past its permit edge (5 px out): half the text and a gap further.
+  const off = CURB_M + 14 * _mPerPx(map.getZoom(), map.getCenter().lat);
+  const inView = c => {  // the line's box overlaps the view
+    const xs = c.map(q => q[0]), ys = c.map(q => q[1]);
+    return Math.max(...xs) >= b.getWest() && Math.min(...xs) <= b.getEast()
+        && Math.max(...ys) >= b.getSouth() && Math.min(...ys) <= b.getNorth();
+  };
+  const feats = [], seen = new Set(), texts = new Map();
+  let all;
+  try { all = map.querySourceFeatures(TILES_SOURCE, { sourceLayer: TILES_SRC_LAYER, filter: ['==', ['get', 'render_type'], 'line'] }); }
+  catch (_) { return; }
+  for (const f of all) {
+    const st = _featState.get(f.id);
+    if (!st) continue;
+    const parts = f.geometry.type === 'LineString' ? [f.geometry.coordinates] : f.geometry.coordinates;
+    for (const c of parts) {
+      if (c.length < 2 || !inView(c)) continue;
+      for (const side of ['even', 'odd']) {
+        const k = `${f.id}|${side}|${c[0][0].toFixed(5)},${c[0][1].toFixed(5)}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const tk = f.properties.sched + '|' + side;
+        if (!texts.has(tk)) {
+          const es = tileEntries(f.properties).filter(e => e.side === side);
+          texts.set(tk, sourceLines(es, now).map(l => `${_shortDays(l.days)} ${l.time}`.trim()).join(' / '));
+        }
+        const t = texts.get(tk);
+        if (!t) continue;
+        const left = (f.properties.even_left !== false) === (side === 'even');
+        feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: _shiftLine(c, left ? off : -off) },
+                     properties: { t, u: st[`urgency_${side}`] || st.urgency } });
+      }
+    }
+  }
+  src.setData({ type: 'FeatureCollection', features: feats });
+}
+
+// Permit areas' curb edges show while that layer is on (js/layers.js syncOverlays).
+function permitEdgesOn() { return typeof _isOn === 'function' && _isOn('parking'); }
 
 // A tile feature's raw schedule entries [{code, time, desc, side}] ([] if unreadable).
 function tileEntries(props) {
