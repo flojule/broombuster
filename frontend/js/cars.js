@@ -350,11 +350,6 @@ function deadlineText(car) {
   if (d.state === 'by') return { short: `Move by ${d.at}`, long: `by ${d.at}` };
   if (d.state === 'today') return { short: 'Today', long: 'today' };
   if (d.at === 'midnight') return { short: 'Tonight', long: 'by midnight tonight' };
-  // A start after midnight but before day (1AM, 4AM) is tonight, not tomorrow.
-  const early = /^(\d{1,2})(?::\d\d)?AM$/.exec(d.at || '');
-  if (early && +early[1] % 12 < 6) {
-    return { short: `Tonight ${d.at}`, long: `tonight by ${d.at}` };
-  }
   return { short: d.at ? `Tomorrow ${d.at}` : 'Tomorrow', long: d.at ? `tomorrow by ${d.at}` : 'tomorrow' };
 }
 

@@ -297,7 +297,7 @@ function addTilePaintLayers() {
     id: 'zones-casing', type: 'line', filter: isLine,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     ...themed('casing:urgency', { 'line-width': _lineWidth('urgency', 1, 2),
-      'line-opacity': ['step', ['zoom'], cased('urgency'), SIDE_ZOOM, ['case', ['has', 'even_left'], 0, cased('urgency')]] }),
+      'line-opacity': lineOpacity(cased('urgency')) }),
   });
   for (const side of ['even', 'odd']) {
     addLayer({

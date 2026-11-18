@@ -575,6 +575,20 @@ def test_a_year_round_date_list_runs_out_but_a_season_ends():
 
 
 @needs_node
+def test_date_lists_across_a_new_year():
+    """A monthly list Jul-Jun is year-round (runs out after June); a Nov-Mar season is over
+    until Nov 14 and runs out once that day passes without new dates."""
+    span = ",".join(f"{2026 + (m < 7)}-{m:02d}-14" for m in (*range(7, 13), *range(1, 7)))
+    winter = "2026-11-14,2026-12-14,2027-01-14,2027-02-14,2027-03-14"
+    got = js(
+        ("unknownReason", ["DATES:" + span, {"y": 2027, "m": 7, "d": 20, "min": 600}]),
+        ("unknownReason", ["DATES:" + winter, {"y": 2027, "m": 7, "d": 20, "min": 600}]),
+        ("unknownReason", ["DATES:" + winter, {"y": 2027, "m": 11, "d": 15, "min": 600}]),
+    )
+    assert got == ["expired", "", "expired"]
+
+
+@needs_node
 def test_a_sweep_after_midnight_is_tonight_not_today():
     """18:30 Tue, Wed 12-6AM: 'today' (move tonight) though Tue's own window is over."""
     entries = [{"code": "W", "time": "12AM-6AM"}, {"code": "T", "time": "12AM-6AM"}]
