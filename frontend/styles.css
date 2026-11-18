@@ -62,26 +62,29 @@
        they are opaque. Content (the sheet with its lists and calendar, the street card) is never
        glass: it is opaque, so the map's lines never run through text. */
     body { --glass: var(--card); --glass-regular: var(--card); --hairline: var(--border);
-           --rim: inset 0 0 0 1px var(--border); --blur: none; }
+           --rim: inset 0 0 0 1px var(--border); --blur: none; --sheen: none; }
     @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
       body { --glass: color-mix(in srgb, var(--card) 66%, transparent);
              --glass-regular: color-mix(in srgb, var(--card) 92%, transparent);
              --hairline: color-mix(in srgb, var(--text) 13%, transparent);
-             /* The rim: a bright top edge and a faint outline, as light catching glass. */
-             --rim: inset 0 1px 0 rgba(255,255,255,.65), inset 0 0 0 1px rgba(255,255,255,.28);
+             /* The rim: a bright top edge, a faint outline and a darker lower edge, as light
+                catching glass; the sheen: a soft highlight near the top. */
+             --rim: inset 0 1px 0 rgba(255,255,255,.8), inset 0 -1px 0 rgba(15,23,42,.08), inset 0 0 0 1px rgba(255,255,255,.3);
+             --sheen: radial-gradient(120% 90% at 25% -15%, rgba(255,255,255,.6), rgba(255,255,255,0) 60%);
              --blur: blur(24px) saturate(1.9); }
       body.dark { --glass: color-mix(in srgb, var(--card) 62%, transparent);
-                  --rim: inset 0 1px 0 rgba(255,255,255,.16), inset 0 0 0 1px rgba(255,255,255,.08); }
+                  --rim: inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.08);
+                  --sheen: radial-gradient(120% 90% at 25% -15%, rgba(255,255,255,.12), rgba(255,255,255,0) 60%); }
     }
     /* An override, not a condition on the block above: Safari does not know
        prefers-reduced-transparency, and an unknown query is false. */
     @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
       body, body.dark { --glass: var(--card); --glass-regular: var(--card); --hairline: var(--border);
-                        --rim: inset 0 0 0 1px var(--border); --blur: none; }
+                        --rim: inset 0 0 0 1px var(--border); --blur: none; --sheen: none; }
     }
     /* Clear: controls over the map. Regular: menus and the alert. */
     :is(#map-ctrl, #place-banner, .area-label, #tabbar) {
-      background: var(--glass); box-shadow: var(--rim), var(--shadow-1);
+      background: var(--sheen), var(--glass); box-shadow: var(--rim), var(--shadow-1);
       -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
     }
     :is(.pop-menu, #confirm-dialog, .name-popup .maplibregl-popup-content) {
@@ -271,8 +274,7 @@
       --bar-r: calc(var(--screen-r) - var(--bar-gap));
       --bar-in: calc(var(--bar-gap) - var(--sheet-gap));
       --r-top: min(32px, var(--sheet-r));
-      --bar-lift: max(var(--bar-in), calc(var(--inset-b) - var(--sheet-gap)));  /* the tab bar's bottom: clear of the home indicator */
-      --bar-space: calc(2 * var(--bar-r) + var(--bar-lift) + 12px);  /* the content's room for the tab bar */
+      --bar-space: calc(2 * var(--bar-r) + var(--bar-in) + 12px);  /* the content's room for the tab bar */
       position: absolute; left: var(--sheet-gap); right: var(--sheet-gap); bottom: var(--sheet-gap); z-index: 25; height: 220px;
       display: flex; flex-direction: column; overflow: clip;
       background: var(--card); border-radius: var(--r-top) var(--r-top) var(--sheet-r) var(--sheet-r);
@@ -306,13 +308,10 @@
     .tab-title { flex: 1; min-width: 0; font-size: var(--fs-title); font-weight: 700; letter-spacing: -.01em;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
     .tab-title[contenteditable="true"] { cursor: text; border-bottom: 2px solid var(--blue); user-select: text; }
-    /* The content runs under the glass tab bar and fades out at the sheet's foot. */
+    /* The content scrolls under the glass tab bar; its padding lets the last row clear it. */
     .tab-body {
       flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y pinch-zoom;
       padding: 0 14px var(--bar-space); display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-md);
-      /* Faded out above the tab bar, so no text runs under it at any height (--bar-space). */
-      -webkit-mask-image: linear-gradient(#000 calc(100% - var(--bar-space) - 16px), transparent calc(100% - var(--bar-space) + 8px));
-      mask-image: linear-gradient(#000 calc(100% - var(--bar-space) - 16px), transparent calc(100% - var(--bar-space) + 8px));
     }
     :is(.head-btn, .round-btn) { flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
     .head-btn { color: var(--muted); }
@@ -326,9 +325,9 @@
        A red dot on Saved: a car must move today. */
     #tabbar {
       --pad: calc(var(--bar-r) - 24px);
-      position: absolute; left: var(--bar-in); right: var(--bar-in); bottom: var(--bar-lift); height: calc(2 * var(--bar-r));
+      position: absolute; left: var(--bar-in); right: var(--bar-in); bottom: var(--bar-in); height: calc(2 * var(--bar-r));
       display: flex; padding: var(--pad); border-radius: var(--pill);
-      box-shadow: inset 0 0 0 1px var(--hairline), 0 4px 16px rgba(0,0,0,.1);  /* on the sheet: its hairline */
+      box-shadow: var(--rim), inset 0 0 0 1px var(--hairline), 0 4px 16px rgba(0,0,0,.1);  /* on the sheet: its hairline */
       transition: left .4s var(--sheet-ease), right .4s var(--sheet-ease), bottom .4s var(--sheet-ease),
                   height .4s var(--sheet-ease), padding .4s var(--sheet-ease);
     }
@@ -340,6 +339,15 @@
       transform: translateX(calc(var(--i, 0) * 100%));
       transition: transform .45s var(--spring), top .4s var(--sheet-ease), bottom .4s var(--sheet-ease),
                   left .4s var(--sheet-ease), width .4s var(--sheet-ease);
+    }
+    /* On its way to a new tab the pill stretches toward it, then settles (--from: the tab it
+       left, from js/sheet.js). */
+    #tabbar.pill-go::before { animation: pill-go .55s cubic-bezier(.3, .7, .2, 1); }
+    @keyframes pill-go {
+      0%   { transform: translateX(calc(var(--from) * 100%)); }
+      40%  { transform: translateX(calc((var(--from) + var(--i)) * 50%)) scale(1.3, .9); }
+      75%  { transform: translateX(calc(var(--i) * 100%)) scale(.96, 1.03); }
+      100% { transform: translateX(calc(var(--i) * 100%)); }
     }
     #tabbar [role="tab"] {
       flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -549,12 +557,27 @@
     #ic-cal.cal-small .cal-scroll { overflow-y: hidden; touch-action: none; scroll-snap-type: none; }  /* hidden weeks are no snap points */
     #ic-cal.cal-folded .cal-day:not(.cal-on) { visibility: hidden; }
     /* Dragged up, the weeks below unfold under the finger (those above stay hidden). */
-    #sheet.dragging #ic-cal .cal-near { visibility: visible; }
+    #sheet.dragging #tab-calendar:not([hidden]) .cal-near { visibility: visible; }
     .cal-grid { grid-auto-rows: 40px; }
-    .cal-mo { position: absolute; top: 2px; left: 0; right: 0; font-style: normal; font-size: var(--fs-2xs); font-weight: 700; color: var(--muted); text-transform: uppercase; }
+    .cal-mo { position: absolute; top: 1px; left: 0; right: 0; font-style: normal; font-size: var(--fs-2xs); line-height: 1; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+    .cal-day:has(> .cal-mo) { padding-top: 9px; }  /* the date clears its month's name */
     .sw-now .cal-mo, .sw-next .cal-mo { color: inherit; }
-    /* The selected day: its date and three lines (more scroll), so the sheet's heights stay put. */
-    .cal-detail { flex: none; height: calc(4 * 1.4em); margin-top: 6px; overflow-y: auto; font-size: var(--fs-sm); line-height: 1.4; }
+    /* The selected day: the street's verdict over a grouped box of rows (a side of the street,
+       a car, a home); a fixed height (verdict, line under it, two rows; more scroll), so the
+       sheet's heights stay put. */
+    .cal-detail { flex: none; height: calc(38px + 6px + 2 * 34px + 1px); margin-top: 8px; overflow-y: auto;
+                  display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); line-height: 1.3; }
+    .cal-hero { display: flex; flex-direction: column; padding: 0 4px; }
+    .cal-verdict { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -.01em; }
+    .cal-sub { color: var(--muted); }
+    .cal-rows { flex: none; display: flex; flex-direction: column; background: var(--group); border-radius: var(--r-md); }
+    .cal-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 12px; }
+    .cal-row + .cal-row { border-top: 1px solid var(--hairline); }
+    .cal-rbar { flex: none; width: 3px; height: 16px; border-radius: 2px; }
+    .cal-row .cal-key { flex: none; margin: 0; }
+    .cal-rl { flex: 1 1 auto; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cal-rr { flex: 0 1 auto; min-width: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .cal-rr.muted { font-weight: 400; }
     .cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 2px; }
     /* A car's mark is round, a home's pickup square (the dots above, the keys here). */
     :is(.cal-dot, .cal-key).cal-round { border-radius: 50%; }
@@ -666,7 +689,6 @@
       #tabbar { --pad: 3px; grid-row: 1; position: relative; left: auto; right: auto; bottom: auto; height: auto;
                 margin: 14px 14px 6px; transition: none; box-shadow: none;
                 background: color-mix(in srgb, var(--text) 7%, var(--card)); -webkit-backdrop-filter: none; backdrop-filter: none; }
-      .tab-body { -webkit-mask-image: none; mask-image: none; }
       .tab { grid-area: 2 / 1; }
       #tab-calendar[hidden] { position: static; }  /* in the grid: it sets the panel's height */
       #tab-saved, #tab-settings { contain: size; }

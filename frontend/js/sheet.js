@@ -179,7 +179,15 @@ function showTab(name) {
     b.setAttribute('aria-selected', String(on));
     b.tabIndex = on ? 0 : -1;
   }
-  tabbar.style.setProperty('--i', TABS.indexOf(name));  // the selected pill slides to it
+  // The selected pill slides to it, stretching on the way (styles.css pill-go).
+  const from = tabbar.style.getPropertyValue('--i'), to = TABS.indexOf(name);
+  tabbar.style.setProperty('--i', to);
+  if (from !== '' && Number(from) !== to) {
+    tabbar.style.setProperty('--from', from);
+    tabbar.classList.remove('pill-go');
+    void tabbar.offsetWidth;  // restarts the animation
+    tabbar.classList.add('pill-go');
+  }
   for (const t of TABS) document.getElementById('tab-' + t).hidden = t !== name;
   if (name === 'calendar' && typeof calShown === 'function') calShown();
   applySheet();
@@ -193,6 +201,7 @@ tabbar.addEventListener('click', e => {
   else if (b.dataset.tab === _tab && _detent === 'small') setDetent('medium');
   showTab(b.dataset.tab);
 });
+tabbar.addEventListener('animationend', () => tabbar.classList.remove('pill-go'));
 // Arrow keys move between tabs (the ARIA tabs pattern).
 tabbar.addEventListener('keydown', e => {
   const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
