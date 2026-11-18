@@ -1,0 +1,23 @@
+name: "Cupertino, CA"
+center: {lat: 37.3230, lon: -122.0322}
+schema: prebuilt
+bbox: [37.28, -122.11, 37.34, -121.99]
+fgb_path: data/cupertino/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2023-12"
+holidays: data/holidays/cupertino.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Recology South Bay: the user picks the day
+source:
+  local_path: data/cupertino/StreetSweeping.geojson
+  build: scripts/build_cupertino_geojson.py
+  arcgis:
+    # Signed segments: schedule and posted hours (ticketed).
+    signed.geojson: https://gis.cupertino.org/cupgis/rest/services/Public/Service_Areas/MapServer/85
+    # Sweeping zones: the schedule of every other (unsigned) street.
+    zones.geojson: https://gis.cupertino.org/cupgis/rest/services/Public/Service_Areas/MapServer/25
+    # Santa Clara County street centerlines in the city (citykit.COUNTY_CENTERLINES).
+    centerlines.geojson:
+      url: https://maps.santaclaracounty.gov/server/rest/services/opendata/SCCGISHUB/MapServer/21
+      where: "(INCMUNI_L='CUPERTINO' OR INCMUNI_R='CUPERTINO') AND OWNER='PUB' AND ROADCLASS NOT IN ('Freeway', 'Ramp', 'Walkway', 'Expressway')"
+  notes: |
+    Program page: https://www.cupertino.gov/Your-City/Departments/Public-Works/Top-Tasks/Street-Sweeping

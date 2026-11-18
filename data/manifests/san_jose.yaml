@@ -1,0 +1,22 @@
+name: "San Jose, CA"
+center: {lat: 37.3382, lon: -121.8863}
+schema: prebuilt
+bbox: [37.19, -122.04, 37.47, -121.58]
+fgb_path: data/san_jose/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2026-02"
+holidays: data/holidays/san_jose.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # city-contracted haulers: the user picks the day
+source:
+  local_path: data/san_jose/StreetSweeping.geojson
+  build: scripts/build_san_jose_geojson.py
+  arcgis:
+    # Residential routes (daytime): day, week, signed or not, posted hours. CC BY, City of San Jose.
+    residential.geojson: https://geo.sanjoseca.gov/server/rest/services/OPN/OPN_OpenDataService/MapServer/515
+    # Major-road routes (night): one row per side, the posted sign's text.
+    major.geojson: https://geo.sanjoseca.gov/server/rest/services/OPN/OPN_OpenDataService/MapServer/516
+    # City street centerlines: the routes' CENTERLINEID, with address ranges.
+    streets.geojson: https://geo.sanjoseca.gov/server/rest/services/OPN/OPN_OpenDataService/MapServer/60
+  notes: |
+    Dataset pages: https://data.sanjoseca.gov/dataset/residential-street-sweeping-routes (CC BY);
+    program page https://www.sanjoseca.gov/your-government/departments-offices/transportation/streets/street-sweeping

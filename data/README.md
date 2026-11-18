@@ -30,6 +30,10 @@ equals the source.
 | Berkeley | city PDFs: day, AM/PM per address range | city centerlines (ArcGIS) | `mech_sweep = enforced` |
 | Alameda | city sweeping map (ArcGIS, no geometry) | county centerlines (ArcGIS) | signed sides only |
 | Chicago | Data Portal zones, one dataset per year | same dataset | every zone |
+| San Jose | city routes (ArcGIS, CC BY City of San Jose): residential day/week/posted hours; major roads one row per side | city centerlines by `CENTERLINEID` | `Signed Route` rows; residential two-window signs (one window per side, side not published) get one span on both sides |
+| Cupertino | city signed segments + 8 zones (ArcGIS) | county centerlines (ArcGIS) | signed segments; zones NT |
+| Milpitas | Milpitas Sanitation routes (ArcGIS), no hours | county centerlines | enforcement not published per street: every block (pilot areas sign a 2-hour window, not published) |
+| Los Gatos | town route polygons (ArcGIS) | county centerlines | none: no parking restrictions (NT) |
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.

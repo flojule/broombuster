@@ -1,0 +1,12 @@
+# Trash (West Valley Recycles): no collection on Thanksgiving, Christmas and New Year's Day;
+# that day's and the rest of the week's pickups are one day later.
+# Sweeping: holiday sweeps are made up in the third week, no tickets either way.
+source: https://westvalleyrecycles.com/wp-content/uploads/2025/06/FAQ_Final.pdf
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

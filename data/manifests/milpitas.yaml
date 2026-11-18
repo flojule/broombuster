@@ -1,0 +1,23 @@
+name: "Milpitas, CA"
+center: {lat: 37.4323, lon: -121.8996}
+schema: prebuilt
+bbox: [37.39, -121.94, 37.47, -121.84]
+fgb_path: data/milpitas/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2026-04"
+holidays: data/holidays/milpitas.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Milpitas Sanitation: the user picks the day
+source:
+  local_path: data/milpitas/StreetSweeping.geojson
+  build: scripts/build_milpitas_geojson.py
+  arcgis:
+    # Residential sweeping routes (Milpitas Sanitation): route letter, weekday, weeks.
+    routes.geojson: https://services8.arcgis.com/OPmRdssd8jj0bT5H/arcgis/rest/services/Residential%20Sweeping%20Routes/FeatureServer/0
+    # Santa Clara County street centerlines in the city (citykit.COUNTY_CENTERLINES).
+    centerlines.geojson:
+      url: https://maps.santaclaracounty.gov/server/rest/services/opendata/SCCGISHUB/MapServer/21
+      where: "(INCMUNI_L='MILPITAS' OR INCMUNI_R='MILPITAS') AND OWNER='PUB' AND ROADCLASS NOT IN ('Freeway', 'Ramp', 'Walkway', 'Expressway')"
+  notes: |
+    Program pages: https://www.milpitas.gov/642/Street-Sweeping and
+    https://www.milpitas.gov/644/Parking-Prohibited-Street-Sweeping-Progr (signed 2-hour windows
+    in select areas; the windows are not published).
