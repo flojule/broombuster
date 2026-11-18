@@ -80,7 +80,7 @@
                         --rim: inset 0 0 0 1px var(--border); --blur: none; }
     }
     /* Clear: controls over the map. Regular: menus and the alert. */
-    :is(#map-ctrl, #map-key, #place-banner, .area-label, #tabbar) {
+    :is(#map-ctrl, #place-banner, .area-label, #tabbar) {
       background: var(--glass); box-shadow: var(--rim), var(--shadow-1);
       -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
     }
@@ -156,15 +156,7 @@
       display: flex; flex-direction: column; align-items: center;
       border-radius: var(--pill);
     }
-    body.placing #map-ctrl, body.placing #map-key { display: none; }
-    /* The street colors on the map, under its buttons (--ctrl-h: their height, js/layers.js). */
-    /* Under the street card (z 21) where they meet on a narrow phone: the card matters more. */
-    #map-key { position: absolute; z-index: 20; right: calc(var(--inset-r) + var(--edge));
-               top: calc(var(--inset-t) + var(--edge) + var(--ctrl-h, 132px) + 8px);
-               padding: 6px 8px; border-radius: var(--r-sm); pointer-events: none; }
-    #map-key .legend { grid-template-columns: auto; gap: 2px; font-size: var(--fs-2xs); }
-    #map-key .lg { width: 12px; margin-right: 4px; }
-    @media (max-height: 500px) { #map-key { display: none; } }  /* a phone on its side: no room under the buttons */
+    body.placing #map-ctrl { display: none; }
     body.naming #signs { display: none; }  /* the name box sits where the sign does on a phone */
     .map-btn {
       position: relative; width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center;
@@ -184,7 +176,9 @@
     .lyr-legend-btn[aria-expanded="true"] .lyr-chev { transform: rotate(90deg); }
     .lyr-legend { display: flex; flex-direction: column; gap: 6px; padding: 4px 12px 10px; font-size: var(--fs-xs); }
     .lyr-legend > b { font-size: var(--fs-xs); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-    .legend { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-weight: 600; }
+    .legend { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-weight: 600; white-space: nowrap; }
+    .legend li:last-child { grid-column: span 2; }  /* five items: the last on its own row */
+    #layers-menu { width: 220px; }  /* the same width with the legend folded or open */
     .lyr-note { padding: 6px 12px 8px; font-size: var(--fs-xs); color: var(--muted); max-width: 260px; line-height: 1.35; }
     .lyr-popup .maplibregl-popup-content { padding: 8px 12px; border-radius: var(--r-md); font-size: var(--fs-md);
       background: var(--card); color: var(--text); box-shadow: var(--shadow-1); }
@@ -307,6 +301,8 @@
                      display: flex; align-items: center; justify-content: center; cursor: grab; }
     #sheet-grabber span { width: 36px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 28%, transparent); }
     .tab { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    /* The calendar stays laid out (unseen) under the other tabs: it sets the sheet's heights (js/calendar.js calFit). */
+    #tab-calendar[hidden] { display: flex !important; visibility: hidden; position: absolute; inset: 0; }  /* over the global [hidden] */
     /* Buttons 14 px from the sides and under the grabber (24 px); the title on their line. */
     .tab-head {
       flex: none; display: flex; align-items: center; gap: 4px; height: 68px;
@@ -679,7 +675,7 @@
                 background: color-mix(in srgb, var(--text) 7%, var(--card)); -webkit-backdrop-filter: none; backdrop-filter: none; }
       .tab-body { -webkit-mask-image: none; mask-image: none; }
       .tab { grid-area: 2 / 1; }
-      #tab-calendar[hidden] { display: flex !important; visibility: hidden; }  /* over the global [hidden] */
+      #tab-calendar[hidden] { position: static; }  /* in the grid: it sets the panel's height */
       #tab-saved, #tab-settings { contain: size; }
       #ic-cal { overflow-y: auto; }
       #sheet-grabber { display: none; }

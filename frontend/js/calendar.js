@@ -278,7 +278,7 @@ function calFit() {
 // Measured once the sheet has settled (mid-animation sizes round differently).
 function measureCalChrome() {
   const el = _scroller(), det = icCal.querySelector('.cal-detail');
-  if (isDesktop() || tabCal.hidden || !el || !det || sheet.classList.contains('dragging') || sheet.classList.contains('retracted')) return;
+  if (isDesktop() || !el || !det || sheet.classList.contains('dragging') || sheet.classList.contains('retracted')) return;
   if (sheet.style.height && Math.abs(sheet.offsetHeight - parseFloat(sheet.style.height)) > 1) return;
   const detail = det.offsetHeight + parseFloat(getComputedStyle(det).marginTop);
   const base = sheet.offsetHeight - icCal.clientHeight + (icCal.scrollHeight - el.offsetHeight - detail);
