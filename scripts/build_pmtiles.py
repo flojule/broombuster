@@ -150,6 +150,8 @@ def _run_tippecanoe(ndjson: Path, out: Path, layer: str, minzoom: int, *extra: s
         str(_MAXZOOM),
         "--generate-ids",  # stable numeric ids for feature-state
         "--no-tiny-polygon-reduction",
+        "--no-feature-limit",  # never drop features silently (-q hides the warning)
+        "--no-tile-size-limit",
         *extra,
         "--force",  # overwrite existing archive
         str(ndjson),

@@ -40,7 +40,7 @@ def _categorize(parts: list[geopandas.GeoDataFrame]) -> None:
         c
         for g in parts
         for c in g.columns
-        if c != g.geometry.name and pd.api.types.is_string_dtype(g[c].dtype)
+        if c != g.geometry.name and pd.api.types.infer_dtype(g[c], skipna=True) == "string"
     }
     for c in text:
         cats = set().union(*(set(g[c].dropna().unique()) for g in parts if c in g))

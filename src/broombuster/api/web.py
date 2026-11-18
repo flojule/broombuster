@@ -21,6 +21,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 
 from broombuster import config
+from broombuster.cities import REGIONS
 from broombuster.version import app_version
 
 log = logging.getLogger("broombuster.http")
@@ -200,7 +201,7 @@ def cache_control(path: str, version: str | None) -> str:
         return "no-store"
     if path.startswith("/tiles/"):
         m = _TILES.fullmatch(path)
-        if version and m and version == tiles_version(m[1]):
+        if version and m and m[1] in REGIONS and version == tiles_version(m[1]):
             return _IMMUTABLE
         return "public, max-age=3600, must-revalidate"
     if version is not None:

@@ -133,7 +133,7 @@ def resolve_car_segment(
         raise NoSegmentNearby(
             f"No street segment within {max_distance_m:.0f} m of ({lat:.5f}, {lon:.5f})"
         )
-    j = _swept_border_twin(gdf_3857, cand[lines], dists, j, car_pt, max_distance_m * k)
+    j = _swept_border_twin(gdf_3857, cand[lines], dists, j, car_pt, max_distance_m * k, k)
     best_line_idx, best_line_dist = int(cand[lines[j]]), float(dists[j])
 
     row = gdf_3857.iloc[best_line_idx]
@@ -195,15 +195,15 @@ def _unswept(row) -> bool:
     return all(analysis.is_no_sweep_code(row.get(f"DAY_{s}")) for s in ("EVEN", "ODD"))
 
 
-def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt, limit: float) -> int:
+def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt, limit: float, scale: float) -> int:
     """Position in idx of the line for the car: the nearest (j), unless it is unswept and another
     city draws the same street alongside, with a schedule, within BORDER_EXTRA_M farther and
-    within limit (EPSG:3857 m)."""
+    within limit (EPSG:3857 units; scale: units per ground meter)."""
     best = gdf_3857.iloc[int(idx[j])]
     if "_city" not in gdf_3857 or not _unswept(best):
         return j
     for k in np.argsort(dists, kind="stable"):
-        if dists[k] > min(dists[j] + BORDER_EXTRA_M, limit):
+        if dists[k] > min(dists[j] + BORDER_EXTRA_M * scale, limit):
             break
         row = gdf_3857.iloc[int(idx[k])]
         if (

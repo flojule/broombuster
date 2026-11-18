@@ -23,7 +23,7 @@ import pandas as pd
 import pdf_city
 import shapely
 
-from broombuster import normalize, schedule
+from broombuster import normalize
 from broombuster.config import REPO_ROOT
 
 _WEEKS = {"ODD": "1 3", "EVEN": "2 4", "ALL": ""}  # WEEKSWEPT of the major-road routes
@@ -79,9 +79,6 @@ def major_entry(row) -> tuple:
         code, desc = "E", "Every day"
     else:  # the sign's own days, else the route's
         code, desc, _ = citykit.side_entry(days if citykit.code_from_text(days) else words)
-    win = schedule.time_window(time)
-    if win and win[0] >= win[1]:  # overnight ("8PM–6AM"): untimed, the whole day warns
-        return code, f"{desc}, {time}", None
     return code, desc, time
 
 

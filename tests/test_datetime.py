@@ -242,7 +242,7 @@ def test_every_data_time_window_parses_and_matches_python(data_times):
     got = js(*[c for t in data_times for c in (("timeDisplay", [t]), ("timeWindow", [t]))])
     for t, disp, win in zip(data_times, got[::2], got[1::2], strict=True):
         assert win is not None, t
-        assert win[0] < win[1], (t, win)  # no committed window runs past midnight
+        assert win[0] != win[1], (t, win)  # end < start: past midnight
         if t.upper() not in ("AM", "PM"):
             assert disp == normalize.time_display(t), t
             assert re.fullmatch(r"\d{1,2}(:\d\d)?[AP]M–\d{1,2}(:\d\d)?[AP]M", disp), t

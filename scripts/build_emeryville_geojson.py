@@ -21,8 +21,8 @@ import pdf_city
 
 from broombuster.config import REPO_ROOT
 
-# The layer's TimeOfDay domain: 8pm-5am (stored up to midnight, the end in words), 8am-noon.
-_TIME = {1: ("8PM-12AM", ", until 5AM next day"), 2: ("8AM-12PM", "")}
+# The layer's TimeOfDay domain: 8pm-5am, 8am-noon.
+_TIME = {1: ("8PM-5AM", ""), 2: ("8AM-12PM", "")}
 _UTM = "EPSG:26910"
 _CURB_M = 2.5  # a route line farther than this from the centerline is one side's
 
