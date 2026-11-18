@@ -1,20 +1,24 @@
 // ── Bootstrap (runs after every other script has defined its functions) ─────
 async function initApp() {
-  // Cities and saved cars first, so the map opens at the right place.
-  await loadCities();
-  // A signed-in user's saved cars and homes, with this device's unsaved edits. Without an
-  // answer in time, the app starts on the local copy and loadAccount merges in the
-  // account's once it answers.
+  // The map opens at once on this device's copies of the cities and saved cars. Meanwhile
+  // /api/cities and /api/me load: a signed-in user's cars and homes are merged in with
+  // this device's unsaved edits once the account answers (loadAccount).
+  loadStoredCities();
+  const citiesLoaded = loadCities();
   const me = loadAccount();
-  const late = await Promise.race([me.then(() => false), new Promise(r => setTimeout(r, START_WAIT_MS, true))]);
-  if (late) me.then(renderAccountSection);  // signed in or out; a join link's Join button too
+  me.then(renderAccountSection);  // signed in or out; a join link's Join button too
   renderAccountSection();
   loadPrefs();
   loadSchedCache();  // each car's last answer, until its check comes back (offline: kept)
   initMap(cars.length ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 } : DEFAULT_CENTER);
   setInterval(loadAlerts, 10 * 60 * 1000);
+  if (!Object.keys(regions).length) await citiesLoaded;  // first visit: regions, clocks and holidays
   const checked = showSaved();
-
+  if (!cars.length) {
+    // No cars on this device: open on the account's (loadAccount draws and checks them).
+    await Promise.race([me, new Promise(r => setTimeout(r, START_WAIT_MS))]);
+    if (cars.length) { map.jumpTo({ center: [cars[0].lon, cars[0].lat], zoom: 15 }); loadAlerts(); return; }
+  }
   if (cars.length) {
     await checked;
     // A car to move today or tomorrow: open on it, not on the calendar.

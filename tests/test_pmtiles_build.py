@@ -1,6 +1,76 @@
-"""Validate the PMTiles build inputs: merge_segment_rows and the ward dividers."""
+"""Validate the PMTiles build inputs: merge_segment_rows, the ward dividers, the low-zoom
+lines and the map layers' archives."""
 
-from broombuster import data_loader, tiles
+import sys
+from pathlib import Path
+
+import shapely.geometry as sg
+
+from broombuster import data_loader, layers, tiles
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+import build_pmtiles
+
+
+def _rec(coords, street, sched, render_type="line", city="x"):
+    geom = sg.LineString(coords) if render_type == "line" else sg.box(*coords)
+    return {
+        "geometry": geom,
+        "render_type": render_type,
+        "street": street,
+        "city": city,
+        "schedule": sched,
+    }
+
+
+def test_street_features_merge_lines_per_schedule_below_street_zoom():
+    """Each record keeps its place (feature ids are the input order) and, a line, starts at
+    street zoom; below it one line per city and schedule carries every part."""
+    tue = [{"code": "TE", "time": "", "desc": "", "side": "even"}]
+    recs = [
+        _rec([(0, 0), (0, 1)], "A ST", tue),
+        _rec((0, 0, 1, 1), "ZONE 1", tue, render_type="polygon"),
+        _rec([(1, 0), (1, 1)], "B ST", tue),
+        _rec([(2, 0), (2, 1)], "C ST", []),
+        _rec([(3, 0), (3, 1)], "D ST", tue, city="y"),
+        {**_rec([(4, 0), (4, 1)], "E ST", tue), "geometry": sg.LineString()},
+    ]
+    feats = list(build_pmtiles.street_features(recs))
+    high, low = feats[:5], feats[5:]
+    assert [f["properties"]["street"] for f in high] == ["A ST", "ZONE 1", "B ST", "C ST", "D ST"]
+    line = {"minzoom": build_pmtiles._LOW_MAXZOOM + 1}
+    assert [f.get("tippecanoe") for f in high] == [line, None, line, line, line]
+    assert all(f["tippecanoe"] == {"maxzoom": build_pmtiles._LOW_MAXZOOM} for f in low)
+    by_key = {(f["properties"]["city"], f["properties"]["sched"]): f["geometry"] for f in low}
+    assert len(by_key) == len(low) == 3
+    assert len(by_key[("x", high[0]["properties"]["sched"])]["coordinates"]) == 2
+    assert {f["properties"]["street"] for f in low} == {""}
+
+
+def test_layer_features_start_curbs_at_curb_zoom_and_skip_null_geometry():
+    pt = {"type": "Point", "coordinates": [0, 0]}
+    coll = {
+        "features": [
+            {"type": "Feature", "properties": {"kind": "curb"}, "geometry": pt},
+            {"type": "Feature", "properties": {"kind": "curb"}, "geometry": None},
+            {"type": "Feature", "properties": None, "geometry": pt},
+        ]
+    }
+    got = [f.get("tippecanoe") for f in build_pmtiles.layer_features(coll)]
+    assert got == [{"minzoom": build_pmtiles._CURB_MINZOOM}, None]
+
+
+def test_catalog_lists_layer_tiles_only_for_the_current_geojson(tmp_path, monkeypatch):
+    """A layer's archive is offered only while it was built from the GeoJSON served."""
+    monkeypatch.setattr(layers, "_TILES", tmp_path)
+    v = layers.file_version(layers._FRONTEND / "bay_area" / "parking.geojson")
+    stale = tmp_path / "bay_area" / "parking.000000000000.pmtiles"
+    stale.parent.mkdir()
+    stale.write_bytes(b"")
+    assert "tiles" not in {lyr["id"]: lyr for lyr in layers.catalog("bay_area")}["parking"]
+    layers.tiles_path("bay_area", "parking", v).write_bytes(b"")
+    entry = {lyr["id"]: lyr for lyr in layers.catalog("bay_area")}["parking"]
+    assert entry["tiles"] == f"/tiles/bay_area/parking.{v}.pmtiles?v={v}"
 
 
 def test_merge_segment_rows_chicago_shape():

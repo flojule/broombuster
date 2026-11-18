@@ -31,6 +31,7 @@ THEMES = {
 GPS_MARGIN_M = 4  # a polygon applies this close outside it when the point is inside none
 AREAS = "permit_areas"  # data/<city>/permit_areas.fgb: the parking theme's areas (the map's)
 _FRONTEND = Path(REPO_ROOT) / "frontend" / "layers"
+_TILES = Path(REPO_ROOT) / "frontend" / "tiles"
 LIVE_CLOSURES = ("bay_area",)  # regions with a live closures feed (feeds.py)
 _loaded: dict[str, dict[str, geopandas.GeoDataFrame]] = {}  # region -> theme -> EPSG:3857
 # region -> the map's permit areas (label, city, color, rule; EPSG:3857): a point inside
@@ -91,20 +92,32 @@ def _permit_areas(region_key: str):
     return g
 
 
+def file_version(path: Path) -> str:
+    """A file's content hash, as its URLs carry it (?v=)."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
+def tiles_path(region_key: str, theme: str, version: str) -> Path:
+    """A layer's PMTiles archive (scripts/build_pmtiles.py), named by its GeoJSON's version."""
+    return _TILES / region_key / f"{theme}.{version}.pmtiles"
+
+
 def catalog(region_key: str) -> list[dict]:
-    """[{id, name, url}] of the region's map layers; url carries a content hash (cache)."""
+    """[{id, name, url, tiles?}] of the region's map layers; url carries a content hash
+    (cache); tiles: the same layer as PMTiles, when built from this GeoJSON."""
     out = []
     for theme, meta in THEMES.items():
         path = _FRONTEND / region_key / f"{theme}.geojson"
         if meta["map"] and path.exists():
-            v = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
-            out.append(
-                {
-                    "id": theme,
-                    "name": meta["name"],
-                    "url": f"/layers/{region_key}/{theme}.geojson?v={v}",
-                }
-            )
+            v = file_version(path)
+            entry = {
+                "id": theme,
+                "name": meta["name"],
+                "url": f"/layers/{region_key}/{theme}.geojson?v={v}",
+            }
+            if (tiles := tiles_path(region_key, theme, v)).exists():
+                entry["tiles"] = f"/tiles/{region_key}/{tiles.name}?v={v}"
+            out.append(entry)
     if region_key in LIVE_CLOSURES:  # fetched live, not built (feeds.closures)
         out.append(
             {
