@@ -1,0 +1,22 @@
+name: "Livermore, CA"
+source_updated: "2026-10"   # when the city last edited its sweeping source
+center: {lat: 37.6819, lon: -121.7680}
+schema: prebuilt
+bbox: [37.63, -121.85, 37.74, -121.69]
+fgb_path: data/livermore/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/livermore.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Livermore Sanitation: the user picks the day
+source:
+  local_path: data/livermore/StreetSweeping.geojson
+  build: scripts/build_livermore_geojson.py
+  arcgis:
+    # The city's sweeping routes: polygons with "First Monday" per route.
+    routes.geojson: https://services7.arcgis.com/BJisQXdgVScP0JMy/arcgis/rest/services/StreetSweeping/FeatureServer/0
+    # Alameda County street centerlines without freeways and ramps: blocks and address ranges.
+    centerlines.geojson:
+      url: https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0
+      where: "(MUNL='LI' OR MUNR='LI') AND CLASS NOT IN ('Interstate', 'Ramp', 'Freeway or Expressway')"
+  notes: |
+    The routes are the city's map on
+    https://www.livermoreca.gov/departments/public-works/maintenance/street-sweeping

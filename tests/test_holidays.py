@@ -89,6 +89,11 @@ _XMAS_NEW_YEAR = [_NEW_YEAR, _CHRISTMAS]  # most haulers: Republic, Recology, MV
 _DALY = [_NEW_YEAR, _MLK, ("Presidents' Day", _nth(2, 0, 3)), _MEMORIAL, _JUNETEENTH, _JULY_4,
          _LABOR, _VETERANS, _THANKSGIVING, _DAY_AFTER, _CHRISTMAS]  # fmt: skip
 _SSF = [*_DALY[:7], ("Indigenous Peoples Day", _nth(10, 0, 2)), *_DALY[7:]]
+_HAYWARD = [_NEW_YEAR, _MLK, ("Lincoln's Birthday", _on(2, 12)), ("Presidents' Day", _nth(2, 0, 3)),
+            ("Cesar Chavez Day", _on(3, 31)), _MEMORIAL, _JUNETEENTH, _JULY_4, _LABOR,
+            ("Admission Day", _on(9, 9)), ("Indigenous Peoples' Day", _nth(10, 0, 2)), _VETERANS,
+            _THANKSGIVING, _DAY_AFTER, ("Christmas Eve", _on(12, 24)), _CHRISTMAS,
+            ("New Year's Eve", _on(12, 31))]  # fmt: skip
 
 # city: [(holidays, suspends, observed)]; observed: "date" (the date only), "both" (plus the
 # weekday a weekend date is observed on), "weekday" (only the observed weekday).
@@ -124,12 +129,20 @@ _EXPECTED = {
     "san_mateo_county": [(_XMAS_NEW_YEAR, ["trash"], "date")],
     "burlingame": [(_XMAS_NEW_YEAR, ["trash"], "date")],
     "menlo_park": [(_XMAS_NEW_YEAR, ["trash"], "date")],
+    "dublin": [(_TRASH, ["trash"], "date")],
+    "emeryville": [(_TRASH, ["trash"], "date")],
+    "livermore": [(_TRASH, ["trash"], "date")],
+    "san_leandro": [(_TRASH, ["trash"], "date")],
+    "albany": [(_TRASH, ["trash"], "date")],
+    "hayward": [(_TRASH, ["trash"], "date"), (_HAYWARD, ["sweeping"], "weekday")],
 }
 _SF_DAYTIME_YEARS = {2026}  # SFMTA has not published 2027's daytime-only holidays
 _ALSO_SUSPENDED = {("san_francisco", datetime.date(2026, 1, 1)): "trash"}  # Recology moved pickups
 _ALSO_SUSPENDED |= {(city, day): "trash" for city in ("south_san_francisco", "daly_city")
                     for day in (datetime.date(2026, 1, 1), datetime.date(2026, 12, 25),
                                 datetime.date(2027, 1, 1))}  # fmt: skip
+_HAYWARD_BOTH = ((2026, 1, 1), (2026, 11, 26), (2026, 12, 25), (2027, 1, 1), (2027, 11, 25))
+_ALSO_SUSPENDED |= {("hayward", datetime.date(*d)): "trash" for d in _HAYWARD_BOTH}  # WM too
 
 
 def _expected(city, year):

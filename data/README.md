@@ -55,6 +55,12 @@ equals the source.
 | Menlo Park | city sweeping districts (ArcGIS): day, seasonal frequency | county centerlines in the district | none: NT (no hours or signs published) |
 
 San Mateo County centerlines: County of San Mateo ISD GIS, which cannot vouch for their accuracy.
+| Dublin | city swept-street lines (ArcGIS): 1st & 3rd or 2nd & 4th weekday | same lines, both sides | every line (enforcement unpublished) |
+| Livermore | city route polygons (ArcGIS): one weekday a month; "Call 960-8020" routes: check the sign | county centerlines (ArcGIS), both sides | every route (enforcement unpublished) |
+| Emeryville | city route lines (ArcGIS): week, weekday, 8 AM–12 PM or 8 PM–5 AM | county centerlines (ArcGIS); curb lines give sides | every line |
+| San Leandro | city zones, commercial routes, posted streets (ArcGIS) | county centerlines (ArcGIS), both sides | every block (enforcement unpublished); posted streets: check the sign |
+| Hayward | city PDF: week, weekday per address range and parity; window not given (all day) | county centerlines (ArcGIS) | every row (city: cited on sweeping days) |
+| Albany | city zone pages, transcribed in `albany/zones.yaml`: odd side 3rd, even side 4th Wed/Thu, window per zone | county centerlines (ArcGIS) | every listed street |
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.

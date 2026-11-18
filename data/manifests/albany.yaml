@@ -1,0 +1,20 @@
+name: "Albany, CA"
+source_updated: "2026-11"   # when the zone pages were transcribed into data/albany/zones.yaml
+center: {lat: 37.8869, lon: -122.2978}
+schema: prebuilt
+bbox: [37.88, -122.33, 37.90, -122.28]
+fgb_path: data/albany/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/albany.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # WM of Alameda County: the user picks the day
+source:
+  local_path: data/albany/StreetSweeping.geojson
+  build: scripts/build_albany_geojson.py
+  arcgis:   # Alameda County street centerlines without freeways and ramps
+    centerlines.geojson:
+      url: https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0
+      where: "(MUNL='AB' OR MUNR='AB') AND CLASS NOT IN ('Interstate', 'Ramp', 'Freeway or Expressway')"
+  files: [data/albany/zones.yaml]
+  notes: |
+    zones.yaml transcribes the zone pages linked on
+    https://www.albanyca.gov/Departments/Public-Works/Street-Sweeping

@@ -16,12 +16,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 pytest.importorskip("pdfplumber")  # the `scripts` extra
 
 import build_alameda_geojson as alameda
+import build_albany_geojson as albany
 import build_benicia_geojson as benicia
 import build_berkeley_geojson as berkeley
+import build_emeryville_geojson as emeryville
 import build_fairfield_geojson as fairfield
+import build_hayward_geojson as hayward
 import build_napa_geojson as napa
 import build_oakley_geojson as oakley
 import build_pittsburg_geojson as pittsburg
+import build_san_leandro_geojson as san_leandro
 import build_sonoma_county_geojson as sonoma_county
 import build_vacaville_geojson as vacaville
 
@@ -497,3 +501,112 @@ def test_address_points_land_on_their_block_side():
                         "SCHEDULE": ["Mon", "Mon", "Tue", "Fri", "Wed"]})  # fmt: skip
     out = citykit.address_blocks(lines, pts, lambda s: citykit.side_entry(s))
     assert list(out["DAY_EVEN"]) == ["ME", "WE"] and list(out["DAY_ODD"]) == ["FE", None]
+
+
+# ── Alameda County cities ────────────────────────────────────────────────────
+
+_EAST = LineString([(-122.290, 37.835), (-122.289, 37.835)])  # 88 m heading east
+
+
+def _shifted(line, dlat):
+    return LineString([(x, y + dlat) for x, y in line.coords])
+
+
+def _block(geom, left=(1001, 1099), right=(1000, 1098), name="45TH ST"):
+    keys = ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD")
+    return {"STREET_NAME": name, **dict(zip(keys, (*left, *right), strict=True)), "geometry": geom}
+
+
+def test_emeryville_curb_lines_give_their_side_and_centerlines_both():
+    north = _shifted(_EAST, 0.000045)  # about 5 m north: the left side heading east
+    other = _shifted(_EAST, 0.001)
+    cross = LineString([(-122.289, 37.834), (-122.289, 37.836)])
+    rows = [
+        ("1st", "Thursday", 2, north),
+        ("1st or 2nd", "Thursday", 2, _EAST),
+        ("2nd", "Thursday", 2, _shifted(_EAST, -0.000045)),
+        ("1st or 2nd", "Thursday", 2, other),
+        ("1st & 3rd", "Monday", 1, cross),
+    ]
+    cols = ["DayOfMonth", "DayOfWeek", "TimeOfDay", "geometry"]
+    routes = geopandas.GeoDataFrame(pd.DataFrame(rows, columns=cols), crs="EPSG:4326")
+    lines = geopandas.GeoDataFrame(
+        [_block(_EAST), _block(other, (1101, 1199), (1100, 1198))], crs="EPSG:4326"
+    )
+    out = emeryville.join(routes, lines).set_index("L_F_ADD")
+    assert (out.loc[1001].DAY_ODD, out.loc[1001].DAY_EVEN) == ("TH1", "TH2")  # north = left = odd
+    assert out.loc[1001].TIME_ODD == "8AM–12PM"
+    assert (out.loc[1101].DAY_ODD, out.loc[1101].DAY_EVEN) == ("TH12", "TH12")  # side not drawn
+
+
+def test_san_leandro_commercial_beats_posted_beats_zone():
+    assert (
+        san_leandro.schedule_words("Monday - Friday") == "Monday Tuesday Wednesday Thursday Friday"
+    )
+    a, b, c = _EAST, _shifted(_EAST, 0.001), _shifted(_EAST, 0.002)
+    lines = geopandas.GeoDataFrame([_block(g) for g in (a, b, c)], crs="EPSG:4326")
+    zone = geopandas.GeoDataFrame(
+        {"SCHED": ["3rd Thursday"]}, geometry=[c.buffer(0.01)], crs="EPSG:4326"
+    )
+    posted = geopandas.GeoDataFrame(geometry=[b, c], crs="EPSG:4326")
+    commercial = geopandas.GeoDataFrame(
+        {"SWEEPING_SCHEDULE": ["Monday - Friday", "Friday, Every Other"]},
+        geometry=[c, LineString([(-122.0, 37.0), (-122.001, 37.0)])],
+        crs="EPSG:4326",
+    )
+    out = san_leandro.build(lines, zone, commercial, posted).set_index("DAY_EVEN")
+    assert sorted(out.index) == ["MTWTHFE", "POSTED", "TH3"]
+
+
+def test_hayward_rows_read_side_tokens_and_the_narrowest_range_wins():
+    rows = hayward.rows_from(
+        [
+            "1 A ST 594 1197 BOTH EVERY M,W,F ANYTIME",
+            "2 A ST 1128 1374 EVEN 1ST & 3RD WED AS POSTED",
+            "4 A ST 584 957 (W Ast) BOTH EVERYOTHER THU ANYTIME",
+            "467 SAINT ANDREWS ST 0 999999 BOTH 2ND & 4TH TUES ANYTIME",
+            "96 BAHAMA AVE 27439 27597 S BOTH 1ST & 3RD FRI ANYTIME",
+            "21 ALCAZAR AVE (PVT) 0 999999 BOTH NO SCHEDULED SWEEPING",
+            "153 BERRY AV Mission Belmont NS 2ND & 4TH FRI AS POSTED",
+        ]
+    )
+    assert [r["entry"][0] for r in rows] == ["MWFE", "W13", "POSTED", "T24", "F13"]
+    lines = geopandas.GeoDataFrame(
+        [
+            _block(_EAST, (1101, 1199), (1100, 1198), "A ST"),
+            _block(_EAST, (1, 99), (2, 98), "ST ANDREWS ST"),
+        ],
+        crs="EPSG:4326",
+    )
+    out = hayward.join(rows, lines).set_index("STREET_NAME")
+    assert (out.loc["A ST"].DAY_EVEN, out.loc["A ST"].DAY_ODD) == ("W13", "MWFE")
+    assert out.loc["ST ANDREWS ST"].DAY_ODD == "T24"
+
+
+def test_albany_address_limit_beats_divider_beats_whole_street():
+    solano, marin = _shifted(_EAST, 0.002), _EAST
+    pablo = LineString([(-122.2905, 37.83), (-122.2905, 37.84)])
+    north, middle = _shifted(_EAST, 0.003), _shifted(_EAST, 0.001)
+    lines = geopandas.GeoDataFrame(
+        [
+            _block(solano, name="SOLANO AV"),
+            _block(marin, name="MARIN AV"),
+            _block(pablo, name="SAN PABLO AV"),
+            _block(north, (1201, 1299), (1200, 1298), "RAMONA AV"),
+            _block(middle, (901, 999), (900, 998), "RAMONA AV"),
+            _block(_shifted(_EAST, -0.001), (1001, 1099), (1000, 1098), "RAMONA AV"),
+        ],
+        crs="EPSG:4326",
+    )
+    week = {"odd": "3rd Wednesday", "even": "4th Wednesday", "time": "10AM-2PM"}
+    table = {
+        "zones": {"A": week, "B": week | {"odd": "1st Monday"}, "C": week | {"odd": "2nd Monday"}},
+        "streets": [
+            ["A", "Ramona Avenue", "all"],
+            ["B", "Ramona Avenue", "Solano to Marin"],
+            ["C", "Ramona Avenue", "1000-1199"],
+        ],
+    }
+    out = albany.build(table, lines).set_index("L_F_ADD")
+    assert [out.loc[n].DAY_ODD for n in (1201, 901, 1001)] == ["W3", "M1", "M2"]
+    assert out.loc[901].DAY_EVEN == "W4" and out.loc[901].TIME_ODD == "10AM–2PM"

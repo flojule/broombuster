@@ -1,0 +1,21 @@
+name: "Hayward, CA"
+source_updated: "2025-04"   # when the city last edited its sweeping source
+center: {lat: 37.6688, lon: -122.0808}
+schema: prebuilt
+bbox: [37.58, -122.20, 37.70, -121.98]
+fgb_path: data/hayward/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/hayward.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # WM of Alameda County: the user picks the day
+source:
+  local_path: data/hayward/StreetSweeping.geojson
+  build: scripts/build_hayward_geojson.py
+  arcgis:   # Alameda County street centerlines without freeways and ramps
+    centerlines.geojson:
+      url: https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0
+      where: "(MUNL='HA' OR MUNR='HA') AND CLASS NOT IN ('Interstate', 'Ramp', 'Freeway or Expressway')"
+  files:
+    - https://www.hayward-ca.gov/sites/default/files/documents/Street-Sweeping-Schedule-2025-Updated-250507.pdf
+  notes: |
+    The schedule PDF (rev. 04/23/25) is linked on
+    https://hayward-ca.gov/services/city-services/street-sweeping

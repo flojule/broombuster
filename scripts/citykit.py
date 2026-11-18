@@ -15,6 +15,7 @@ import zoneinfo
 
 import geopandas
 import pandas as pd
+import pdf_city
 
 from broombuster import normalize, schedule
 
@@ -319,6 +320,41 @@ def zone_blocks(lines: geopandas.GeoDataFrame, zones: geopandas.GeoDataFrame, en
     zones = zones[["geometry"]].assign(**cols)
     out = zones_to_blocks(lines, zones[zones["DAY_EVEN"].notna()], min_share)
     return out.drop(columns="STREET_KEY").reset_index(drop=True)
+
+
+_KEY_WORDS = {"FIRST": "1ST", "SECOND": "2ND", "THIRD": "3RD", "FOURTH": "4TH", "FIFTH": "5TH"}
+_KEY_WORDS |= {"SIXTH": "6TH", "SEVENTH": "7TH", "SAINT": "ST"}
+
+
+def street_key(name: str) -> str:
+    """A looser STREET_KEY for joining a city's names to county ones: abbreviations
+    expanded, type dropped, ordinals and SAINT unified, no spaces or punctuation
+    ("SAINT ANDREWS ST" and "St. Andrews Street" -> "STANDREWS")."""
+    toks = normalize.street_name(pdf_city.street_label(str(name))).split()
+    if len(toks) > 1 and toks[-1] in ("TE", "TERRACE"):
+        toks = toks[:-1]
+    return re.sub(r"[^A-Z0-9]", "", "".join(_KEY_WORDS.get(t, t) for t in toks))
+
+
+def blocks_along(
+    lines: geopandas.GeoDataFrame,
+    routes: geopandas.GeoDataFrame,
+    near_m: float = 8.0,
+    min_share: float = 0.5,
+) -> list[tuple]:
+    """(line index, route index) pairs where the route runs along the line: within near_m
+    of at least min_share of its length (a crossing street covers a few meters only)."""
+    utm = "EPSG:26910"
+    ln = lines.to_crs(utm).geometry
+    buf = routes.to_crs(utm).geometry.buffer(near_m)
+    near = geopandas.sjoin(
+        geopandas.GeoDataFrame(geometry=ln), geopandas.GeoDataFrame(geometry=buf)
+    )
+    return [
+        (i, r)
+        for i, r in zip(near.index, near["index_right"], strict=True)
+        if ln[i].intersection(buf[r]).length >= min_share * ln[i].length
+    ]
 
 
 def blocks_by_name(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFrame:
