@@ -32,17 +32,22 @@ def _parts(g):
     return [p for p in getattr(g, "geoms", [g]) if len(p.coords) >= 2]
 
 
+def _ref_key(row) -> str:
+    """The street with its type ("ASHBY AVE" is not "ASHBY PL"), else STREET_KEY."""
+    name, key = row.get("STREET_NAME"), row.get("STREET_KEY")
+    if normalize.is_text(name):
+        return normalize.street_name_typed(name)
+    return key if normalize.is_text(key) else ""
+
+
 def _ref_table(gdf):
     """(row bounds array, [(key, city, parts, even, odd)]) of every row, for the reference scan."""
     if id(gdf) not in _REF_TABLES:
         table = []
         for row in gdf.to_dict("records"):  # dicts: .get() like a row Series, but fast
-            k = row.get("STREET_KEY")
-            if not normalize.is_text(k):
-                k = normalize.street_name(row.get("STREET_NAME"))
             table.append(
                 (
-                    k,
+                    _ref_key(row),
                     row.get("_city"),
                     _parts(row["geometry"]),
                     analysis.get_schedule(row, 0),
@@ -74,9 +79,7 @@ def _ref_union(gdf, resolved):
     tparts = _parts(seg.geometry)
     if resolved.is_polygon or not tparts:
         return analysis.schedules_for_segment(seg)
-    tkey = seg.get("STREET_KEY")
-    if not normalize.is_text(tkey):
-        tkey = normalize.street_name(seg.get("STREET_NAME"))
+    tkey = _ref_key(seg)
     bounds, table = _ref_table(gdf)
     x0, y0, x1, y1 = seg.geometry.bounds
     r = 11.0 * math.cosh(y1 / 6378137.0)  # past BORDER_M at any of the target's latitudes
@@ -132,7 +135,7 @@ def _ref_resolve(gdf, lat, lon, max_distance_m=40.0):
             if d > best_d + resolve.BORDER_EXTRA_M or d > max_distance_m * k:
                 break
             alongside = 0 < r.geometry.project(pt) < r.geometry.length
-            same = r.get("STREET_KEY") == b.get("STREET_KEY")
+            same = _ref_key(r) == _ref_key(b)
             if r.get("_city") != b.get("_city") and same and not _unswept(r) and alongside:
                 best, best_d = i, d
                 break
@@ -201,6 +204,14 @@ def test_check_unions_rows_drawing_one_street(app_client, lat, lon, even, odd):
     data = app_client.post("/api/check", json=body).json()
     assert {e[0] for e in data["schedule_even"]} == even
     assert {o[0] for o in data["schedule_odd"]} == odd
+
+
+def test_street_type_keeps_streets_apart(app_client):
+    """Ashby Ave (not swept) and Ashby Pl (T4) share STREET_KEY and both ends: not merged."""
+    body = {"lat": 37.857366, "lon": -122.251705, "region": "bay_area"}
+    data = app_client.post("/api/check", json=body).json()
+    assert data["address"].startswith("Ashby Ave")
+    assert data["schedule_even"] == data["schedule_odd"] == []
 
 
 def test_tiles_color_streets_as_the_card(bay_area_gdf, bay_area_3857, sample_points):

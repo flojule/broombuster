@@ -208,7 +208,7 @@ def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt, limit: float) -> in
         row = gdf_3857.iloc[int(idx[k])]
         if (
             row.get("_city") != best.get("_city")
-            and row.get("STREET_KEY") == best.get("STREET_KEY")
+            and analysis.street_key(row) == analysis.street_key(best)
             and not _unswept(row)
             and 0 < row.geometry.project(car_pt) < row.geometry.length  # alongside, not end to end
         ):

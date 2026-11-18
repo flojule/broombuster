@@ -116,10 +116,17 @@ COINCIDE_M = 3.0  # two rows of one city within this (Hausdorff) draw one street
 BORDER_M = 10.0  # two cities' drawings of one border street (Oakland | Berkeley) within this
 
 
+def _street_key(key, name) -> str:
+    # The name with its type (Ashby Ave vs Ashby Pl share STREET_KEY), else STREET_KEY.
+    if normalize.is_text(name):
+        return normalize.street_name_typed(name)
+    return key if normalize.is_text(key) else ""
+
+
 def street_key(row) -> str:
-    """A row's street comparison key: STREET_KEY when text, else the normalized STREET_NAME."""
-    sk = row.get("STREET_KEY")
-    return sk if normalize.is_text(sk) else normalize.street_name(row.get("STREET_NAME"))
+    """A row's street comparison key: its normalized STREET_NAME with the street type
+    ("ASHBY AVE"), else its STREET_KEY."""
+    return _street_key(row.get("STREET_KEY"), row.get("STREET_NAME"))
 
 
 def street_keys(gdf) -> np.ndarray:
@@ -127,10 +134,7 @@ def street_keys(gdf) -> np.ndarray:
     n = len(gdf)
     keys = gdf["STREET_KEY"].to_numpy(object) if "STREET_KEY" in gdf else [None] * n
     names = gdf["STREET_NAME"].to_numpy(object) if "STREET_NAME" in gdf else [None] * n
-    out = [
-        k if normalize.is_text(k) else normalize.street_name(nm)
-        for k, nm in zip(keys, names, strict=True)
-    ]
+    out = [_street_key(k, nm) for k, nm in zip(keys, names, strict=True)]
     return np.array(out, dtype=object)
 
 

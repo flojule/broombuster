@@ -21,7 +21,7 @@ import pyproj
 import pytest
 from shapely.geometry import LineString, Point, Polygon
 
-from broombuster import analysis, normalize, resolve
+from broombuster import normalize, resolve
 from broombuster.resolve import NoSegmentNearby, resolve_car_segment
 
 _TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
@@ -372,7 +372,7 @@ def test_validated_cars_resolve_to_their_street(bay_area_3857):
         assert r is not None, (cid, name)
         # Rows drawn on the resolved line, by any name (Doolittle Dr under State Hwy 61).
         near = bay_area_3857.iloc[bay_area_3857.sindex.query(Point(r.projected_point).buffer(1))]
-        keys = {analysis.street_key(row) for row in near.to_dict("records")}
+        keys = set(near["STREET_KEY"]) | {normalize.street_name(n) for n in near["STREET_NAME"]}
         want = _SPELLED_OTHERWISE.get(cid, normalize.street_name(name))
         assert want in keys, (cid, name, r.label)
 
