@@ -64,6 +64,7 @@
   </defs>
 </svg>
 
+<h1 class="sr-only">BroomBuster</h1>
 <div id="app-screen">
   <div id="status-strip" aria-hidden="true"></div>
   <div id="map-container">
@@ -77,6 +78,9 @@
       <button id="btn-zoom-out" class="map-btn zoom-btn" title="Zoom out" aria-label="Zoom out"><svg class="ic"><use href="#i-minus"/></svg></button>
       <button id="btn-locate" class="map-btn" title="Show my location" aria-label="Show my location"><svg class="ic"><use href="#i-locate"/></svg></button>
     </div>
+
+    <!-- The street colors (js/layers.js); the Layers legend says the same in words. -->
+    <div id="map-key" aria-hidden="true"></div>
 
     <!-- Floating pill shown during place mode: pan so the center target sits on
          the spot, then confirm. (Right-click is the desktop alternative.) -->
@@ -98,7 +102,7 @@
 
     <!-- What applies on the street at the target: its sweeping (per side) and parking rules;
          filled by js/signs.js. -->
-    <div id="signs" role="group" aria-label="What applies at the target" hidden></div>
+    <div id="signs" role="group" aria-label="Street at the target" hidden></div>
     <div id="signs-live" class="sr-only" aria-live="polite"></div>
 
     <!-- Offline / can't reach the server / loading streets (js/ui.js) -->
@@ -169,7 +173,8 @@
 
 <!-- Find an address: the map goes there (js/ui.js) -->
 <form id="search-box" class="pop-menu" role="search" hidden>
-  <input class="field" type="search" name="q" placeholder="Address" aria-label="Address" autocomplete="street-address" enterkeyhint="search">
+  <input class="field" type="search" name="q" placeholder="Address" aria-label="Address" aria-describedby="search-msg" autocomplete="street-address" enterkeyhint="search">
+  <p class="search-msg" id="search-msg" role="alert"></p>
 </form>
 
 <!-- Map layers (permit areas, meters, …) of the area on the map, and the legend; filled by js/layers.js -->

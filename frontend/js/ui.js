@@ -2,12 +2,13 @@
 const _toastContainer = document.getElementById('toast-container');
 // The container is a polite live region, so screen readers announce each toast. A note
 // fades after `ms`; an error stays until closed (x) and can offer Retry. `opts`: ms, or
-// {ms, retry}. The same message is not shown twice at once.
+// {ms, retry, action: {label, run} (Undo, Reload: a button on a note), sticky}. The same
+// message is not shown twice at once.
 function showToast(msg, isError = false, opts = {}) {
   if (typeof opts === 'number') opts = { ms: opts };
   if ([..._toastContainer.children].some(t => t.dataset.msg === msg)) return;
   const el = document.createElement('div');
-  el.className = 'toast' + (isError ? ' error' : '');
+  el.className = 'toast' + (isError ? ' error' : '') + (opts.retry || opts.action || opts.sticky ? ' has-btn' : '');
   el.dataset.msg = msg;
   el.append(Object.assign(document.createElement('span'), { textContent: msg }));
   const btn = (text, label, onClick) => {
@@ -17,6 +18,7 @@ function showToast(msg, isError = false, opts = {}) {
     el.append(b);
   };
   if (opts.retry) btn('Retry', '', opts.retry);
+  if (opts.action) btn(opts.action.label, '', opts.action.run);
   // An error with Retry (or marked sticky) stays until closed; the rest fade.
   if (opts.retry || opts.sticky) btn('\u00d7', 'Dismiss');
   else {
@@ -49,11 +51,22 @@ window.addEventListener('online', () => {
   loadAlerts();
 });
 
-// Safari on iPhone: once, after the first car or home is saved (the user has seen what
-// the app is for), say how to install it full screen. Safari has no install prompt.
+// Once, after the first car or home is saved (the user has seen what the app is for):
+// Chrome and Android offer Install (their install prompt); Safari on iPhone, which has
+// none, gets the steps.
+let _installPrompt = null;
+// Held for after the first save; once offered, the browser's own prompts are left alone.
+window.addEventListener('beforeinstallprompt', e => { if (_read('bb_install_hint')) return; e.preventDefault(); _installPrompt = e; });
 function offerInstall() {
-  if (navigator.standalone !== false || !/iPhone|iPad/.test(navigator.userAgent)) return;
   if (_read('bb_install_hint')) return;
+  if (_installPrompt) {
+    _store('bb_install_hint', '1');
+    const p = _installPrompt;
+    _installPrompt = null;
+    showToast('Install BroomBuster on this device?', false, { ms: 10000, action: { label: 'Install', run: () => p.prompt() } });
+    return;
+  }
+  if (navigator.standalone !== false || !/iPhone|iPad/.test(navigator.userAgent)) return;
   _store('bb_install_hint', '1');
   showToast('Tip: Share › Add to Home Screen opens BroomBuster full screen.', false, 8000);
 }
@@ -296,17 +309,22 @@ const btnSearch = document.getElementById('btn-search'), searchBox = document.ge
 const SNAP_M = 60;  // the address's street: within this distance of the geocoded point
 let _searchPin = null;
 menuButton(btnSearch, searchBox);
-btnSearch.addEventListener('click', () => { if (!searchBox.hidden) searchBox.q.focus(); });
+btnSearch.addEventListener('click', () => { if (!searchBox.hidden) { searchMsg.textContent = ''; searchBox.q.focus(); } });
 searchBox.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeMenu(true); } });
+// A failed search says why under the field, which stays open to fix the address.
+const searchMsg = searchBox.querySelector('.search-msg');
+searchBox.q.addEventListener('input', () => { searchMsg.textContent = ''; });
 searchBox.addEventListener('submit', async e => {
   e.preventDefault();
   const q = searchBox.q.value.trim();
-  if (!q || !map) return;
+  if (!map) return;
+  if (!q) { searchMsg.textContent = 'Type an address.'; return; }
   const c = map.getCenter(), region = map.getZoom() >= AREA_ZOOM ? _region || regionAt(c.lat, c.lng) : null;
   let hit;
+  searchMsg.textContent = '';
   try { hit = await geocode(q, region) || (region ? await geocode(q, null) : null); }
-  catch (_) { showToast('Couldn’t look up the address', true); return; }
-  if (!hit) { showToast('Address not found', true); return; }
+  catch (_) { searchMsg.textContent = 'Couldn’t look up the address. Try again.'; return; }
+  if (!hit) { searchMsg.textContent = 'Address not found. Add the city?'; searchBox.q.select(); return; }
   closeMenu(true);
   goToAddress(hit, q);
 });

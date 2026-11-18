@@ -180,16 +180,32 @@ itemMenu.addEventListener('click', async e => {
       btnItemMore.focus();
       return;
     }
-    if (car) removeCar(car.id); else removeHome(item.id);
+    // A phone-linked car loses its token on the server once removed: no Undo for it.
+    const linked = car && car.id in phoneLinks;
+    const undo = car ? removeCar(car.id) : removeHome(item.id);
     (btnAdd.hidden ? savedSummary.querySelector('[data-add]') : btnAdd)?.focus();  // nothing left: "Add car"
+    showToast(`${name} removed`, false, linked ? {} : { ms: 6000, action: { label: 'Undo', run: () => {
+      undo();
+      carsPanel.querySelector(`.car-entry[data-id="${CSS.escape(item.id)}"] .ce-header`)?.focus();  // focus back on its row
+    } } });
   }
 });
 
+// Returns the undo: the car back where it was in the list, with its schedule.
 function removeCar(id) {
+  const i = cars.findIndex(c => c.id === id), car = cars[i], sched = carSchedules[id];
   delete carSchedules[id];
   cars = cars.filter(c => c.id !== id);
   savePrefs();
   updateCarMarkers();  // drops its marker and re-renders the cards
+  return () => {
+    if (cars.some(c => c.id === id)) return;
+    cars.splice(Math.min(i, cars.length), 0, car);
+    if (sched) carSchedules[id] = sched;
+    savePrefs();
+    updateCarMarkers();
+    if (!sched) checkCar(car);
+  };
 }
 
 // ── Context menu: "Add car / home here" (right-click, or a long press on touch) ──
@@ -415,7 +431,7 @@ function _addrHTML(addr, id) {
 
 // A row of the Saved list (icon, name over address, verdict) that opens the item's page
 // (click, Enter or Space); `detail` shows on that page only.
-function itemCard({ id, kind, color, name, urgency, words, addr, detail }) {
+function itemCard({ id, kind, color, name, urgency, words, addr, detail, retry = false }) {
   const entry = document.createElement('div');
   entry.className = 'car-entry' + (kind === 'home' ? ' home-entry' : '');
   entry.dataset.id = id;
@@ -430,6 +446,7 @@ function itemCard({ id, kind, color, name, urgency, words, addr, detail }) {
       </span>
       ${urgency ? _statusHTML(urgency, words) : ''}
     </div>
+    ${retry ? '<button class="btn btn-sm btn-tinted ce-btn-retry ce-row-retry">Retry</button>' : ''}
     <div class="ce-detail">${detail}</div>`;
   entry.addEventListener('click', e => {
     if (_selectedId === id || e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
@@ -608,9 +625,12 @@ function renderCarsPanel() {
     const asOf = sched?._at ? _asOf(sched) : null, sidePick = sidePickHTML(car);
     const entry = itemCard({
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
-      urgency: sweepUrgency(car), words: sched ? carWords(car) : null, addr: addrText,
+      // Never checked and the check failed: "Couldn't check", with Retry on the row.
+      urgency: sweepUrgency(car) || (loadFailed.has(car.id) ? 'check' : null),
+      words: sched ? carWords(car) : loadFailed.has(car.id) ? { short: 'Couldn’t check', long: 'Couldn’t check the street' } : null,
+      addr: addrText, retry: !sched && loadFailed.has(car.id),
       detail: `
-        <button class="btn btn-tinted btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
+        <button class="btn btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
         ${sched?.covered === false ? '' : schedBlockHTML(car.id, sidePick && !carSide(car) ? 'Sweeping · pick your side' : 'Sweeping',
                                                           sched && carSchedLines(car), sidePick, asOf)}
         ${remindHTML(car)}${dataAgeHTML(sched)}
@@ -630,7 +650,7 @@ function renderCarsPanel() {
       moveCar(car, hit.lat, hit.lon);
     });
 
-    entry.querySelector('.ce-btn-retry')?.addEventListener('click', () => checkCar(car, true));
+    for (const b of entry.querySelectorAll('.ce-btn-retry')) b.addEventListener('click', () => checkCar(car, true));
     entry.querySelector('.ce-btn-gps').addEventListener('click', e => {
       locateWith(e.currentTarget, async (lat, lon) => {
         const km = _kmFrom(car, lat, lon);
