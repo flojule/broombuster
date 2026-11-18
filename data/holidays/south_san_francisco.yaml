@@ -1,0 +1,33 @@
+# Sweeping: none on city-observed holidays (city holiday schedule; a Saturday holiday is
+# observed Friday, a Sunday one Monday; 2027 by that rule). Christmas Eve and New Year's Eve
+# are half days and keep sweeping.
+# Trash (South San Francisco Scavenger, https://ssfscavenger.com/holiday-schedule/): no pickup
+# on Christmas and New Year's Day; that pickup is the next day.
+source: https://www.ssfca.gov/files/assets/public/v/1/public-works/documents/2025-2026-holidays-declared.pdf
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [sweeping, trash]}
+  - {date: 2026-01-19, name: Martin Luther King Jr. Day, suspends: [sweeping]}
+  - {date: 2026-02-16, name: Presidents' Day, suspends: [sweeping]}
+  - {date: 2026-05-25, name: Memorial Day, suspends: [sweeping]}
+  - {date: 2026-06-19, name: Juneteenth, suspends: [sweeping]}
+  - {date: 2026-07-03, name: Independence Day (observed), suspends: [sweeping]}
+  - {date: 2026-09-07, name: Labor Day, suspends: [sweeping]}
+  - {date: 2026-10-12, name: Indigenous Peoples Day, suspends: [sweeping]}
+  - {date: 2026-11-11, name: Veterans Day, suspends: [sweeping]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [sweeping]}
+  - {date: 2026-11-27, name: Day after Thanksgiving, suspends: [sweeping]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [sweeping, trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [sweeping, trash]}
+  - {date: 2027-01-18, name: Martin Luther King Jr. Day, suspends: [sweeping]}
+  - {date: 2027-02-15, name: Presidents' Day, suspends: [sweeping]}
+  - {date: 2027-05-31, name: Memorial Day, suspends: [sweeping]}
+  - {date: 2027-06-18, name: Juneteenth (observed), suspends: [sweeping]}
+  - {date: 2027-07-05, name: Independence Day (observed), suspends: [sweeping]}
+  - {date: 2027-09-06, name: Labor Day, suspends: [sweeping]}
+  - {date: 2027-10-11, name: Indigenous Peoples Day, suspends: [sweeping]}
+  - {date: 2027-11-11, name: Veterans Day, suspends: [sweeping]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [sweeping]}
+  - {date: 2027-11-26, name: Day after Thanksgiving, suspends: [sweeping]}
+  - {date: 2027-12-24, name: Christmas Day (observed), suspends: [sweeping]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

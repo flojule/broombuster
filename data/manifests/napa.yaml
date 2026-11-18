@@ -1,0 +1,21 @@
+name: "Napa, CA"
+source_updated: "2026-08"   # when the city last edited its swept-segment layer
+center: {lat: 38.2975, lon: -122.2869}
+schema: prebuilt
+bbox: [38.24, -122.36, 38.36, -122.25]
+fgb_path: data/napa/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/napa.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Napa Recycling & Waste Services: the user picks the day
+source:
+  local_path: data/napa/StreetSweeping.geojson
+  build: scripts/build_napa_geojson.py
+  arcgis:
+    # The city's sweeper route areas (Citywide Sweeper Route Map).
+    zones.geojson: https://services.arcgis.com/KYQI4l6C3kTBM5OU/arcgis/rest/services/StreetSweepingRoutes/FeatureServer/0
+    # Street segments of the 2026-2029 sweeping contract (Napa County centerline schema).
+    centerlines.geojson:
+      url: https://services.arcgis.com/KYQI4l6C3kTBM5OU/arcgis/rest/services/Street_Sweeping_Contract_Mileage/FeatureServer/5
+      where: "StreetSweeping='Yes'"
+  notes: |
+    Schedule rules (leaf season, holidays): https://www.cityofnapa.org/367/Street-Sweeping

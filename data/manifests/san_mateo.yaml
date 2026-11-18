@@ -1,0 +1,21 @@
+name: "San Mateo, CA"
+center: {lat: 37.5525, lon: -122.3149}
+schema: prebuilt
+bbox: [37.51, -122.36, 37.59, -122.27]
+fgb_path: data/san_mateo/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2026-09"
+holidays: data/holidays/recology_san_mateo_county.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Recology San Mateo County
+source:
+  local_path: data/san_mateo/StreetSweeping.geojson
+  build: scripts/build_san_mateo_geojson.py
+  arcgis:
+    # The city's sweeping parcels: address, sweep day, weeks (1st/3rd, 2nd/4th) and hours.
+    parcels.geojson: https://services2.arcgis.com/g26Y0m7OCdjU0ObA/arcgis/rest/services/StreeSweep_Times/FeatureServer/2
+    # San Mateo County street centerlines in San Mateo.
+    centerlines.geojson:
+      url: https://gis.smcgov.org/maps/rest/services/ISD/SMC_COUNTY_GIS/MapServer/4
+      where: "incmuni_l='SAN MATEO' OR incmuni_r='SAN MATEO'"
+  notes: |
+    Program page: https://cityofsanmateo.org/3437/Street-Sweeping

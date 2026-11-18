@@ -1,0 +1,17 @@
+name: "Dublin, CA"
+source_updated: "2025-10"   # when the city last edited its sweeping source
+center: {lat: 37.7180, lon: -121.9100}
+schema: prebuilt
+bbox: [37.69, -121.99, 37.75, -121.83]
+fgb_path: data/dublin/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/dublin.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Amador Valley Industries: the user picks the day
+source:
+  local_path: data/dublin/StreetSweeping.geojson
+  build: scripts/build_dublin_geojson.py
+  arcgis:   # swept streets with their schedule (the city's sweeping map)
+    segments.geojson: https://gis111.dublin.ca.gov/arcgis/rest/services/PublicWorks/StreetSweeping/MapServer/1
+  notes: |
+    The city's map (https://dublin.ca.gov/345/Street-Sweeping) shows these lines. The
+    StreetSweepingZone layer holds an older zone plan (Tuesday routes) and is not used.

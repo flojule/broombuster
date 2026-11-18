@@ -1,0 +1,20 @@
+name: "Sausalito, CA"
+source_updated: "2026-11"   # the city's sweeping table, as read
+center: {lat: 37.8591, lon: -122.4853}
+schema: prebuilt
+bbox: [37.844, -122.508, 37.874, -122.477]
+fgb_path: data/sausalito/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/sausalito.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Bay Cities Refuse: the user picks the day
+source:
+  local_path: data/sausalito/StreetSweeping.geojson
+  build: scripts/build_sausalito_geojson.py
+  arcgis:
+    # Marin County roads (MarinMap, provided as is): blocks and address ranges.
+    centerlines.geojson:
+      url: https://services6.arcgis.com/T8eS7sop5hLmgRRH/arcgis/rest/services/Roads/FeatureServer/0
+      where: "City='Sausalito'"
+  notes: |
+    The build reads the table of
+    https://www.sausalito.gov/services/streets_and_roads/street_sweeping.php

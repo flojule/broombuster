@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import os
 import re
 from contextlib import asynccontextmanager
@@ -7,11 +8,11 @@ from typing import Annotated, NamedTuple
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, BeforeValidator, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -20,6 +21,7 @@ from broombuster import (
     alerts,
     analysis,
     calfeed,
+    config,
     feeds,
     gps,
     holidays,
@@ -41,9 +43,14 @@ web.setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_all()
+    for rk in REGIONS:
+        web.tiles_version(rk)  # hashed once, before the first request
     if auth.check_config():
         auth.init_db()
+    stop = feeds.start_refresh() if config.live_feeds_enabled() else None
     yield
+    if stop is not None:
+        stop.set()
 
 
 app = FastAPI(
@@ -51,7 +58,8 @@ app = FastAPI(
 )
 
 app.middleware("http")(web.http_middleware)
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# Dynamic responses only: static files are served precompressed (web.Static).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
 app.add_middleware(web.BodyLimit)  # outermost: refuses before anything reads the body
 api = APIRouter(prefix="/api")  # everything the frontend fetches, except /auth and /health
 app.include_router(auth.router)
@@ -106,6 +114,7 @@ def cities():
             "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
             "updated": {ck: CITIES[ck].get("source_updated") for ck in rv["cities"]},
             "layers": layers.catalog(rk),
+            "tiles_version": web.tiles_version(rk),
         }
         for rk, rv in REGIONS.items()
     }
@@ -134,9 +143,13 @@ def locate(request: Request):
     return {"lat": pos[0], "lon": pos[1], "region": region_for_point(*pos)}
 
 
+# JSON numbers only: not true, "37.8", NaN or Infinity.
+_STRICT = {"strict": True, "allow_inf_nan": False}
+
+
 class CheckRequest(BaseModel):
-    lat: float = Field(..., ge=-90.0, le=90.0)
-    lon: float = Field(..., ge=-180.0, le=180.0)
+    lat: float = Field(..., ge=-90.0, le=90.0, **_STRICT)
+    lon: float = Field(..., ge=-180.0, le=180.0, **_STRICT)
     region: str | None = None
 
 
@@ -229,6 +242,8 @@ def rules(
     asof, city}. geocode=false (the map's street card, asked at every stop): no new
     address lookups, so Chicago's permit zone only when the address is cached."""
     region = region if region in REGIONS else region_for_point(lat, lon)
+    if not resolve.in_region(region, lat, lon):
+        return {"region": region, "rules": []}
     out = layers.rules_at(region, lat, lon, kind)
     if kind == "car":
         out += feeds.closures_near(region, lat, lon)
@@ -242,7 +257,7 @@ def closures(region: str = Query(..., pattern="^[a-z_]+$")):
     """Street closures on now or starting within two weeks (GeoJSON), for the map."""
     if region not in REGIONS:
         raise HTTPException(404, "Unknown region.")
-    return {"type": "FeatureCollection", "features": feeds.closures(region)}
+    return Response(feeds.closures_json(region), media_type="application/json")
 
 
 @api.get("/alerts")
@@ -341,12 +356,17 @@ def _number(units: dict, thousands: bool = False):
 
 
 class CarLocation(BaseModel):
-    lat: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-90.0, le=90.0)]
-    lon: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-180.0, le=180.0)]
+    lat: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-90.0, le=90.0, **_STRICT)]
+    lon: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-180.0, le=180.0, **_STRICT)]
     # Meters (or with a unit), as the phone reports it.
     accuracy: Annotated[
-        float | None, BeforeValidator(_number(_METERS, thousands=True)), Field(ge=0.0, le=1e6)
+        float | None,
+        BeforeValidator(_number(_METERS, thousands=True)),
+        Field(ge=0.0, le=1e6),
     ] = None
+
+
+ACCURACY_MAX_M = 50.0  # a phone fix rougher than this is refused
 
 
 _PHONE_PATH = web.PHONE_PATH
@@ -390,7 +410,13 @@ async def _http_error(request: Request, exc: StarletteHTTPException):
 async def _validation_error(request: Request, exc: RequestValidationError):
     if request.url.path == _PHONE_PATH:
         return await _phone_refusal(request, 422, _unreadable(exc.errors()))
-    return await request_validation_exception_handler(request, exc)
+    detail = jsonable_encoder(exc.errors())
+    for e in detail:  # NaN and Infinity are not JSON: echoed as text
+        try:
+            json.dumps(e.get("input"), allow_nan=False)
+        except ValueError:
+            e["input"] = str(e["input"])
+    return JSONResponse({"detail": detail}, 422)
 
 
 @api.post("/cars/location")
@@ -399,7 +425,7 @@ def car_location(req: CarLocation, who=Depends(auth.car_for_token)):
 
     `summary` is short plain text for the phone to show as a notification.
     """
-    if req.accuracy is not None and req.accuracy > resolve.CAR_MAX_DISTANCE_M:
+    if req.accuracy is not None and req.accuracy > ACCURACY_MAX_M:
         raise HTTPException(
             422, f"Position too rough (±{req.accuracy:.0f} m); the car was not moved."
         )
@@ -429,4 +455,4 @@ def service_worker():
 
 
 _frontend_dir = os.path.join(REPO_ROOT, "frontend")
-app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
+app.mount("/", web.Static(directory=_frontend_dir, html=True), name="frontend")

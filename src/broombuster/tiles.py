@@ -6,6 +6,7 @@ they only need rebuilding when the data changes.
 
 import re
 
+import numpy as np
 import shapely
 import shapely.geometry
 
@@ -23,70 +24,96 @@ _WARD_RE = re.compile(r"ward\s*0*(\d+)", re.IGNORECASE)
 
 
 _POLY_TYPES = (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)
+_ROW_COLS = (
+    "STREET_NAME",
+    "STREET_DISPLAY",
+    "_city",
+    "SIDE_EVEN",
+    "SIDE_ODD",
+    "L_F_ADD",
+    "L_T_ADD",
+    "R_F_ADD",
+    "R_T_ADD",
+    "DAY_EVEN",
+    "DESC_EVEN",
+    "TIME_EVEN",
+    "DAY_ODD",
+    "DESC_ODD",
+    "TIME_ODD",
+)
 
 
-def _line_parts(geom):
-    """Coordinate lists of every LineString part of a line geometry."""
-    if isinstance(geom, shapely.geometry.LineString):
-        return [list(geom.coords)]
-    if isinstance(geom, shapely.geometry.MultiLineString):
-        return [list(ls.coords) for ls in geom.geoms]
-    return []
+def _records(gdf, rows) -> list[dict]:
+    """The rows at positions `rows` as dicts of the columns tiles read."""
+    cols = [c for c in _ROW_COLS if c in gdf]
+    return gdf.iloc[rows][cols].to_dict("records")
 
 
-def _street_key(row) -> str:
-    """The street a row is merged by, as the card's union (analysis.segment_index) keys it."""
-    sk = row.get("STREET_KEY")
-    return sk if normalize.is_text(sk) else normalize.street_name(row.get("STREET_NAME"))
+def _groups(parts, keys, cities) -> np.ndarray:
+    """Group label (its first part's index) of each line part: parts that draw one street
+    (analysis.coincide), transitively."""
+    i, j = _analysis.near_pairs(parts, parts)
+    i, j = i[i < j], j[i < j]
+    ok = _analysis.coincide(parts, keys, cities, i, j)
+    root = list(range(len(parts)))
+
+    def find(x):
+        while root[x] != x:
+            root[x] = root[root[x]]
+            x = root[x]
+        return x
+
+    for a, b in zip(i[ok].tolist(), j[ok].tolist(), strict=True):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            root[max(ra, rb)] = min(ra, rb)
+    return np.array([find(x) for x in range(len(parts))], dtype=int)
 
 
-def _merge_lines(gdf_4326):
-    """Merge line rows of one street sharing endpoints (analysis.line_key) into one segment each.
+def _merge_lines(gdf):
+    """Merge the line rows that draw one street (analysis.coincide, as the card's union) into
+    one segment each.
 
-    SF emits one row per (segment x weekday x side), so a physical line is the
-    union of every row of its street sharing its endpoints. Returns {key: segment dict} with
-    coords, name, city, labels, the even/odd raw entries and even_left: every
-    answer its rows gave to "is the even side left of `coords`' direction?".
+    SF emits one row per (segment x weekday x side) and border streets are drawn by two
+    cities. Returns [segment dict] with coords (EPSG:4326, the group's first part), name,
+    city, labels, the even/odd raw entries and even_left: every answer its rows gave to
+    "is the even side left of `coords`' direction?".
     """
-    seg_data: dict = {}
-    for _, row in gdf_4326.iterrows():
-        geom = row["geometry"]
-        if geom is None or geom.is_empty or isinstance(geom, _POLY_TYPES):
-            continue
-        be, bo = _analysis.get_schedule(row, 0), _analysis.get_schedule(row, 1)
-        labels = _analysis.side_labels(row)
-        left = resolve.even_on_left(row)
-        street = _street_key(row)
-        for coords in _line_parts(geom):
-            if len(coords) < 2:
-                continue
-            sd = seg_data.setdefault(
-                (street, _analysis.line_key(coords)),
-                {
-                    "coords": coords,
-                    "city": _safe(row.get("_city")),
-                    "name": _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
-                    "labels": labels,
-                    "even": [],
-                    "odd": [],
-                    "even_left": set(),
-                },
-            )
-            if left is not None:
-                # A row drawn the other way round has its sides swapped.
-                sd["even_left"].add(left == _same_start(coords, sd["coords"]))
-            if labels != _analysis.DEFAULT_SIDE_LABELS:
-                sd["labels"] = labels
-            if be and be not in sd["even"]:
-                sd["even"].append(be)
-            if bo and bo not in sd["odd"]:
-                sd["odd"].append(bo)
-    return seg_data
+    g3857 = gdf.to_crs("EPSG:3857")
+    parts, prow = _analysis.line_parts(g3857.geometry.values)
+    parts4326, _ = _analysis.line_parts(gdf.to_crs("EPSG:4326").geometry.values)
+    group = _groups(parts, _analysis.street_keys(gdf)[prow], _analysis._cities(gdf)[prow])
+    a0, a1 = _analysis._ends(parts)
+    info = {}  # row -> (row dict, even entry, odd entry, labels, even_on_left)
+    for n, row in zip(np.unique(prow).tolist(), _records(gdf, np.unique(prow)), strict=True):
+        sched = _analysis.get_schedule(row, 0), _analysis.get_schedule(row, 1)
+        info[n] = (row, *sched, _analysis.side_labels(row), resolve.even_on_left(row))
 
-
-def _same_start(a, b) -> bool:
-    """Whether two coordinate lists of one line start at the same end (same direction)."""
-    return _analysis.line_key([a[0], a[0]]) == _analysis.line_key([b[0], b[0]])
+    segs: dict = {}
+    for p, (g, n) in enumerate(zip(group.tolist(), prow.tolist(), strict=True)):
+        row, even, odd, labels, left = info[n]
+        sd = segs.get(g)
+        if sd is None:  # p == g: the group's first part
+            sd = segs[g] = {
+                "coords": list(parts4326[p].coords),
+                "city": _safe(row.get("_city")),
+                "name": _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
+                "labels": labels,
+                "even": [],
+                "odd": [],
+                "even_left": set(),
+            }
+        if left is not None:
+            # A part drawn the other way round has its sides swapped.
+            same = np.hypot(*(a0[p] - a0[g])) <= np.hypot(*(a0[p] - a1[g]))
+            sd["even_left"].add(left == bool(same))
+        if labels != _analysis.DEFAULT_SIDE_LABELS:
+            sd["labels"] = labels
+        if even and even not in sd["even"]:
+            sd["even"].append(even)
+        if odd and odd not in sd["odd"]:
+            sd["odd"].append(odd)
+    return list(segs.values())
 
 
 def _tile_sched(even, odd):
@@ -105,18 +132,18 @@ def merge_segment_rows(gdf):
 
     Each record: {geometry (shapely, EPSG:4326), render_type, street, city,
     schedule: [{code,time,desc,side}, ...], labels: (even, odd)}. Lines
-    sharing endpoints are merged (_merge_lines); polygons pass through 1:1.
+    drawing one street are merged (_merge_lines); polygons pass through 1:1.
     """
     gdf_4326 = gdf.to_crs("EPSG:4326")
+    geoms = gdf_4326.geometry.values
+    tid = shapely.get_type_id(np.asarray(geoms, dtype=object))
+    polys = np.flatnonzero(((tid == 3) | (tid == 6)) & ~shapely.is_empty(geoms))
     records = []
-    for _, row in gdf_4326.iterrows():
-        geom = row["geometry"]
-        if geom is None or geom.is_empty or not isinstance(geom, _POLY_TYPES):
-            continue
+    for p, row in zip(polys.tolist(), _records(gdf_4326, polys), strict=True):
         even, odd = _analysis.schedules_for_segment(row)
         records.append(
             {
-                "geometry": geom,
+                "geometry": geoms[p],
                 "render_type": "polygon",
                 "street": _safe(row.get("STREET_DISPLAY") or row.get("STREET_NAME")),
                 "city": _safe(row.get("_city")),
@@ -124,7 +151,7 @@ def merge_segment_rows(gdf):
                 "labels": _analysis.side_labels(row),
             }
         )
-    for sd in _merge_lines(gdf_4326).values():
+    for sd in _merge_lines(gdf):
         records.append(
             {
                 "geometry": shapely.geometry.LineString(sd["coords"]),

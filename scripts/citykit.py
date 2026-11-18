@@ -1,0 +1,494 @@
+"""Shared steps of the city build scripts (scripts/build_*_geojson.py): schedule text to
+sweep codes, county centerlines in the standard columns, zones laid onto blocks, and the
+side entries the standard schema stores.
+
+Codes: data/README.md. A side nobody is ticketed on gets COURTESY ("NT") with the
+schedule in words; a side whose schedule the source does not give gets UNKNOWN
+("POSTED": the driver reads the sign).
+"""
+
+from __future__ import annotations
+
+import datetime
+import re
+import zoneinfo
+
+import geopandas
+import pandas as pd
+import pdf_city
+
+from broombuster import normalize, schedule
+
+COURTESY = "NT"  # swept, nobody ticketed: the description is shown, never urgent
+UNKNOWN = "POSTED"  # analysis.UNDATED_CODES: the day only the posted sign gives
+UNKNOWN_DESC = "Schedule not published: check the posted sign"
+
+_DAY_WORDS = (
+    ("SU", r"sun(?:day)?s?"),
+    ("TH", r"th(?:u(?:r(?:s)?)?)?(?:sday)?s?"),
+    ("M", r"mon(?:day)?s?"),
+    ("T", r"tue(?:s(?:day)?)?s?"),
+    ("W", r"wed(?:s|nesday)?s?"),
+    ("F", r"fri(?:day)?s?"),
+    ("S", r"sat(?:urday)?s?"),
+)
+_DAY_RE = re.compile(r"\b(?:" + "|".join(f"(?P<{t}>{p})" for t, p in _DAY_WORDS) + r")\b", re.I)
+_ORDER = ("M", "T", "W", "TH", "F", "S", "SU")
+_ORD_WORDS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
+_ORD_RE = re.compile(r"\b([1-5])(?:st|nd|rd|th)\b|\b(first|second|third|fourth|fifth)\b", re.I)
+_BARE_RE = re.compile(r"(?<![\d:])([1-5])(?![\d:])")
+_EVERY_RE = re.compile(r"\b(every|weekly|each week|all weeks)\b", re.I)
+_ALT_RE = re.compile(r"\b(every other|alternat\w*|bi-?weekly|every 2|twice a month)\b", re.I)
+
+
+def code_from_text(text) -> tuple[str, str] | None:
+    """(code, desc) for schedule words: "1st & 3rd Tuesday" -> ("T13", "1st & 3rd Tue"),
+    "Weekly (Mondays)" -> ("ME", "Every Mon"), "Monday,1" -> ("M1", "1st Mon"),
+    "Weeks 2 & 4 Thursday" -> ("TH24", ...). None when no weekday, or a cadence the
+    grammar cannot hold (every other week, bi-weekly)."""
+    if not normalize.is_text(text) or _ALT_RE.search(text):
+        return None
+    days = []
+    for m in _DAY_RE.finditer(text):
+        tok = next(t for t, v in m.groupdict().items() if v)
+        if tok not in days:
+            days.append(tok)
+    if not days:
+        return None
+    days.sort(key=_ORDER.index)
+    rest = _DAY_RE.sub(" ", text)
+    ords = {int(a) if a else _ORD_WORDS[b.lower()] for a, b in _ORD_RE.findall(rest)}
+    if not ords and not _EVERY_RE.search(rest):
+        ords = {int(n) for n in _BARE_RE.findall(rest)}
+    dayword = ", ".join(normalize.WEEKDAYS[_ORDER.index(d)] for d in days)
+    if not ords or ords >= {1, 2, 3, 4, 5}:
+        return "".join(days) + "E", f"Every {dayword}"
+    digits = "".join(str(n) for n in sorted(ords))
+    return "".join(days) + digits, f"{normalize.pretty_ordinals(digits)} {dayword}"
+
+
+_SHARED_AMPM_RE = re.compile(
+    r"\b(\d{1,2}(?::\d\d)?)\s*(?:-|–|—|to)\s*(\d{1,2}(?::\d\d)?)\s*([AP])\.?\s*M\b\.?", re.I
+)
+
+
+def time_text(raw) -> str | None:
+    """Posted window in the standard form ("9AM–12PM"), None when not given. "9-10:30 AM"
+    takes the shared AM/PM ("9AM–10:30AM"); "NOON" is 12PM."""
+    if not normalize.clean_text(raw):
+        return None
+    s = re.sub(r"\bnoon\b", "12PM", str(raw), flags=re.I)
+    s = re.sub(r"\bmidnight\b", "12AM", s, flags=re.I)
+    s = _SHARED_AMPM_RE.sub(lambda m: f"{m[1]}{m[3]}M–{m[2]}{m[3]}M", s)
+    return normalize.time_display(s)
+
+
+def side_entry(text, time=None, *, enforced=True) -> tuple[str | None, str | None, str | None]:
+    """(code, desc, time) of one side from schedule words; (None, None, None) when not
+    swept. An unreadable schedule is UNKNOWN; an unenforced one is COURTESY."""
+    if not normalize.clean_text(text):
+        return None, None, None
+    hit = code_from_text(text)
+    t = time_text(time)
+    if not enforced:
+        words = hit[1] if hit else normalize.clean_text(text)
+        return COURTESY, f"{words}{f', {t}' if t else ''}, no tickets", None
+    if hit is None:
+        return UNKNOWN, UNKNOWN_DESC, t
+    return hit[0], hit[1], t
+
+
+# Schedules the weekday grammar cannot hold (seasonal, every 2 or 4 weeks) become a
+# "DATES:" code spelling out this year's and next year's sweep days.
+def sweep_years() -> tuple[int, int]:
+    """This year and next, Pacific time."""
+    year = datetime.datetime.now(zoneinfo.ZoneInfo("America/Los_Angeles")).year
+    return year, year + 1
+
+
+def month_dates(text, year: int, month: int) -> list[datetime.date]:
+    """Days of a month that schedule words name, each weekday with the ordinals before it:
+    "2nd Friday and 5th Monday" -> that month's 2nd Friday and 5th Monday."""
+    out, start = [], 0
+    for m in _DAY_RE.finditer(text):
+        code = code_from_text(text[start : m.end()])[0]
+        start = m.end()
+        day = datetime.date(year, month, 1)
+        while day.month == month:
+            if schedule.sweeps_on(code, day):
+                out.append(day)
+            day += datetime.timedelta(1)
+    return sorted(out)
+
+
+def cycle_dates(first: datetime.date, weeks: int, years) -> list[datetime.date]:
+    """The days of `years` that are a whole number of `weeks`-week cycles from `first`."""
+    step = datetime.timedelta(weeks=weeks)
+    day = first + step * ((datetime.date(min(years), 1, 1) - first).days // step.days)
+    out = []
+    while day.year <= max(years):
+        if day.year in years:
+            out.append(day)
+        day += step
+    return out
+
+
+def dates_code(days, off=frozenset()) -> str:
+    """The DATES code of `days`; a day in `off` (a no-sweep holiday) moves to the next
+    weekday not in `off`."""
+    out = set()
+    for day in days:
+        while day in off:
+            day += datetime.timedelta(1)
+            while day.weekday() >= 5:
+                day += datetime.timedelta(1)
+        out.add(day)
+    if not out:
+        raise ValueError("no sweep days")
+    return "DATES:" + ",".join(d.isoformat() for d in sorted(out))
+
+
+_CODE_RE = re.compile(r"^((?:TH|SU|M|T|W|F|S)+)(E|[1-5]+)$")
+_NOTE_RE = re.compile(r"\s*\(([^)]*)\)")
+
+
+def courtesy_entry(texts, note=None) -> tuple[str | None, str | None, None]:
+    """COURTESY entry of a block named in several schedule lists: per weekday the union of
+    its weeks, weekdays with the same weeks grouped ("Every Fri; 2nd & 4th Mon"; weeks 1-4
+    read as every week). A "(note)" stays with its schedule; words code_from_text cannot
+    read are kept as written. `note` (a season) goes before "no tickets"."""
+    weeks, kept = {}, []
+    for text in texts:
+        found = _NOTE_RE.search(text)
+        bare = code_from_text(_NOTE_RE.sub("", text)) if found else None
+        hit = code_from_text(text)
+        m = _CODE_RE.match(hit[0]) if hit else None
+        if bare:
+            kept.append(f"{bare[1]} ({found[1].strip()})")
+        elif m:
+            ords = set(range(1, 6)) if m[2] == "E" else {int(d) for d in m[2]}
+            for day in re.findall(r"TH|SU|M|T|W|F|S", m[1]):
+                weeks.setdefault(day, set()).update(ords)
+        else:
+            kept.append(normalize.clean_text(text))
+    groups: dict[frozenset, list[str]] = {}
+    for day in sorted(weeks, key=_ORDER.index):
+        ords = weeks[day] if not weeks[day] >= {1, 2, 3, 4} else {1, 2, 3, 4, 5}
+        groups.setdefault(frozenset(ords), []).append(day)
+    parts = []
+    for ords, days in groups.items():
+        dayword = ", ".join(normalize.WEEKDAYS[_ORDER.index(d)] for d in days)
+        if len(ords) == 5:
+            parts.append(f"Every {dayword}")
+        else:
+            parts.append(f"{normalize.pretty_ordinals(''.join(map(str, sorted(ords))))} {dayword}")
+    words = "; ".join(dict.fromkeys(p for p in parts + kept if p))
+    if not words:
+        return None, None, None
+    return COURTESY, f"{words}{f', {note}' if note else ''}, no tickets", None
+
+
+# County street centerlines -> standard columns. `url` and `where` go in the city
+# manifest's source.arcgis (a file download: source.files); the build reads the saved
+# file with centerlines().
+COUNTY_CENTERLINES = {
+    "alameda": {
+        "url": "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0",
+        "city_where": "MUNL='{code}' OR MUNR='{code}'",
+        "name": "STREET",
+        "ranges": ("FRADDL", "TOADDL", "FRADDR", "TOADDR"),
+    },
+    "solano": {
+        "url": "https://services2.arcgis.com/SCn6czzcqKAFwdGU/arcgis/rest/services/Road_Centerlines/FeatureServer/0",
+        "city_where": "incmuni_l='{code}' OR incmuni_r='{code}'",
+        "name": "fulladdr_label_abbrv",
+        "ranges": ("fromaddr_l", "toaddr_l", "fromaddr_r", "toaddr_r"),
+    },
+    "napa": {
+        "url": "https://services1.arcgis.com/Ko5rxt00spOfjMqj/arcgis/rest/services/RoadCenterlines_Public/FeatureServer/0",
+        "city_where": "MuniLeft='{code}' OR MuniRight='{code}'",
+        "name": "FullName",
+        "ranges": ("FromLeft", "ToLeft", "FromRight", "ToRight"),
+    },
+    # Census TIGER/Line EDGES (public domain), in the manifest's source.files; the county's
+    # own CCC_Streets layer derives from licensed TomTom Dynamap data.
+    "contra_costa": {
+        "url": "https://www2.census.gov/geo/tiger/TIGER2026/EDGES/tl_2026_06013_edges.zip",
+        "read_where": "MTFCC IN ('S1200', 'S1400', 'S1730')",  # streets, no freeways or paths
+        "name": "FULLNAME",
+        "ranges": ("LFROMADD", "LTOADD", "RFROMADD", "RTOADD"),
+    },
+    # MarinMap (County of Marin) roads, provided as is; city_where codes: the City field.
+    "marin": {
+        "url": "https://services6.arcgis.com/T8eS7sop5hLmgRRH/arcgis/rest/services/Roads/FeatureServer/0",
+        "city_where": "City='{code}'",
+        "name": "Street_Nam",
+        "ranges": ("FrAddL", "ToAddL", "FrAddR", "ToAddR"),
+    },
+    "san_mateo": {
+        "url": "https://gis.smcgov.org/maps/rest/services/ISD/SMC_COUNTY_GIS/MapServer/4",
+        "city_where": "incmuni_l='{code}' OR incmuni_r='{code}'",
+        "name": "fullrdname",
+        "ranges": ("fromaddr_l", "toaddr_l", "fromaddr_r", "toaddr_r"),
+    },
+    "santa_clara": {
+        "url": "https://maps.santaclaracounty.gov/server/rest/services/opendata/SCCGISHUB/MapServer/21",
+        "city_where": "(INCMUNI_L='{code}' OR INCMUNI_R='{code}') AND OWNER='PUB'"
+        " AND ROADCLASS NOT IN ('Freeway', 'Ramp', 'Walkway', 'Expressway')",
+        "name": "FULLRDNAME",
+        "ranges": ("FROMADDR_L", "TOADDR_L", "FROMADDR_R", "TOADDR_R"),
+    },
+}
+
+
+def centerlines(path, county: str) -> geopandas.GeoDataFrame:
+    """A county centerline GeoJSON as STREET_NAME, STREET_KEY, L_F_ADD .. R_T_ADD, geometry
+    (EPSG:4326); lines without a name are dropped."""
+    spec = COUNTY_CENTERLINES[county]
+    raw = geopandas.read_file(path, where=spec.get("read_where")).to_crs("EPSG:4326")
+    name = raw[spec["name"]] if isinstance(spec["name"], str) else _join(raw, spec["name"])
+    out = geopandas.GeoDataFrame(
+        {"STREET_NAME": name.fillna("").astype(str).str.split().str.join(" ").str.upper()},
+        geometry=raw.geometry,
+        crs="EPSG:4326",
+    )
+    for col, src in zip(("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"), spec["ranges"], strict=True):
+        n = pd.to_numeric(raw[src], errors="coerce")
+        out[col] = n.where(n > 0)
+    out["STREET_KEY"] = out["STREET_NAME"].map(normalize.street_name)
+    return out[(out["STREET_NAME"] != "") & out.geometry.notna()].reset_index(drop=True)
+
+
+def _join(raw, cols) -> pd.Series:
+    """Name parts (prefix, name, type, suffix) joined with single spaces."""
+    parts = [raw[c].fillna("").astype(str).str.strip() for c in cols]
+    joined = parts[0]
+    for p in parts[1:]:
+        joined = joined + " " + p
+    return joined.str.split().str.join(" ")
+
+
+def zones_to_blocks(
+    lines: geopandas.GeoDataFrame, zones: geopandas.GeoDataFrame, min_share: float = 0.5
+) -> geopandas.GeoDataFrame:
+    """Each line with the columns of the zone holding most of its length (at least
+    min_share of it); lines in no zone are dropped. Both EPSG:4326."""
+    utm = "EPSG:26910"
+    ln = lines.to_crs(utm).reset_index(drop=True)
+    zn = zones.to_crs(utm).reset_index(drop=True)
+    zn["geometry"] = zn.geometry.make_valid()
+    ln["_line"] = ln.index
+    ln["_len"] = ln.geometry.length
+    zn["_zone"] = zn.index
+    pieces = geopandas.overlay(ln[["_line", "_len", "geometry"]], zn[["_zone", "geometry"]],
+                               how="intersection", keep_geom_type=True)  # fmt: skip
+    pieces["_share"] = pieces.geometry.length / pieces["_len"].where(pieces["_len"] > 0)
+    best = pieces.sort_values("_share").groupby("_line").tail(1)
+    best = best[best["_share"] >= min_share]
+    zcols = [c for c in zones.columns if c != "geometry"]
+    out = ln.drop(columns=["_len"]).merge(best[["_line", "_zone"]], on="_line")
+    out = out.merge(zn[["_zone", *zcols]], on="_zone", suffixes=("", "_zone"))
+    return out.drop(columns=["_line", "_zone"]).to_crs("EPSG:4326")
+
+
+def routes_to_blocks(
+    lines: geopandas.GeoDataFrame, routes: geopandas.GeoDataFrame, width_m=15, min_share=0.8
+) -> geopandas.GeoDataFrame:
+    """zones_to_blocks for route lines: each line with the columns of the route it runs
+    along (at least min_share of its length within width_m of the route)."""
+    utm = routes.to_crs("EPSG:26910")
+    zones = utm.set_geometry(utm.geometry.buffer(width_m)).to_crs("EPSG:4326")
+    return zones_to_blocks(lines, zones, min_share)
+
+
+def both_sides(blocks: geopandas.GeoDataFrame, entries) -> geopandas.GeoDataFrame:
+    """Standard-schema rows: each block with its (code, desc, time) entry on both sides;
+    each side's range low to high (TIGER runs some high to low)."""
+    cols = ["STREET_NAME", "L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD", "geometry"]
+    out, entries = blocks[cols].reset_index(drop=True), list(entries)
+    for f, t in (("L_F_ADD", "L_T_ADD"), ("R_F_ADD", "R_T_ADD")):
+        lo, hi = out[[f, t]].min(axis=1, skipna=False), out[[f, t]].max(axis=1, skipna=False)
+        out[f], out[t] = lo, hi
+    for side in ("EVEN", "ODD"):
+        for i, col in enumerate(("DAY", "DESC", "TIME")):
+            out[f"{col}_{side}"] = [e[i] for e in entries]
+    return out[out["DAY_EVEN"].notna()].reset_index(drop=True)
+
+
+def zone_blocks(lines: geopandas.GeoDataFrame, zones: geopandas.GeoDataFrame, entry, min_share=0.5):
+    """Standard-schema rows: lines in a zone (zones_to_blocks) take entry(zone row) ->
+    (code, desc, time) on both sides; zones whose entry has no code are left out."""
+    entries = [entry(r) for _, r in zones.iterrows()]
+    cols = {
+        f"{col}_{side}": [e[i] for e in entries]
+        for side in ("EVEN", "ODD")
+        for i, col in enumerate(("DAY", "DESC", "TIME"))
+    }
+    zones = zones[["geometry"]].assign(**cols)
+    out = zones_to_blocks(lines, zones[zones["DAY_EVEN"].notna()], min_share)
+    return out.drop(columns="STREET_KEY").reset_index(drop=True)
+
+
+_KEY_WORDS = {"FIRST": "1ST", "SECOND": "2ND", "THIRD": "3RD", "FOURTH": "4TH", "FIFTH": "5TH"}
+_KEY_WORDS |= {"SIXTH": "6TH", "SEVENTH": "7TH", "SAINT": "ST"}
+
+
+def street_key(name: str) -> str:
+    """A looser STREET_KEY for joining a city's names to county ones: abbreviations
+    expanded, type dropped, ordinals and SAINT unified, no spaces or punctuation
+    ("SAINT ANDREWS ST" and "St. Andrews Street" -> "STANDREWS")."""
+    toks = normalize.street_name(pdf_city.street_label(str(name))).split()
+    if len(toks) > 1 and toks[-1] in ("TE", "TERRACE"):
+        toks = toks[:-1]
+    return re.sub(r"[^A-Z0-9]", "", "".join(_KEY_WORDS.get(t, t) for t in toks))
+
+
+def blocks_along(
+    lines: geopandas.GeoDataFrame,
+    routes: geopandas.GeoDataFrame,
+    near_m: float = 8.0,
+    min_share: float = 0.5,
+) -> list[tuple]:
+    """(line index, route index) pairs where the route runs along the line: within near_m
+    of at least min_share of its length (a crossing street covers a few meters only)."""
+    utm = "EPSG:26910"
+    ln = lines.to_crs(utm).geometry
+    buf = routes.to_crs(utm).geometry.buffer(near_m)
+    near = geopandas.sjoin(
+        geopandas.GeoDataFrame(geometry=ln), geopandas.GeoDataFrame(geometry=buf)
+    )
+    return [
+        (i, r)
+        for i, r in zip(near.index, near["index_right"], strict=True)
+        if ln[i].intersection(buf[r]).length >= min_share * ln[i].length
+    ]
+
+
+def lines_along(
+    lines: geopandas.GeoDataFrame,
+    segs: geopandas.GeoDataFrame,
+    name: str | None = None,
+    buffer_m: float = 12.0,
+    min_share: float = 0.5,
+) -> geopandas.GeoDataFrame:
+    """Each line running along a segment of another layer (at least min_share of its length
+    within buffer_m of it), with the segment's columns and `_src`, its index in `lines`.
+    With `name` (the segments' street-name column) only where both names share their first
+    word after a direction ("N PARK VICTORIA DR" and "PARK VICTORIA DR"). Both EPSG:4326."""
+    zones = segs.to_crs("EPSG:26910")
+    zones["geometry"] = zones.geometry.buffer(buffer_m)
+    out = zones_to_blocks(lines.assign(_src=lines.index), zones.to_crs("EPSG:4326"), min_share)
+    if name:
+        out = out[out[name].map(_first_word) == out["STREET_NAME"].map(_first_word)]
+    return out.reset_index(drop=True)
+
+
+def _first_word(name) -> str:
+    words = [w for w in str(name).upper().split() if w not in ("N", "S", "E", "W")]
+    return {"MT": "MOUNT", "ST": "SAINT"}.get(words[0], words[0]) if words else ""
+
+
+def blocks_by_name(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFrame:
+    """Lines whose STREET_KEY equals the key of `name` ("Mission Street" matches MISSION ST)."""
+    return lines[lines["STREET_KEY"] == normalize.street_name(str(name))]
+
+
+def blocks_named(lines: geopandas.GeoDataFrame, name) -> geopandas.GeoDataFrame:
+    """Lines named `name`, spaces ignored ("Bayview Avenue" matches BAY VIEW AVE); the type
+    counts when `name` has one and a line has it ("Oak Avenue" is not OAK PL, "Oak" is
+    either, "Monona Lane" is MONONA DR when no MONONA LN exists)."""
+    key = normalize.street_name(str(name)).replace(" ", "")
+    typed = normalize.street_name_typed(str(name)).replace(" ", "")
+    by_key = lines[lines["STREET_KEY"].str.replace(" ", "") == key]
+    if typed == key:
+        return by_key
+    by_type = by_key["STREET_NAME"].map(normalize.street_name_typed).str.replace(" ", "")
+    return by_key[by_type == typed] if (by_type == typed).any() else by_key
+
+
+def in_range(lines: geopandas.GeoDataFrame, lo: int, hi: int) -> pd.Series:
+    """Rows whose address range (either side) overlaps [lo, hi]."""
+    cols = lines[["L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"]]
+    a, b = cols.min(axis=1), cols.max(axis=1)
+    return (a <= hi) & (b >= lo)
+
+
+def end_points(geom) -> tuple[tuple, tuple]:
+    parts = getattr(geom, "geoms", [geom])
+    return tuple(round(c, 6) for c in parts[0].coords[0][:2]), tuple(
+        round(c, 6) for c in parts[-1].coords[-1][:2]
+    )
+
+
+def between(lines: geopandas.GeoDataFrame, street, a, b) -> pd.Index:
+    """Index of the blocks of `street` on the shortest run of blocks from where street `a`
+    meets it to where street `b` does ("Throckmorton Ave (Elma to Cornwall)"); empty when
+    either crossing is missing. Blocks join at shared end points."""
+    adj: dict[tuple, list] = {}
+    for i, geom in blocks_named(lines, street).geometry.items():
+        p, q = end_points(geom)
+        adj.setdefault(p, []).append((i, q))
+        adj.setdefault(q, []).append((i, p))
+
+    def crossings(name):
+        pts = {e for g in blocks_named(lines, name).geometry for e in end_points(g)}
+        return [n for n in adj if n in pts]
+
+    best = None
+    for start in crossings(a):
+        prev, queue = {start: None}, [start]
+        while queue:
+            node = queue.pop(0)
+            for i, nxt in adj[node]:
+                if nxt not in prev:
+                    prev[nxt] = (node, i)
+                    queue.append(nxt)
+        for end in crossings(b):
+            if end not in prev or end == start:
+                continue
+            path, node = [], end
+            while prev[node]:
+                node, i = prev[node]
+                path.append(i)
+            if best is None or len(path) < len(best):
+                best = path
+    return pd.Index(best or [])
+
+
+def address_blocks(
+    lines: geopandas.GeoDataFrame, points: pd.DataFrame, entry
+) -> geopandas.GeoDataFrame:
+    """Standard-schema rows from address points (STREET_KEY, NUM, SCHEDULE): each block side
+    takes entry(the most common SCHEDULE of the points on its street, inside its address
+    range, of its parity) -> (code, desc, time); blocks with neither side swept are dropped."""
+    pts = points.assign(NUM=pd.to_numeric(points["NUM"], errors="coerce"))
+    pts = pts.dropna(subset=["NUM", "SCHEDULE"])
+    groups = dict(iter(pts.groupby("STREET_KEY")))
+    cols = lines[["L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD"]]
+    out = lines.copy()
+    for side in ("EVEN", "ODD"):
+        out[f"DAY_{side}"] = out[f"DESC_{side}"] = out[f"TIME_{side}"] = None
+    for i, key, lo, hi in zip(lines.index, lines["STREET_KEY"], cols.min(axis=1),
+                              cols.max(axis=1), strict=True):  # fmt: skip
+        grp = groups.get(key)
+        if grp is None or pd.isna(lo):
+            continue
+        hit = grp[(grp["NUM"] >= lo) & (grp["NUM"] <= hi)]
+        for side, par in (("EVEN", 0), ("ODD", 1)):
+            vals = hit.loc[hit["NUM"] % 2 == par, "SCHEDULE"]
+            if not vals.empty:
+                cells = [f"DAY_{side}", f"DESC_{side}", f"TIME_{side}"]
+                out.loc[i, cells] = entry(vals.mode().iloc[0])
+    out = out[out["DAY_EVEN"].notna() | out["DAY_ODD"].notna()]
+    return out.drop(columns="STREET_KEY").reset_index(drop=True)
+
+
+def parity_sides(row) -> dict[str, str]:
+    """{"L": "EVEN"|"ODD", "R": ...} from a line's address ranges (sides without a
+    range are left out)."""
+    out = {}
+    for side, (f, t) in (("L", ("L_F_ADD", "L_T_ADD")), ("R", ("R_F_ADD", "R_T_ADD"))):
+        nums = [int(v) for v in (row.get(f), row.get(t)) if pd.notna(v) and v]
+        if nums and len({n % 2 for n in nums}) == 1:
+            out[side] = "EVEN" if nums[0] % 2 == 0 else "ODD"
+    return out

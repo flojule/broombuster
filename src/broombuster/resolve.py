@@ -25,20 +25,25 @@ import shapely
 from shapely.geometry import Point
 
 from broombuster import analysis, normalize
-from broombuster.cities import CITIES, city_for_point
+from broombuster.cities import CITIES, city_for_point, region_bbox
 
 _TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
-# Max car-to-centerline distance for the car and home flows.
-CAR_MAX_DISTANCE_M = 50.0
+# Max car-to-centerline distance for the car and home flows: past it, a car is likelier on a
+# street without data than on the nearest one (every validation point lies within 16 m).
+CAR_MAX_DISTANCE_M = 20.0
 
 # A border street drawn by two cities: how much farther (EPSG:3857 m) the other city's swept
 # line may be than an unswept nearest line and still win (Woolsey St, Oakland | Berkeley).
-BORDER_EXTRA_M = 10.0
+BORDER_EXTRA_M = analysis.BORDER_M
+
+MERCATOR_MAX_LAT = 85.05112878  # EPSG:3857 covers latitudes up to this
 
 
 def mercator_scale(lat: float) -> float:
     """EPSG:3857 units per ground meter at a latitude."""
+    if not abs(lat) <= MERCATOR_MAX_LAT:
+        raise ValueError(f"latitude {lat} is outside EPSG:3857")
     return 1.0 / math.cos(math.radians(lat))
 
 
@@ -128,7 +133,7 @@ def resolve_car_segment(
         raise NoSegmentNearby(
             f"No street segment within {max_distance_m:.0f} m of ({lat:.5f}, {lon:.5f})"
         )
-    j = _swept_border_twin(gdf_3857, cand[lines], dists, j, car_pt, max_distance_m * k)
+    j = _swept_border_twin(gdf_3857, cand[lines], dists, j, car_pt, max_distance_m * k, k)
     best_line_idx, best_line_dist = int(cand[lines[j]]), float(dists[j])
 
     row = gdf_3857.iloc[best_line_idx]
@@ -163,13 +168,20 @@ def nearest_segment(gdf_3857, lat: float, lon: float) -> ResolvedCar | None:
         return None
 
 
+def in_region(region_key: str, lat: float, lon: float) -> bool:
+    """Whether a point lies in the region's bbox (cities.region_bbox)."""
+    lat0, lon0, lat1, lon1 = region_bbox(region_key)
+    return lat0 <= lat <= lat1 and lon0 <= lon <= lon1
+
+
 def locate(gdf_3857, lat: float, lon: float, region_key: str):
-    """(ResolvedCar | None, city_key) for a point in a region.
+    """(ResolvedCar | None, city_key) for a point in a region; None outside its bbox.
 
     The city is the nearest segment's; with no segment in range,
     cities.city_for_point guesses from the manifest.
     """
-    resolved = nearest_segment(gdf_3857, lat, lon) if gdf_3857 is not None else None
+    inside = gdf_3857 is not None and in_region(region_key, lat, lon)
+    resolved = nearest_segment(gdf_3857, lat, lon) if inside else None
     city = resolved.segment.get("_city") if resolved is not None else None
     return resolved, (city if city in CITIES else city_for_point(lat, lon, region_key))
 
@@ -183,20 +195,20 @@ def _unswept(row) -> bool:
     return all(analysis.is_no_sweep_code(row.get(f"DAY_{s}")) for s in ("EVEN", "ODD"))
 
 
-def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt, limit: float) -> int:
+def _swept_border_twin(gdf_3857, idx, dists, j: int, car_pt, limit: float, scale: float) -> int:
     """Position in idx of the line for the car: the nearest (j), unless it is unswept and another
     city draws the same street alongside, with a schedule, within BORDER_EXTRA_M farther and
-    within limit (EPSG:3857 m)."""
+    within limit (EPSG:3857 units; scale: units per ground meter)."""
     best = gdf_3857.iloc[int(idx[j])]
     if "_city" not in gdf_3857 or not _unswept(best):
         return j
     for k in np.argsort(dists, kind="stable"):
-        if dists[k] > min(dists[j] + BORDER_EXTRA_M, limit):
+        if dists[k] > min(dists[j] + BORDER_EXTRA_M * scale, limit):
             break
         row = gdf_3857.iloc[int(idx[k])]
         if (
             row.get("_city") != best.get("_city")
-            and row.get("STREET_KEY") == best.get("STREET_KEY")
+            and analysis.street_key(row) == analysis.street_key(best)
             and not _unswept(row)
             and 0 < row.geometry.project(car_pt) < row.geometry.length  # alongside, not end to end
         ):

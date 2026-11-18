@@ -87,22 +87,45 @@ function _removeOverlay(id) {
   delete _hereId[id];
 }
 
+// A layer's feature (id) for feature-state: a tiled layer's (PMTiles) is in its source layer.
+function _overlayAt(id) {
+  const source = LAYER_PREFIX + id, sourceLayer = map.getSource(source)?.type === 'vector' ? id : undefined;
+  return fid => ({ source, sourceLayer, id: fid });
+}
+
+// A turned-on GeoJSON layer not loaded yet because the zoom hides it (meters: one file for
+// the whole region); a tiled layer (PMTiles) loads only the tiles in view by itself.
+function _waitsForZoom(layer) {
+  const min = LAYER_STYLE[layer.id]?.minzoom || 0;
+  return !layer.tiles && !map.getSource(LAYER_PREFIX + layer.id) && map.getZoom() < min;
+}
+// Zoomed in: the turned-on layers that waited for it (map.js, zoomend).
+function syncOverlaysForZoom() {
+  if (_regionLayers().some(l => _isOn(l.id) && !map.getSource(LAYER_PREFIX + l.id))) whenStyleReady(syncOverlays);
+}
+
 let _iconListener = false;
 function _addOverlay(layer) {
+  if (_waitsForZoom(layer)) return;
   const src = LAYER_PREFIX + layer.id, st = LAYER_STYLE[layer.id] || {};
   const color = ['coalesce', ['get', 'color'], st.color || LAYER_GRAY];
-  if (!map.getSource(src)) map.addSource(src, { type: 'geojson', data: layer.url, generateId: true });
+  if (!map.getSource(src)) {
+    map.addSource(src, layer.tiles
+      ? { type: 'vector', url: 'pmtiles://' + window.location.origin + layer.tiles }
+      : { type: 'geojson', data: layer.url, generateId: true });
+  }
   const [fill, line, pt, rim, here, curb2] = _ids(layer.id);
   const below = map.getLayer('zones-fill') ? 'zones-fill' : undefined;  // under the street colors
   const over = firstLabelLayer();  // over them, under the basemap's names
-  const zoom = st.minzoom ? { minzoom: st.minzoom } : {};
+  // The source (a tiled one: its layer, named as the theme) and the zoom it shows from.
+  const base = { source: src, ...(layer.tiles ? { 'source-layer': layer.id } : {}), ...(st.minzoom ? { minzoom: st.minzoom } : {}) };
   const is = (...types) => ['in', ['geometry-type'], ['literal', types]];
   const lines = is('LineString', 'MultiLineString');
   const curb = ['==', ['get', 'kind'], 'curb'];
   const poly = ['all', is('Polygon', 'MultiPolygon'), ['!', curb]];
   const meters = layer.id === 'meters', curbs = layer.id === 'parking';
   const edgeOpacity = a => curbs ? _fadeIn(a, 0) : a;
-  const add = (def, before) => { if (!map.getLayer(def.id)) map.addLayer({ source: src, ...zoom, ...def }, before); };
+  const add = (def, before) => { if (!map.getLayer(def.id)) map.addLayer({ ...base, ...def }, before); };
   // Areas: a fill (clear, or the tint) under the streets, which a tap or the target finds,
   // and without a tint a thin edge in the area's color (darker when pale) over them; the
   // area at the target outlined.
@@ -125,7 +148,7 @@ function _addOverlay(layer) {
                    'line-dasharray': [1.5, 1.5] } }, below);
   }
   // Lines: dashed (a closure); meters' blocks solid, thin and gray, along the street.
-  if (!map.getLayer(line)) map.addLayer({ id: line, type: 'line', source: src, ...zoom,
+  if (!map.getLayer(line)) map.addLayer({ id: line, type: 'line', ...base,
     filter: lines, layout: meters ? { 'line-cap': 'round' } : {},
     paint: meters
       ? { 'line-color': color, 'line-opacity': 0.6, 'line-width': ['interpolate', ['linear'], ['zoom'], 16, 1.5, 18, 3] }
@@ -143,12 +166,12 @@ function _addOverlay(layer) {
       });
     }
     _ensureIcon(layer.id);
-    map.addLayer({ id: pt, type: 'symbol', source: src, filter: points, ...zoom,
+    map.addLayer({ id: pt, type: 'symbol', filter: points, ...base,
       layout: { 'icon-image': _iconName(layer.id), 'icon-allow-overlap': layer.id === 'markets',
                 'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.6, 15, 1] } });
   } else {
     // Many small points (meters): a dot that stays out of the way.
-    map.addLayer({ id: pt, type: 'circle', source: src, filter: points, ...zoom,
+    map.addLayer({ id: pt, type: 'circle', filter: points, ...base,
       paint: { 'circle-color': color, 'circle-opacity': meters ? 0.85 : 1,
                'circle-stroke-color': '#fff', 'circle-stroke-width': meters ? 0.6 : 1.5,
                'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 3, 15, meters ? 1.6 : 5, 18, meters ? 3.5 : 6] } });
@@ -278,7 +301,7 @@ function markOverlayAtTarget() {
     if (!map.getLayer(here)) continue;
     let f;
     try { [f] = map.queryRenderedFeatures(c, { layers: [fill] }); } catch (_) {}
-    const id = f?.id ?? null, at = fid => ({ source: LAYER_PREFIX + l.id, id: fid });
+    const id = f?.id ?? null, at = _overlayAt(l.id);
     if (id === (_hereId[l.id] ?? null)) continue;
     swapState(at, 'here', _hereId[l.id], id);
     _hereId[l.id] = id;
@@ -287,7 +310,7 @@ function markOverlayAtTarget() {
 // The basemap switched: clear the marks so markOverlayAtTarget sets them afresh.
 function resetOverlayMarks() {
   for (const [lid, id] of Object.entries(_hereId)) {
-    if (map.getSource(LAYER_PREFIX + lid)) swapState(fid => ({ source: LAYER_PREFIX + lid, id: fid }), 'here', id, null);
+    if (map.getSource(LAYER_PREFIX + lid)) swapState(_overlayAt(lid), 'here', id, null);
     delete _hereId[lid];
   }
 }

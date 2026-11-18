@@ -69,6 +69,30 @@ def test_check_rejects_bad_coordinates(client):
     assert client.post("/api/check", json={"lat": 91, "lon": 0}).status_code == 422
 
 
+@pytest.mark.parametrize("path", ["/api/check", "/api/check-home"])
+@pytest.mark.parametrize("lat", ["NaN", "Infinity", "-Infinity", "true", '"37.8"'])
+def test_check_takes_json_numbers_only(client, path, lat):
+    body = '{"lat": ' + lat + ', "lon": -122.27, "region": "bay_area"}'
+    resp = client.post(path, content=body, headers={"content-type": "application/json"})
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.parametrize("lat,lon", [(-90, -180), (90, -122.27), (0, 0), (37.5, -123.5)])
+def test_points_outside_the_region_have_no_street_or_rules(client, lat, lon):
+    data = _check(client, {"lat": lat, "lon": lon, "region": "bay_area"})
+    assert data["covered"] is False and data["schedule_even"] == data["schedule_odd"] == []
+    for kind in ("car", "home"):
+        rules = client.get("/api/rules", params={"lat": lat, "lon": lon, "kind": kind})
+        assert rules.status_code == 200 and rules.json()["rules"] == []
+
+
+def test_mercator_scale_refuses_the_poles():
+    assert resolve.mercator_scale(60.0) == pytest.approx(2.0)
+    for lat in (-90.0, 86.0, float("nan")):
+        with pytest.raises(ValueError):
+            resolve.mercator_scale(lat)
+
+
 @pytest.mark.parametrize(
     "road,number,expected",
     [
@@ -250,6 +274,18 @@ _SIGNS = [
     (37.86440, -122.28508, "M2", "9AM–12PM", "odd"),
     # Berkeley Way, south side (2024-07): "12:30 PM to 3:30 PM, 2nd Tuesday"
     (37.87215, -122.27504, "T2", "12:30PM–3:30PM", "even"),
+    # Berryman St 1821-1899, Berkeley, north side (2025-03): "12:30 PM to 3:30 PM, 2nd
+    # Thursday each month" (no PDF row: data/berkeley/corrections.yaml)
+    (37.88324, -122.27478, "TH2", "12:30PM–3:30PM", "odd"),
+    # Bancroft Way 2800-2830, Berkeley, south side (2025-03): "12:30 PM to 3:30 PM, 4th
+    # Wednesday each month" (the map leaves the block unclassed; the PDF lists it)
+    (37.86923, -122.25130, "W4", "12:30PM–3:30PM", "even"),
+    # Hopkins St 1137-1199, Berkeley, north side: PDF row "Hopkins N 1100 1498 1st Fri PM"
+    # (even numbers, north letter); the plate there is unreadable (2024-07)
+    (37.87626, -122.29216, "F1", "12:30PM–3:30PM", "odd"),
+    # Chenery St, Surrey St - Elk St, SF, north side (2022-05): "10 AM to 12 noon, 2nd and
+    # 4th Friday"; DataSF's blockside is right, its cnnrightleft points to the other curb
+    (37.73583, -122.43925, "F24", "10AM–12PM", "even"),
 ]
 
 
@@ -316,6 +352,16 @@ def test_both_sides_of_a_block_drawn_apart_are_kept(client):
     data = _check(client, {"lat": 37.71744, "lon": -122.44024, "region": "bay_area"})
     assert data["address"].startswith("Mission St")
     assert data["schedule_even"] and data["schedule_odd"]
+
+
+def test_curb_across_the_county_line_is_not_swept_by_sf(client):
+    """Mission St, Sickles Ave - Huron Ave: from 37.70849,-122.45360 west the county line runs
+    down the centerline (Census TIGER); the south curb there is Daly City's."""
+    data = _check(client, {"lat": 37.70833, "lon": -122.45392, "region": "bay_area"})
+    assert data["car_side"] == "even"
+    assert not data["schedule_even"] and data["schedule_odd"]
+    data = _check(client, {"lat": 37.70860, "lon": -122.45310, "region": "bay_area"})
+    assert data["car_side"] == "even" and data["schedule_even"]
 
 
 def test_point_without_street_data_is_not_covered(client):

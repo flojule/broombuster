@@ -1,18 +1,24 @@
-"""Live third-party feeds, fetched on demand behind a small TTL cache (failures are
-cached briefly so an outage is not hammered): street closures, Chicago's towed and
-relocated vehicles, and Chicago's permit zones by address.
+"""Live third-party feeds: street closures, refreshed in a background thread (requests
+read the last snapshot); Chicago's towed and relocated vehicles and permit zones by
+address, fetched on demand behind a small TTL cache (failures are cached briefly so an
+outage is not hammered).
 
 Every feed is best effort: a failure answers "nothing known", never an error.
 """
 
 import concurrent.futures
 import datetime
+import json
 import logging
+import math
 import threading
 import time
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
+import pyproj
 import requests
 import shapely
 
@@ -22,7 +28,7 @@ from broombuster.cities import REGIONS
 TIMEOUT_S = 8
 _UA = {"User-Agent": "BroomBuster (https://github.com/flojule/broombuster)"}
 log = logging.getLogger(__name__)
-# Closure sources are fetched side by side; a request waits at most TIMEOUT_S for them.
+# Closure sources are fetched side by side, off the request path.
 _pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="feeds")
 
 
@@ -235,65 +241,115 @@ def _safe(src, now: datetime.datetime):
         return None
 
 
-def closures(region_key: str, now: datetime.datetime | None = None) -> list[dict]:
-    """Closures in a region that are on now or start within CLOSURE_DAYS (GeoJSON
-    Features with a geometry). Each source is cached 15 minutes; the sources are
-    fetched concurrently and a source not done within TIMEOUT_S counts as none."""
+class _Snapshot(NamedTuple):
+    features: list[dict]  # GeoJSON Features, EPSG:4326
+    tree: shapely.STRtree  # over their geometries in EPSG:3857, same order
+    body: bytes  # the /api/closures FeatureCollection
+
+
+def _snapshot(features: list[dict]) -> _Snapshot:
+    """Parse each feature's geometry once (EPSG:3857); unreadable ones are left out."""
+    kept, geoms = [], []
+    for f in features:
+        try:
+            geoms.append(shapely.geometry.shape(f["geometry"]))
+        except (KeyError, TypeError, ValueError, AttributeError, shapely.errors.GEOSException):
+            continue
+        kept.append(f)
+    xy = shapely.transform(
+        np.array(geoms, dtype=object), lambda c: np.column_stack(_T.transform(*c.T))
+    )
+    body = json.dumps({"type": "FeatureCollection", "features": kept}).encode()
+    return _Snapshot(kept, shapely.STRtree(xy), body)
+
+
+_T = pyproj.Transformer.from_crs(4326, 3857, always_xy=True)
+REFRESH_S = 15 * 60  # closures are fetched again this often
+RETRY_S = 5 * 60  # this soon after a source failed
+MAX_STALE_S = 6 * 3600  # a failing source's last answer is kept this long
+_EMPTY = _snapshot([])
+_snapshots: dict[str, _Snapshot] = {}  # region -> the last refresh's closures
+_last_good: dict[tuple[str, str], tuple[float, list]] = {}  # (region, source) -> (time, answer)
+_running: dict[tuple[str, str], concurrent.futures.Future] = {}  # a source's fetch in progress
+
+
+def refresh(region_key: str, now: datetime.datetime | None = None) -> bool:
+    """Fetch a region's closure sources side by side and publish a new snapshot; False when
+    a source failed or did not answer within TIMEOUT_S (its last answer is kept for
+    MAX_STALE_S). A source still fetching from an earlier refresh is not started again."""
     now = now or datetime.datetime.now(datetime.UTC)
-    hour = now.strftime("%Y%m%d%H")
-    got, futures = {}, {}
-    for src in _CLOSURE_SOURCES.get(region_key, ()):
-        key = ("closures", src.__name__, hour)
-        got[key] = cache.peek(key, _MISS)
-        if got[key] is _MISS:
-            futures[key] = _fetch_shared(key, lambda src=src: _safe(src, now))
-    if futures:
-        done, late = concurrent.futures.wait(futures.values(), timeout=TIMEOUT_S)
-        for fut in late:
-            fut.cancel()  # only a task still queued
-        if late:
-            log.warning("%d closure source(s) still fetching after %s s", len(late), TIMEOUT_S)
-        for key, fut in futures.items():
-            ok = fut in done and not fut.cancelled()
-            got[key] = fut.result() if ok else None
-    return [f for value in got.values() for f in value or [] if f.get("geometry")]
+    srcs = _CLOSURE_SOURCES.get(region_key, ())
+    futs = {}
+    for src in srcs:
+        key = (region_key, src.__name__)
+        if key not in _running or _running[key].done():
+            _running[key] = _pool.submit(_safe, src, now)
+        futs[key] = _running[key]
+    done, late = concurrent.futures.wait(futs.values(), timeout=TIMEOUT_S)
+    if late:
+        log.warning("%d closure source(s) still fetching after %s s", len(late), TIMEOUT_S)
+    t, ok = time.time(), not late
+    for key, fut in futs.items():
+        got = fut.result() if fut in done else None
+        if got is not None:
+            _last_good[key] = (t, got)
+        else:
+            ok = False
+            if key in _last_good and t - _last_good[key][0] > MAX_STALE_S:
+                del _last_good[key]
+    features = [
+        f
+        for src in srcs
+        for f in _last_good.get((region_key, src.__name__), (0, []))[1]
+        if f.get("geometry")
+    ]
+    _snapshots[region_key] = _snapshot(features)
+    return ok
 
 
-_MISS = object()
-_inflight: dict = {}  # cache key -> the one pool task fetching it, shared by all callers
-_inflight_lock = threading.Lock()
+def _refresh_loop(stop: threading.Event) -> None:
+    while True:
+        ok = True
+        for rk, srcs in _CLOSURE_SOURCES.items():
+            if srcs:
+                try:
+                    ok = refresh(rk) and ok
+                except Exception:
+                    log.exception("closures refresh of %s failed", rk)
+                    ok = False
+        if stop.wait(REFRESH_S if ok else RETRY_S):
+            return
 
 
-def _fetch_shared(key, fetch) -> concurrent.futures.Future:
-    """The pool task filling cache[key] with fetch(): one per key, however many callers."""
-    with _inflight_lock:
-        fut = _inflight.get(key)
-        if fut is not None and not fut.done():  # a done one may predate a cache.clear()
-            return fut
-        fut = _inflight[key] = _pool.submit(cache.get, key, 15 * 60, fetch)
+def start_refresh() -> threading.Event:
+    """Refresh every region's closures now and then every REFRESH_S, in a background
+    thread; set the returned event to stop it."""
+    stop = threading.Event()
+    threading.Thread(target=_refresh_loop, args=(stop,), name="closures", daemon=True).start()
+    return stop
 
-    def forget(f):
-        with _inflight_lock:
-            if _inflight.get(key) is f:
-                del _inflight[key]
 
-    fut.add_done_callback(forget)
-    return fut
+def closures(region_key: str) -> list[dict]:
+    """The last refresh's closures in a region (GeoJSON Features with a geometry) that were
+    on or started within CLOSURE_DAYS; empty before the first refresh. Never fetches."""
+    return _snapshots.get(region_key, _EMPTY).features
+
+
+def closures_json(region_key: str) -> bytes:
+    """closures() as a GeoJSON FeatureCollection, serialized once per refresh."""
+    return _snapshots.get(region_key, _EMPTY).body
 
 
 def closures_near(region_key: str, lat: float, lon: float, meters: float = 15) -> list[dict]:
     """Rules (as /api/rules gives them) for closures within `meters` of a point."""
-    pt = shapely.Point(lon, lat)
-    deg = meters / 111_000
+    snap = _snapshots.get(region_key, _EMPTY)
+    if not snap.features:
+        return []
+    pt = shapely.Point(_T.transform(lon, lat))
+    k = 1.0 / math.cos(math.radians(lat))  # EPSG:3857 units per ground meter
     out, seen = [], set()
-    for f in closures(region_key):
-        try:
-            geom = shapely.geometry.shape(f["geometry"])
-        except (KeyError, TypeError, ValueError, AttributeError):
-            continue
-        if geom.distance(pt) > deg:
-            continue
-        p = f["properties"]
+    for i in sorted(snap.tree.query(pt, predicate="dwithin", distance=meters * k).tolist()):
+        p = snap.features[i]["properties"]
         key = (p["title"], p["start"][:10])
         if key in seen:
             continue

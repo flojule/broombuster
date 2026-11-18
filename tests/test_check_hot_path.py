@@ -1,20 +1,21 @@
 """
-The indexed schedule union (analysis.segment_index) and the vectorised resolver
-match plain row-by-row scans, on the real Bay Area + Chicago data and synthetic
-edge cases. Also: /check never waits on Nominatim, GET /address adds the house
-number, and startup builds the indexes.
+The schedule union (analysis.schedules_for_all_matching_rows) and the vectorised
+resolver match plain row-by-row scans, on the real Bay Area + Chicago data and
+synthetic edge cases; the map tiles merge rows as the card does. Also: /check never
+waits on Nominatim, GET /address adds the house number, and startup builds the indexes.
 """
 
-import gc
+import math
 import random
 
 import geopandas
 import numpy as np
 import pandas as pd
 import pytest
+import shapely
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 
-from broombuster import analysis, gps, normalize, resolve
+from broombuster import analysis, gps, normalize, resolve, tiles
 
 # ---------------------------------------------------------------------------
 # Reference implementations (plain row-by-row scans)
@@ -24,50 +25,76 @@ from broombuster import analysis, gps, normalize, resolve
 _REF_TABLES: dict = {}
 
 
+def _parts(g):
+    """LineString parts (2+ coordinates) of a line geometry, else []."""
+    if g is None or g.is_empty or g.geom_type not in ("LineString", "MultiLineString"):
+        return []
+    return [p for p in getattr(g, "geoms", [g]) if len(p.coords) >= 2]
+
+
+def _ref_key(row) -> str:
+    """The street with its type ("ASHBY AVE" is not "ASHBY PL"), else STREET_KEY."""
+    name, key = row.get("STREET_NAME"), row.get("STREET_KEY")
+    if normalize.is_text(name):
+        return normalize.street_name_typed(name)
+    return key if normalize.is_text(key) else ""
+
+
 def _ref_table(gdf):
-    """Per-row (street key, endpoints, even, odd) for the reference scan."""
+    """(row bounds array, [(key, city, parts, even, odd)]) of every row, for the reference scan."""
     if id(gdf) not in _REF_TABLES:
         table = []
         for row in gdf.to_dict("records"):  # dicts: .get() like a row Series, but fast
-            k = row.get("STREET_KEY")
-            if not normalize.is_text(k):
-                n = row.get("STREET_NAME")
-                k = normalize.street_name(n) if normalize.is_text(n) else None
-            g = row["geometry"]
-            if (
-                k is None
-                or g is None
-                or g.is_empty
-                or g.geom_type not in ("LineString", "MultiLineString")
-            ):
-                continue
             table.append(
                 (
-                    k,
-                    analysis._segment_endpoints(g),
+                    _ref_key(row),
+                    row.get("_city"),
+                    _parts(row["geometry"]),
                     analysis.get_schedule(row, 0),
                     analysis.get_schedule(row, 1),
                 )
             )
-        _REF_TABLES[id(gdf)] = (gdf, table)  # holds gdf so the id stays unique
-    return _REF_TABLES[id(gdf)][1]
+        bounds = np.array([g.bounds if g is not None else (np.nan,) * 4 for g in gdf.geometry])
+        _REF_TABLES[id(gdf)] = (gdf, bounds, table)  # holds gdf so the id stays unique
+    return _REF_TABLES[id(gdf)][1:]
+
+
+def _ref_coincide(a, b, ka, kb, ca, cb) -> bool:
+    """Two line parts (EPSG:3857) draw one street: Hausdorff within 3 m (10 m for two
+    cities) and half the shorter part, or one street key with the same ends (~1 m)."""
+    k = math.cosh(a.coords[0][1] / 6378137.0)
+    tol = min((3.0 if ca == cb else 10.0) * k, min(a.length, b.length) / 2)
+    if a.hausdorff_distance(b) <= tol:
+        return True
+
+    def ends(p):
+        return {tuple(round(v) for v in p.coords[i][:2]) for i in (0, -1)}
+
+    return ka == kb and ka != "" and ends(a) == ends(b)
 
 
 def _ref_union(gdf, resolved):
-    """schedules_for_all_matching_rows as a full scan of every row."""
+    """schedules_for_all_matching_rows as a scan of every row."""
     seg = resolved.segment
-    if resolved.is_polygon:
+    tparts = _parts(seg.geometry)
+    if resolved.is_polygon or not tparts:
         return analysis.schedules_for_segment(seg)
-    tg = seg.geometry
-    if tg is None or tg.is_empty or tg.geom_type not in ("LineString", "MultiLineString"):
-        return analysis.schedules_for_segment(seg)
-    tkey = seg.get("STREET_KEY") or normalize.street_name(seg.get("STREET_NAME") or "")
-    teps = analysis._segment_endpoints(tg)
-    if tkey == "" or not teps:
-        return analysis.schedules_for_segment(seg)
+    tkey = _ref_key(seg)
+    bounds, table = _ref_table(gdf)
+    x0, y0, x1, y1 = seg.geometry.bounds
+    r = 11.0 * math.cosh(y1 / 6378137.0)  # past BORDER_M at any of the target's latitudes
+    close = (
+        (bounds[:, 0] <= x1 + r)
+        & (bounds[:, 2] >= x0 - r)
+        & (bounds[:, 1] <= y1 + r)
+        & (bounds[:, 3] >= y0 - r)
+    )
     se, so, eo, oo = set(), set(), [], []
-    for k, cand, e, o in _ref_table(gdf):
-        if k != tkey or not cand or cand.isdisjoint(teps):
+    for i in np.flatnonzero(close):
+        k, city, parts, e, o = table[i]
+        if not any(
+            _ref_coincide(a, b, tkey, k, seg.get("_city"), city) for a in tparts for b in parts
+        ):
             continue
         if e and e not in se:
             se.add(e)
@@ -108,7 +135,7 @@ def _ref_resolve(gdf, lat, lon, max_distance_m=40.0):
             if d > best_d + resolve.BORDER_EXTRA_M or d > max_distance_m * k:
                 break
             alongside = 0 < r.geometry.project(pt) < r.geometry.length
-            same = r.get("STREET_KEY") == b.get("STREET_KEY")
+            same = _ref_key(r) == _ref_key(b)
             if r.get("_city") != b.get("_city") and same and not _unswept(r) and alongside:
                 best, best_d = i, d
                 break
@@ -157,6 +184,52 @@ def test_union_matches_full_scan_on_bay_area(bay_area_3857, sample_points):
         ), (lat, lon, r.label)
         checked += 1
     assert checked >= 50, "too few resolved points to be meaningful"
+
+
+@pytest.mark.parametrize(
+    "lat,lon,even,odd",
+    [
+        # Oakland draws State Hwy 123 (swept) over San Pablo Ave (not).
+        (37.814405, -122.274433, {"E"}, {"E"}),
+        (37.801237, -122.262787, {"MWF"}, {"FE"}),  # Lakeside Dr under Oak St
+        (37.795657, -122.278103, {"MWF"}, {"TTHS"}),  # Washington St under Jack London Sq
+        # Border streets drawn by Oakland and Berkeley: both cities' days, either side.
+        (37.850353, -122.283356, {"M24", "W2"}, {"T2", "T24"}),
+        (37.850283, -122.283332, {"M24", "W2"}, {"T2", "T24"}),
+        (37.85070, -122.27065, {"M24", "T1"}, {"M1", "T24"}),
+    ],
+)
+def test_check_unions_rows_drawing_one_street(app_client, lat, lon, even, odd):
+    body = {"lat": lat, "lon": lon, "region": "bay_area"}
+    data = app_client.post("/api/check", json=body).json()
+    assert {e[0] for e in data["schedule_even"]} == even
+    assert {o[0] for o in data["schedule_odd"]} == odd
+
+
+def test_street_type_keeps_streets_apart(app_client):
+    """Ashby Ave (not swept) and Ashby Pl (T4) share STREET_KEY and both ends: not merged."""
+    body = {"lat": 37.857366, "lon": -122.251705, "region": "bay_area"}
+    data = app_client.post("/api/check", json=body).json()
+    assert data["address"].startswith("Ashby Ave")
+    assert data["schedule_even"] == data["schedule_odd"] == []
+
+
+def test_tiles_color_streets_as_the_card(bay_area_gdf, bay_area_3857, sample_points):
+    lines = [r for r in tiles.merge_segment_rows(bay_area_gdf) if r["render_type"] == "line"]
+    tree = shapely.STRtree(
+        geopandas.GeoSeries([r["geometry"] for r in lines], crs="EPSG:4326").to_crs(3857).values
+    )
+    checked = 0
+    for lat, lon in sample_points:
+        r = resolve.nearest_segment(bay_area_3857, lat, lon)
+        if r is None:
+            continue
+        even, odd = analysis.schedules_for_all_matching_rows(bay_area_3857, r)
+        tile = lines[int(tree.nearest(Point(r.projected_point)))]
+        got = sorted((s["side"], s["code"], s["desc"], s["time"]) for s in tile["schedule"])
+        assert got == sorted([("even", *e) for e in even] + [("odd", *o) for o in odd]), r.label
+        checked += 1
+    assert checked >= 50
 
 
 def test_resolver_matches_row_scan_on_bay_area(bay_area_3857, sample_points):
@@ -232,7 +305,7 @@ def _synthetic():
             "DAY_ODD": "F24",
             "geometry": MultiLineString([a.coords, b.coords]),
         },
-        # Different street sharing block a's endpoints: never merged.
+        # Different street drawn on block a (a state highway over its street): merged.
         {"STREET_KEY": "OAK", "STREET_NAME": "OAK ST", "DAY_EVEN": "SE", "geometry": a},
         # NaN STREET_KEY falls back to the normalized STREET_NAME.
         {"STREET_KEY": np.nan, "STREET_NAME": "Elm Street", "DAY_EVEN": "THE", "geometry": a},
@@ -245,7 +318,30 @@ def _synthetic():
             "DAY_EVEN": "ME",
             "geometry": Polygon([(0, 10), (50, 10), (50, 60), (0, 60)]),
         },
+        # Another street between block a's corners, curved: never merged.
+        {
+            "STREET_KEY": "PARK",
+            "STREET_NAME": "PARK ST",
+            "DAY_EVEN": "SUE",
+            "geometry": LineString([(0, 0), (50, 40), (100, 0)]),
+        },
+        # The same city's other curb line, 5 m away: its own line.
+        {
+            "STREET_KEY": "ELM",
+            "STREET_NAME": "ELM ST",
+            "DAY_EVEN": "MWF",
+            "geometry": LineString([(0, 5), (100, 5)]),
+        },
+        # The next city's drawing of block a, 6 m away: merged.
+        {
+            "STREET_KEY": "ELM",
+            "STREET_NAME": "ELM ST",
+            "DAY_EVEN": "W2",
+            "_city": "next",
+            "geometry": LineString([(1, -6), (99, -6)]),
+        },
     ]
+    rows = [{"_city": "here", **r} for r in rows]
     gdf = geopandas.GeoDataFrame(rows, geometry="geometry", crs="EPSG:3857")
     gdf.index = pd.Index([10 * i + 5 for i in range(len(gdf))])
     return gdf
@@ -263,18 +359,31 @@ def _resolved(row, is_polygon=False):
     )
 
 
-@pytest.mark.parametrize("pos", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("pos", [0, 1, 2, 3, 4, 8, 9, 10])
 def test_union_matches_full_scan_on_edge_cases(pos):
     gdf = _synthetic()
     r = _resolved(gdf.iloc[pos])
     assert analysis.schedules_for_all_matching_rows(gdf, r) == _ref_union(gdf, r)
 
 
-def test_union_merges_sf_and_alameda_shapes():
+def test_union_merges_sf_alameda_and_border_shapes():
     gdf = _synthetic()
     even, odd = analysis.schedules_for_all_matching_rows(gdf, _resolved(gdf.iloc[0]))
-    assert [e[0] for e in even] == ["F13", "ME", "THE", "WE"]
+    assert [e[0] for e in even] == ["F13", "ME", "SE", "THE", "W2", "WE"]
     assert [o[0] for o in odd] == ["F24", "TE"]
+    curb, _ = analysis.schedules_for_all_matching_rows(gdf, _resolved(gdf.iloc[9]))
+    assert [e[0] for e in curb] == ["MWF"]
+
+
+def test_tiles_merge_rows_as_the_card():
+    gdf = _synthetic()
+    recs = [r for r in tiles.merge_segment_rows(gdf) if r["render_type"] == "line"]
+    # Block a (with its overlapping rows), block b, the curved street, the other curb line.
+    assert len(recs) == 4
+    block_a = next(r for r in recs if {"code": "ME"}.items() <= r["schedule"][0].items())
+    even, odd = analysis.schedules_for_all_matching_rows(gdf, _resolved(gdf.iloc[0]))
+    got = sorted((s["side"], s["code"]) for s in block_a["schedule"])
+    assert got == sorted([("even", e[0]) for e in even] + [("odd", o[0]) for o in odd])
 
 
 @pytest.mark.parametrize("xy", [(20, 5), (150, -3), (25, 30), (500, 500)])
@@ -290,16 +399,6 @@ def test_resolver_matches_row_scan_on_edge_cases(xy):
     assert (_position(gdf, got.segment), got.is_polygon) == ref[:2]
 
 
-def test_segment_index_is_cached_and_released():
-    gdf = _synthetic()
-    first = analysis.segment_index(gdf)
-    assert analysis.segment_index(gdf) is first
-    key = id(gdf)
-    del gdf, first
-    gc.collect()
-    assert key not in analysis._segment_index_cache
-
-
 # ---------------------------------------------------------------------------
 # Startup indexing
 # ---------------------------------------------------------------------------
@@ -310,7 +409,6 @@ def test_startup_prebuilds_indexes(app_client):
 
     gdf = state.region_gdf("chicago")
     assert gdf.has_sindex
-    assert analysis._segment_index_cache[id(gdf)][0]() is gdf
 
 
 # ---------------------------------------------------------------------------

@@ -11,4 +11,14 @@ trash: {kind: weekly, holiday_rule: shift_week}   # Recology: no lookup, the use
 layers: [parking, meters, ev, markets]   # scripts/build_layers.py (layer_sources.py)
 source:
   local_path: data/san_francisco/StreetSweeping.geojson
-  url: "https://data.sf.gov/resource/yhqp-riqs.geojson?$limit=200000"
+  build: scripts/build_san_francisco_geojson.py
+  files:
+    # Sweeping schedule; 22 rows carry no geometry.
+    - "https://data.sf.gov/resource/yhqp-riqs.geojson?$limit=200000"
+    # Street centerlines: geometry by cnn for those rows.
+    - "https://data.sf.gov/resource/3psu-pn9h.geojson?$limit=300000&$select=cnn,line"
+  arcgis:
+    # San Francisco County (Census TIGER): curbs outside it are another city's.
+    county.geojson:
+      url: https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1
+      where: "GEOID='06075'"

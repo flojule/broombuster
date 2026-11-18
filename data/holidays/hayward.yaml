@@ -1,0 +1,67 @@
+# Sweeping: the city's holidays, no sweeping; a Saturday holiday is observed the Friday
+# before, a Sunday one the Monday after. Christmas Eve 2027 is not listed: Christmas is
+# observed that Friday and the city gives no other day. No sweeping or enforcement during
+# the business closure weeks of Thanksgiving, Christmas and New Year's (weekdays listed as
+# "Business closure"): 2025-12-22 to 2026-01-02 (city news), 2026-11-23 to 28 and
+# 2026-12-21 to 2027-01-02 (library hours page); 2027 by the same rule.
+# Trash (WM of Alameda County, https://www.wm.com/us/local/ca/hayward/residential): no
+# collection on Thanksgiving, Christmas and New Year's Day; on a weekday holiday the rest
+# of that week is collected one day later.
+source: https://hayward-ca.gov/services/city-services/street-sweeping
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [sweeping, trash]}
+  - {date: 2026-01-02, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-01-19, name: Martin Luther King Jr. Day, suspends: [sweeping]}
+  - {date: 2026-02-12, name: Lincoln's Birthday, suspends: [sweeping]}
+  - {date: 2026-02-16, name: Presidents' Day, suspends: [sweeping]}
+  - {date: 2026-03-31, name: Cesar Chavez Day, suspends: [sweeping]}
+  - {date: 2026-05-25, name: Memorial Day, suspends: [sweeping]}
+  - {date: 2026-06-19, name: Juneteenth, suspends: [sweeping]}
+  - {date: 2026-07-03, name: Independence Day (observed), suspends: [sweeping]}
+  - {date: 2026-09-07, name: Labor Day, suspends: [sweeping]}
+  - {date: 2026-09-09, name: Admission Day, suspends: [sweeping]}
+  - {date: 2026-10-12, name: Indigenous Peoples' Day, suspends: [sweeping]}
+  - {date: 2026-11-11, name: Veterans Day, suspends: [sweeping]}
+  - {date: 2026-11-23, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-11-24, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-11-25, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [sweeping, trash]}
+  - {date: 2026-11-27, name: Day after Thanksgiving, suspends: [sweeping]}
+  - {date: 2026-12-21, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-12-22, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-12-23, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-12-24, name: Christmas Eve, suspends: [sweeping]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [sweeping, trash]}
+  - {date: 2026-12-28, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-12-29, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-12-30, name: Business closure, suspends: [sweeping]}
+  - {date: 2026-12-31, name: New Year's Eve, suspends: [sweeping]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [sweeping, trash]}
+  - {date: 2027-01-18, name: Martin Luther King Jr. Day, suspends: [sweeping]}
+  - {date: 2027-02-12, name: Lincoln's Birthday, suspends: [sweeping]}
+  - {date: 2027-02-15, name: Presidents' Day, suspends: [sweeping]}
+  - {date: 2027-03-31, name: Cesar Chavez Day, suspends: [sweeping]}
+  - {date: 2027-05-31, name: Memorial Day, suspends: [sweeping]}
+  - {date: 2027-06-18, name: Juneteenth (observed), suspends: [sweeping]}
+  - {date: 2027-07-05, name: Independence Day (observed), suspends: [sweeping]}
+  - {date: 2027-09-06, name: Labor Day, suspends: [sweeping]}
+  - {date: 2027-09-09, name: Admission Day, suspends: [sweeping]}
+  - {date: 2027-10-11, name: Indigenous Peoples' Day, suspends: [sweeping]}
+  - {date: 2027-11-11, name: Veterans Day, suspends: [sweeping]}
+  - {date: 2027-11-22, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-11-23, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-11-24, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [sweeping, trash]}
+  - {date: 2027-11-26, name: Day after Thanksgiving, suspends: [sweeping]}
+  - {date: 2027-12-20, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-12-21, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-12-22, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-12-23, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-12-24, name: Christmas Day (observed), suspends: [sweeping]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-12-27, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-12-28, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-12-29, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-12-30, name: Business closure, suspends: [sweeping]}
+  - {date: 2027-12-31, name: New Year's Eve, suspends: [sweeping]}

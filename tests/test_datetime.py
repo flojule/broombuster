@@ -19,7 +19,7 @@ import pandas as pd
 import pytest
 import shapely.geometry
 
-from broombuster import analysis, normalize, schemas
+from broombuster import analysis, normalize, schedule, schemas
 from broombuster.cities import REGIONS
 
 _DIR = Path(__file__).parent
@@ -108,6 +108,7 @@ def data_codes(all_rows):
         if normalize.is_text(c)
         and not analysis.is_no_sweep_code(c)
         and c not in analysis.UNDATED_CODES
+        and c != "NT"  # no tickets: shown by its description (DISPLAY_CASES)
     )
 
 
@@ -207,12 +208,41 @@ def test_time_display_and_window(raw, display, window):
     assert js(("timeDisplay", [raw]), ("timeWindow", [raw])) == [display, window]
 
 
+# Python (calendar feed) and JS read the same: ASCII digits, dates as YYYY-MM-DD only.
+PARSER_TIMES = ["\uff18AM-10AM", "8AM-\uff110AM", " am ", "pm", "8AM-10AM", "10PM-2AM"]
+PARSER_CODES = [
+    "DATES:2026-09-30",
+    "DATES: 2026-02-30 , 2026-09-30",
+    "DATES:20260930",
+    "DATES:2026-W40-3",
+    "DATES:\uff12\uff10\uff12\uff16-09-30",
+    "DATES:2026-9-30",
+    "WE",
+]
+
+
+@needs_node
+def test_python_and_js_parse_alike():
+    wed = datetime.date(2026, 9, 30)
+    got = js(
+        *[(fn, [t]) for t in PARSER_TIMES for fn in ("timeDisplay", "timeWindow")],
+        *[("sweepsOn", [c, wed.year, wed.month, wed.day]) for c in PARSER_CODES],
+    )
+    py = [
+        *[v for t in PARSER_TIMES for v in (normalize.time_display(t), schedule.time_window(t))],
+        *[schedule.sweeps_on(c, wed) for c in PARSER_CODES],
+    ]
+    assert got == [list(v) if isinstance(v, tuple) else v for v in py]
+    assert [schedule.sweeps_on(c, wed) for c in PARSER_CODES] == [1, 1, 0, 0, 0, 0, 1]
+    assert normalize.time_display(" am ") == "AM" and schedule.time_window("\uff18AM-10AM") is None
+
+
 @needs_node
 def test_every_data_time_window_parses_and_matches_python(data_times):
     got = js(*[c for t in data_times for c in (("timeDisplay", [t]), ("timeWindow", [t]))])
     for t, disp, win in zip(data_times, got[::2], got[1::2], strict=True):
         assert win is not None, t
-        assert win[0] < win[1], (t, win)  # no committed window runs past midnight
+        assert win[0] != win[1], (t, win)  # end < start: past midnight
         if t.upper() not in ("AM", "PM"):
             assert disp == normalize.time_display(t), t
             assert re.fullmatch(r"\d{1,2}(:\d\d)?[AP]M–\d{1,2}(:\d\d)?[AP]M", disp), t
@@ -285,6 +315,31 @@ def test_sweep_deadline(entries, at, want):
     assert (want is not None) == (js(("checkDaySweeping", [es, at]))[0] != "safe")
 
 
+# The 6 h lead counts real time: a DST night is 23 h (Mar 8 2026) or 25 h (Nov 1 2026).
+# SF Sunday 4AM-6AM: 4AM PDT (11:00Z) is 6 h after 9PM PST; 4AM PST (12:00Z) after 11PM PDT.
+DST_CASES = [
+    ("2026-03-07T20:59:00-08:00", "tomorrow"),
+    ("2026-03-07T21:00:00-08:00", "today"),
+    ("2026-03-07T21:30:00-08:00", "today"),
+    ("2026-10-31T22:30:00-07:00", "tomorrow"),
+    ("2026-10-31T23:00:00-07:00", "today"),
+]
+
+
+@needs_node
+@pytest.mark.parametrize("iso,want", DST_CASES)
+def test_lead_counts_real_time_across_dst(iso, want):
+    es = [{"code": "SUE", "time": "4AM-6AM"}]
+    at = {"$now": ["America/Los_Angeles", iso]}
+    verdict, deadline = js(("checkDaySweeping", [es, at]), ("sweepDeadline", [es, at]))
+    assert verdict == want
+    assert deadline == {"state": "by" if want == "today" else "tomorrow", "at": "4AM"}
+    t = datetime.datetime.fromisoformat(iso)
+    sunday = t.date() + datetime.timedelta(days=1)
+    start = datetime.datetime.combine(sunday, datetime.time(4), ZoneInfo("America/Los_Angeles"))
+    assert (start - t <= datetime.timedelta(hours=6)) == (want == "today")  # the Python oracle
+
+
 # ── Schedule display ─────────────────────────────────────────────────────────
 
 
@@ -303,6 +358,8 @@ DISPLAY_CASES = [
         [["POSTED", "Day as posted on the signs", "9AM-12PM"]],
         ["Day as posted on the signs · 9AM–12PM"],
     ),
+    # No tickets (Pittsburg zones without code enforcement): the description only.
+    ([["NT", "1st & 3rd Tue, 6AM–4PM, no tickets", None]], ["1st & 3rd Tue, 6AM–4PM, no tickets"]),
     ([["MWF", "Every Mon, Wed, Fri", "9:00AM-12:00PM"]], ["Mon, Wed, Fri · 9AM–12PM"]),
     ([["MTWTHF", "", "8AM-10AM"]], ["Mon–Fri · 8AM–10AM"]),
     ([["E", "Everyday", "9:00AM-12:00PM"]], ["Every day · 9AM–12PM"]),

@@ -43,7 +43,7 @@ function updateNetChip() {
 window.addEventListener('offline', updateNetChip);
 window.addEventListener('online', () => {
   updateNetChip();
-  if (_citiesFailed) retryCities();
+  if (_citiesFailed) loadCities();
   for (const c of cars) if (loadFailed.has(c.id)) checkCar(c);
   for (const h of homes) if (loadFailed.has(h.id)) checkHome(h.id);
   loadAlerts();

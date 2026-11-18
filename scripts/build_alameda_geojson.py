@@ -9,12 +9,14 @@ Input:  data/alameda/schedule.geojson     day, posted time, signed or not per bl
 Output: data/alameda/StreetSweeping.geojson
 
 The city serves no geometry, so each block takes the county centerline with the same
-street name and address ranges (else the one sharing most house numbers). Only sides with No
-Parking signs are enforced; an unsigned side gets the no-sweep code "NS".
+street name (after renames) and address ranges, else the one sharing most house numbers;
+a block without ranges takes the street's county segments without ranges. Only sides with
+No Parking signs are enforced; an unsigned side is citykit.COURTESY ("NT").
 """
 
 from pathlib import Path
 
+import citykit
 import geopandas
 import pandas as pd
 import pdf_city
@@ -30,7 +32,9 @@ _DAY_CODE = {
     "FRIDAY": ("FE", "Every Fri"),
     "ALL": ("E", "Every day"),
 }
-_NO_SIGNS = "NS"  # analysis.NO_SWEEP_CODES
+# City names the county writes differently (the county has the current name).
+_RENAMED = {"CONSTITUTION WY": "WILMA CHAN WY"}  # renamed 2023
+_UNRANGED_SPREAD_M = 1000  # unranged segments of one street farther apart are not one block
 _SIDES = (("EVEN", "SweepEven", "SignEven", "PostedTime_Even"),
           ("ODD", "SweepOdd", "SignOdd", "PostedTime_Odd"))  # fmt: skip
 
@@ -48,7 +52,7 @@ def side_entry(day, signed, posted) -> tuple:
     code, desc = hit
     time = normalize.time_display(posted) if normalize.clean_text(posted) else None
     if _int(signed) != 1:
-        return _NO_SIGNS, f"{desc}, no signs", None
+        return citykit.COURTESY, f"{desc}{f', {time}' if time else ''}, no tickets", None
     return code, desc, time
 
 
@@ -63,6 +67,18 @@ def _overlap(a, b) -> int:
     return min(hi_a, hi_b) - max(lo_a, lo_b)
 
 
+def _unranged(cand: geopandas.GeoDataFrame):
+    """Union of a street's county segments without address ranges; None when there are
+    none or they lie apart (not one block)."""
+    parts = cand[[not any(r) for r in cand["_rng"]]]
+    if parts.empty:
+        return None
+    x0, y0, x1, y1 = parts.to_crs("EPSG:26910").total_bounds
+    if max(x1 - x0, y1 - y0) > _UNRANGED_SPREAD_M:
+        return None
+    return parts.geometry.union_all()
+
+
 def join(schedule: pd.DataFrame, lines: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """Standard-schema rows: one per scheduled block that has a county centerline."""
     lines = lines.assign(
@@ -71,18 +87,23 @@ def join(schedule: pd.DataFrame, lines: geopandas.GeoDataFrame) -> geopandas.Geo
     )
     by_name = dict(iter(lines.groupby("_name")))
     by_compact = {name.replace(" ", ""): grp for name, grp in by_name.items()}  # KITTY HAWK
-    rows, dropped = [], 0
+    rows, dropped = [], []
+    unranged: dict[str, list] = {}  # street -> side entries of its blocks without ranges
     for _, s in schedule.iterrows():
         name = " ".join(str(s["FullStreetName"] or "").upper().split())
         rng = _ranges(s, ("FrAddressLeft", "ToAddressLeft", "FrAddressRight", "ToAddressRight"))
         entries = {side: side_entry(s[d], s[sign], s[t]) for side, d, sign, t in _SIDES}
         if not name or not any(e[0] for e in entries.values()):
             continue
-        cand = by_name.get(name)
+        county = _RENAMED.get(name, name)
+        cand = by_name.get(county)
         if cand is None:
-            cand = by_compact.get(name.replace(" ", ""))
-        geom = None
-        if cand is not None and any(rng):
+            cand = by_compact.get(county.replace(" ", ""))
+        if cand is not None and not any(rng):
+            unranged.setdefault(name, []).append((s, entries))
+            continue
+        geom, why = None, "no county street of this name"
+        if cand is not None:
             exact = cand[cand["_rng"] == rng]
             if not exact.empty:
                 geom = exact.geometry.union_all()
@@ -96,23 +117,53 @@ def join(schedule: pd.DataFrame, lines: geopandas.GeoDataFrame) -> geopandas.Geo
                 best = max(scored, key=lambda x: x[0], default=(0, None, None))
                 if best[0] > 0:
                     geom, rng = best[1], best[2]
+                why = "no county segment shares its house numbers"
         if geom is None:
-            dropped += 1
+            dropped.append((s, entries, why))
             continue
-        rec = {
-            "geometry": geom,
-            "STREET_NAME": pdf_city.street_label(name),
-            "L_F_ADD": float(rng[0]) or None,
-            "L_T_ADD": float(rng[1]) or None,
-            "R_F_ADD": float(rng[2]) or None,
-            "R_T_ADD": float(rng[3]) or None,
-        }
-        for side, (code, desc, time) in entries.items():
-            rec[f"DAY_{side}"], rec[f"DESC_{side}"], rec[f"TIME_{side}"] = code, desc, time
-        rows.append(rec)
-    if dropped:
-        print(f"  ⚠  {dropped} scheduled blocks had no county centerline and were dropped.")
+        rows.append(_record(county, geom, rng, entries))
+    for name, blocks in unranged.items():
+        cand = by_name.get(_RENAMED.get(name, name))
+        if cand is None:
+            cand = by_compact.get(_RENAMED.get(name, name).replace(" ", ""))
+        geom = _unranged(cand)
+        if geom is None:
+            why = "no county segment without ranges (or they lie apart)"
+            dropped += [(s, e, why) for s, e in blocks]
+            continue
+        # The blocks cannot be told apart: a side whose blocks disagree is unknown.
+        merged = {}
+        for side in ("EVEN", "ODD"):
+            got = {e[side] for _, e in blocks}
+            merged[side] = got.pop() if len(got) == 1 else (
+                citykit.UNKNOWN, citykit.UNKNOWN_DESC, None)  # fmt: skip
+        rows.append(_record(_RENAMED.get(name, name), geom, (0, 0, 0, 0), merged))
+    signed = [
+        d for d in dropped if any(e[0] not in (None, citykit.COURTESY) for e in d[1].values())
+    ]
+    print(f"  {len(dropped)} scheduled blocks dropped, {len(signed)} signed:")
+    for s, _, why in signed:
+        print(
+            f"     {s['FullStreetName']} {_ranges(s, ('FrAddressLeft', 'ToAddressRight'))}: {why}"
+        )
+    renamable = [s["FullStreetName"] for s, _, why in signed if why.startswith("no county street")]
+    if renamable:
+        raise SystemExit(f"signed blocks on streets the county names otherwise: {renamable}")
     return geopandas.GeoDataFrame(rows, crs="EPSG:4326")
+
+
+def _record(name, geom, rng, entries) -> dict:
+    rec = {
+        "geometry": geom,
+        "STREET_NAME": pdf_city.street_label(name),
+        "L_F_ADD": float(rng[0]) or None,
+        "L_T_ADD": float(rng[1]) or None,
+        "R_F_ADD": float(rng[2]) or None,
+        "R_T_ADD": float(rng[3]) or None,
+    }
+    for side, (code, desc, time) in entries.items():
+        rec[f"DAY_{side}"], rec[f"DESC_{side}"], rec[f"TIME_{side}"] = code, desc, time
+    return rec
 
 
 def main():

@@ -227,10 +227,11 @@ def street_name_typed(raw: str) -> str:
 # Also tolerates the whitespace artifacts produced by Alameda's PDF parser:
 #   "8:00 AM -11 :00 AM", "1 0:00 AM -1: 00 PM" — stray spaces inside hours,
 #   minutes, and around colons. Each digit group allows internal spaces;
-#   colons may be flanked by spaces.
-_TIME_RANGE_RE = re.compile(
-    r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)[\s,]*(?:[-–—•·o]|to)\s*"
-    r"(\d\s*\d?)\s*(?::\s*(\d\s*\d))?\s*(A[\s,]*M|P[\s,]*M)",
+#   colons may be flanked by spaces. ASCII digits only, as urgency.js TIME_RANGE_RE.
+TIME_RANGE_RE = re.compile(
+    r"([0-9]\s*[0-9]?)\s*(?::\s*([0-9]\s*[0-9]))?\s*(A[\s,]*M|P[\s,]*M)"
+    r"[\s,]*(?:[-–—•·o]|to)\s*"
+    r"([0-9]\s*[0-9]?)\s*(?::\s*([0-9]\s*[0-9]))?\s*(A[\s,]*M|P[\s,]*M)",
     re.IGNORECASE,
 )
 
@@ -257,17 +258,17 @@ def time_display(raw: str) -> str:
       "8:00 AM -11:00 AM"  →  "8AM–11AM"
       "10AM–1PM"           →  "10AM–1PM"   (already clean, returned as-is)
       "8:00 AM • 9:30 AM"  →  "8AM–9:30AM"
-    Returns the raw string if it is not a range of clock times (as
-    frontend/js/urgency.js timeDisplay does).
+    Returns a bare AM / PM (a morning / afternoon route) upper-cased, and the raw string
+    if it is not a range of clock times (as frontend/js/urgency.js timeDisplay does).
     """
     if not isinstance(raw, str):
         return "N/A"
     s = raw.strip()
     if s.upper() in _PLACEHOLDERS:
         return "N/A"
-    match = _TIME_RANGE_RE.search(s)
+    match = TIME_RANGE_RE.search(s)
     if not match:
-        return s
+        return s.upper() if s.upper() in ("AM", "PM") else s
     h1, m1, ap1, h2, m2, ap2 = match.groups()
     if not all(
         1 <= hh <= 12 and mn <= 59

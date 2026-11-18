@@ -292,6 +292,31 @@ def test_calendar_link_and_feed(env, monkeypatch, app_client):
     assert client.get("/api/calendar/nope.ics").status_code == 404
 
 
+def test_database_is_wal_and_a_polled_feed_marks_its_use_hourly(env, monkeypatch, app_client):
+    client = TestClient(app, follow_redirects=False)
+    _sign_in(client, monkeypatch)
+    made = client.post("/api/me/calendar", headers={"Origin": BASE}).json()
+    path = made["url"][len(BASE) :]
+
+    def used(set_to=None):
+        with auth._connect() as db:
+            if set_to is not None:
+                db.execute("UPDATE calendar_tokens SET last_used = ?", (set_to,))
+            return db.execute("SELECT last_used FROM calendar_tokens").fetchone()[0]
+
+    with auth._connect() as db:
+        assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert used() is None and client.get(path).status_code == 200
+    now = used()
+    assert now > time.time() - 60
+    used(now - 1800)
+    client.get(path)
+    assert used() == now - 1800  # used within the hour: not written again
+    used(now - 3700)
+    client.get(path)
+    assert used() >= now
+
+
 # ── Passkeys, invites, shared accounts ────────────────────────────────────────
 # The WebAuthn library's checks are its own; these tests fake its verdict and test
 # the glue: challenges used once, the right account, the right session.

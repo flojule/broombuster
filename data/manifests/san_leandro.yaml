@@ -1,0 +1,25 @@
+name: "San Leandro, CA"
+source_updated: "2025-11"   # when the city last edited its sweeping source
+center: {lat: 37.7079, lon: -122.1560}
+schema: prebuilt
+bbox: [37.66, -122.20, 37.75, -122.09]
+fgb_path: data/san_leandro/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/san_leandro.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # ACI San Leandro: the user picks the day
+source:
+  local_path: data/san_leandro/StreetSweeping.geojson
+  build: scripts/build_san_leandro_geojson.py
+  arcgis:
+    # The city's sweeping layers (its three ArcGIS sweeping apps).
+    zones.geojson: https://services.arcgis.com/nFaSPZoTjS78xXjw/arcgis/rest/services/StreetSweeping/FeatureServer/0
+    commercial.geojson: https://services.arcgis.com/nFaSPZoTjS78xXjw/arcgis/rest/services/StreetSweepingCommercial/FeatureServer/0
+    posted.geojson: https://services.arcgis.com/nFaSPZoTjS78xXjw/arcgis/rest/services/StreetSweepingPostedStreets/FeatureServer/0
+    # Alameda County street centerlines without freeways and ramps: blocks and address ranges.
+    centerlines.geojson:
+      url: https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0
+      where: "(MUNL='SL' OR MUNR='SL') AND CLASS NOT IN ('Interstate', 'Ramp', 'Freeway or Expressway')"
+  notes: |
+    The apps: https://sanleandro.maps.arcgis.com/apps/instant/sidebar/index.html?appid=6f059d064f554bfa8c767ad16319614b
+    (residential), ...?appid=36b2546e754d48ddb9b2cd2125c53e80 (commercial),
+    ...?appid=0efae5aa1de24f1a8a1f67a454536c82 (posted streets).

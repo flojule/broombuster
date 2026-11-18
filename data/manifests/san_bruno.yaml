@@ -1,0 +1,21 @@
+name: "San Bruno, CA"
+center: {lat: 37.6233, lon: -122.4365}
+schema: prebuilt
+bbox: [37.60, -122.48, 37.65, -122.39]
+fgb_path: data/san_bruno/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2026-09"
+holidays: data/holidays/recology_san_bruno.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Recology San Bruno
+source:
+  local_path: data/san_bruno/StreetSweeping.geojson
+  build: scripts/build_san_bruno_geojson.py
+  arcgis:
+    # The city's sweeping routes: weeks and day, posted hours, curbs or islands.
+    routes.geojson: https://services2.arcgis.com/iLsFVn6d1pmqKEfA/arcgis/rest/services/Street_Sweeping_Schedule/FeatureServer/0
+    # San Mateo County street centerlines in San Bruno.
+    centerlines.geojson:
+      url: https://gis.smcgov.org/maps/rest/services/ISD/SMC_COUNTY_GIS/MapServer/4
+      where: "incmuni_l='SAN BRUNO' OR incmuni_r='SAN BRUNO'"
+  notes: |
+    Program page and map: https://www.sanbruno.ca.gov/2319/Street-Sweeping

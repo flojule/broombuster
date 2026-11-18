@@ -1,0 +1,12 @@
+# Trash (WM of Alameda County): no collection on Thanksgiving, Christmas and New Year's Day;
+# on a weekday holiday the rest of that week is collected one day later.
+# Sweeping: the city publishes no sweeping holidays, so none is assumed.
+source: https://www.wm.com/us/local/ca/emeryville/residential
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-11-26, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-11-25, name: Thanksgiving Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

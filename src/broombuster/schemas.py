@@ -74,6 +74,8 @@ _OAKLAND_DAY_DESC = {
     "O": "There is no this side of the street",
     "DM": "It is shown in the different map.",
     "MS": "Major street uses 2 lines, not center line.",
+    # Not a domain value: the layer's blank-schedule marker (San Leandro St, 85 sides).
+    "MISSING": "Schedule not published: check the posted sign",  # scripts/citykit.UNKNOWN_DESC
 }
 # Source codes the sweep-code grammar reads differently (or not at all) -> grammar code.
 # Holidays are suspended for every code (data/holidays/oakland.yaml).
@@ -84,6 +86,7 @@ _OAKLAND_DAY_CODE = {
     "FW": "W1",
     "S": "POSTED",  # swept, day unknown: no dates, the description and hours shown
     "SU": "POSTED",
+    "MISSING": "POSTED",  # schedule not in the layer: the sign decides
 }
 _OAKLAND_DAY_NAME = {"M": "Mon", "T": "Tues", "W": "Wed", "TH": "Thurs", "F": "Fri"}
 _OAKLAND_ORDINAL = {"1": "1st", "2": "2nd", "3": "3rd", "4": "4th", "5": "5th"}
@@ -250,6 +253,26 @@ def _left_compass(geom):
     return _COMPASS_SECTORS[round(angle / 45) % 8]
 
 
+def sf_on_left(lr, blockside, geom) -> bool | None:
+    """True when an SF row's curb is left of geom's digitized direction, None when unknown.
+
+    blockside wins over cnnrightleft when they point to opposite curbs: the posted signs
+    follow blockside (Chenery St cnn 3933000, Street View 2022-05: 2nd & 4th Fri on North).
+    """
+    lr = str(lr).strip().upper()
+    if lr not in ("L", "R"):
+        return None
+    left = lr == "L"
+    side = _COMPASS_CANON.get(str(blockside).strip().upper())
+    geo_left = _left_compass(geom)
+    if side and geo_left:
+        geo = geo_left if left else _OPPOSITE_SIDE[geo_left]
+        gap = _COMPASS_SECTORS.index(side) - _COMPASS_SECTORS.index(geo)
+        if abs((gap + 4) % 8 - 4) > 2:
+            left = not left
+    return left
+
+
 def _side_label(compass):
     """ "NorthEast" -> "Northeast"; None stays None."""
     return compass[0] + compass[1:].lower() if isinstance(compass, str) else None
@@ -354,8 +377,12 @@ def _normalize_sf(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     # compass labels shown instead of "Even" / "Odd".
     lr_col = col("cnnrightleft")
     if lr_col:
-        lr = out[lr_col].fillna("").astype(str).str.strip().str.upper()
-        is_l, is_r = lr == "L", lr == "R"
+        on_left = [
+            sf_on_left(lr, side, g)
+            for lr, side, g in zip(out[lr_col], raw_side, out.geometry, strict=True)
+        ]
+        is_l = pd.Series([v is True for v in on_left], index=out.index)
+        is_r = pd.Series([v is False for v in on_left], index=out.index)
         is_even, is_odd = is_even | is_l, is_odd | is_r
         known = is_l | is_r
         for cn, v in (("L_F_ADD", 0), ("L_T_ADD", 0), ("R_F_ADD", 1), ("R_T_ADD", 1)):
@@ -569,4 +596,5 @@ SCHEMA_PROFILES = {
     "chicago": _normalize_chicago,
     "berkeley": _normalize_prebuilt,
     "alameda": _normalize_prebuilt,
+    "prebuilt": _normalize_prebuilt,  # any city built by scripts/build_<city>_geojson.py
 }

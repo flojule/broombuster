@@ -1,0 +1,23 @@
+name: "Pittsburg, CA"
+source_updated: "2026-11"   # when the city last edited its sweeping source
+center: {lat: 38.015, lon: -121.905}
+schema: prebuilt
+bbox: [37.98, -121.99, 38.05, -121.83]
+fgb_path: data/pittsburg/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/pittsburg.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Mt. Diablo Resource Recovery: the user picks the day
+source:
+  local_path: data/pittsburg/StreetSweeping.geojson
+  build: scripts/build_pittsburg_geojson.py
+  arcgis:
+    # The city's sweeping map: residential zones (schedule, hours, enforced or not) and
+    # commercial route lines (weekly).
+    residential.geojson: https://services6.arcgis.com/X3LnFc9yy269fH43/arcgis/rest/services/StreetSweeping/FeatureServer/1
+    commercial.geojson: https://services6.arcgis.com/X3LnFc9yy269fH43/arcgis/rest/services/StreetSweeping/FeatureServer/0
+  files:
+    # Contra Costa County streets: Census TIGER/Line EDGES (citykit.COUNTY_CENTERLINES).
+    - https://www2.census.gov/geo/tiger/TIGER2026/EDGES/tl_2026_06013_edges.zip
+  notes: |
+    The map is linked from
+    https://www.pittsburgca.gov/services/public-works/facilities-and-utilities/street-sweeping-program

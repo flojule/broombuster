@@ -1,0 +1,20 @@
+name: "San Rafael, CA"
+source_updated: "2026-06"   # when the city last edited its sweeper zones
+center: {lat: 37.9735, lon: -122.5311}
+schema: prebuilt
+bbox: [37.93, -122.61, 38.04, -122.46]
+fgb_path: data/san_rafael/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/marin_sanitary.yaml
+trash: {kind: weekly, holiday_rule: next_day}   # Marin Sanitary Service: the user picks the day
+source:
+  local_path: data/san_rafael/StreetSweeping.geojson
+  build: scripts/build_san_rafael_geojson.py
+  arcgis:
+    # The city's sweeper zones (frequency per zone), behind its street sweeping map.
+    zones.geojson: https://services5.arcgis.com/sruoiBDPu8SihcGN/arcgis/rest/services/Updated_Sweeper_Zones_2025/FeatureServer/0
+    # The city's swept streets with address ranges (2022 zone ids, replaced by the zones).
+    streets.geojson: https://services5.arcgis.com/sruoiBDPu8SihcGN/arcgis/rest/services/StreetSweeping_2022_April/FeatureServer/0
+  notes: |
+    https://sanrafael.gov/find-your-street-sweeping-day: April to October 2026, "Move cars off
+    the street for the day we sweep".

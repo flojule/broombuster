@@ -16,8 +16,12 @@ NOW = datetime.datetime(2026, 10, 17, 18, 0, tzinfo=datetime.UTC)
 
 @pytest.fixture(autouse=True)
 def _clean_cache():
+    for d in (feeds._snapshots, feeds._last_good, feeds._running):
+        d.clear()
     feeds.cache.clear()
     yield
+    for d in (feeds._snapshots, feeds._last_good, feeds._running):
+        d.clear()
     feeds.cache.clear()
 
 
@@ -66,9 +70,12 @@ def _fake_closures(monkeypatch, sf=_SF, oakland=None):
 
 def test_closures_and_rules_near(monkeypatch):
     _fake_closures(monkeypatch)
-    got = feeds.closures("bay_area", NOW)
+    assert (
+        feeds.closures("bay_area") == [] and feeds.closures_near("bay_area", 37.77, -122.45) == []
+    )
+    assert feeds.refresh("bay_area", NOW)
+    got = feeds.closures("bay_area")
     assert len(got) == 1 and got[0]["properties"]["title"] == "Street Fair"
-    monkeypatch.setattr(feeds, "closures", lambda region, now=None: got)
     near = feeds.closures_near("bay_area", 37.77, -122.4495)
     assert near and near[0]["warn"] and near[0]["rule"].startswith("Sun Oct 18, 10 AM–6 PM")
     assert feeds.closures_near("bay_area", 37.78, -122.4495) == []  # ~1 km away
@@ -76,8 +83,8 @@ def test_closures_and_rules_near(monkeypatch):
 
 def test_closures_failure_is_empty(monkeypatch):
     monkeypatch.setattr(feeds, "get_json", lambda url, **p: None)
-    assert feeds.closures("bay_area", NOW) == []
-    assert feeds.closures("chicago", NOW) == []
+    assert not feeds.refresh("bay_area", NOW) and feeds.closures("bay_area") == []
+    assert feeds.refresh("chicago", NOW) and feeds.closures("chicago") == []
 
 
 def test_oakland_closures_dates(monkeypatch):
@@ -97,7 +104,8 @@ def test_oakland_closures_dates(monkeypatch):
         ]
     }
     _fake_closures(monkeypatch, sf={"features": []}, oakland=oak)
-    (f,) = feeds.closures("bay_area", NOW)
+    feeds.refresh("bay_area", NOW)
+    (f,) = feeds.closures("bay_area")
     assert f["properties"]["start"] == "2026-10-31" and f["properties"]["street"] == "Mitchell"
     assert feeds._when("2026-10-31", "2026-10-31", "bay_area") == "Sat Oct 31"
 
@@ -124,7 +132,8 @@ def test_511_naive_dates_and_a_failing_source(monkeypatch):
         raise TypeError("bad feed")
 
     monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (broken, feeds._511_work_zones))
-    got = feeds.closures("bay_area", NOW)  # NOW is 11 AM PDT
+    assert not feeds.refresh("bay_area", NOW)  # NOW is 11 AM PDT
+    got = feeds.closures("bay_area")
     assert [f["properties"]["end"] for f in got] == ["2026-10-17T12:00:00"]
 
 
@@ -144,44 +153,97 @@ def test_ttl_cache_fetches_once_for_concurrent_callers():
     assert len(calls) == 1
 
 
-def test_closures_wait_is_bounded(monkeypatch):
+def _feature(title):
+    props = {"title": title, "start": "2026-10-18", "end": "2026-10-18", "street": ""}
+    return {"type": "Feature", "geometry": _LINE, "properties": {**props, "source": "s"}}
+
+
+def test_refresh_wait_is_bounded(monkeypatch):
     gate = threading.Event()
 
     def slow(now):
         gate.wait(5)
         return []
 
-    def fast(now):
-        return [{"type": "Feature", "geometry": _LINE, "properties": {}}]
-
     monkeypatch.setattr(feeds, "TIMEOUT_S", 0.3)
-    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (slow, slow, fast))
+    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (slow, slow, lambda now: [_LINE_F]))
     t0 = time.monotonic()
-    got = feeds.closures("bay_area", NOW)
-    gate.set()
-    assert len(got) == 1 and time.monotonic() - t0 < 2
+    try:
+        assert not feeds.refresh("bay_area", NOW)
+    finally:
+        gate.set()
+    assert len(feeds.closures("bay_area")) == 1 and time.monotonic() - t0 < 2
 
 
-def test_a_hung_source_does_not_starve_the_others(monkeypatch):
-    """Many requests during one hung fetch: it holds one pool worker; the rest answer."""
-    gate, calls = threading.Event(), []
+_LINE_F = {"type": "Feature", "geometry": _LINE, "properties": {}}
+
+
+def test_requests_never_wait_for_a_hung_source(monkeypatch):
+    """During a hung refresh, requests answer from the last snapshot at once, and the next
+    refresh does not start the hung source again."""
+    gate, calls, answer = threading.Event(), [], [[_feature("Old")]]
 
     def hung(now):
         calls.append(1)
-        gate.wait(5)
-        return []
-
-    def fast(now):
-        return [{"type": "Feature", "geometry": _LINE, "properties": {}}]
+        if len(calls) > 1:
+            gate.wait(5)
+        return answer[0]
 
     monkeypatch.setattr(feeds, "TIMEOUT_S", 0.3)
-    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (hung, fast))
+    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (hung,))
+    assert feeds.refresh("bay_area", NOW)
+    answer[0] = [_feature("New")]
+    refresher = threading.Thread(target=feeds.refresh, args=("bay_area", NOW))
     try:
+        refresher.start()
+        time.sleep(0.05)  # the refresh is waiting on the hung source
+        t0 = time.monotonic()
         with ThreadPoolExecutor(20) as callers:
-            got = list(callers.map(lambda _: feeds.closures("bay_area", NOW), range(20)))
+            got = list(
+                callers.map(lambda _: feeds.closures_near("bay_area", 37.77, -122.4495), range(20))
+            )
+        assert time.monotonic() - t0 < 0.2
+        refresher.join()
+        assert not feeds.refresh("bay_area", NOW)  # still hung: not fetched a third time
     finally:
         gate.set()
-    assert [len(g) for g in got] == [1] * 20 and len(calls) == 1
+    assert {r["label"] for g in got for r in g} == {"Street closed: Old"} and len(calls) == 2
+    assert feeds.closures("bay_area")[0]["properties"]["title"] == "Old"  # kept while it fails
+
+
+def test_a_failing_source_keeps_its_last_answer_until_too_stale(monkeypatch):
+    answer = [[_feature("Fair")]]
+    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (lambda now: answer[0],))
+    assert feeds.refresh("bay_area", NOW)
+    answer[0] = None
+    assert not feeds.refresh("bay_area", NOW) and len(feeds.closures("bay_area")) == 1
+    t = time.time() + feeds.MAX_STALE_S + 1
+    monkeypatch.setattr(feeds.time, "time", lambda: t)
+    assert not feeds.refresh("bay_area", NOW) and feeds.closures("bay_area") == []
+
+
+def test_unreadable_geometry_is_left_out(monkeypatch):
+    bad = {**_feature("Bad"), "geometry": {"type": "LineString", "coordinates": "x"}}
+    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (lambda now: [bad, _feature("Ok")],))
+    feeds.refresh("bay_area", NOW)
+    assert [f["properties"]["title"] for f in feeds.closures("bay_area")] == ["Ok"]
+    assert len(feeds.closures_near("bay_area", 37.77, -122.4495)) == 1
+
+
+def test_background_refresh_serves_the_map_and_stops(app_client, monkeypatch):
+    monkeypatch.setitem(feeds._CLOSURE_SOURCES, "bay_area", (lambda now: [_feature("Fair")],))
+    stop = feeds.start_refresh()
+    try:
+        deadline = time.monotonic() + 5
+        while not feeds.closures("bay_area") and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        stop.set()
+    r = app_client.get("/api/closures", params={"region": "bay_area"})
+    assert r.status_code == 200 and r.headers["content-type"] == "application/json"
+    assert [f["properties"]["title"] for f in r.json()["features"]] == ["Fair"]
+    rules = app_client.get("/api/rules", params={"lat": 37.77, "lon": -122.4495}).json()
+    assert "Street closed: Fair" in {r["label"] for r in rules["rules"]}
 
 
 def test_ttl_cache_waiter_gives_up_with_the_failure_result():
@@ -373,6 +435,22 @@ def test_feed_without_side_and_next_sweep_only():
     assert running.count("BEGIN:VALARM") == len(calfeed.TIMED_ALARMS)
     over = first(19)  # Wed 11 AM PST: next is Thursday's all-day odd side
     assert over.count("BEGIN:VEVENT") == 1 and "UID:sweep-c1-20261105-odd" in over
+
+
+def test_next_sweep_keeps_last_nights_window_while_it_runs():
+    def spot(lat, lon):
+        night = {"even": [["W", "", "10PM-2AM"], ["W", "", "8AM-10AM"]], "odd": []}
+        return calfeed.CarSpot("bay_area", "oakland", "Chestnut St", night, ("Even", "Odd"))
+
+    def first(utc_hour):
+        now = datetime.datetime(2026, 11, 5, utc_hour, tzinfo=datetime.UTC)
+        car = {"id": "c1", "lat": 0, "lon": 0}
+        return calfeed.build({"cars": [car]}, spot, now, first_only=True)
+
+    running = first(9)  # Thu 1 AM PST: Wednesday's 10 PM-2 AM is on, its 8-10 AM is over
+    assert running.count("BEGIN:VEVENT") == 1
+    assert "DTSTART:20261105T060000Z" in running and "DTEND:20261105T100000Z" in running
+    assert "UID:sweep-c1-20261118" in first(11)  # 3 AM: over; Nov 11 is Veterans Day
 
 
 def test_feed_one_event_when_both_sides_share_the_time():

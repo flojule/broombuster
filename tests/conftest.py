@@ -5,6 +5,7 @@ import pytest
 from broombuster import data_loader
 
 os.environ.setdefault("BB_RATE_LIMIT", "0")  # one test client would trip the per-IP limits
+os.environ.setdefault("BB_LIVE_FEEDS", "0")  # no network: tests refresh closures themselves
 
 
 @pytest.fixture(scope="session")

@@ -20,7 +20,9 @@ uvicorn 127.0.0.1:8000        src/broombuster/api/app.py
         ├─ data/<city>.fgb        loaded at startup         data_loader.py, state.py
         ├─ users.sqlite           accounts, members, passkeys, sessions  auth.py  (BB_DB;
         │                         host: /var/lib/broombuster, local: data/)
-        └─ live feeds             511, weather, trash, tows  cached in memory;
+        └─ live feeds             closures (DataSF, Oakland, 511): refreshed every 15 min in a
+                                  background thread, requests read the last snapshot;
+                                  weather, trash, tows: cached in memory;
                                   a failed source = "nothing known", never an error
 ```
 
@@ -91,9 +93,12 @@ data/holidays/<city>.yaml ──────▶ holidays.py  (sweeping, daytime 
 data/places/markets.yaml ───┐
 layer_sources.py (ArcGIS,   ┴─▶ scripts/build_layers.py ──┬─▶ <city dir>/<theme>.fgb ──▶ /api/rules
 Socrata, NREL EV API)           (--theme parking …)       └─▶ frontend/layers/<region>/<theme>.geojson ──▶ map
+                                                                   │  ≥ 100 kB
+                                  scripts/build_pmtiles.py ─▶ frontend/tiles/<region>/<theme>.<GeoJSON hash>.pmtiles ──▶ map
 ```
 
-A source that fails keeps its previous files. Commit every `.fgb` and `.pmtiles` output.
+The map loads a layer's `.pmtiles` (only the tiles in view) while its name matches the GeoJSON's hash
+(`layers.catalog`), else the GeoJSON. A source that fails keeps its previous files. Commit every `.fgb` and `.pmtiles` output.
 Format of the sweep codes and columns: [data/README.md](../data/README.md).
 
 ## 4. Deploy
@@ -184,11 +189,18 @@ Content-Security-Policy is enforced. `BB_CSP=report-only` in `.env` (and a resta
 
 ```
 /js/app.js?v=<content hash>  ──▶ public, 1 year, immutable   (hash computed at startup)
+/tiles/<region>.pmtiles?v=<tiles_version>
+                             ──▶ public, 1 year, immutable   (tiles_version: /api/cities)
+/tiles/<region>.pmtiles      ──▶ public, 1 hour, must-revalidate
 /, sw.js, unversioned files  ──▶ no-cache                    (ETag → cheap 304)
 /api/*, /auth/*, /health     ──▶ no-store
 ```
 
+Static text files (js, css, geojson, …) are gzipped once, at level 9, and served from memory;
+dynamic responses are gzipped per request at level 4.
 Every deploy changes the versioned URLs, so nothing stale is served. Cloudflare follows these headers.
+The service worker (`frontend/sw.js`) answers `?v=` files from its cache first, the page and other
+files from the network first (its cache offline or on a 5xx); `/api/*` and `/tiles/*` bypass it.
 Purge the Cloudflare cache once after changing this.
 
 ## 7. Rate limits

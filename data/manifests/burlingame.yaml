@@ -1,0 +1,21 @@
+name: "Burlingame, CA"
+center: {lat: 37.5859, lon: -122.3672}
+schema: prebuilt
+bbox: [37.56, -122.41, 37.61, -122.33]
+fgb_path: data/burlingame/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+source_updated: "2018-04"
+holidays: data/holidays/recology_san_mateo_county.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # Recology San Mateo County
+source:
+  local_path: data/burlingame/StreetSweeping.geojson
+  build: scripts/build_burlingame_geojson.py
+  arcgis:
+    # The city's sweeping sections: weekday, hours, track (A / B alternate weeks Apr–Sep, WK weekly).
+    sections.geojson: https://services3.arcgis.com/GNfQzqBlylJyDTAC/arcgis/rest/services/BG_Street_Sweep/FeatureServer/0
+    # San Mateo County street centerlines in Burlingame.
+    centerlines.geojson:
+      url: https://gis.smcgov.org/maps/rest/services/ISD/SMC_COUNTY_GIS/MapServer/4
+      where: "incmuni_l='BURLINGAME' OR incmuni_r='BURLINGAME'"
+  notes: |
+    Program page: https://burlingame.org/departments/public_works/street_sweeping_program.php

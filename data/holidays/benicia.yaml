@@ -1,0 +1,10 @@
+# Trash (Republic Services): a pickup on New Year's Day or Christmas is one day late.
+# Sweeping: the 2025 brochure sweeps a holiday's areas "as soon as possible after the
+# holiday" without naming the holidays, so none is suspended.
+source: https://www.republicservices.com/municipality/benicia-ca
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

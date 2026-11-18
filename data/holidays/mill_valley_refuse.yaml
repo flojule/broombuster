@@ -1,0 +1,10 @@
+# Trash (Mill Valley Refuse Service: Mill Valley, Corte Madera, Tiburon, Belvedere): no
+# collection on Christmas Day and New Year's Day; that day's pickups are one day later.
+# Sweeping: no holiday published.
+source: https://www.millvalleyrefuse.com/holiday-information/
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

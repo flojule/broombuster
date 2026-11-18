@@ -1,6 +1,6 @@
 """City holidays (data/holidays/<city>.yaml, named by a manifest's `holidays:`) and
 the services each suspends: "sweeping" (no sweeping that day), "sweeping_day" (only
-sweeps starting at or after DAYTIME_FROM are off: San Francisco enforces night
+sweeps without night cleaning (12AM-6AM, `daytime`) are off: San Francisco enforces night
 cleaning on most holidays) and "trash" (the city's trash holiday rule applies)."""
 
 import datetime
@@ -51,8 +51,14 @@ def sweep_suspended(city_key: str, day: datetime.date, window) -> str | None:
         return None
     if "sweeping" in h["suspends"]:
         return h["name"]
-    daytime = window is not None and DAYTIME_FROM <= window[0] < window[1]
-    return h["name"] if daytime and "sweeping_day" in h["suspends"] else None
+    return h["name"] if daytime(window) and "sweeping_day" in h["suspends"] else None
+
+
+def daytime(window) -> bool:
+    """Whether a sweep window ((start, end) minutes, end < start past midnight; None when
+    untimed) has no night cleaning (12AM-6AM, SFMTA: enforced on daytime-only holidays):
+    it starts at DAYTIME_FROM or later and ends by midnight. urgency.js daytime."""
+    return window is not None and DAYTIME_FROM <= window[0] < window[1]
 
 
 def for_region(region_key: str) -> dict[str, dict[str, dict]]:
