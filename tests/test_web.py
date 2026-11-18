@@ -139,3 +139,10 @@ def test_tiles_are_immutable_only_under_their_version(app_client):
         "/tiles/bay_area.pmtiles", headers={"If-None-Match": hit.headers["etag"]}
     )
     assert again.status_code == 304
+
+
+def test_layer_archives_are_immutable_only_under_the_hash_in_their_name():
+    path = "/tiles/bay_area/parking.64c9ddd6c396.pmtiles"
+    assert web.cache_control(path, "64c9ddd6c396") == "public, max-age=31536000, immutable"
+    for v in (None, "000000000000"):
+        assert web.cache_control(path, v) == "public, max-age=3600, must-revalidate"

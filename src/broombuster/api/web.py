@@ -193,15 +193,20 @@ API_PATHS = ("/api", "/auth", "/health")
 
 _IMMUTABLE = "public, max-age=31536000, immutable"
 _TILES = re.compile(r"/tiles/([\w-]+)\.pmtiles")
+_LAYER_TILES = re.compile(r"/tiles/[\w-]+/[\w-]+\.([0-9a-f]{12})\.pmtiles")  # named by GeoJSON hash
 
 
 def cache_control(path: str, version: str | None) -> str:
-    """version: the request's ?v=; a tile set is immutable only under its own tiles_version."""
+    """version: the request's ?v=; a tile set is immutable only under its own tiles_version, a
+    layer archive only under the GeoJSON hash in its name."""
     if path.startswith(API_PATHS):
         return "no-store"
     if path.startswith("/tiles/"):
         m = _TILES.fullmatch(path)
         if version and m and m[1] in REGIONS and version == tiles_version(m[1]):
+            return _IMMUTABLE
+        layer = _LAYER_TILES.fullmatch(path)
+        if version and layer and version == layer[1]:
             return _IMMUTABLE
         return "public, max-age=3600, must-revalidate"
     if version is not None:
