@@ -17,6 +17,7 @@ pytest.importorskip("pdfplumber")  # the `scripts` extra
 import build_alameda_geojson as alameda
 import build_berkeley_geojson as berkeley
 import build_emeryville_geojson as emeryville
+import build_hayward_geojson as hayward
 import build_san_leandro_geojson as san_leandro
 
 _LINE = LineString([(0, 0), (1, 0)])
@@ -256,3 +257,28 @@ def test_san_leandro_commercial_beats_posted_beats_zone():
     )
     out = san_leandro.build(lines, zone, commercial, posted).set_index("DAY_EVEN")
     assert sorted(out.index) == ["MTWTHFE", "POSTED", "TH3"]
+
+
+def test_hayward_rows_read_side_tokens_and_the_narrowest_range_wins():
+    rows = hayward.rows_from(
+        [
+            "1 A ST 594 1197 BOTH EVERY M,W,F ANYTIME",
+            "2 A ST 1128 1374 EVEN 1ST & 3RD WED AS POSTED",
+            "4 A ST 584 957 (W Ast) BOTH EVERYOTHER THU ANYTIME",
+            "467 SAINT ANDREWS ST 0 999999 BOTH 2ND & 4TH TUES ANYTIME",
+            "96 BAHAMA AVE 27439 27597 S BOTH 1ST & 3RD FRI ANYTIME",
+            "21 ALCAZAR AVE (PVT) 0 999999 BOTH NO SCHEDULED SWEEPING",
+            "153 BERRY AV Mission Belmont NS 2ND & 4TH FRI AS POSTED",
+        ]
+    )
+    assert [r["entry"][0] for r in rows] == ["MWFE", "W13", "POSTED", "T24", "F13"]
+    lines = geopandas.GeoDataFrame(
+        [
+            _block(_EAST, (1101, 1199), (1100, 1198), "A ST"),
+            _block(_EAST, (1, 99), (2, 98), "ST ANDREWS ST"),
+        ],
+        crs="EPSG:4326",
+    )
+    out = hayward.join(rows, lines).set_index("STREET_NAME")
+    assert (out.loc["A ST"].DAY_EVEN, out.loc["A ST"].DAY_ODD) == ("W13", "MWFE")
+    assert out.loc["ST ANDREWS ST"].DAY_ODD == "T24"
