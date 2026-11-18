@@ -19,12 +19,35 @@ def load_city_data(city_key: str) -> geopandas.GeoDataFrame:
     return gdf
 
 
-def load_region_data(region_key: str) -> geopandas.GeoDataFrame:
-    """Every city of a region in one EPSG:4326 GeoDataFrame."""
-    return geopandas.GeoDataFrame(
-        pd.concat([load_city_data(ck) for ck in REGIONS[region_key]["cities"]], ignore_index=True),
-        crs="EPSG:4326",
-    )
+def load_region_data(
+    region_key: str, crs: str = "EPSG:4326", compact: bool = False
+) -> geopandas.GeoDataFrame:
+    """Every city of a region in one GeoDataFrame. Each city is reprojected before the
+    concat; compact: text columns become categoricals (values still read back as str)."""
+    parts = []
+    for ck in REGIONS[region_key]["cities"]:
+        g = load_city_data(ck)
+        parts.append(g if g.crs.equals(crs) else g.to_crs(crs))
+    if compact:
+        _categorize(parts)
+    return geopandas.GeoDataFrame(pd.concat(parts, ignore_index=True), crs=crs)
+
+
+def _categorize(parts: list[geopandas.GeoDataFrame]) -> None:
+    """Turn every text column into one categorical dtype shared by all parts, in place, so
+    the concat keeps it categorical."""
+    text = {
+        c
+        for g in parts
+        for c in g.columns
+        if c != g.geometry.name and pd.api.types.is_string_dtype(g[c].dtype)
+    }
+    for c in text:
+        cats = set().union(*(set(g[c].dropna().unique()) for g in parts if c in g))
+        dtype = pd.CategoricalDtype(sorted(cats))
+        for g in parts:
+            if c in g:
+                g[c] = g[c].astype(dtype)
 
 
 def apply_corrections(gdf: geopandas.GeoDataFrame, path: str) -> geopandas.GeoDataFrame:

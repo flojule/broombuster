@@ -2,11 +2,13 @@
 from layer_sources.py): what applies at a point, for /api/rules, and the catalog the
 map's Layers menu lists (/api/cities)."""
 
+import functools
 import hashlib
 import os
 from pathlib import Path
 
 import geopandas
+import numpy as np
 import pandas as pd
 import shapely
 
@@ -33,6 +35,9 @@ AREAS = "permit_areas"  # data/<city>/permit_areas.fgb: the parking theme's area
 _FRONTEND = Path(REPO_ROOT) / "frontend" / "layers"
 LIVE_CLOSURES = ("bay_area",)  # regions with a live closures feed (feeds.py)
 _loaded: dict[str, dict[str, geopandas.GeoDataFrame]] = {}  # region -> theme -> EPSG:3857
+_RULE_COLS = ("label", "rule", "asof", "city")
+# (region, theme) -> (geometries, (Multi)Polygon mask, rule columns): rules_at's arrays
+_arrays: dict[tuple[str, str], tuple] = {}
 # region -> the map's permit areas (label, city, color, rule; EPSG:3857): a point inside
 # one is in that area even where no permit curb is near (the middle of a block).
 _areas: dict[str, geopandas.GeoDataFrame] = {}
@@ -65,6 +70,12 @@ def load_all() -> None:
                 ).to_crs(3857)
                 gdf.sindex  # noqa: B018 — builds the STRtree
                 themes[theme] = gdf
+                geoms = np.asarray(gdf.geometry.values)
+                _arrays[rk, theme] = (
+                    geoms,
+                    np.isin(shapely.get_type_id(geoms), (3, 6)),
+                    {c: gdf[c].to_numpy(object) for c in _RULE_COLS},
+                )
         _loaded[rk] = themes
         _areas[rk] = _permit_areas(rk)
 
@@ -91,8 +102,10 @@ def _permit_areas(region_key: str):
     return g
 
 
+@functools.cache
 def catalog(region_key: str) -> list[dict]:
-    """[{id, name, url}] of the region's map layers; url carries a content hash (cache)."""
+    """[{id, name, url}] of the region's map layers; url carries a content hash (cache),
+    computed once per process (a deploy restarts it). Do not mutate the result."""
     out = []
     for theme, meta in THEMES.items():
         path = _FRONTEND / region_key / f"{theme}.geojson"
@@ -130,16 +143,14 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
             continue
         near = meta["near_m"] * k
         idx = gdf.sindex.query(pt.buffer(max(near, GPS_MARGIN_M * k)), predicate="intersects")
-        hits = gdf.iloc[idx].copy()
-        hits["_d"] = hits.geometry.distance(pt)
+        geoms, polys, cols = _arrays[region_key, theme]
+        d, is_poly = shapely.distance(geoms[idx], pt), polys[idx]
         # A polygon applies inside, else within GPS_MARGIN_M; lines and points within near_m.
-        is_poly = hits.geometry.geom_type.isin(("Polygon", "MultiPolygon"))
-        if (is_poly & (hits["_d"] == 0)).any():  # inside a zone: not its neighbors too
-            hits = hits[~is_poly | (hits["_d"] == 0)]
-            is_poly = is_poly.loc[hits.index]
-        hits = hits[hits["_d"] <= is_poly.map({True: GPS_MARGIN_M * k, False: near})]
-        hits = hits.sort_values("_d")
-        rows = [r for _, r in hits.iterrows()]
+        keep = d <= np.where(is_poly, GPS_MARGIN_M * k, near)
+        if (is_poly & (d == 0)).any():  # inside a zone: not its neighbors too
+            keep &= ~is_poly | (d == 0)
+        hit = idx[keep][np.argsort(d[keep], kind="stable")]
+        rows = [{c: v[i] for c, v in cols.items()} for i in hit.tolist()]
         areas = _areas.get(region_key) if theme == "parking" else None
         if areas is not None and not rows:  # a curb's own rule is the more precise
             rows += [areas.iloc[i] for i in areas.sindex.query(pt, predicate="intersects")]

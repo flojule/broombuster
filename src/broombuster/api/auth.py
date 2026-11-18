@@ -16,7 +16,8 @@ import secrets
 import sqlite3
 import threading
 import time
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import contextmanager
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
@@ -59,6 +60,7 @@ _SIGNUPS_PER_DAY = 20  # account sign-ups started per client (IPv4 address or IP
 _MAX_SESSIONS = 20  # signed-in devices per member; the least recently used goes
 _MAX_PENDING_PASSKEYS = 1000  # sign-ins in progress, all clients together
 _MAX_PENDING_PER_CLIENT = 5  # sign-ins in progress per client; the oldest goes
+_LAST_USED_S = 3600  # a calendar token's last_used is written at most this often
 _INVITE_PREFIX = "bbi_"
 _TOKEN_PREFIX = "bbc_"  # noqa: S105 (a prefix, not a password)  # phone: one car of one account
 _CAL_PREFIX = "bbk_"  # calendar feed: one account
@@ -123,7 +125,29 @@ def _connect() -> sqlite3.Connection:
     db = sqlite3.connect(config.db_path(), timeout=10)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
+    db.execute("PRAGMA synchronous = NORMAL")  # durable enough under WAL; no fsync per commit
     return db
+
+
+_local = threading.local()  # per thread: (BB_DB path, its open connection)
+
+
+@contextmanager
+def _db() -> Iterator[sqlite3.Connection]:
+    """This thread's connection to BB_DB, opened once per thread and path. Use
+    `with _db() as db, db:` for a transaction."""
+    path = config.db_path()
+    held = getattr(_local, "held", None)
+    if held is None or held[0] != path:
+        if held is not None:
+            held[1].close()
+        held = _local.held = (path, _connect())
+    db = held[1]
+    try:
+        yield db
+    finally:
+        if db.in_transaction:  # a write outside `with db`: rolled back, as a close would
+            db.rollback()
 
 
 def _drop_google_schema(db: sqlite3.Connection) -> None:
@@ -134,7 +158,9 @@ def _drop_google_schema(db: sqlite3.Connection) -> None:
 
 
 def init_db() -> None:
-    with closing(_connect()) as db, db:
+    with _db() as db:
+        db.execute("PRAGMA journal_mode = WAL")  # stored in the file: readers never wait
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")
         if (
             db.execute("SELECT 1 FROM sqlite_master WHERE name = 'users'").fetchone()
@@ -172,7 +198,7 @@ def _set_cookie(resp: Response, name: str, value: str, max_age: int, base: str, 
 
 def _start_session(resp: Response, member_id: str, base: str) -> None:
     token, now = secrets.token_urlsafe(32), int(time.time())
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
         db.execute(
             "INSERT INTO sessions (token_hash, expires_at, member_id) VALUES (?, ?, ?)",
@@ -187,14 +213,14 @@ def _start_session(resp: Response, member_id: str, base: str) -> None:
     _set_cookie(resp, _SESSION_COOKIE, token, _SESSION_TTL_S, base, "/")
 
 
-def _renew_session(request: Request, response: Response) -> None:
+def _renew_session(request: Request, response: Response, expires_at: int) -> None:
     """Push a session's end back to _SESSION_TTL_S from now (at most daily): a session
     in use never runs out. Its member's last_seen moves with it."""
     token, now = request.cookies.get(_SESSION_COOKIE), int(time.time())
     base = _base()
-    if not token or base is None:
-        return
-    with closing(_connect()) as db, db:
+    if not token or base is None or expires_at >= now + _SESSION_TTL_S - 86400:
+        return  # renewed within the day: no write
+    with _db() as db, db:
         cur = db.execute(
             "UPDATE sessions SET expires_at = ? WHERE token_hash = ? AND expires_at > ?"
             " AND expires_at < ?",
@@ -215,9 +241,10 @@ def _session_user(request: Request) -> sqlite3.Row | None:
     token = request.cookies.get(_SESSION_COOKIE)
     if not token or _base() is None:
         return None
-    with closing(_connect()) as db:
+    with _db() as db:
         return db.execute(
-            "SELECT m.* FROM sessions s JOIN members m ON m.id = s.member_id"
+            "SELECT m.*, s.expires_at AS session_expires_at FROM sessions s"
+            " JOIN members m ON m.id = s.member_id"
             " WHERE s.token_hash = ? AND s.expires_at > ?",
             (_hash(token), int(time.time())),
         ).fetchone()
@@ -311,7 +338,7 @@ def logout(request: Request):
     _same_origin(request)
     token = request.cookies.get(_SESSION_COOKIE)
     if token:
-        with closing(_connect()) as db, db:
+        with _db() as db, db:
             db.execute("DELETE FROM sessions WHERE token_hash = ?", (_hash(token),))
     resp = Response(status_code=204)
     resp.delete_cookie(_SESSION_COOKIE, path="/")
@@ -321,7 +348,7 @@ def logout(request: Request):
 @router.post("/auth/logout-everywhere")
 def logout_everywhere(user: sqlite3.Row = Depends(_signed_in_mutation)):
     """Sign this person out on every device; their passkeys stay."""
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("DELETE FROM sessions WHERE member_id = ?", (user["id"],))
     resp = Response(status_code=204)
     resp.delete_cookie(_SESSION_COOKIE, path="/")
@@ -435,7 +462,7 @@ def passkey_register_verify(request: Request, credential: dict = Body(...)):
         raise HTTPException(400, "The passkey could not be verified.") from None
 
     now = int(time.time())
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")
         try:
             account_id = _account_for_invite(db, state["invite"]) if state["invite"] else None
@@ -485,7 +512,7 @@ def passkey_login_verify(request: Request, credential: dict = Body(...)):
     if state["purpose"] != "login":
         raise HTTPException(400, "That sign-in took too long. Please try again.")
     cred_id = credential.get("id")
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute(
             "SELECT * FROM passkeys WHERE credential_id = ?",
@@ -530,7 +557,7 @@ def create_invite(user: sqlite3.Row = Depends(_signed_in_mutation)):
     base = _require_base()
     now = int(time.time())
     token = _INVITE_PREFIX + secrets.token_urlsafe(32)
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")
         if _member_count(db, user["account_id"]) >= _MAX_MEMBERS:
             raise HTTPException(409, f"An account has at most {_MAX_MEMBERS} people.")
@@ -613,8 +640,8 @@ def me(request: Request, response: Response):
     user = _session_user(request)
     if user is None:
         return {"enabled": True, "user": None, "prefs": None}
-    _renew_session(request, response)
-    with closing(_connect()) as db:
+    _renew_session(request, response, user["session_expires_at"])
+    with _db() as db:
         account_id = user["account_id"]
         account = db.execute(
             "SELECT prefs, prefs_rev FROM accounts WHERE id = ?", (account_id,)
@@ -660,7 +687,7 @@ def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
     """
     new = prefs.model_dump(mode="json", exclude_unset=True, exclude={"rev"})
     account_id = user["account_id"]
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")  # a phone update can't slip in between read and write
         rev = db.execute("SELECT prefs_rev FROM accounts WHERE id = ?", (account_id,)).fetchone()[
             "prefs_rev"
@@ -686,7 +713,7 @@ def delete_me(user: sqlite3.Row = Depends(_signed_in_mutation)):
     """Leave the account: this member, their sessions and passkeys go. When nobody else is
     left in it, the account goes too (cars, homes, phone and calendar links)."""
     account_id = user["account_id"]
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")
         db.execute("DELETE FROM members WHERE id = ?", (user["id"],))
         if _member_count(db, account_id) == 0:
@@ -703,7 +730,7 @@ def delete_me(user: sqlite3.Row = Depends(_signed_in_mutation)):
 def create_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutation)):
     """New phone token for a saved car (shown once); replaces any earlier one."""
     account_id = user["account_id"]
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")
         if not any(c["id"] == car_id for c in _stored_prefs(db, account_id)["cars"]):
             raise HTTPException(404, "Car not saved to your account yet.")
@@ -721,7 +748,7 @@ def create_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutatio
 
 @router.delete("/api/cars/{car_id}/token", status_code=204)
 def revoke_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutation)):
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute(
             "DELETE FROM car_tokens WHERE account_id = ? AND car_id = ?",
             (user["account_id"], car_id),
@@ -729,20 +756,15 @@ def revoke_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutatio
 
 
 def car_for_token(request: Request) -> sqlite3.Row:
-    """The (account_id, car_id) a bearer token belongs to; marks the token used.
-
-    The token's hash goes on request.state.car_token, for record_refusal().
+    """The (account_id, car_id) a bearer token belongs to. The token's hash goes on
+    request.state.car_token; set_car_location() or record_refusal() marks it used.
     """
     _require_base()
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(401, "Missing bearer token.")
     token_hash = _hash(token.strip())
-    with closing(_connect()) as db, db:
-        db.execute(
-            "UPDATE car_tokens SET last_used = ? WHERE token_hash = ?",
-            (int(time.time()), token_hash),
-        )
+    with _db() as db:
         row = db.execute(
             "SELECT account_id, car_id FROM car_tokens WHERE token_hash = ?", (token_hash,)
         ).fetchone()
@@ -754,9 +776,10 @@ def car_for_token(request: Request) -> sqlite3.Row:
 
 def record_refusal(token_hash: str, reason: str) -> None:
     """Note why a phone report was refused, for the car's page."""
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute(
-            "UPDATE car_tokens SET last_error = ? WHERE token_hash = ?", (reason[:300], token_hash)
+            "UPDATE car_tokens SET last_error = ?, last_used = ? WHERE token_hash = ?",
+            (reason[:300], int(time.time()), token_hash),
         )
 
 
@@ -767,7 +790,7 @@ def record_refusal(token_hash: str, reason: str) -> None:
 def create_calendar_token(request: Request, user: sqlite3.Row = Depends(_signed_in_mutation)):
     """A new calendar feed URL (shown once); replaces any earlier one."""
     token = _CAL_PREFIX + secrets.token_urlsafe(32)
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")  # two at once: the second waits, then replaces the first
         db.execute("DELETE FROM calendar_tokens WHERE account_id = ?", (user["account_id"],))
         db.execute(
@@ -781,32 +804,35 @@ def create_calendar_token(request: Request, user: sqlite3.Row = Depends(_signed_
 
 @router.delete("/api/me/calendar", status_code=204)
 def revoke_calendar_token(user: sqlite3.Row = Depends(_signed_in_mutation)):
-    with closing(_connect()) as db, db:
+    with _db() as db, db:
         db.execute("DELETE FROM calendar_tokens WHERE account_id = ?", (user["account_id"],))
 
 
 def prefs_for_calendar_token(token: str) -> dict | None:
-    """The saved prefs of the account a calendar token belongs to (marks it used)."""
+    """The saved prefs of the account a calendar token belongs to; marks it used (to the
+    hour: a polled feed writes at most hourly)."""
     if _base() is None or not token.startswith(_CAL_PREFIX):
         return None
-    token_hash = _hash(token)
-    with closing(_connect()) as db, db:
+    token_hash, now = _hash(token), int(time.time())
+    with _db() as db, db:
         row = db.execute(
-            "SELECT account_id FROM calendar_tokens WHERE token_hash = ?", (token_hash,)
+            "SELECT account_id, last_used FROM calendar_tokens WHERE token_hash = ?",
+            (token_hash,),
         ).fetchone()
         if row is None:
             return None
-        db.execute(
-            "UPDATE calendar_tokens SET last_used = ? WHERE token_hash = ?",
-            (int(time.time()), token_hash),
-        )
+        if (row["last_used"] or 0) < now - _LAST_USED_S:
+            db.execute(
+                "UPDATE calendar_tokens SET last_used = ? WHERE token_hash = ?", (now, token_hash)
+            )
         return _stored_prefs(db, row["account_id"])
 
 
 def set_car_location(account_id: str, car_id: str, lat: float, lon: float) -> bool:
     """Move a saved car, bump its position version and mark its phone token's report
     accepted; False if the car is gone."""
-    with closing(_connect()) as db, db:
+    now = int(time.time())
+    with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")
         prefs = _stored_prefs(db, account_id)
         car = next((c for c in prefs["cars"] if c["id"] == car_id), None)
@@ -819,8 +845,8 @@ def set_car_location(account_id: str, car_id: str, lat: float, lon: float) -> bo
             (json.dumps(prefs, separators=(",", ":")), account_id),
         )
         db.execute(
-            "UPDATE car_tokens SET last_moved = ?, last_error = NULL"
+            "UPDATE car_tokens SET last_moved = ?, last_used = ?, last_error = NULL"
             " WHERE account_id = ? AND car_id = ?",
-            (int(time.time()), account_id, car_id),
+            (now, now, account_id, car_id),
         )
     return True
