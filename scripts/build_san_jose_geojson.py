@@ -11,6 +11,7 @@ Output: data/san_jose/StreetSweeping.geojson
 
 Each route row takes its street's centerline (CENTERLINEID) for geometry and ranges; a row
 for one compass side lands on the even or odd side through that side's address parity.
+A both-sides row whose public sign text names sides gives each named side its own text.
 Only signed routes are ticketed: unsigned rows are NT.
 """
 
@@ -32,6 +33,7 @@ _RANGE_RE = re.compile(r"\d\s*[AP]M\s*(?:-|to)\s*\d", re.I)
 _NOT_SWEEP_RE = re.compile(r"anytime|except|permit|hour parking|loading|only", re.I)
 _ANY_DAY_RE = re.compile(r"any\s*day", re.I)
 _RANGES = ("L_F_ADD", "L_T_ADD", "R_F_ADD", "R_T_ADD")
+_SIDE_TEXT_RE = re.compile(r"\b(North|South|East|West) Side:\s*(.*?)(?=,\s*\w+ Side:|$)", re.I)
 
 
 def day_words(day, week) -> str:
@@ -82,6 +84,17 @@ def major_entry(row) -> tuple:
     return code, desc, time
 
 
+def side_entries(row) -> dict:
+    """Compass side -> entry of a both-sides major row whose public text names sides ("North
+    Side: No Parking 1st and 3rd Wednesday 1am-6am, South Side: ...")."""
+    text = normalize.clean_text(row.get("APPPUBLICPOSTEDTIMES")) or ""
+    if str(row["SIDEOFROAD"] or "Both").strip().upper() != "BOTH":
+        return {}
+    return {
+        m[1].upper(): major_entry({**row, "POSTEDTIME": m[2]}) for m in _SIDE_TEXT_RE.finditer(text)
+    }
+
+
 def compass_side(line, side: str) -> str:
     """ "L" or "R": the side of a line (start to end) facing a compass side."""
     line = shapely.line_merge(line) if line.geom_type == "MultiLineString" else line
@@ -120,16 +133,18 @@ def join(routes: pd.DataFrame, streets: geopandas.GeoDataFrame) -> geopandas.Geo
                 v = pd.to_numeric(line[src], errors="coerce")
                 rec[col] = float(v) if pd.notna(v) and v > 0 else None
         side = str(r["SIDEOFROAD"] or "Both").strip().upper()
-        sides = ("EVEN", "ODD")
+        entries = dict.fromkeys(("EVEN", "ODD"), r["_entry"])
         if side != "BOTH":
             par = _parity(rec, compass_side(rec["geometry"], side))
             if par is None:
                 dropped += 1
                 continue
-            sides = (par,)
+            entries = {par: r["_entry"]}
+        for compass, entry in (r["_sides"] if isinstance(r["_sides"], dict) else {}).items():
+            if par := _parity(rec, compass_side(rec["geometry"], compass)):
+                entries[par] = entry  # the sign text of that side
         for s in ("EVEN", "ODD"):
-            entry = r["_entry"] if s in sides else (None, None, None)
-            rec[f"DAY_{s}"], rec[f"DESC_{s}"], rec[f"TIME_{s}"] = entry
+            rec[f"DAY_{s}"], rec[f"DESC_{s}"], rec[f"TIME_{s}"] = entries.get(s, (None,) * 3)
         rows.append(rec)
     if dropped:
         print(f"  ⚠  {dropped} one-side rows had no address parity and were dropped.")
@@ -147,6 +162,7 @@ def main():
     res, major, streets = (geopandas.read_file(p) for p in paths)
     res["_entry"] = res.apply(residential_entry, axis=1)
     major["_entry"] = major.apply(major_entry, axis=1)
+    major["_sides"] = major.apply(side_entries, axis=1)
     print(f"  {len(res)} residential and {len(major)} major-road route rows")
     routes = pd.concat([res, major], ignore_index=True)
     pdf_city.write(join(routes, streets), data_dir / "StreetSweeping.geojson")

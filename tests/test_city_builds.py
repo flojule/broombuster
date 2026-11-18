@@ -562,6 +562,30 @@ def test_daly_city_page_rows_split_parts_and_fix_hours():
     assert daly_city.street("90 th (Ninetieth) Street") == "90TH STREET"
 
 
+def test_daly_city_page_cell_variants_and_unreadable_side():
+    page = (
+        "<tr><td>Oliver Street</td><td>North Side 0 Wednesday Between 8 and 10 am</td>"
+        "<td>West Side - Wednesday Between 11 am an 1 pm</td><td>N/A</td></tr>"
+        "<tr><td>Higate Drive</td><td>East side - Thursday<br>Between 12 pm and 2 pm<br><br>"
+        "North side - Monday Through Wednesday<br>Between 7 am - 9 am</td>"
+        "<td>South Side - Friday Bet 6 AM &amp; 7:30 AM<br><br>"
+        "South Side Tue and Thurs Between 5 am and 6 am</td>"
+        "<td><ul><li>Edgemont to South end</li><li>Christopher to St. Francis</li></ul></td></tr>"
+        "<tr><td><br></td><td><ul><li>East Side -Thursday</li><li>Between 7 am and 9 am</li>"
+        "</ul></td><td>We don&#39;t sweep</td><td>Sylvan to Abbot</td></tr>"
+    )
+    rows = daly_city.rows_from(page)
+    assert [(r["ODD"][0], r["ODD"][2], r["EVEN"][0], r["EVEN"][2]) for r in rows] == [
+        ("WE", "8AM–10AM", "WE", "11AM–1PM"),
+        ("THE", "12PM–2PM", "FE", "6AM–7:30AM"),
+        ("MTWE", "7AM–9AM", "TTHE", "5AM–6AM"),
+        ("THE", "7AM–9AM", None, None),
+    ]
+    assert rows[3]["name"] == "HIGATE DRIVE"  # a blank name cell continues the street above
+    with pytest.raises(ValueError, match="1 listed sides"):
+        daly_city.rows_from(page.replace(" Between 5 am and 6 am", ""))
+
+
 def test_san_bruno_routes_posted_or_courtesy_and_two_cycles():
     assert san_bruno.entry("1st & 3rd Tuesday", "9 a.m. - 11 a.m.", None) == (
         "T13", "1st & 3rd Tue", "9AM–11AM")  # fmt: skip

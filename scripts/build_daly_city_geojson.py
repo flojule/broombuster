@@ -29,19 +29,22 @@ from broombuster.config import REPO_ROOT
 _ROW_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S | re.I)
 _CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.S | re.I)
 _ITEM_RE = re.compile(r"<li[^>]*>(.*?)</li>|<p[^>]*>(.*?)</p>", re.S | re.I)
-_SIDE_RE = re.compile(
-    r"-\s*(?:of\s+)?(?P<day>\w+day)\s+between\s+(?P<a>[\w:]+(?:\s*[ap]m)?)\s+and\s+"
-    r"(?P<b>[\w:]+(?:\s*[ap]m)?)",
-    re.I,
-)
+_BLANK_RE = re.compile(r"<div>\s*<br\s*/?>\s*</div>|<br\s*/?>\s*<br\s*/?>", re.I)  # blank line
+_CLOCK = r"(?:\d{1,2}(?::\d\d)?(?:\s*[ap]m)?|noon)"
+_TIME_RE = re.compile(rf"(?P<a>{_CLOCK})\s*(?:\band\b|\bto\b|-|–)\s*(?P<b>{_CLOCK})", re.I)
+_WEEK = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_THRU_RE = re.compile(rf"\b({'|'.join(_WEEK)})\s+(?:through|thru)\s+({'|'.join(_WEEK)})\b", re.I)
+_NONE_RE = re.compile(r"^(?:n/?a|we don.?t sweep|city of .+)?$", re.I)  # side not swept here
 _TO_RE = re.compile(r"\s+(?:to|and)\s+", re.I)
-_END_RE = re.compile(r"\b(end|limits?)\b", re.I)
+_END_RE = re.compile(r"\b(end|limits?|border)\b", re.I)
 _UNPLACED = (citykit.UNKNOWN, citykit.UNKNOWN_DESC, None)  # street in parts, block in none
 _UTM = "EPSG:26910"
 # Page spellings -> the county's (the street signs')
 _SPELLING = {"ACTION": "ACTON", "BAYRIDGE": "BAY RIDGE", "CARLETON": "CARLTON",
              "GUTTENBURG": "GUTTENBERG", "ROSYLN": "ROSLYN", "SOUTHHILL": "SOUTH HILL",
-             "THEIRS": "THIERS", "SAINT": "ST", "MICHAEL": "MICHAELS", "TRAIL": "TRL"}  # fmt: skip
+             "THEIRS": "THIERS", "SAINT": "ST", "MICHAEL": "MICHAELS", "TRAIL": "TRL",
+             "JUNIPERRO": "JUNIPERO", "WILLINGTON": "WELLINGTON",
+             "JS": "JUNIPERO SERRA"}  # fmt: skip
 
 
 def _text(fragment: str) -> str:
@@ -56,7 +59,29 @@ def street(name: str) -> str:
 
 
 def _items(cell: str) -> list[str]:
-    return [_text(a or b) for a, b in _ITEM_RE.findall(cell) if _text(a or b)] or [_text(cell)]
+    items = [_text(a or b) for a, b in _ITEM_RE.findall(cell) if _text(a or b)]
+    return items or [t for x in _BLANK_RE.split(cell) if (t := _text(x))] or [""]
+
+
+def _clean(item: str) -> str:
+    """Page typos normalized: "1 p m", "11 am an 1 pm", "6 AM & 8 AM", "Bet. 6 am"."""
+    s = re.sub(r"\b([ap])\s+m\b", r"\1m", item, flags=re.I)
+    s = re.sub(r"\ban\b|&", " and ", s, flags=re.I)
+    s = re.sub(r"\bbet(?:ween)?\b\.?", " between ", s, flags=re.I)
+    return " ".join(s.split())
+
+
+def _joined(items: list[str]) -> list[str]:
+    """A side's entries with a day split from its hours ("North Side - Monday", "Between 7 am
+    and 9 am") joined back into one."""
+    out = []
+    for it in items:
+        days, hours = citykit.code_from_text(_clean(it)), _TIME_RE.search(_clean(it))
+        if out and hours and not days and not _TIME_RE.search(_clean(out[-1])):
+            out[-1] = f"{out[-1]} {it}"
+        else:
+            out.append(it)
+    return out
 
 
 def _hours(a: str, b: str) -> str:
@@ -74,31 +99,43 @@ def _hours(a: str, b: str) -> str:
 
 
 def side_entry(item: str) -> tuple:
-    """(code, desc, time) of one listed side; (None, None, None) when not swept here."""
-    m = _SIDE_RE.search(re.sub(r"\b([ap])\s+m\b", r"\1m", item, flags=re.I))  # "1 p m"
-    if not m:
+    """(code, desc, time) of one listed side ("South Side - Tue and Thurs Between 5 am and
+    6 am"); (None, None, None) when it gives no weekday and hours."""
+    s = _clean(item)
+    m = _TIME_RE.search(s)
+    days = _THRU_RE.sub(
+        lambda d: " ".join(_WEEK[_WEEK.index(d[1].lower()) : _WEEK.index(d[2].lower()) + 1]),
+        s[: m.start()] if m else "",
+    )
+    if not m or not citykit.code_from_text(days):
         return None, None, None
-    return citykit.side_entry(m["day"], _hours(m["a"], m["b"]))
+    return citykit.side_entry(days, _hours(m["a"], m["b"]))
 
 
 def rows_from(page: str) -> list[dict]:
-    """One dict per street part: name, part ("A to B" or ""), odd and even entries."""
-    out = []
+    """One dict per street part: name, part ("A to B" or ""), odd and even entries. A listed
+    side with no readable schedule stops the build."""
+    out, bad, name = [], [], ""
     for row in _ROW_RE.findall(page):
         cells = _CELL_RE.findall(row)
         if len(cells) != 4:
             continue
-        name = street(_text(cells[0]))
+        name = street(_text(cells[0])) or name  # a blank name cell continues the street above
         odd, even, where = (_items(c) for c in cells[1:])
+        odd, even = _joined(odd), _joined(even)
         if len(where) != len(odd):
             where = [""] * len(odd)
         for i, part in enumerate(where):
-            out.append({
-                "name": name,
-                "part": "" if part.upper() in ("N/A", "") else part,
-                "ODD": side_entry(odd[i]),
-                "EVEN": side_entry(even[i] if i < len(even) else ""),
-            })  # fmt: skip
+            sides = {"ODD": odd[i], "EVEN": even[i] if i < len(even) else ""}
+            r = {"name": name, "part": "" if part.upper() in ("N/A", "") else part}
+            r["both"] = bool(re.search(r"\bboth sides?\b", sides["ODD"], re.I))
+            for side, text in sides.items():
+                r[side] = side_entry(text)
+                if r[side][0] is None and not _NONE_RE.match(text):
+                    bad.append(f"{name} {side}: {text!r}")
+            out.append(r)
+    if bad:
+        raise ValueError(f"{len(bad)} listed sides have no readable schedule: {bad}")
     return [r for r in out if r["ODD"][0] or r["EVEN"][0]]
 
 
@@ -126,11 +163,12 @@ def _ends(street, part: str, lines) -> list | None:
 
 
 def _part_of(blocks, parts, lines) -> list:
-    """Per block, the index of the part whose two cross streets bracket its midpoint; else
-    the part listed without cross streets; else None."""
+    """Per block, the index of the part whose two cross streets bracket its midpoint, else
+    None; and the part listed without cross streets (the whole street), else None."""
     street = blocks.geometry.union_all()
     ends = {i: e for i, part in enumerate(parts) if (e := _ends(street, part, lines))}
     rest = [i for i, part in enumerate(parts) if not part]
+    base = rest[0] if len(rest) == 1 else None
     out = []
     for g in blocks.geometry:
         mid = g.interpolate(0.5, normalized=True)
@@ -138,30 +176,48 @@ def _part_of(blocks, parts, lines) -> list:
         scores = [((mid.distance(a) + mid.distance(b)) / max(a.distance(b), 1.0), i)
                   for i, (a, b) in ends.items()]  # fmt: skip
         best = min(scores, default=(9.0, None))
-        out.append(best[1] if best[0] < 1.2 else rest[0] if len(rest) == 1 else None)
+        out.append((best[1] if best[0] < 1.2 else None, base))
     return out
+
+
+def _entries(grp: pd.DataFrame, pick, base) -> list[dict]:
+    """A block's schedules: its part's, a side the part leaves empty from the whole street,
+    plus the whole street's own row when that lists both sides ("Both Sides - Monday")."""
+    if pick is None or pick == base:
+        return [{"EVEN": _UNPLACED, "ODD": _UNPLACED} if base is None else grp.iloc[base]]
+    part = grp.iloc[pick]
+    if base is None:
+        return [part]
+    whole = grp.iloc[base]
+    if whole["both"]:
+        return [part, whole]
+    return [{s: part[s] if part[s][0] else whole[s] for s in ("EVEN", "ODD")}]
 
 
 def join(rows: list[dict], lines: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
     """Standard-schema rows: county blocks of each listed street, its part's schedule."""
     lines = lines.to_crs(_UTM)
     typed = lines["STREET_NAME"].map(normalize.street_name_typed)
+    page = pd.DataFrame(rows)
+    page["key"] = page["name"].map(normalize.street_name_typed)  # "3RD. AVENUE" is 3RD AVE
     out, missing = [], []
-    for name, grp in pd.DataFrame(rows).groupby("name", sort=False):
-        blocks = lines[typed == normalize.street_name_typed(name)]
-        if blocks.empty:  # the page leaves the type out ("Ardendale")
+    for key, grp in page.groupby("key", sort=False):
+        name = grp["name"].iloc[0]
+        blocks = lines[typed == key]
+        if blocks.empty:  # the page leaves the type out ("Ardendale"), not another listed one's
             blocks = citykit.blocks_by_name(lines, name)
+            blocks = blocks[~typed[blocks.index].isin(page["key"])]
         if blocks.empty:
             missing.append(name)
             continue
         alike = len({(r["ODD"], r["EVEN"]) for _, r in grp.iterrows()}) == 1
-        picks = [0] * len(blocks) if alike else _part_of(blocks, list(grp["part"]), lines)
-        for (_, b), pick in zip(blocks.iterrows(), picks, strict=True):
-            r = {"EVEN": _UNPLACED, "ODD": _UNPLACED} if pick is None else grp.iloc[pick]
-            rec = b.drop("STREET_KEY").to_dict()
-            for side in ("EVEN", "ODD"):
-                rec[f"DAY_{side}"], rec[f"DESC_{side}"], rec[f"TIME_{side}"] = r[side]
-            out.append(rec)
+        picks = [(0, 0)] * len(blocks) if alike else _part_of(blocks, list(grp["part"]), lines)
+        for (_, b), (pick, base) in zip(blocks.iterrows(), picks, strict=True):
+            for r in _entries(grp, pick, base):
+                rec = b.drop("STREET_KEY").to_dict()
+                for side in ("EVEN", "ODD"):
+                    rec[f"DAY_{side}"], rec[f"DESC_{side}"], rec[f"TIME_{side}"] = r[side]
+                out.append(rec)
     if missing:
         print(f"  ⚠  {len(missing)} listed streets have no county centerline: {missing}")
     gdf = geopandas.GeoDataFrame(out, geometry="geometry", crs=_UTM).to_crs("EPSG:4326")

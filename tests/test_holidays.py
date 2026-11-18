@@ -149,6 +149,21 @@ _HAYWARD_BOTH = ((2026, 1, 1), (2026, 11, 26), (2026, 12, 25), (2027, 1, 1), (20
 _ALSO_SUSPENDED |= {("hayward", datetime.date(*d)): "trash" for d in _HAYWARD_BOTH}  # WM too
 
 
+def _closure_weeks(year) -> set:
+    """Hayward's business closure weekdays: Thanksgiving week, and Christmas week through
+    New Year's week (each holiday's observed weekday)."""
+
+    def monday(day):
+        day += datetime.timedelta({5: -1, 6: 1}.get(day.weekday(), 0))
+        return day - datetime.timedelta(day.weekday())
+
+    mondays = {monday(_THANKSGIVING[1](year))}
+    for y in (year - 1, year):
+        mondays |= {monday(datetime.date(y, 12, 25)), monday(datetime.date(y + 1, 1, 1))}
+    days = {m + datetime.timedelta(d) for m in mondays for d in range(5)}
+    return {d for d in days if d.year == year}
+
+
 def _expected(city, year):
     """{date: {"name", "suspends"}} the rules give for a city's year. An observed day in the
     year before (Oakland: no Fri Dec 31 2027 for New Year's Day 2028) is not expected."""
@@ -163,6 +178,8 @@ def _expected(city, year):
                 out[day] = {"name": name, "suspends": list(suspends)}
             if observed != "date" and weekday != day and weekday.year == year:
                 out[weekday] = {"name": f"{name} (observed)", "suspends": list(suspends)}
+    for day in _closure_weeks(year) if city == "hayward" else ():
+        out.setdefault(day, {"name": "Business closure", "suspends": ["sweeping"]})
     for (ck, day), service in _ALSO_SUSPENDED.items():
         if ck == city and day.year == year:
             out[day]["suspends"].append(service)
