@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 pytest.importorskip("pdfplumber")  # the `scripts` extra
 
 import build_alameda_geojson as alameda
+import build_albany_geojson as albany
 import build_berkeley_geojson as berkeley
 import build_emeryville_geojson as emeryville
 import build_hayward_geojson as hayward
@@ -282,3 +283,32 @@ def test_hayward_rows_read_side_tokens_and_the_narrowest_range_wins():
     out = hayward.join(rows, lines).set_index("STREET_NAME")
     assert (out.loc["A ST"].DAY_EVEN, out.loc["A ST"].DAY_ODD) == ("W13", "MWFE")
     assert out.loc["ST ANDREWS ST"].DAY_ODD == "T24"
+
+
+def test_albany_address_limit_beats_divider_beats_whole_street():
+    solano, marin = _shifted(_EAST, 0.002), _EAST
+    pablo = LineString([(-122.2905, 37.83), (-122.2905, 37.84)])
+    north, middle = _shifted(_EAST, 0.003), _shifted(_EAST, 0.001)
+    lines = geopandas.GeoDataFrame(
+        [
+            _block(solano, name="SOLANO AV"),
+            _block(marin, name="MARIN AV"),
+            _block(pablo, name="SAN PABLO AV"),
+            _block(north, (1201, 1299), (1200, 1298), "RAMONA AV"),
+            _block(middle, (901, 999), (900, 998), "RAMONA AV"),
+            _block(_shifted(_EAST, -0.001), (1001, 1099), (1000, 1098), "RAMONA AV"),
+        ],
+        crs="EPSG:4326",
+    )
+    week = {"odd": "3rd Wednesday", "even": "4th Wednesday", "time": "10AM-2PM"}
+    table = {
+        "zones": {"A": week, "B": week | {"odd": "1st Monday"}, "C": week | {"odd": "2nd Monday"}},
+        "streets": [
+            ["A", "Ramona Avenue", "all"],
+            ["B", "Ramona Avenue", "Solano to Marin"],
+            ["C", "Ramona Avenue", "1000-1199"],
+        ],
+    }
+    out = albany.build(table, lines).set_index("L_F_ADD")
+    assert [out.loc[n].DAY_ODD for n in (1201, 901, 1001)] == ["W3", "M1", "M2"]
+    assert out.loc[901].DAY_EVEN == "W4" and out.loc[901].TIME_ODD == "10AM–2PM"

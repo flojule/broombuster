@@ -103,6 +103,7 @@ _EXPECTED = {
     "emeryville": [(_TRASH, ["trash"], "date")],
     "livermore": [(_TRASH, ["trash"], "date")],
     "san_leandro": [(_TRASH, ["trash"], "date")],
+    "albany": [(_TRASH, ["trash"], "date")],
     "hayward": [(_TRASH, ["trash"], "date"), (_HAYWARD, ["sweeping"], "weekday")],
 }
 _SF_DAYTIME_YEARS = {2026}  # SFMTA has not published 2027's daytime-only holidays
@@ -163,6 +164,7 @@ def test_for_region_is_the_client_copy():
         "emeryville",
         "san_leandro",
         "hayward",
+        "albany",
     }
 
 

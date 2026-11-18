@@ -13,6 +13,7 @@ import re
 
 import geopandas
 import pandas as pd
+import pdf_city
 
 from broombuster import normalize
 
@@ -155,6 +156,20 @@ def zones_to_blocks(
     out = ln.drop(columns=["_len"]).merge(best[["_line", "_zone"]], on="_line")
     out = out.merge(zn[["_zone", *zcols]], on="_zone", suffixes=("", "_zone"))
     return out.drop(columns=["_line", "_zone"]).to_crs("EPSG:4326")
+
+
+_KEY_WORDS = {"FIRST": "1ST", "SECOND": "2ND", "THIRD": "3RD", "FOURTH": "4TH", "FIFTH": "5TH"}
+_KEY_WORDS |= {"SIXTH": "6TH", "SEVENTH": "7TH", "SAINT": "ST"}
+
+
+def street_key(name: str) -> str:
+    """A looser STREET_KEY for joining a city's names to county ones: abbreviations
+    expanded, type dropped, ordinals and SAINT unified, no spaces or punctuation
+    ("SAINT ANDREWS ST" and "St. Andrews Street" -> "STANDREWS")."""
+    toks = normalize.street_name(pdf_city.street_label(str(name))).split()
+    if len(toks) > 1 and toks[-1] in ("TE", "TERRACE"):
+        toks = toks[:-1]
+    return re.sub(r"[^A-Z0-9]", "", "".join(_KEY_WORDS.get(t, t) for t in toks))
 
 
 def blocks_along(

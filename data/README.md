@@ -35,6 +35,7 @@ equals the source.
 | Emeryville | city route lines (ArcGIS): week, weekday, 8 AM–12 PM or 8 PM–5 AM | county centerlines (ArcGIS); curb lines give sides | every line |
 | San Leandro | city zones, commercial routes, posted streets (ArcGIS) | county centerlines (ArcGIS), both sides | every block (enforcement unpublished); posted streets: check the sign |
 | Hayward | city PDF: week, weekday per address range and parity; window not given (all day) | county centerlines (ArcGIS) | every row (city: cited on sweeping days) |
+| Albany | city zone pages, transcribed in `albany/zones.yaml`: odd side 3rd, even side 4th Wed/Thu, window per zone | county centerlines (ArcGIS) | every listed street |
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.

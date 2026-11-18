@@ -22,7 +22,6 @@ import citykit
 import geopandas
 import pdf_city
 
-from broombuster import normalize
 from broombuster.config import REPO_ROOT
 
 PDF = "Street-Sweeping-Schedule-2025-Updated-250507.pdf"
@@ -33,14 +32,6 @@ _ROW_RE = re.compile(
 )
 _DAY_ABBR = {"M": "Mon", "T": "Tue", "TU": "Tue", "W": "Wed", "TH": "Thu", "F": "Fri"}
 _WHOLE = 99999  # an end number this high: the whole street
-_ORDINAL = {"FIRST": "1ST", "SECOND": "2ND", "THIRD": "3RD", "FOURTH": "4TH", "FIFTH": "5TH"}
-_ORDINAL |= {"SIXTH": "6TH", "SEVENTH": "7TH", "SAINT": "ST"}
-
-
-def street_key(name: str) -> str:
-    """PDF and county names alike: "ST ANDREWS ST", "SAINT ANDREWS ST" -> "STANDREWS"."""
-    toks = normalize.street_name(pdf_city.street_label(name)).split()
-    return re.sub(r"[^A-Z0-9]", "", "".join(_ORDINAL.get(t, t) for t in toks))
 
 
 def schedule_words(sched: str) -> str:
@@ -59,7 +50,7 @@ def rows_from(lines) -> list[dict]:
         name = re.sub(r"\(.*?\)", " ", m["name"])
         out.append(
             {
-                "key": street_key(name),
+                "key": citykit.street_key(name),
                 "lo": int(m["lo"]),
                 "hi": int(m["hi"]),
                 "dir": m["dir"].upper(),
@@ -76,7 +67,7 @@ def join(rows: list[dict], lines: geopandas.GeoDataFrame) -> geopandas.GeoDataFr
         by_key.setdefault(r["key"], []).append(r)
     out = []
     for _, blk in lines.iterrows():
-        cand = by_key.get(street_key(blk["STREET_NAME"]), [])
+        cand = by_key.get(citykit.street_key(blk["STREET_NAME"]), [])
         rec = blk.to_dict()
         for side, par in (citykit.parity_sides(rec) or {"L": "EVEN", "R": "ODD"}).items():
             nums = [rec[f"{side}_F_ADD"], rec[f"{side}_T_ADD"]]
@@ -104,7 +95,7 @@ def main():
         sys.exit(f"{PDF}: only {len(rows)} schedule rows read; has the layout changed?")
     lines = citykit.centerlines(data_dir / "centerlines.geojson", "alameda")
     out = join(rows, lines)
-    unused = {r["key"] for r in rows} - set(lines["STREET_NAME"].map(street_key))
+    unused = {r["key"] for r in rows} - set(lines["STREET_NAME"].map(citykit.street_key))
     print(f"  {len(rows)} PDF rows, {len(out)} of {len(lines)} blocks swept")
     print(f"  {len(unused)} PDF streets without a county centerline: {sorted(unused)[:20]}")
     pdf_city.write(out, data_dir / "StreetSweeping.geojson")
