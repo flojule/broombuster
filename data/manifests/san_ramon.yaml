@@ -1,0 +1,21 @@
+name: "San Ramon, CA"
+source_updated: "2026-11"   # the city's map server gives no edit date: month fetched
+center: {lat: 37.757, lon: -121.940}
+schema: prebuilt
+bbox: [37.72, -122.01, 37.80, -121.87]
+fgb_path: data/san_ramon/StreetSweeping.fgb
+streetview_since: "2023-11"   # oldest Street View imagery scripts/validate_streetview.py counts
+holidays: data/holidays/san_ramon.yaml
+trash: {kind: weekly, holiday_rule: shift_week}   # ACI San Ramon: no lookup, the user picks the day
+source:
+  local_path: data/san_ramon/StreetSweeping.geojson
+  build: scripts/build_san_ramon_geojson.py
+  arcgis:
+    # The city's sweeping zones, each named by its schedule ("First and Third Monday").
+    zones.geojson: https://gis.sanramon.ca.gov/server/rest/services/Public_Services/Street_Sweeping_Schedule/MapServer/0
+  files:
+    # Contra Costa County streets: Census TIGER/Line EDGES (citykit.COUNTY_CENTERLINES).
+    - https://www2.census.gov/geo/tiger/TIGER2026/EDGES/tl_2026_06013_edges.zip
+  notes: |
+    The zone map is embedded in
+    https://www.sanramon.ca.gov/our_city/departments_and_divisions/public_works/streets/street_sweeping

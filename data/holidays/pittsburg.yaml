@@ -1,0 +1,10 @@
+# Trash (Mt. Diablo Resource Recovery): no service on Christmas and New Year's Day; that
+# day's pickups are one day later. Every other holiday: no change.
+# Sweeping: the city publishes no sweeping holidays, so none is assumed.
+source: https://mdrr.com/holiday-collection-schedule/
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

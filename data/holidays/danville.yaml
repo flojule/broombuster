@@ -1,0 +1,10 @@
+# Trash (Republic Services for RecycleSmart): only Christmas and New Year's Day; on a
+# weekday, that day's and the rest of the week's pickups are one day later.
+# Sweeping: the town publishes no sweeping holidays, so none is assumed.
+source: https://www.republicservices.com/sites/default/files/legacy_documents/Muni/California/RecycleSmart/Residential-Services-Guide-2026.pdf
+last_verified: 2026-11-17
+holidays:
+  - {date: 2026-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2026-12-25, name: Christmas Day, suspends: [trash]}
+  - {date: 2027-01-01, name: New Year's Day, suspends: [trash]}
+  - {date: 2027-12-25, name: Christmas Day, suspends: [trash]}

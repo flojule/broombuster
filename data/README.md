@@ -35,6 +35,10 @@ equals the source.
 | Fairfield | city residential areas (monthly, twice Nov–Jan) and commercial routes (ArcGIS) | Solano County centerlines (ArcGIS), city-owned | every row: no source says unticketed; no signs on 3 Street View blocks |
 | Benicia | city areas (ArcGIS, 2023) + Republic Services 2025 brochure (industrial, downtown, 100 blocks off First St) | Solano County centerlines (ArcGIS), city-owned | every row: brochure asks to move cars; no signs on 3 Street View blocks |
 | Napa | city route areas (ArcGIS): monthly, twice Oct–Jan | city sweeping-contract segments (ArcGIS) | every row: city asks to move cars; no signs on 3 Street View blocks |
+| San Ramon | city zones (ArcGIS), named by schedule | Contra Costa streets: Census TIGER/Line EDGES 2026 (public domain) | every zone; tickets not published (assumed); "Commercial" zone `POSTED` |
+| Danville | town zones (ArcGIS): monthly day | Contra Costa TIGER/Line EDGES | every zone; tickets not published (assumed); corridors (twice a month) and downtown (weekly) not in the source |
+| Oakley | city street list (PDF, 2025-03) | city route lines (ArcGIS) on Contra Costa TIGER/Line EDGES | every listed street; tickets not published (assumed) |
+| Pittsburg | city zones and commercial routes (ArcGIS) | Contra Costa TIGER/Line EDGES | zones with `Code_Enforcement = Yes`, others `NT`; commercial routes assumed enforced |
 
 Berkeley's signs read 9 AM–12 noon (AM routes) and 12:30–3:30 PM (PM routes). `tests/test_api.py` pins signs
 read on the street.
