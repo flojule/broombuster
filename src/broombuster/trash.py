@@ -8,11 +8,8 @@ kind: weekly     no lookup exists: the user picks the home's collection weekday 
 """
 
 import datetime
-import threading
 
-import requests
-
-from broombuster import schedule
+from broombuster import net, schedule
 from broombuster.cities import CITIES
 from broombuster.feeds import TTLCache
 
@@ -24,25 +21,12 @@ DAYS_AHEAD = 56  # the calendar shows about two months of pickups
 WEEKLY_LABEL = "Trash, compost and recycling"
 
 cache = TTLCache(max_items=2048, failure_ttl=5 * 60, wait_s=5 * _TIMEOUT_S)  # bounded
-_slots = threading.BoundedSemaphore(4)  # ReCollect calls in flight at once
 _MISS = object()
-
-
-class Busy(Exception):
-    """Every ReCollect slot stayed taken: local congestion, not cached as an outage."""
+Busy = net.Busy  # every ReCollect slot taken: local congestion, not cached as an outage
 
 
 def _get(path: str, **params):
-    if not _slots.acquire(timeout=2 * _TIMEOUT_S):
-        raise Busy
-    try:
-        r = requests.get(f"{_API}/{path}", params={**params, "locale": "en-US"}, timeout=_TIMEOUT_S)
-        r.raise_for_status()
-        return r.json()
-    except (requests.RequestException, ValueError):
-        return None
-    finally:
-        _slots.release()
+    return net.get_json(f"{_API}/{path}", _TIMEOUT_S, **params, locale="en-US")
 
 
 def parse_pickups(events, today: datetime.date) -> dict[str, list[str]]:

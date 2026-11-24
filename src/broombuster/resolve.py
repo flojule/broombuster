@@ -28,6 +28,7 @@ from broombuster import analysis, normalize
 from broombuster.cities import CITIES, city_for_point, region_bbox
 
 _TRANSFORMER_4326_TO_3857 = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+to_3857 = _TRANSFORMER_4326_TO_3857.transform  # (lon, lat) -> EPSG:3857 (x, y); arrays too
 
 # Max car-to-centerline distance for the car and home flows: past it, a car is likelier on a
 # street without data than on the nearest one (every validation point lies within 16 m).
@@ -94,7 +95,7 @@ def resolve_car_segment(
         NoSegmentNearby: No line segment within max_distance_m and no
             containing polygon found.
     """
-    car_x, car_y = _TRANSFORMER_4326_TO_3857.transform(lon, lat)
+    car_x, car_y = to_3857(lon, lat)
     car_pt = Point(car_x, car_y)
     k = mercator_scale(lat)
 

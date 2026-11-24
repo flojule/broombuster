@@ -1,10 +1,12 @@
 """ReCollect trash pickups (no network: requests are monkeypatched)."""
 
 import datetime
+import threading
 
+import pytest
 import requests
 
-from broombuster import calfeed, feeds, trash
+from broombuster import calfeed, feeds, net, trash
 
 _TODAY = datetime.date(2026, 9, 30)
 _LATER = _TODAY + datetime.timedelta(days=3)
@@ -52,7 +54,7 @@ def test_pickups_for_oakland(monkeypatch):
         assert "/places/PID/" in url
         return _Resp({"events": [_event(_TODAY, "Trash")]})
 
-    monkeypatch.setattr(trash.requests, "get", _get)
+    monkeypatch.setattr(net.session, "get", _get)
     assert trash.pickups("oakland", "1 Main St", _TODAY) == {"Trash": [_TODAY.isoformat()]}
     assert trash.pickups("san_francisco", "1 Main St", _TODAY) == {}  # no trash: block
 
@@ -63,7 +65,7 @@ def test_failure_is_cached_briefly(monkeypatch):
     def _down(*a, **k):
         raise requests.ConnectionError
 
-    monkeypatch.setattr(trash.requests, "get", _down)
+    monkeypatch.setattr(net.session, "get", _down)
     monkeypatch.setattr(feeds.time, "time", lambda: 1000.0)
     assert trash.pickups("oakland", "1 Main St", _TODAY) == {}
     ((expires, value),) = trash.cache._data.values()
@@ -82,7 +84,7 @@ def test_feed_looks_up_trash_for_a_few_homes_only(monkeypatch):
             return _Resp([{"place_id": params["q"]}])
         return _Resp({"events": [_event(_TODAY, "Trash")]})
 
-    monkeypatch.setattr(trash.requests, "get", _get)
+    monkeypatch.setattr(net.session, "get", _get)
     homes = [
         {"id": f"h{i}", "lat": 37.8113, "lon": -122.2580, "address": f"{i} Lakeshore Ave"}
         for i in range(5)
@@ -99,7 +101,10 @@ def test_feed_looks_up_trash_for_a_few_homes_only(monkeypatch):
 
 def test_busy_slots_are_not_cached_as_an_outage(monkeypatch):
     trash.cache.clear()
-    monkeypatch.setattr(trash._slots, "acquire", lambda timeout: False)
+    full = threading.BoundedSemaphore(1)
+    full.acquire()  # every ReCollect slot taken: answered at once, nothing sent
+    monkeypatch.setitem(net._slots, "api.recollect.net", full)
+    monkeypatch.setattr(net.session, "get", lambda *a, **k: pytest.fail("sent while busy"))
     assert trash.pickups("oakland", "1 Main St", _TODAY) == {}
     assert not trash.cache._data
     trash.cache.clear()

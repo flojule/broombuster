@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import pytest
 
-from broombuster import alerts, calfeed, feeds, gps
+from broombuster import alerts, calfeed, feeds, gps, net
 
 NOW = datetime.datetime(2026, 10, 17, 18, 0, tzinfo=datetime.UTC)
 
@@ -279,6 +279,17 @@ def test_chicago_vehicle(monkeypatch):
     feeds.cache.clear()
     monkeypatch.setattr(feeds, "get_json", lambda url, **p: None)
     assert feeds.chicago_vehicle("AB123") is None
+
+
+def test_busy_portal_is_nothing_known_not_an_outage(monkeypatch):
+    """With every slot to the portal taken, a lookup answers None at once, uncached."""
+    feeds.cache.clear()
+    full = threading.BoundedSemaphore(1)
+    full.acquire()
+    monkeypatch.setitem(net._slots, "data.cityofchicago.org", full)
+    monkeypatch.setattr(net.session, "get", lambda *a, **k: pytest.fail("sent while busy"))
+    assert feeds.chicago_vehicle("AB123") is None
+    assert not feeds.cache._data
 
 
 def test_vehicle_endpoint(app_client, monkeypatch):

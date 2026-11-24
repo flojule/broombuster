@@ -4,7 +4,7 @@ left out."""
 
 import re
 
-from broombuster import feeds
+from broombuster import feeds, net
 
 _NWS = "https://api.weather.gov/alerts/active"
 # NWS events that change where to park: tow-away fire zones, snow routes, flooded streets.
@@ -40,4 +40,7 @@ def _nws(lat: float, lon: float):
 def at(lat: float, lon: float) -> list[dict]:
     """Active alerts at a point (rounded to ~5 km for the cache)."""
     key = (round(lat, 2), round(lon, 2))
-    return list(feeds.cache.get(("nws", key), 10 * 60, lambda: _nws(*key)) or [])
+    try:
+        return list(feeds.cache.get(("nws", key), 10 * 60, lambda: _nws(*key)) or [])
+    except net.Busy:
+        return []

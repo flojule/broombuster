@@ -148,7 +148,7 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
     from any curb, anywhere inside the area as drawn on the map. It carries its map
     color (color)."""
     k = resolve.mercator_scale(lat)  # EPSG:3857 units per ground meter; raises past 85 deg
-    pt = shapely.Point(*_to_3857(lon, lat))
+    pt = shapely.Point(*resolve.to_3857(lon, lat))
     out = []
     for theme, gdf in _loaded.get(region_key, {}).items():
         meta = THEMES[theme]
@@ -208,15 +208,3 @@ def _area_color(areas, city: str, label: str):
 
 def _color(c) -> dict:
     return {"color": c} if isinstance(c, str) and c else {}
-
-
-_T = None
-
-
-def _to_3857(lon: float, lat: float) -> tuple[float, float]:
-    global _T
-    if _T is None:
-        from pyproj import Transformer
-
-        _T = Transformer.from_crs(4326, 3857, always_xy=True)
-    return _T.transform(lon, lat)

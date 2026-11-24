@@ -6,18 +6,16 @@ policy's limit holds for the whole app, and a typed address stays on our server.
 
 import re
 import threading
+import time
 from collections import OrderedDict
 
-from geopy.extra.rate_limiter import RateLimiter
-from geopy.geocoders import Nominatim
+from broombuster import net, normalize
 
-from broombuster import normalize
-
-_geocoder = Nominatim(user_agent="broombuster", timeout=5)
-# One throttle for every call (reverse and search share Nominatim's 1 request/s).
-_call = RateLimiter(
-    lambda fn, *a, **kw: fn(*a, **kw), min_delay_seconds=1, max_retries=0, swallow_exceptions=False
-)
+_NOMINATIM = "https://nominatim.openstreetmap.org"
+_TIMEOUT_S = 5
+_MIN_DELAY_S = 1.0  # Nominatim's policy: 1 request/s, for reverse and search together
+_throttle = threading.Lock()
+_last_call = 0.0
 
 # Lookup key -> answer, for both directions. Only answers are cached, so an
 # outage is retried.
@@ -55,19 +53,31 @@ def _cached(key, fetch, network: bool = True):
     return answer
 
 
+def _get(path: str, **params):
+    """Nominatim's JSON answer, at most one call per _MIN_DELAY_S; raises on failure."""
+    global _last_call
+    with _throttle:  # callers wait their turn here (at most _slots of them)
+        time.sleep(max(0.0, _last_call + _MIN_DELAY_S - time.monotonic()))
+        _last_call = time.monotonic()
+    data = net.get_json(f"{_NOMINATIM}/{path}", _TIMEOUT_S, format="json", **params)
+    if data is None:
+        raise ConnectionError(f"Nominatim {path} did not answer")
+    return data
+
+
 def _nominatim(lat: float, lon: float) -> dict:
     """Nominatim's address dict for a point; raises on network failure."""
-    location = _call(_geocoder.reverse, (lat, lon), exactly_one=True)
-    return location.raw.get("address", {}) if location else {}
+    data = _get("reverse", lat=lat, lon=lon, addressdetails=1)
+    return (data.get("address") or {}) if isinstance(data, dict) else {}
 
 
 def _nominatim_search(query: str, bbox: tuple | None) -> dict:
     """{"lat", "lon"} of the best match inside bbox, {} if none; raises on network failure."""
-    viewbox = [(bbox[0], bbox[1]), (bbox[2], bbox[3])] if bbox else None
-    location = _call(
-        _geocoder.geocode, query, exactly_one=True, viewbox=viewbox, bounded=bool(bbox)
-    )
-    return {"lat": location.latitude, "lon": location.longitude} if location else {}
+    box = {"viewbox": f"{bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]}", "bounded": 1} if bbox else {}
+    hits = _get("search", q=query, limit=1, **box)
+    if not isinstance(hits, list) or not hits:
+        return {}
+    return {"lat": float(hits[0]["lat"]), "lon": float(hits[0]["lon"])}
 
 
 def _lookup(lat: float, lon: float, network: bool = True) -> dict | None:
