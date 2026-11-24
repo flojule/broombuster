@@ -73,7 +73,7 @@
   function _instant(p, min, tz) {
     var wall = Date.UTC(p.y, p.m - 1, p.d) + min * 60000, t = wall;
     for (var i = 0; i < 2; i++) {  // the second pass settles a DST change in between
-      var w = _wallClock(tz, new Date(t));
+      var w = _readWallClock(tz, new Date(t));
       t = wall - (Date.UTC(w.y, w.m - 1, w.d) + w.min * 60000 - (t - (t % 60000)));
     }
     return t;
@@ -86,7 +86,17 @@
     return Math.round((_instant(p, min, now.tz) - now.at) / 60000);
   }
 
+  // The last minute read per zone: a region's clock is read many times a minute (every
+  // card, the calendar, each map pass), and Intl.formatToParts is slow.
+  var _clockMemo = {};
   function _wallClock(tz, d) {
+    var minute = Math.floor(d.getTime() / 60000), memo = _clockMemo[tz];
+    if (!memo || memo.minute !== minute) memo = _clockMemo[tz] = { minute: minute, wall: _readWallClock(tz, d) };
+    var w = memo.wall;
+    return { y: w.y, m: w.m, d: w.d, min: w.min };
+  }
+
+  function _readWallClock(tz, d) {
     var parts = {};
     try {
       var fmt = _clockFmt[tz] || (_clockFmt[tz] = new Intl.DateTimeFormat('en-US', {
@@ -104,6 +114,17 @@
       d: parseInt(parts.day, 10), min: hour * 60 + parseInt(parts.minute, 10),
     };
   }
+
+  // ── Weeks ────────────────────────────────────────────────────────────────────
+  // A week starts on Sunday in the US (the regions' zones are America/*), else on Monday
+  // (ISO). The calendar lays its weeks out by these; tz: the region's IANA zone.
+  function sundayFirst(tz) { return /^(America|US)\//.test(tz || '') || tz === 'Pacific/Honolulu'; }
+  // Column (0-6) of day p in its week.
+  function weekColumn(p, sunday) { var w = pyWeekday(p.y, p.m, p.d); return sunday ? (w + 1) % 7 : w; }
+  // The first day of the week holding p.
+  function weekStart(p, sunday) { return addDays(p, -weekColumn(p, sunday)); }
+  // The weekdays (Mon=0..Sun=6) in column order.
+  function weekdayOrder(sunday) { return sunday ? [6, 0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6]; }
 
   // ── Sweep-code rules ─────────────────────────────────────────────────────────
   // Sorted, valid days of a 'DATES:' code; null for any other code.
@@ -568,6 +589,10 @@
     entries: function (list) { return list.map(_ent); },
     dayKey: function (p) { return dayKey(p.y, p.m, p.d); },
     weekday: function (p) { return pyWeekday(p.y, p.m, p.d); },
+    sundayFirst: sundayFirst,
+    weekColumn: weekColumn,
+    weekStart: weekStart,
+    weekdayOrder: weekdayOrder,
     isoDay: isoDay,
     parseIso: parseIso,
     dayLabel: dayLabel,

@@ -18,8 +18,10 @@ const URGENCY = {
   none:     { color: 'var(--muted)',       short: 'No sweeping',
               fill: 'rgba(120,130,150,0.10)', band: '#64748b' },
 };
-// A street line's color in the current theme (styles.css --line-<urgency>).
-const lineColor = u => getComputedStyle(document.body).getPropertyValue(`--line-${u}`).trim();
+// A color token in the current theme (styles.css, on body: per theme), and a street line's
+// (--line-<urgency>).
+const bodyVar = name => getComputedStyle(document.body).getPropertyValue(name).trim();
+const lineColor = u => bodyVar(`--line-${u}`);
 
 // Today and tomorrow: the urgencies that get a tag ("Today" in its urgency color, .tag).
 const isSoon = u => u === 'today' || u === 'tomorrow';
@@ -159,6 +161,7 @@ async function loadSchedule(id, store, request, onError) {
   if (_loadSeq.get(id) !== n) return null;
   if (err) { loadFailed.add(id); onError?.(err); return null; }
   loadFailed.delete(id);
+  noteDataFresh();
   store[id] = data;
   return data;
 }

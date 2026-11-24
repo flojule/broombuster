@@ -33,15 +33,32 @@ function showToast(msg, isError = false, opts = {}) {
 // map, so a failure never reads as "nothing here". ────────────────────────────────
 const netChip = document.getElementById('net-chip');
 let _citiesFailed = false;  // /api/cities failed (data.js retries it)
-let _streetsSlow = false;   // the street tiles have been loading for over a second (map.js)
+// The street tiles are loading: from the start until the map first settles, then whenever
+// they take over a second (map.js), so a blank map never reads as "nothing here".
+let _streetsSlow = true;
 // Streets are on their way: /api/cities is loading, or the tiles are slow.
 function streetsLoading() { return (!Object.keys(regions).length && !_citiesFailed) || _streetsSlow; }
+// When the server last answered with schedules (core.js loadSchedule, data.js loadCities),
+// kept on this device: offline, the chip says how old what shows is.
+const DATA_AT_KEY = 'bb_data_at';
+function noteDataFresh() { _store(DATA_AT_KEY, String(Date.now())); }
+// "9:30PM" today, else "Nov 22", in the region's clock; '' when never.
+function dataAgeText() {
+  const at = Number(_read(DATA_AT_KEY));
+  if (!at) return '';
+  const then = regionNow(_region, new Date(at)), now = regionNow(_region);
+  return BroomUrgency.isoDay(then) === BroomUrgency.isoDay(now) ? BroomUrgency.clockText(then.min).replace('midnight', '12AM')
+    : BroomUrgency.dayLabel(then).replace(/^\S+ /, '');
+}
 function updateNetChip() {
-  const text = !navigator.onLine ? 'Offline' : _citiesFailed && !Object.keys(regions).length ? 'Can’t reach the server'
+  const age = navigator.onLine ? '' : dataAgeText();
+  const text = !navigator.onLine ? (age ? `Offline: schedules as of ${age}` : 'Offline')
+    : _citiesFailed && !Object.keys(regions).length ? 'Can’t reach the server'
     : _streetsSlow ? 'Loading streets…' : '';
   if (netChip.textContent !== text) netChip.textContent = text;
   netChip.hidden = !text;
 }
+updateNetChip();
 window.addEventListener('offline', updateNetChip);
 window.addEventListener('online', () => {
   updateNetChip();
@@ -256,14 +273,8 @@ const _crosshair  = document.getElementById('center-crosshair');
 // street), else the zone there, else null.
 function _centerFeature() {
   if (!map || map.getZoom() < STREET_READ_ZOOM) return null;  // zoomed out a line is a block of streets
-  const layers = HOVER_LAYERS.filter(l => !!map.getLayer(l));
-  if (!layers.length) return null;
-  const c = map.project(map.getCenter()), pad = 9;
-  let feats;
-  try {
-    feats = map.queryRenderedFeatures(
-      [[c.x - pad, c.y - pad], [c.x + pad, c.y + pad]], { layers });
-  } catch (_) { return null; }
+  const { p: c, box } = targetHits();  // one query per frame (js/map.js)
+  const feats = box.filter(f => HOVER_LAYERS.includes(f.layer.id));
   let best = null, bestD = Infinity;
   for (const f of feats) {
     const d = nearestSegment(f, c)?.d ?? Infinity;
@@ -275,13 +286,10 @@ function _centerFeature() {
 // Whether a street or zone of the data is drawn within `m` meters of the target (at any
 // zoom); null while unknown (no street tiles here, or still loading).
 function streetNear(m) {
-  if (!map) return null;
-  const layers = HOVER_LAYERS.filter(l => map.getLayer(l));
-  const c = map.getCenter(), p = map.project(c), r = Math.min(m / metersPerPx(c.lat), 400);
-  try {
-    if (!layers.length || !map.isSourceLoaded(TILES_SOURCE)) return null;
-    return map.queryRenderedFeatures([[p.x - r, p.y - r], [p.x + r, p.y + r]], { layers }).length > 0;
-  } catch (_) { return null; }
+  if (!map || !HOVER_LAYERS.some(l => map.getLayer(l))) return null;
+  const c = map.getCenter(), r = Math.min(m / metersPerPx(c.lat), 400);
+  try { if (!map.isSourceLoaded(TILES_SOURCE)) return null; } catch (_) { return null; }
+  return queryNear(map.project(c), r, HOVER_LAYERS).length > 0;
 }
 
 // The segment of a street (line feature) nearest the screen point c: {d: distance (px),
@@ -324,7 +332,7 @@ searchBox.addEventListener('submit', async e => {
   searchMsg.textContent = '';
   try { hit = await geocode(q, region) || (region ? await geocode(q, null) : null); }
   catch (_) { searchMsg.textContent = 'Couldn’t look up the address. Try again.'; return; }
-  if (!hit) { searchMsg.textContent = 'Address not found. Add the city?'; searchBox.q.select(); return; }
+  if (!hit) { searchMsg.textContent = 'Not found. Try adding the city, e.g. “12 Oak St, Oakland”.'; searchBox.q.select(); return; }
   closeMenu(true);
   goToAddress(hit, q);
 });
@@ -332,6 +340,7 @@ function goToAddress(hit, label) {
   _searchPin = placeMarker(_searchPin, hit, () => {
     const el = document.createElement('div');
     el.className = 'pin search-pin';
+    el.setAttribute('role', 'img');
     el.innerHTML = '<svg class="ic"><use class="pin-halo" href="#i-pin"/><use href="#i-pin"/></svg>';
     return el;
   });
@@ -354,16 +363,13 @@ function goToAddress(hit, label) {
     map.off('movestart', onMove);
     if (moved) return;
     const p = map.project([hit.lon, hit.lat]), r = SNAP_M / metersPerPx(hit.lat);
-    const layers = ['zones-line', 'zones-side-even', 'zones-side-odd'].filter(l => map.getLayer(l));
     let best = null;
-    try {
-      for (const f of map.queryRenderedFeatures([[p.x - r, p.y - r], [p.x + r, p.y + r]], { layers })) {
-        const n = nearestSegment(f, p);
-        if (!n) continue;
-        n.named = named(f);
-        if (!best || n.named > best.named || (n.named === best.named && n.d < best.d)) best = n;
-      }
-    } catch (_) {}
+    for (const f of queryNear(p, r, STREET_LINE_LAYERS)) {
+      const n = nearestSegment(f, p);
+      if (!n) continue;
+      n.named = named(f);
+      if (!best || n.named > best.named || (n.named === best.named && n.d < best.d)) best = n;
+    }
     if (best && best.d <= r) map.easeTo({ center: map.unproject([best.at.x, best.at.y]), duration: 300 });
   });
 }
@@ -371,3 +377,36 @@ function goToAddress(hit, label) {
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());
 document.getElementById('btn-zoom-out').addEventListener('click', () => map?.zoomOut());
+
+// ── Under the target, when the street card has nothing to say: why ("Zoom in to read a
+// street", "Not covered yet"), else, once on this device, how to use it (a coach mark,
+// gone at the first pan or tap). ──────────────────────────────────────────────────
+const mapHint = document.getElementById('map-hint');
+const COACH_KEY = 'bb_coach';
+let _coachShown = false;
+function _coachDone() {
+  if (!_coachShown) return;
+  _coachShown = false;
+  _store(COACH_KEY, '1');
+  updateMapHint();
+}
+function updateMapHint() {
+  let text = '', coach = false;
+  if (map && Object.keys(regions).length && !placing && !_namePopup) {
+    const z = map.getZoom(), c = map.getCenter();
+    if (z >= AREA_ZOOM && !regionAt(c.lat, c.lng)) {
+      text = `Not covered yet. Covered: ${Object.values(regions).map(r => r.name).join(', ')}`;
+    } else if (z >= AREA_ZOOM && z < STREET_READ_ZOOM) {
+      text = 'Zoom in to read a street';
+    } else if (z >= STREET_READ_ZOOM && (_coachShown || !_read(COACH_KEY))) {
+      text = 'Move the map or tap a street to read its signs';
+      coach = _coachShown = true;
+    }
+  }
+  if (mapHint.textContent !== text) mapHint.textContent = text;
+  mapHint.classList.toggle('coach', coach);
+  mapHint.hidden = !text;
+}
+// The coach mark goes once the user moves the map or taps it.
+mapDiv.addEventListener('pointerdown', _coachDone, { passive: true });
+mapDiv.addEventListener('wheel', _coachDone, { passive: true });

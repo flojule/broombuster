@@ -58,6 +58,8 @@ function updateTempPin() {
   _tempPinMarker = placeMarker(_tempPinMarker, _tempPin, () => {
     const el = document.createElement('div');
     el.className = 'pin temp';
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', 'New car');
     el.innerHTML = _pinGlyph('car');
     el.style.setProperty('--pin', nextCarColor());
     return el;
@@ -99,15 +101,14 @@ function applySelection() {
 }
 
 // The center target hides while a car or home pin sits on it (the pin marks the spot);
-// it shows again once the map moves off, and always while placing (styles.css).
+// it shows again once the map moves off, and always while placing (styles.css). On the
+// "you are here" dot it widens into a ring around it, which would hide it.
 function syncCrosshair() {
   if (!map) return;
   const c = map.project(map.getCenter());
-  const covered = [..._carMarkers.values(), ..._homeMarkers.values()].some(m => {
-    const p = map.project(m.getLngLat());
-    return Math.hypot(p.x - c.x, p.y - c.y) < 20;
-  });
-  _crosshair.classList.toggle('under-pin', covered);
+  const near = (m, r) => { const p = map.project(m.getLngLat()); return Math.hypot(p.x - c.x, p.y - c.y) < r; };
+  _crosshair.classList.toggle('under-pin', [..._carMarkers.values(), ..._homeMarkers.values()].some(m => near(m, 20)));
+  _crosshair.classList.toggle('on-here', !!(_here && _hereMarker && near(_hereMarker, 16)));
 }
 // Back to the list; focus moves to "+" (the ‹ it was on is gone).
 btnItemBack.addEventListener('click', () => { clearSelection(); btnAdd.focus(); });
@@ -168,18 +169,29 @@ function updateHereMarker() {
   _hereMarker.getElement().style.setProperty('--halo', Math.min(600, 2 * _here.acc / metersPerPx(_here.lat)) + 'px');
 }
 
-function _setHere(lat, lon, acc) { _here = { lat, lon, acc: acc || 0 }; updateHereMarker(); }
+function _setHere(lat, lon, acc) { _here = { lat, lon, acc: acc || 0 }; updateHereMarker(); syncCrosshair(); }
 
 // Follow the device position (no-op if already following). A failure stops quietly:
-// the locate button reports errors itself.
+// the locate button reports errors itself. High accuracy (GPS, which drains the battery)
+// only until a fix within GOOD_FIX_M, or for HIGH_ACCURACY_MS; then the coarse position.
+const GOOD_FIX_M = 20;
+const HIGH_ACCURACY_MS = 2 * 60 * 1000;
+let _coarseTimer = 0;
 function followHere() {
   if (_hereWatch !== null || !navigator.geolocation) return;
-  _hereWatch = navigator.geolocation.watchPosition(
-    p => _setHere(p.coords.latitude, p.coords.longitude, p.coords.accuracy),
-    () => pauseHere(), { enableHighAccuracy: true, maximumAge: 10000 });
+  _watchHere(true);
+}
+function _watchHere(high) {
+  const coarse = () => { pauseHere(); _watchHere(false); };
+  _hereWatch = navigator.geolocation.watchPosition(p => {
+    _setHere(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+    if (high && p.coords.accuracy <= GOOD_FIX_M) coarse();
+  }, () => pauseHere(), { enableHighAccuracy: high, maximumAge: 10000 });
+  if (high) _coarseTimer = setTimeout(coarse, HIGH_ACCURACY_MS);
 }
 
 function pauseHere() {
+  clearTimeout(_coarseTimer);
   if (_hereWatch !== null) navigator.geolocation.clearWatch(_hereWatch);
   _hereWatch = null;
 }
