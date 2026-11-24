@@ -252,30 +252,8 @@ function _renderLayersMenu() {
     + _legendHTML();
 }
 
-menuButton(btnLayers, layersMenu, () => { _legendSeen(); _renderLayersMenu(); });
+menuButton(btnLayers, layersMenu, _renderLayersMenu);
 
-// The street colors differ by hue (and width): on the first LEGEND_RUNS opens, until the
-// Layers menu has been opened once, a chip on the map shows them; a tap opens the legend.
-const LEGEND_RUNS = 3;
-const legendChip = document.getElementById('legend-chip');
-function _legendSeen() {
-  legendChip.hidden = true;
-  _store('bb_legend_seen', '1');
-}
-(() => {
-  if (_read('bb_legend_seen')) return;
-  const runs = (Number(_read('bb_runs')) || 0) + 1;
-  _store('bb_runs', String(runs));
-  if (runs > LEGEND_RUNS) return;
-  legendChip.innerHTML = [['today', 'Today'], ['tomorrow', 'Tomorrow'], ['safe', 'Clear']]
-    .map(([u, name]) => `<span><i class="lg lg-${u === 'today' ? 3 : u === 'tomorrow' ? 2 : 1} lg-${esc(u)}"></i>${esc(name)}</span>`).join('');
-  legendChip.hidden = false;
-})();
-legendChip.addEventListener('click', e => {
-  e.stopPropagation();  // not a click outside the menu it opens
-  if (!_legendOpen) { _legendOpen = true; _store('bb_legend', null); }
-  btnLayers.click();
-});
 layersMenu.addEventListener('click', e => {
   const lg = e.target.closest('.lyr-legend-btn');
   if (lg) {

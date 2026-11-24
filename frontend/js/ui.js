@@ -29,7 +29,7 @@ function showToast(msg, isError = false, opts = {}) {
   _toastContainer.appendChild(el);
 }
 
-// ── Connection chip: "Offline", "Can't reach the server" or "Loading streets…" over the
+// ── Connection chip: "Offline", "Can't reach the server" or "Loading…" over the
 // map, so a failure never reads as "nothing here". ────────────────────────────────
 const netChip = document.getElementById('net-chip');
 let _citiesFailed = false;  // /api/cities failed (data.js retries it)
@@ -52,9 +52,9 @@ function dataAgeText() {
 }
 function updateNetChip() {
   const age = navigator.onLine ? '' : dataAgeText();
-  const text = !navigator.onLine ? (age ? `Offline: schedules as of ${age}` : 'Offline')
+  const text = !navigator.onLine ? (age ? `Offline · ${age}` : 'Offline')
     : _citiesFailed && !Object.keys(regions).length ? 'Can’t reach the server'
-    : _streetsSlow ? 'Loading streets…' : '';
+    : _streetsSlow ? 'Loading…' : '';
   if (netChip.textContent !== text) netChip.textContent = text;
   netChip.hidden = !text;
 }
@@ -332,7 +332,7 @@ searchBox.addEventListener('submit', async e => {
   searchMsg.textContent = '';
   try { hit = await geocode(q, region) || (region ? await geocode(q, null) : null); }
   catch (_) { searchMsg.textContent = 'Couldn’t look up the address. Try again.'; return; }
-  if (!hit) { searchMsg.textContent = 'Not found. Try adding the city, e.g. “12 Oak St, Oakland”.'; searchBox.q.select(); return; }
+  if (!hit) { searchMsg.textContent = 'Not found'; searchBox.q.select(); return; }
   closeMenu(true);
   goToAddress(hit, q);
 });
@@ -378,8 +378,8 @@ function goToAddress(hit, label) {
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());
 document.getElementById('btn-zoom-out').addEventListener('click', () => map?.zoomOut());
 
-// ── Under the target, when the street card has nothing to say: why ("Zoom in to read a
-// street", "Not covered yet"), else, once on this device, how to use it (a coach mark,
+// ── Under the target, when the street card has nothing to say: why ("Zoom in",
+// "Not covered"), else, once on this device, how to use it (a coach mark,
 // gone at the first interaction). ──────────────────────────────────────────────────
 const mapHint = document.getElementById('map-hint');
 const COACH_KEY = 'bb_coach';
@@ -401,11 +401,11 @@ function updateMapHint() {
   if (map && Object.keys(regions).length && !placing && !_namePopup) {
     const z = map.getZoom(), c = map.getCenter();
     if (z >= AREA_ZOOM && (!regionAt(c.lat, c.lng) || _noStreetsInView())) {
-      text = `Not covered yet. Covered: ${Object.values(regions).map(r => r.name).join(', ')}`;
+      text = 'Not covered';
     } else if (z >= AREA_ZOOM && z < STREET_READ_ZOOM) {
-      text = 'Zoom in to read a street';
+      text = 'Zoom in';
     } else if (z >= STREET_READ_ZOOM && (_coachShown || !_read(COACH_KEY))) {
-      text = 'Move the map or tap a street to read its signs';
+      text = 'Tap a street';
       coach = _coachShown = true;
     }
   }

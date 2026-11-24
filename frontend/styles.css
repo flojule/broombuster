@@ -510,11 +510,7 @@
           border-radius: var(--r-md); background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-1);
           font-size: var(--fs-md); line-height: 1.3; }  /* read walking to the car: rows 12.8 px, labels from 10.6 px */
     .sc-head { display: flex; align-items: center; gap: 6px; }
-    /* A side's verdict: on a badge in its urgency's color when it is swept today or tomorrow. */
-    .sc-when { padding: 1px 7px; border-radius: 9px; color: #fff; font-size: var(--fs-xs); font-weight: 700; line-height: 1.55;
-               -webkit-box-decoration-break: clone; box-decoration-break: clone; }  /* large text: wraps as a highlight */
-    .sc-ok { font-size: var(--fs-xs); font-weight: 700; color: var(--urg-safe); }
-    .sc-verdict .sc-text { display: block; }  /* never cut */
+    .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: var(--fs-xs); font-weight: 700; }
     .sc-street { min-width: 0; font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
@@ -535,8 +531,7 @@
     .sc-detail { font-weight: 400; color: var(--muted); }
     .sc-time { white-space: nowrap; }  /* "7–9AM" never breaks */
     /* Short screens: the card would cover the target; it keeps its first two rows (js/signs.js). */
-    #signs.compact:not(:has(.sc-verdict)) :is(.sc-row ~ .sc-row ~ .sc-row, .sc-rule, .sc-rule ~ .sc-row) { display: none; }
-    #signs.compact:has(.sc-verdict) :is(.sc-row:not(.sc-verdict), .sc-rule) { display: none; }  /* the sides' verdicts */
+    #signs.compact :is(.sc-row ~ .sc-row ~ .sc-row, .sc-rule, .sc-rule ~ .sc-row) { display: none; }
 
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
@@ -777,11 +772,3 @@
       font-size: var(--fs-md); font-weight: 600; text-align: center; box-shadow: var(--shadow-1); pointer-events: none;
     }
     #map-hint.coach { background: var(--blue); color: #fff; }
-    /* First runs: the street colors, at the map's lower left, over the sheet's top. */
-    #legend-chip {
-      position: absolute; z-index: 16; left: calc(var(--pad-l, 0px) + var(--inset-l) + var(--edge)); bottom: calc(var(--pad-b, 0px) + 10px);
-      display: flex; gap: 10px; align-items: center; min-height: var(--tap); padding: 0 12px; border-radius: var(--pill);
-      background: var(--card); color: var(--text); font-size: var(--fs-sm); font-weight: 600; box-shadow: var(--shadow-1);
-    }
-    #legend-chip[hidden] { display: none; }
-    #legend-chip span { display: inline-flex; align-items: center; white-space: nowrap; }

@@ -88,7 +88,7 @@ function attachMapListeners() {
     clearTimeout(slowTimer); slowTimer = 0;
     if (_streetsSlow) { _streetsSlow = false; updateNetChip(); renderTargetInfo(); }
   });
-  map.on('moveend', updateMapHint);  // "Zoom in to read a street", "Not covered yet" (js/ui.js)
+  map.on('moveend', updateMapHint);  // "Zoom in", "Not covered" (js/ui.js)
   map.on('idle', updateMapHint);     // tiles loaded: whether any street is in view
   syncRegion();
 }

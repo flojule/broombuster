@@ -159,12 +159,11 @@ function _detailHTML(layers, sel) {
       .filter(([m]) => m.has(sel)).map(([m, what, mark]) => row(mark, what, esc(m.get(sel)), true)),
   ];
   if (!rows.length && layers.ptr.has(sel)) {
-    rows.push(row('<i class="cal-key cal-key-bar" aria-hidden="true"></i>', 'Street at the target', esc(layers.ptr.get(sel)), true));
+    rows.push(row('<i class="cal-key cal-key-bar" aria-hidden="true"></i>', 'This street', esc(layers.ptr.get(sel)), true));
   }
   const empty = lines.length ? ''
-    : cars.length || homes.length ? '<div class="cal-empty muted">Nothing for your cars or homes.</div>'
-    : '<div class="cal-empty"><span class="muted">Save your car to see its days.</span>'
-      + `<button class="btn btn-sm btn-tinted" data-add="car">${icon('car')} Add car</button></div>`;
+    : cars.length || homes.length ? ''
+    : `<div class="cal-empty"><button class="btn btn-sm btn-tinted" data-add="car">${icon('car')} Add car</button></div>`;
   return `<div class="cal-hero"><b class="cal-verdict">${esc(_dayLabel(_keyDay(sel)))}</b></div>`
        + (rows.length ? `<div class="cal-rows">${rows.join('')}</div>` : '') + empty;
 }

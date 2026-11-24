@@ -74,8 +74,9 @@ function moveCar(car, lat, lon) {
 // "Set here" commits at the map center. The sheet shrinks so most of the map shows;
 // it returns to its height after. A right-click sets an off-center spot (data.js).
 // Places (or, with an id, moves) a car or home; the banner shows its icon.
-// A new one starts where you are, when the app knows (people add a car once they've parked).
-function startPlacing(editId = null, kind = 'car') {
+// at: {lat, lon} to start from (a GPS fix, adjusted by hand before OK); else a new one
+// starts where you are, when the app knows (people add a car once they've parked).
+function startPlacing(editId = null, kind = 'car', at = null) {
   closeNameBox();
   const p = placing = { kind, editId };
   // The street under the target follows as the map moves (js/signs.js _placeBannerStreet).
@@ -90,8 +91,9 @@ function startPlacing(editId = null, kind = 'car') {
   if (!map) return;
   renderTargetInfo();
   map.getCanvas().style.cursor = 'crosshair';
-  if (editId) return;
   const goHere = (lat, lon) => map.jumpTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 17), padding: mapPadding() });
+  if (at) { goHere(at.lat, at.lon); return; }
+  if (editId) return;
   if (_here) { goHere(_here.lat, _here.lon); return; }
   // No dot yet: a fix only if location is already allowed (no prompt), and only while
   // this placement is on and the map hasn't been panned meanwhile.
@@ -183,7 +185,7 @@ itemMenu.addEventListener('click', async e => {
     // A phone-linked car loses its token on the server once removed: no Undo for it.
     const linked = car && car.id in phoneLinks;
     const undo = car ? removeCar(car.id) : removeHome(item.id);
-    (btnAdd.hidden ? savedSummary.querySelector('[data-parked]') : btnAdd)?.focus();  // nothing left: "I parked here"
+    (btnAdd.hidden ? savedSummary.querySelector('[data-parked]') : btnAdd)?.focus();  // nothing left: "Parked here"
     showToast(`${name} removed`, false, linked ? {} : { ms: 6000, action: { label: 'Undo', run: () => {
       undo();
       carsPanel.querySelector(`.car-entry[data-id="${CSS.escape(item.id)}"] .ce-header`)?.focus();  // focus back on its row
@@ -602,16 +604,9 @@ function remindHTML(car) {
   return `<a class="btn btn-tinted ce-btn-remind" href="/api/next-sweep.ics?${esc(q)}">${icon('calendar')} Add to calendar</a>`;
 }
 
-// Kilometers from a car to (lat, lon) (flat-earth: fine at city scale).
-function _kmFrom(car, lat, lon) {
-  const k = 111.32, dx = (lon - car.lon) * k * Math.cos(car.lat * Math.PI / 180), dy = (lat - car.lat) * k;
-  return Math.hypot(dx, dy);
-}
-
 // The car rows (before the homes) and, on a car's page, its actions under the verdict:
-// Update to my location (the car moves to the device's position, asked first when that
-// is over 1 km away: the one used every time, as Find My keeps Play Sound out) and Add to
-// calendar; the rest is under "…". Until its side is picked (where the sides differ), the
+// Update location (placement starts at the device's position, adjusted by hand, then OK)
+// and Add to calendar; the rest is under "…". Until its side is picked (where the sides differ), the
 // side choice comes first, in view with the verdict.
 function renderCarsPanel() {
   if (isEditingIn(carsPanel) || savedTitle.isContentEditable) return;
@@ -621,8 +616,8 @@ function renderCarsPanel() {
     const sched = carSchedules[car.id];
     const addrText = sched?.address || '';
     const asOf = sched?._at ? _asOf(sched) : null, sidePick = sidePickHTML(car), pickFirst = sidePick && !carSide(car);
-    const actions = `<div class="ce-actions"><button class="btn ce-btn-gps">${icon('locate')} Update to my location</button>${remindHTML(car)}</div>`;
-    const sweeping = sched?.covered === false ? '' : schedBlockHTML(car.id, pickFirst ? 'Sweeping · pick your side' : 'Sweeping',
+    const actions = `<div class="ce-actions"><button class="btn ce-btn-gps">${icon('locate')} Update location</button>${remindHTML(car)}</div>`;
+    const sweeping = sched?.covered === false ? '' : schedBlockHTML(car.id, pickFirst ? 'Pick side' : 'Sweeping',
                                                                      sched && carSchedLines(car), sidePick, asOf);
     const entry = itemCard({
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
@@ -650,13 +645,7 @@ function renderCarsPanel() {
 
     for (const b of entry.querySelectorAll('.ce-btn-retry')) b.addEventListener('click', () => checkCar(car, true));
     entry.querySelector('.ce-btn-gps').addEventListener('click', e => {
-      locateWith(e.currentTarget, async (lat, lon) => {
-        const km = _kmFrom(car, lat, lon);
-        if (km > 1 && !await askConfirm(`Update ${car.name}’s location?`,
-          `You are ${(km / 1.609).toFixed(1)} mi from where ${car.name} is now.`, 'Update')) return;
-        if (map) map.jumpTo({ center: [lon, lat], zoom: 16 });
-        return moveCar(car, lat, lon);
-      });
+      locateWith(e.currentTarget, (lat, lon) => startPlacing(car.id, 'car', { lat, lon }));
     });
     const sideGroup = entry.querySelector('.ce-side');
     if (sideGroup) radioTabs(sideGroup);
@@ -734,8 +723,7 @@ function updateSavedSummary() {
   const { today, tomorrow } = urgentCars();
   const due = today.length ? ['today', today] : tomorrow.length ? ['tomorrow', tomorrow] : null;
   savedSummary.innerHTML = (cars.length || homes.length ? ''
-    : `<div class="empty-saved"><p class="note">Know when your street gets swept.</p>
-         <button class="btn btn-wide" data-parked>${icon('locate')} I parked here</button>
+    : `<div class="empty-saved"><button class="btn btn-wide" data-parked>${icon('locate')} Parked here</button>
          <div class="empty-btns"><button class="btn btn-plain" data-add="car">${icon('car')} Add car</button>
          <button class="btn btn-plain" data-add="home">${icon('home')} Add home</button></div></div>`)
     + _alertsHTML();
@@ -745,15 +733,12 @@ function updateSavedSummary() {
   // A "!" on the dot (not color alone); the words for screen readers.
   badge.innerHTML = due ? `<b aria-hidden="true">!</b><span class="sr-only">: ${esc(due[1].map(car => `move ${car.name} ${deadlineText(car)?.long || due[0]}`).join(', '))}</span>` : '';
 }
-// Nothing saved yet: "I parked here" saves a car where the device is, in one tap (named
-// "Car"; renamed from its page); the other buttons start placing a car or a home.
+// Nothing saved yet: "Parked here" starts placing a car at the device's position (adjusted
+// by hand, then OK); the other buttons start placing a car or a home.
 savedSummary.addEventListener('click', e => {
   const parked = e.target.closest('[data-parked]');
   if (parked) {
-    locateWith(parked, (lat, lon) => {
-      if (map) map.jumpTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 17), padding: mapPadding() });
-      addCar(lat, lon);
-    });
+    locateWith(parked, (lat, lon) => startPlacing(null, 'car', { lat, lon }));
     return;
   }
   const b = e.target.closest('[data-add]');

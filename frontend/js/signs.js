@@ -2,8 +2,7 @@
 // Top left: the street's name (after a broom when it has sweeping), then one row per side
 // and set of days (the side lying higher on screen first), in the words of the posted
 // sign (the calendar gives the dates), marked by one bar down each side's rows in its map
-// line color, each side's first row its verdict ("OK until Tue 9AM", "No parking now,
-// until 11AM"). Under a hairline, the rules from /api/rules (permit area, time limit,
+// line color. Under a hairline, the rules from /api/rules (permit area, time limit,
 // meter, winter ban, fire zone, closure), each marked by its glyph in sign colors (a
 // permit: its area's map color). Every row is at most two lines. The rules arrive once
 // the map stops (one request per spot); the turned-on map layers' areas at the target (a
@@ -72,19 +71,16 @@ function _evenSideDirection(f) {
 }
 
 // A row: a mark (`bar` for sweeping, else a rule's glyph) in its color, the side when the
-// sides differ, what applies and a muted detail; `said` for screen readers. A side's
-// verdict row (`verdict`: {u, text}) puts it on a badge in its urgency's color when the
-// side is swept today or tomorrow. A side's next rows (`cont`) run its bar on and hide
-// its name (`ghost`), keeping the text in line. `divider`: the hairline above the rules.
-function _rowHTML({ divider, cont, side, ghost, verdict, color, mark, text, detail = '', said }) {
+// sides differ, what applies, a muted detail and a "Today" / "Tomorrow" badge; `said`
+// for screen readers. A side's next rows (`cont`) run its bar on and hide its name
+// (`ghost`), keeping the text in line. `divider`: the hairline above the rules.
+function _rowHTML({ divider, cont, side, ghost, when, color, mark, text, detail = '', said }) {
   if (divider) return '<hr class="sc-rule">';
-  const body = !verdict ? `${esc(text)}${detail ? ` <span class="sc-detail">${_keepTimes(esc(detail))}</span>` : ''}`
-    : isSoon(verdict.u) ? `<b class="sc-when" style="background:var(--urg-${verdict.u}-bg)">${esc(text)}</b>`
-    : `<span class="sc-ok">${esc(text)}</span>`;
-  return `<div class="sc-row${cont ? ' sc-cont' : ''}${verdict ? ' sc-verdict' : ''}">${markHTML({ color, mark })}`
+  return `<div class="sc-row${cont ? ' sc-cont' : ''}">${markHTML({ color, mark })}`
        + (side === undefined ? '' : `<span class="sc-side${ghost ? ' ghost' : ''}" aria-hidden="true">${esc(side)}</span>`)
        + `<span class="sr-only">${esc(said || `${text} ${detail}`.trim())}</span>`
-       + `<span class="sc-text" aria-hidden="true">${body}</span></div>`;
+       + `<span class="sc-text" aria-hidden="true">${esc(text)}${detail ? ` <span class="sc-detail">${_keepTimes(esc(detail))}</span>` : ''}</span>`
+       + `${when ? _whenBadge(when, true) : ''}</div>`;
 }
 // Escaped text with each time range ("8am–9pm", "7 - 9AM") kept on one line.
 const _TIME_RANGE = /\d{1,2}(?::\d\d)?\s*(?:[ap]\.?m\.?)?\s*[-–]\s*\d{1,2}(?::\d\d)?\s*[ap]\.?m\.?/gi;
@@ -95,40 +91,35 @@ function _sideUrgency({ entries }, now, skip) {
   return entries.length ? BroomUrgency.checkDaySweeping(entries, now, skip) : 'none';
 }
 
-// A side's rows, each marked in the side's map line color: its verdict, then one per set
-// of days (as the sign words it); the first names the side ("North") when the sides differ.
+// A side's sweeping rows (one per set of days, as the sign words it), each marked in the
+// side's map line color; when the sides differ, the first row names the side ("North")
+// and carries "Today" / "Tomorrow" when that side is swept then.
 function _sweepRows(sec, now, skip) {
-  const { lines, side, tag, entries } = sec, u = _sideUrgency(sec, now, skip);
+  const { lines, side, tag, entries } = sec, u = _sideUrgency(sec, now, skip), soon = isSoon(u);
   const color = `var(--line-${lines.length ? u : u === 'check' ? 'check' : 'none'})`;
-  const first = { mark: 'bar', color, ...(tag ? { side: tag } : {}) };
+  const first = { mark: 'bar', color, ...(tag ? { side: tag, when: soon && whenOf(entries, now, skip) } : {}) };
   const more = { mark: 'bar', color, cont: true, ...(tag ? { side: tag, ghost: true } : {}) };
   if (!lines.length) {  // none, or none left: Chicago's season is over, or its dates ran out
     const text = !entries.length ? 'No sweeping' : u === 'check' ? noDatesText(entries, now)
       : BroomUrgency.seasonOver(entries, now) ? 'Season over' : 'No sweeping';
     return [{ ...first, text, said: `${side}: ${text.toLowerCase()}` }];
   }
-  const v = u === 'check' ? null : sideVerdict(sec.rows, entries, now, skip, u);
-  const rows = lines.map((l, i) => ({
-    ...(i || v ? more : first), text: l.days, detail: l.time, said: `${side}: sweeping ${l.days} ${l.time}`.trim(),
+  return lines.map((l, i) => ({
+    ...(i ? more : first),
+    text: l.days, detail: l.time, said: `${side}: ${!i && soon ? `swept ${(first.when?.text || u).toLowerCase()}; ` : ''}sweeping ${l.days} ${l.time}`.trim(),
   }));
-  return v ? [{ ...first, verdict: v, text: v.text, said: `${side}: ${v.text}` }, ...rows] : rows;
 }
 
-// Can I park here, until when: {u, text} for a side (or both): "No parking now, until
-// 11AM" while its window is on, "OK until 9AM" (later today), "OK until tomorrow 9AM",
-// "OK until Thu 9AM"; null when nothing is known within 60 days. `rows`: [even, odd] as
-// /check gives them ([code, desc, time]); `u`: its checkDaySweeping verdict.
-function sideVerdict(rows, entries, now, skip, u) {
-  const d = BroomUrgency.sweepDeadline(entries, now, skip);
-  if (d?.state === 'running') return { u, text: `No parking now, until ${d.at}` };
-  if (d?.state === 'today') return { u, text: 'Swept today: see the sign' };
-  if (d && (d.state === 'by' || d.state === 'tomorrow')) {
-    const later = d.state === 'by' && BroomUrgency.sweptLaterToday(entries, now, skip);
-    const at = !d.at ? 'tomorrow' : d.at === 'midnight' || later ? d.at : `tomorrow ${d.at}`;
-    return { u, text: `OK until ${at}` };
-  }
-  const w = clearUntilWords(rows[0], rows[1], now, skip, entries);
-  return w && { u, text: w.long.replace(/^Clear until/, 'OK until') };
+// Beside the street's name: "Today" / "Tomorrow" when the street (both sides alike, or a
+// zone) is swept then. When the sides differ, each side's row carries its own.
+function _whenHTML(secs, now, skip) {
+  if (secs.length !== 1) return '';
+  return isSoon(_sideUrgency(secs[0], now, skip)) ? _whenBadge(whenOf(secs[0].entries, now, skip)) : '';
+}
+// The badge: {u, text} (whenOf).
+// `said`: the row's words already say it (screen readers skip the badge).
+function _whenBadge({ u, text }, said = false) {
+  return `<b class="sc-when" style="background:var(--urg-${u}-bg)"${said ? ' aria-hidden="true"' : ''}>${esc(text)}</b>`;
 }
 
 // Nothing due: until when a street's sides (rows as /check gives them; [] for a side that
@@ -281,7 +272,7 @@ function renderSigns(f, live = false) {
   const street = p && p.street !== 'N/A' ? p.street : '';
   const broom = secs.length ? markHTML({ mark: 'broom', color: 'var(--muted)' }) : '';
   const html = rows.length
-    ? `<div class="sc">${street || secs.length ? `<div class="sc-head">${broom}<span class="sc-street">${esc(street)}</span></div>` : ''}`
+    ? `<div class="sc">${street || secs.length ? `<div class="sc-head">${broom}<span class="sc-street">${esc(street)}</span>${_whenHTML(secs, now, skip)}</div>` : ''}`
       + `${rows.map(_rowHTML).join('')}</div>`
     : '';
   if (html !== _signsKey) {
@@ -298,7 +289,16 @@ function renderSigns(f, live = false) {
 }
 const signsLive = document.getElementById('signs-live');
 
-// Short screens: the card keeps its verdicts when it would reach the target (styles.css
+// "Today", "Tonight 12AM" (the sweep that makes it today starts after midnight: today's
+// own window is over) or "Tomorrow": {u, text} for entries swept today or tomorrow.
+function whenOf(entries, now, skip) {
+  const u = BroomUrgency.checkDaySweeping(entries, now, skip);
+  if (u !== 'today' || BroomUrgency.sweptLaterToday(entries, now, skip)) return { u, text: URGENCY[u].short };
+  const d = BroomUrgency.sweepDeadline(entries, now, skip);
+  return { u, text: d?.at ? `Tonight ${d.at === 'midnight' ? '12AM' : d.at}` : 'Tonight' };
+}
+
+// Short screens: the card keeps its first rows when it would reach the target (styles.css
 // #signs.compact); the connection chip sits under it (--signs-h). Measured once per frame,
 // in the next one (a new card, a resize and the sheet moving can all ask in one frame),
 // so the card's layout is not forced while its rows are written.
