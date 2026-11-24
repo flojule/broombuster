@@ -82,7 +82,7 @@
                 catching glass; the sheen: a soft highlight near the top. */
              --rim: inset 0 1px 0 rgba(255,255,255,.8), inset 0 -1px 0 rgba(15,23,42,.08), inset 0 0 0 1px rgba(255,255,255,.3);
              --sheen: radial-gradient(120% 90% at 25% -15%, rgba(255,255,255,.6), rgba(255,255,255,0) 60%);
-             --blur: blur(24px) saturate(1.9); }
+             --blur: blur(16px) saturate(1.8); }
       body.dark { --glass: color-mix(in srgb, var(--card) 62%, transparent);
                   --rim: inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.08);
                   --sheen: radial-gradient(120% 90% at 25% -15%, rgba(255,255,255,.12), rgba(255,255,255,0) 60%); }
@@ -101,6 +101,11 @@
     :is(.pop-menu, #confirm-dialog, .name-popup .maplibregl-popup-content) {
       background: var(--glass-regular); box-shadow: var(--rim), var(--shadow-2);
       -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    }
+    /* While the map moves (js/map.js toggles body.map-moving on movestart / moveend), the
+       controls over it are not re-blurred every frame: they turn near-opaque instead. */
+    body.map-moving :is(#map-ctrl, #place-banner, .area-label, .name-popup .maplibregl-popup-content) {
+      background: var(--glass-regular); -webkit-backdrop-filter: none; backdrop-filter: none;
     }
     /* Fills on a surface (iOS's grey control fill, the blue tint); on body, so they follow the theme. */
     body { --fill: color-mix(in srgb, var(--text) 9%, transparent); --tint-bg: color-mix(in srgb, var(--blue) 12%, transparent); }
