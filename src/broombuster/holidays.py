@@ -9,7 +9,7 @@ import os
 
 import yaml
 
-from broombuster.cities import CITIES, REGIONS
+from broombuster.cities import CITIES, REGIONS, YAML_LOADER
 from broombuster.config import REPO_ROOT
 
 SERVICES = ("sweeping", "sweeping_day", "trash")
@@ -23,7 +23,7 @@ def for_city(city_key: str) -> dict[datetime.date, dict]:
     if not rel:
         return {}
     with open(os.path.join(REPO_ROOT, rel), encoding="utf-8") as fh:
-        doc = yaml.safe_load(fh) or {}
+        doc = yaml.load(fh, Loader=YAML_LOADER) or {}  # noqa: S506 (a safe loader)
     out = {}
     for h in doc.get("holidays") or []:
         day = h["date"]

@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 User=__USER__
 WorkingDirectory=__REPO__
+# The venv is read-only here: its bytecode is compiled at install (uv sync --compile-bytecode).
 Environment=PYTHONDONTWRITEBYTECODE=1
 # The account database, the only file the app writes (.env may override it).
 Environment=BB_DB=/var/lib/broombuster/users.sqlite

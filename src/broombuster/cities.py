@@ -9,11 +9,13 @@ from broombuster.config import REPO_ROOT
 MANIFEST_DIR = os.path.join(REPO_ROOT, "data", "manifests")
 _CITY_FIELDS = ("name", "center", "schema", "bbox", "fgb_path", "source")
 _REGION_FIELDS = ("name", "cities", "center", "zoom", "tz")
+# libyaml's safe loader (~10x faster) when PyYAML was built with it.
+YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 def _read(path: str) -> dict:
     with open(path, encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+        return yaml.load(fh, Loader=YAML_LOADER)  # noqa: S506 (a safe loader)
 
 
 def load_all(directory: str = MANIFEST_DIR) -> tuple[dict, dict]:

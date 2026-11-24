@@ -22,32 +22,22 @@ def load_city_data(city_key: str) -> geopandas.GeoDataFrame:
 def load_region_data(
     region_key: str, crs: str = "EPSG:4326", compact: bool = False
 ) -> geopandas.GeoDataFrame:
-    """Every city of a region in one GeoDataFrame. Each city is reprojected before the
-    concat; compact: text columns become categoricals (values still read back as str)."""
-    parts = []
-    for ck in REGIONS[region_key]["cities"]:
-        g = load_city_data(ck)
-        parts.append(g if g.crs.equals(crs) else g.to_crs(crs))
+    """Every city of a region in one GeoDataFrame, reprojected once after the concat;
+    compact: text columns become categoricals (values still read back as str)."""
+    parts = [load_city_data(ck) for ck in REGIONS[region_key]["cities"]]
+    src = parts[0].crs
+    parts = [g if g.crs.equals(src) else g.to_crs(src) for g in parts]
+    gdf = geopandas.GeoDataFrame(pd.concat(parts, ignore_index=True), crs=src)
     if compact:
-        _categorize(parts)
-    return geopandas.GeoDataFrame(pd.concat(parts, ignore_index=True), crs=crs)
+        _categorize(gdf)
+    return gdf if gdf.crs.equals(crs) else gdf.to_crs(crs)
 
 
-def _categorize(parts: list[geopandas.GeoDataFrame]) -> None:
-    """Turn every text column into one categorical dtype shared by all parts, in place, so
-    the concat keeps it categorical."""
-    text = {
-        c
-        for g in parts
-        for c in g.columns
-        if c != g.geometry.name and pd.api.types.infer_dtype(g[c], skipna=True) == "string"
-    }
-    for c in text:
-        cats = set().union(*(set(g[c].dropna().unique()) for g in parts if c in g))
-        dtype = pd.CategoricalDtype(sorted(cats))
-        for g in parts:
-            if c in g:
-                g[c] = g[c].astype(dtype)
+def _categorize(gdf: geopandas.GeoDataFrame) -> None:
+    """Turn every text column into a categorical, in place."""
+    for c in gdf.columns:
+        if c != gdf.geometry.name and pd.api.types.infer_dtype(gdf[c], skipna=True) == "string":
+            gdf[c] = gdf[c].astype("category")
 
 
 def apply_corrections(gdf: geopandas.GeoDataFrame, path: str) -> geopandas.GeoDataFrame:

@@ -10,6 +10,9 @@ environment can change them. Variables:
   BB_CSP                                               "report-only" relaxes the enforced CSP
   BB_NREL_API_KEY                                      EV stations (layer build; DEMO_KEY if unset)
   BB_511_API_KEY                                       511 SF Bay work zones (off if unset)
+  BB_CACHE_DIR                                         startup cache of the loaded cities
+                                                       (default: systemd's STATE_DIRECTORY;
+                                                       none when neither is set)
 """
 
 import os
@@ -47,3 +50,8 @@ def nrel_api_key() -> str:
 def api_511_key() -> str:
     """511.org open-data token ("" when unset: the work-zone feed is off)."""
     return os.environ.get("BB_511_API_KEY", "").strip()
+
+
+def cache_dir() -> str | None:
+    """Where the server keeps derived files between restarts (None: no cache)."""
+    return os.environ.get("BB_CACHE_DIR") or os.environ.get("STATE_DIRECTORY") or None

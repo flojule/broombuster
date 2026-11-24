@@ -21,7 +21,7 @@ up() {
 
 # Code and venv of revision $1.
 install_rev() {
-  git reset --hard "$1" && uv sync --locked --extra api --quiet
+  git reset --hard "$1" && uv sync --locked --extra api --compile-bytecode --quiet
 }
 
 # Returns 1: not restarted; 2: /health or the revision's own deploy/smoke.sh failed (set -e is off).
