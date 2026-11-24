@@ -6,7 +6,10 @@
 const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, dayLabel: _dayLabel, WEEKDAYS } = BroomUrgency;
 // The weekday each week row starts on, as urgency.js counts them (0 = Monday): the one
 // place that decides it (the grid, its header letters, ‹ › and Home / End follow).
-function calWeek0() { return BroomUrgency.sundayFirst(regions[_tilesRegion || _region]?.tz) ? 6 : 0; }
+function calWeek0() {
+  const c = map?.getCenter(), key = _tilesRegion || _region || (c && nearestRegion(c.lat, c.lng));
+  return BroomUrgency.sundayFirst(regions[key]?.tz) ? 6 : 0;
+}
 const _col = p => (_dow(p) - calWeek0() + 7) % 7;  // a day's column in its week row
 const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
                  'August', 'September', 'October', 'November', 'December'];
@@ -330,7 +333,7 @@ function renderTargetInfo(f, live = false) {
   const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSide(c) || ''}:${sweepUrgency(c)}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
   const homeSig = homes.map(h => `${h.id}:${itemName(h)}:${homeSchedules[h.id] ? _schedId(homeSchedules[h.id]) : 0}`).join(',');
   const key = [_ptrSched ? `${props.city}:${props.sched}:${_ptrSched.side_labels}:${_ptrUrg}:${_ptrTonight}` : '',
-               carSig, homeSig, todayK].join('|');
+               carSig, homeSig, todayK, calWeek0()].join('|');
   if (key === _calKey) return;
   _calKey = key;
 

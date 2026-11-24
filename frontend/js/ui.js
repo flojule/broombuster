@@ -390,11 +390,17 @@ function _coachDone() {
   _store(COACH_KEY, '1');
   updateMapHint();
 }
+// No swept street anywhere on screen once its tiles have loaded (the region's circle is
+// coarse: it takes in towns the data doesn't cover).
+function _noStreetsInView() {
+  const ids = STREET_LINE_LAYERS.filter(id => map.getLayer(id));
+  return ids.length > 0 && map.areTilesLoaded() && !map.queryRenderedFeatures({ layers: ids }).length;
+}
 function updateMapHint() {
   let text = '', coach = false;
   if (map && Object.keys(regions).length && !placing && !_namePopup) {
     const z = map.getZoom(), c = map.getCenter();
-    if (z >= AREA_ZOOM && !regionAt(c.lat, c.lng)) {
+    if (z >= AREA_ZOOM && (!regionAt(c.lat, c.lng) || _noStreetsInView())) {
       text = `Not covered yet. Covered: ${Object.values(regions).map(r => r.name).join(', ')}`;
     } else if (z >= AREA_ZOOM && z < STREET_READ_ZOOM) {
       text = 'Zoom in to read a street';
