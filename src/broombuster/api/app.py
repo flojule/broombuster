@@ -133,6 +133,7 @@ def _cities_json() -> bytes:
             for rk, rv in REGIONS.items()
         },
         default=str,
+        separators=(",", ":"),
     ).encode()
 
 
