@@ -771,4 +771,3 @@
       padding: 6px 12px; border-radius: 16px; background: var(--toast-bg); color: var(--toast-fg);
       font-size: var(--fs-md); font-weight: 600; text-align: center; box-shadow: var(--shadow-1); pointer-events: none;
     }
-    #map-hint.coach { background: var(--blue); color: #fff; }

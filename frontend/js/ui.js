@@ -379,17 +379,8 @@ document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoom
 document.getElementById('btn-zoom-out').addEventListener('click', () => map?.zoomOut());
 
 // ── Under the target, when the street card has nothing to say: why ("Zoom in",
-// "Not covered"), else, once on this device, how to use it (a coach mark,
-// gone at the first interaction). ──────────────────────────────────────────────────
+// "Not covered"). ─────────────────────────────────────────────────────────────────
 const mapHint = document.getElementById('map-hint');
-const COACH_KEY = 'bb_coach';
-let _coachShown = false;
-function _coachDone() {
-  if (!_coachShown) return;
-  _coachShown = false;
-  _store(COACH_KEY, '1');
-  updateMapHint();
-}
 // No swept street anywhere on screen once its tiles have loaded (the region's circle is
 // coarse: it takes in towns the data doesn't cover).
 function _noStreetsInView() {
@@ -397,21 +388,12 @@ function _noStreetsInView() {
   return ids.length > 0 && map.areTilesLoaded() && !map.queryRenderedFeatures({ layers: ids }).length;
 }
 function updateMapHint() {
-  let text = '', coach = false;
+  let text = '';
   if (map && Object.keys(regions).length && !placing && !_namePopup) {
     const z = map.getZoom(), c = map.getCenter();
-    if (z >= AREA_ZOOM && (!regionAt(c.lat, c.lng) || _noStreetsInView())) {
-      text = 'Not covered';
-    } else if (z >= AREA_ZOOM && z < STREET_READ_ZOOM) {
-      text = 'Zoom in';
-    } else if (z >= STREET_READ_ZOOM && (_coachShown || !_read(COACH_KEY))) {
-      text = 'Tap a street';
-      coach = _coachShown = true;
-    }
+    if (z >= AREA_ZOOM && (!regionAt(c.lat, c.lng) || _noStreetsInView())) text = 'Not covered';
+    else if (z >= AREA_ZOOM && z < STREET_READ_ZOOM) text = 'Zoom in';
   }
   if (mapHint.textContent !== text) mapHint.textContent = text;
-  mapHint.classList.toggle('coach', coach);
   mapHint.hidden = !text;
 }
-// The coach mark goes at the first touch, click, scroll or key press anywhere.
-for (const ev of ['pointerdown', 'wheel', 'keydown']) document.addEventListener(ev, _coachDone, { passive: true });

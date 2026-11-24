@@ -14,6 +14,7 @@ Before a UI change, run the layout and accessibility check locally (not in CI, n
 
 ## Docs
 
+- [Requirements](docs/requirements.md)
 - [Architecture (diagrams)](docs/architecture.md)
 - [Dependencies (diagrams)](docs/dependencies.md)
 - [Phone setup: report where the car parked](docs/phone-setup.md)
