@@ -183,7 +183,7 @@ itemMenu.addEventListener('click', async e => {
     // A phone-linked car loses its token on the server once removed: no Undo for it.
     const linked = car && car.id in phoneLinks;
     const undo = car ? removeCar(car.id) : removeHome(item.id);
-    (btnAdd.hidden ? savedSummary.querySelector('[data-add]') : btnAdd)?.focus();  // nothing left: "Add car"
+    (btnAdd.hidden ? savedSummary.querySelector('[data-parked]') : btnAdd)?.focus();  // nothing left: "I parked here"
     showToast(`${name} removed`, false, linked ? {} : { ms: 6000, action: { label: 'Undo', run: () => {
       undo();
       carsPanel.querySelector(`.car-entry[data-id="${CSS.escape(item.id)}"] .ce-header`)?.focus();  // focus back on its row
@@ -238,7 +238,7 @@ function openNameBox(lat, lon) {
   input.setAttribute('aria-label', 'Car name');
   input.value = defaultCarName();
   const save = document.createElement('button');
-  save.className = 'btn btn-sm'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
+  save.className = 'btn np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
   save.innerHTML = icon('check');
   const close = document.createElement('button');
   close.className = 'round-btn';
@@ -281,14 +281,20 @@ function closeNameBox(refocus = true) {
 
 function savePendingCar() {
   if (pendingLat === null) return;
-  const car = { id: newId(), name: _nameInput?.value.trim() || 'My car',
-                lat: pendingLat, lon: pendingLon, color: nextCarColor() };
+  const name = _nameInput?.value.trim(), lat = pendingLat, lon = pendingLon;
+  closeNameBox(false);  // the car's page takes focus
+  addCar(lat, lon, name);
+}
+
+// A new car at (lat, lon), named (else "Car", "Car 1", …: it can be renamed on its page);
+// its page opens with the schedule as it loads.
+function addCar(lat, lon, name = '') {
+  const car = { id: newId(), name: name || defaultCarName(), lat, lon, color: nextCarColor() };
   touchCarLocation(car);
   cars.push(car);
-  closeNameBox(false);  // the car's page takes focus
   savePrefs();
   updateCarMarkers();
-  openItem(car.id);  // its page: the schedule as it loads
+  openItem(car.id);
   checkCar(car);
   offerInstall();
 }
@@ -353,25 +359,14 @@ function deadlineText(car) {
   return { short: d.at ? `Tomorrow ${d.at}` : 'Tomorrow', long: d.at ? `tomorrow by ${d.at}` : 'tomorrow' };
 }
 
-// Nothing due: until when the car's side stays clear, from its next sweep within 60 days
-// ("Clear until Thu 9AM"; a week or more away, with the date; a sweep at midnight is the
-// night before's: "Clear until Sun midnight"); "Season over" past a city's last date;
-// null when none.
+// Nothing due: until when the car's side stays clear ("Clear until Thu 9AM", "Season
+// over"; js/signs.js clearUntilWords); null when none.
 function clearUntilText(car) {
   const sched = carSchedules[car.id];
   if (!sched || sched.covered === false) return null;
-  const now = schedNow(sched), todayK = BroomUrgency.dayKey(now), side = carSide(car);
-  const even = side === 'odd' ? [] : sched.schedule_even, odd = side === 'even' ? [] : sched.schedule_odd;
-  let day = BroomUrgency.sweepDays(even, odd, now, BroomUrgency.addDays(now, 60), schedSkip(sched))
-    .find(d => BroomUrgency.dayKey(d) > todayK);
-  if (!day) return BroomUrgency.seasonOver(_sweepEntries(car), now) ? { short: 'Season over', long: 'Season over' } : null;
-  const starts = day.items.map(it => BroomUrgency.timeWindow(it.time)?.[0]).filter(m => m != null);
-  let at = starts.length ? ` ${BroomUrgency.clockText(Math.min(...starts))}` : '';
-  if (at === ' midnight') day = BroomUrgency.addDays(day, -1);
-  const far = BroomUrgency.diffDays(now, day) >= 7;
-  const wd = far ? BroomUrgency.dayLabel(day) : BroomUrgency.WEEKDAYS[BroomUrgency.weekday(day)];
-  const short = far ? BroomUrgency.dayLabel(day).replace(/^\S+ /, '') : wd;  // "Nov 22" a week or more away
-  return { short: `Clear until ${short}`, long: `Clear until ${wd}${at}` };
+  const side = carSide(car);
+  return clearUntilWords(side === 'odd' ? [] : sched.schedule_even, side === 'even' ? [] : sched.schedule_odd,
+                         schedNow(sched), schedSkip(sched), _sweepEntries(car));
 }
 
 // The verdict's words for the car's row (short) and page (long).
@@ -604,7 +599,7 @@ function remindHTML(car) {
   if (!sched || sched.covered === false || calendarOn || !deadlineText(car) && !(cl && cl.short !== 'Season over')) return '';
   const q = new URLSearchParams({ lat: car.lat, lon: car.lon, name: car.name, id: car.id });
   if (carSide(car)) q.set('side', carSide(car));
-  return `<a class="btn btn-tinted btn-wide ce-btn-remind" href="/api/next-sweep.ics?${esc(q)}">${icon('calendar')} Add to calendar</a>`;
+  return `<a class="btn btn-tinted ce-btn-remind" href="/api/next-sweep.ics?${esc(q)}">${icon('calendar')} Add to calendar</a>`;
 }
 
 // Kilometers from a car to (lat, lon) (flat-earth: fine at city scale).
@@ -613,8 +608,11 @@ function _kmFrom(car, lat, lon) {
   return Math.hypot(dx, dy);
 }
 
-// The car rows (before the homes) and, on a car's page, its one visible action: Parked
-// here (the car moves to the device's position, asked first when that is over 1 km away), the one used every time (as Find My keeps Play Sound out); the rest is under "…".
+// The car rows (before the homes) and, on a car's page, its actions under the verdict:
+// Update to my location (the car moves to the device's position, asked first when that
+// is over 1 km away: the one used every time, as Find My keeps Play Sound out) and Add to
+// calendar; the rest is under "…". Until its side is picked (where the sides differ), the
+// side choice comes first, in view with the verdict.
 function renderCarsPanel() {
   if (isEditingIn(carsPanel) || savedTitle.isContentEditable) return;
   for (const el of [...itemList.querySelectorAll(':scope > .car-entry:not(.home-entry)')]) el.remove();
@@ -622,7 +620,10 @@ function renderCarsPanel() {
   for (const car of cars) {
     const sched = carSchedules[car.id];
     const addrText = sched?.address || '';
-    const asOf = sched?._at ? _asOf(sched) : null, sidePick = sidePickHTML(car);
+    const asOf = sched?._at ? _asOf(sched) : null, sidePick = sidePickHTML(car), pickFirst = sidePick && !carSide(car);
+    const actions = `<div class="ce-actions"><button class="btn ce-btn-gps">${icon('locate')} Update to my location</button>${remindHTML(car)}</div>`;
+    const sweeping = sched?.covered === false ? '' : schedBlockHTML(car.id, pickFirst ? 'Sweeping · pick your side' : 'Sweeping',
+                                                                     sched && carSchedLines(car), sidePick, asOf);
     const entry = itemCard({
       id: car.id, kind: 'car', color: carColor(car), name: car.name,
       // Never checked and the check failed: "Couldn't check", with Retry on the row.
@@ -630,10 +631,7 @@ function renderCarsPanel() {
       words: sched ? carWords(car) : loadFailed.has(car.id) ? { short: 'Couldn’t check', long: 'Couldn’t check the street' } : null,
       addr: addrText, retry: !sched && loadFailed.has(car.id),
       detail: `
-        <button class="btn btn-wide ce-btn-gps">${icon('locate')} Parked here</button>
-        ${sched?.covered === false ? '' : schedBlockHTML(car.id, sidePick && !carSide(car) ? 'Sweeping · pick your side' : 'Sweeping',
-                                                          sched && carSchedLines(car), sidePick, asOf)}
-        ${remindHTML(car)}${dataAgeHTML(sched)}
+        ${pickFirst ? sweeping + actions : actions + sweeping}${dataAgeHTML(sched)}
         ${rulesBlockHTML('Other rules', placeRules[car.id])}
         ${vehicleHTML(car)}
         ${account ? phoneLinkHTML(car) : ''}`,
@@ -737,16 +735,27 @@ function updateSavedSummary() {
   const due = today.length ? ['today', today] : tomorrow.length ? ['tomorrow', tomorrow] : null;
   savedSummary.innerHTML = (cars.length || homes.length ? ''
     : `<div class="empty-saved"><p class="note">Know when your street gets swept.</p>
-         <div class="empty-btns"><button class="btn" data-add="car">${icon('car')} Add car</button>
+         <button class="btn btn-wide" data-parked>${icon('locate')} I parked here</button>
+         <div class="empty-btns"><button class="btn btn-plain" data-add="car">${icon('car')} Add car</button>
          <button class="btn btn-plain" data-add="home">${icon('home')} Add home</button></div></div>`)
     + _alertsHTML();
   const badge = tabbar.querySelector('.tab-badge');
   badge.hidden = !due;
   badge.classList.toggle('soon', !!due && due[0] === 'tomorrow');
-  badge.innerHTML = due ? `<span class="sr-only">: ${esc(due[1].map(car => `move ${car.name} ${deadlineText(car)?.long || due[0]}`).join(', '))}</span>` : '';
+  // A "!" on the dot (not color alone); the words for screen readers.
+  badge.innerHTML = due ? `<b aria-hidden="true">!</b><span class="sr-only">: ${esc(due[1].map(car => `move ${car.name} ${deadlineText(car)?.long || due[0]}`).join(', '))}</span>` : '';
 }
-// Nothing saved yet: the empty state's buttons start placing a car or a home.
+// Nothing saved yet: "I parked here" saves a car where the device is, in one tap (named
+// "Car"; renamed from its page); the other buttons start placing a car or a home.
 savedSummary.addEventListener('click', e => {
+  const parked = e.target.closest('[data-parked]');
+  if (parked) {
+    locateWith(parked, (lat, lon) => {
+      if (map) map.jumpTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 17), padding: mapPadding() });
+      addCar(lat, lon);
+    });
+    return;
+  }
   const b = e.target.closest('[data-add]');
   if (b) startPlacing(null, b.dataset.add);
 });

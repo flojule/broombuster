@@ -114,13 +114,10 @@ VIEWS = {
     "home": lambda pg: pg.evaluate("openItem('h1')"),
     "add": lambda pg: (pg.click("#tb-saved"), pg.click("#btn-add")),
     "settings": lambda pg: (pg.click("#tb-settings"), pg.evaluate("setDetent('medium')")),
-    # Nearby: markets, events and meetings near the center target.
-    "nearby": lambda pg: (
-        pg.click("#tb-nearby"),
-        pg.evaluate("setDetent('medium')"),
-        pg.wait_for_function(
-            "!document.querySelector('#nearby-body').textContent.includes('Loading')", timeout=30000
-        ),
+    # Nothing saved: the Saved tab's empty state ("I parked here", Add car, Add home).
+    "empty": lambda pg: pg.evaluate(
+        "cars = []; homes = []; renderHomePanel(); renderCarsPanel(); showTab('saved');"
+        " setDetent('medium')"
     ),
     "place": lambda pg: pg.evaluate("startPlacing()"),
     # You-are-here dot with a 40 m accuracy halo, near the first car.

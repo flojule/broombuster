@@ -2,7 +2,7 @@
     :root {
       --blue: #2563eb;
       /* Urgency colors (cards, banner, legend); the map paint lives in core.js URGENCY. */
-      --urg-today: #b91c1c; --urg-tomorrow: #b45309; --urg-safe: #3b7a53;  /* text and swatches: AA on card tints; clear is quiet */
+      --urg-today: #b91c1c; --urg-tomorrow: #92400e; --urg-safe: #3b7a53;  /* text and swatches: AA (4.5:1) on card tints; clear is quiet */
       --urg-today-bg: #b91c1c; --urg-tomorrow-bg: #b45309;  /* calendar fills under white text */
       --urg-check: #475569;  /* swept, day unknown: neither alarm nor clear */
       /* Street lines (map, legend, street card; js/core.js lineColor), by contrast with the
@@ -26,10 +26,14 @@
       --shadow-1: 0 4px 14px rgba(0,0,0,.14);   /* floating controls */
       --shadow-2: 0 10px 34px rgba(0,0,0,.20);  /* floating panels, menus */
       --tap: 44px;                              /* minimum touch target */
-      /* Type scale (sizes; weights 400 text, 600 labels and actions, 700 titles and verdicts). */
-      --fs-2xs: .64rem; --fs-xs: .7rem; --fs-sm: .76rem; --fs-md: .82rem; --fs-lg: .9rem; --fs-xl: 1.05rem; --fs-title: 1.4rem;
+      /* Type scale (sizes; weights 400 text, 600 labels and actions, 700 titles and verdicts),
+         12 px at the least, in --u: 16 px at the default text size, following the reader's
+         text size (iOS Dynamic Type below, the browser's elsewhere). */
+      --u: 1rem;
+      --fs-2xs: calc(.75 * var(--u)); --fs-xs: calc(.78 * var(--u)); --fs-sm: calc(.8 * var(--u)); --fs-md: calc(.84 * var(--u));
+      --fs-lg: calc(.9 * var(--u)); --fs-xl: calc(1.05 * var(--u)); --fs-title: calc(1.4 * var(--u));
       --edge: 12px;  /* gap between floating panels / map buttons and the screen edge */
-      --panel-w: min(340px, 100vw - 24px);  /* desktop: the sheet as a left panel (narrow at 400% zoom) */
+      --panel-w: min(340px, 100vw - 24px);  /* desktop: the sheet as a left panel (narrow at 400% zoom; wider on a large screen) */
       --sheet-ease: cubic-bezier(.32, .72, 0, 1);  /* the iOS sheet curve (no bounce) */
       --spring: cubic-bezier(.34, 1.3, .64, 1);    /* a small bounce: menus, the tab pill (refined below) */
       --inset-t: env(safe-area-inset-top, 0px);     /* the notch / Dynamic Island (home-screen app only) */
@@ -52,6 +56,13 @@
     /* Overflow: keep map drags from scrolling/rubber-banding the page behind it. */
     html, body { height: 100vh; overflow: hidden; overscroll-behavior: none;
                  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); }
+    /* iOS Dynamic Type: the root takes the reader's body text size (17 px at the default
+       setting), and --u scales the type by it, so the default size stays 16 px.
+       (-webkit-touch-callout: iOS only: macOS Safari's body text is 13 px.) */
+    @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+      html { font: -apple-system-body; font-family: system-ui, -apple-system, sans-serif; }
+      :root { --u: calc(1rem * 16 / 17); }
+    }
 
     /* ── Glass (iOS 26 Liquid Glass, as far as Safari goes) ──
        Floating surfaces are a blurred, saturated tint of what lies behind, with a light rim
@@ -71,7 +82,7 @@
                 catching glass; the sheen: a soft highlight near the top. */
              --rim: inset 0 1px 0 rgba(255,255,255,.8), inset 0 -1px 0 rgba(15,23,42,.08), inset 0 0 0 1px rgba(255,255,255,.3);
              --sheen: radial-gradient(120% 90% at 25% -15%, rgba(255,255,255,.6), rgba(255,255,255,0) 60%);
-             --blur: blur(24px) saturate(1.9); }
+             --blur: blur(16px) saturate(1.8); }
       body.dark { --glass: color-mix(in srgb, var(--card) 62%, transparent);
                   --rim: inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.08);
                   --sheen: radial-gradient(120% 90% at 25% -15%, rgba(255,255,255,.12), rgba(255,255,255,0) 60%); }
@@ -90,6 +101,11 @@
     :is(.pop-menu, #confirm-dialog, .name-popup .maplibregl-popup-content) {
       background: var(--glass-regular); box-shadow: var(--rim), var(--shadow-2);
       -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    }
+    /* While the map moves (js/map.js toggles body.map-moving on movestart / moveend), the
+       controls over it are not re-blurred every frame: they turn near-opaque instead. */
+    body.map-moving :is(#map-ctrl, #place-banner, .area-label, .name-popup .maplibregl-popup-content) {
+      background: var(--glass-regular); -webkit-backdrop-filter: none; backdrop-filter: none;
     }
     /* Fills on a surface (iOS's grey control fill, the blue tint); on body, so they follow the theme. */
     body { --fill: color-mix(in srgb, var(--text) 9%, transparent); --tint-bg: color-mix(in srgb, var(--blue) 12%, transparent); }
@@ -163,7 +179,7 @@
     body.naming #signs { display: none; }  /* the name box sits where the sign does on a phone */
     .map-btn {
       position: relative; width: var(--tap); height: var(--tap); display: flex; align-items: center; justify-content: center;
-      color: var(--text); border-radius: var(--pill); font-size: 1.1rem;
+      color: var(--text); border-radius: var(--pill); font-size: calc(1.1 * var(--u));
     }
     .zoom-btn { display: none; }
     .map-btn + .map-btn::before { content: ''; position: absolute; top: 0; left: 10px; right: 10px; border-top: 1px solid var(--hairline); }
@@ -241,7 +257,8 @@
     .rows .note { padding: 6px 16px 8px; }
     .rows .link-field { margin: 6px 16px; }
     .about { font-size: var(--fs-xs); line-height: 1.45; }
-    .about a { color: inherit; }
+    .about a { position: relative; color: inherit; }
+    .about a::after { content: ''; position: absolute; inset: -15px -3px; }  /* a 44 px touch target */
     /* Destructive actions; after the row styles so it wins over their color. */
     .danger, .menu-item.danger { color: var(--urg-today); }
 
@@ -249,8 +266,9 @@
     /* The account's sections (js/account.js) join the tab's column. */
     .set-slot { display: contents; }
     .seg { flex: none; display: flex; padding: 3px; gap: 2px; background: var(--fill); border-radius: var(--pill); }
-    .seg button { flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: var(--fs-md); font-weight: 400;
+    .seg button { position: relative; flex: 1; min-height: 36px; color: var(--text); border-radius: var(--pill); font-size: var(--fs-md); font-weight: 400;
                   transition: background-color .2s, box-shadow .2s; }
+    .seg button::after { content: ''; position: absolute; inset: -6px 0; }  /* 44 px tall to the finger (over the control's padding) */
     .seg button[aria-checked="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.2); font-weight: 600; }
 
     /* ── Sheet (as in Find My) ──
@@ -316,7 +334,7 @@
     :is(.head-btn, .round-btn) { flex: none; position: relative; display: flex; align-items: center; justify-content: center; }
     .head-btn { color: var(--muted); }
     .text-btn { min-height: var(--tap); padding: 0 8px; color: var(--tint-fg); font-size: var(--fs-lg); font-weight: 600; }
-    .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: 1.1rem; background: var(--fill); }
+    .round-btn { width: 36px; height: 36px; border-radius: 50%; color: var(--text); font-size: calc(1.1 * var(--u)); background: var(--fill); }
     .round-btn::after { content: ''; position: absolute; inset: -4px; }  /* 44 pt touch target */
     #btn-add, #btn-item-more { color: var(--blue); }
     /* Tab bar (iOS 26): a glass capsule at the sheet's foot, 14 px in when open (the content's
@@ -355,9 +373,11 @@
     }
     #tabbar [role="tab"] svg.ic { width: 24px; height: 24px; }
     #tabbar [aria-selected="true"] { color: var(--tint-fg); }
-    .tab-badge { position: absolute; top: 4px; left: calc(50% + 7px); width: 10px; height: 10px; border-radius: 50%;
+    /* A "!" on it, so it reads as a warning (not color alone); tomorrow's is a ring. */
+    .tab-badge { position: absolute; top: 2px; left: calc(50% + 6px); width: 14px; height: 14px; border-radius: 50%;
+                 display: grid; place-items: center; font: 800 11px/1 system-ui, sans-serif; font-style: normal; color: #fff;
                  background: var(--urg-today); box-shadow: 0 0 0 2px var(--card); }
-    .tab-badge.soon { background: var(--card); box-shadow: inset 0 0 0 3px var(--urg-tomorrow), 0 0 0 2px var(--card); }  /* tomorrow: a ring, not color alone */
+    .tab-badge.soon { background: var(--card); color: var(--urg-tomorrow); box-shadow: inset 0 0 0 2px var(--urg-tomorrow), 0 0 0 2px var(--card); }
     /* Saved: the verdict line, then one grouped list of cars and homes (as Find My's
        Items list); an open item hides the rest and shows its own page. */
     #saved-summary .note { margin: 0; font-size: var(--fs-md); }
@@ -366,8 +386,8 @@
     /* Nothing saved: what saving does, and the two ways to start. */
     .empty-saved { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; font-weight: 400; }
     .empty-saved .note { margin: 0 2px; font-size: var(--fs-md); }
-    .empty-btns { display: flex; gap: 8px; }
-    .empty-btns .btn { flex: 1; }
+    .empty-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+    .empty-btns .btn { flex: 1 1 8em; }
     body.placing .empty-btns { display: none; }  /* the banner's "Set here" is the one action */
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
     .urg-safe { color: var(--urg-safe); } .urg-check { color: var(--urg-check); } .urg-none { color: var(--muted); }
@@ -382,22 +402,27 @@
     .car-entry { position: relative; display: flex; flex-direction: column; gap: 8px; }
     /* Separators start at the text, as in iOS lists. */
     .car-entry + .car-entry:not(.selected)::before { content: ''; position: absolute; top: 0; left: 56px; right: 0; border-top: 1px solid var(--hairline); }
-    .ce-header { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 14px 8px 12px; cursor: pointer; }
+    /* Large text: the verdict wraps under the name instead of squeezing it. */
+    .ce-header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 58px; padding: 8px 14px 8px 12px; cursor: pointer; }
     .ce-header:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
     /* Row icon: the pin's look (white on the item's color). */
     .ce-dot { width: 32px; height: 32px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%;
               background: var(--car-color); color: #fff; --icon-hole: var(--car-color); font-size: 18px; }
     .ce-dot svg.ic { width: 1em; height: 1em; }
-    .ce-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .ce-text { flex: 1 1 9em; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
     .ce-name { font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ce-addr { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
                outline: none; border-bottom: 1px solid transparent; user-select: none; }
     .ce-addr[contenteditable="true"] { font-size: 16px; white-space: normal; color: var(--text); border-bottom-color: var(--blue); user-select: text; cursor: text; }
     /* The verdict: colored words with an icon (never color alone), no tinted row. */
-    .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
+    .ce-status { flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
     .st-long, .car-entry.selected .st-short { display: none; }
     .car-entry.selected .st-long { display: inline; }
     .ce-detail { display: flex; flex-direction: column; gap: 6px; }
+    /* A car's actions under its verdict: Update to my location, Add to calendar (side by
+       side; one over the other when they do not fit). */
+    .ce-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ce-actions .btn { flex: 1 1 auto; padding: 0 14px; white-space: nowrap; }
     .car-entry:not(.selected) .ce-detail { display: none; }
 
     /* An item's page: its name is the tab's title; under it the verdict and the address,
@@ -405,15 +430,15 @@
     #cars-panel.item-open #saved-summary, #cars-panel.item-open .car-entry:not(.selected) { display: none; }
     #cars-panel.item-open #item-list { background: none; border-radius: 0; overflow: visible; }
     /* The status card: the verdict in large words over the address, tinted when the car must move. */
-    .car-entry.selected .ce-header { flex-direction: column-reverse; align-items: flex-start; gap: 4px; min-height: 0; padding: 12px 16px;
+    .car-entry.selected .ce-header { flex-direction: column-reverse; flex-wrap: nowrap; align-items: flex-start; gap: 4px; min-height: 0; padding: 12px 16px;
                                      border-radius: var(--r-group); background: var(--group); cursor: default; }
     .car-entry.selected[data-urg="today"] .ce-header { background: color-mix(in srgb, var(--urg-today) 8%, var(--card)); }
     .car-entry.selected[data-urg="tomorrow"] .ce-header { background: color-mix(in srgb, var(--urg-tomorrow) 8%, var(--card)); }
     body.dark .car-entry.selected[data-urg="today"] .ce-header { background: color-mix(in srgb, var(--urg-today) 18%, var(--card)); }
     body.dark .car-entry.selected[data-urg="tomorrow"] .ce-header { background: color-mix(in srgb, var(--urg-tomorrow) 18%, var(--card)); }
     .car-entry.selected :is(.ce-dot, .ce-name) { display: none; }
-    .car-entry.selected .ce-text { width: 100%; }
-    .car-entry.selected .ce-status { font-size: var(--fs-xl); font-weight: 700; white-space: normal; }
+    .car-entry.selected .ce-text { flex: none; width: 100%; }
+    .car-entry.selected .ce-status { margin-left: 0; font-size: var(--fs-xl); font-weight: 700; white-space: normal; }
     /* Sweeping on a car's page: the other side of the street, muted. */
     .tag { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: var(--fs-xs); font-weight: 700;
                         background: color-mix(in srgb, currentColor 12%, transparent); }
@@ -464,7 +489,8 @@
       border-top-color: var(--card); border-bottom-color: var(--card);
     }
     .np-row { display: flex; gap: 6px; align-items: center; }
-    .np-row .field { flex: 1; min-width: 0; width: 0; }
+    .np-row .field { flex: 1; min-width: 0; width: 0; min-height: var(--tap); }
+    .np-row :is(.np-save, .round-btn) { flex: none; width: var(--tap); height: var(--tap); padding: 0; }
 
     /* ── Calendar tab: one week (small sheet) unfolding into the month view ── */
     #ic-cal { padding-bottom: calc(var(--bar-space) - 8px); gap: 0; overflow: hidden; }
@@ -484,10 +510,15 @@
           border-radius: var(--r-md); background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-1);
           font-size: var(--fs-md); line-height: 1.3; }  /* read walking to the car: rows 12.8 px, labels from 10.6 px */
     .sc-head { display: flex; align-items: center; gap: 6px; }
-    .sc-when { flex: none; margin-left: auto; padding: 1px 6px; border-radius: var(--pill); color: #fff; font-size: var(--fs-xs); font-weight: 700; }
+    /* A side's verdict: on a badge in its urgency's color when it is swept today or tomorrow. */
+    .sc-when { padding: 1px 7px; border-radius: 9px; color: #fff; font-size: var(--fs-xs); font-weight: 700; line-height: 1.55;
+               -webkit-box-decoration-break: clone; box-decoration-break: clone; }  /* large text: wraps as a highlight */
+    .sc-ok { font-size: var(--fs-xs); font-weight: 700; color: var(--urg-safe); }
+    .sc-verdict .sc-text { display: block; }  /* never cut */
     .sc-street { min-width: 0; font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sc-row { display: flex; align-items: flex-start; gap: 6px; }
+    .sc-row > .sc-text { flex: 1 1 6em; }  /* large text: the side's name keeps its width, the text wraps */
     .sc-side { flex: none; min-width: 3.1em; padding-top: 1px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
     .sc-side.ghost { visibility: hidden; }  /* a side's next row: its text lines up with the first */
     .sc-mark { flex: none; }
@@ -504,7 +535,8 @@
     .sc-detail { font-weight: 400; color: var(--muted); }
     .sc-time { white-space: nowrap; }  /* "7–9AM" never breaks */
     /* Short screens: the card would cover the target; it keeps its first two rows (js/signs.js). */
-    #signs.compact :is(.sc-row ~ .sc-row ~ .sc-row, .sc-rule, .sc-rule ~ .sc-row) { display: none; }
+    #signs.compact:not(:has(.sc-verdict)) :is(.sc-row ~ .sc-row ~ .sc-row, .sc-rule, .sc-rule ~ .sc-row) { display: none; }
+    #signs.compact:has(.sc-verdict) :is(.sc-row:not(.sc-verdict), .sc-rule) { display: none; }  /* the sides' verdicts */
 
     /* ── Area labels (zoomed out): one per available area; a click flies to it ── */
     .area-label {
@@ -544,7 +576,7 @@
     .cal-past { color: var(--muted); }  /* days gone by: not counted as ahead (muted digits stay AA) */
     .cal-past :is(.cal-dots, .cal-bar) { opacity: .5; }
 
-    .cal-nav { width: var(--tap); height: var(--tap); font-size: 1.15rem; color: var(--tint-fg); }
+    .cal-nav { width: var(--tap); height: var(--tap); font-size: calc(1.15 * var(--u)); color: var(--tint-fg); }
     /* One grid of weeks for both views: it fills what the sheet leaves (the sheet's heights
        fit whole weeks), down to the one week the small sheet shows; then it neither scrolls
        nor shows the day details (a swipe steps a week, js/calendar.js). */
@@ -575,6 +607,10 @@
     .cal-rr { flex: 0 1 auto; min-width: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
     .cal-rr.muted { font-weight: 400; }
     .cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 2px; }
+    .cal-key-bar { height: 3px; width: 14px; background: var(--urg-safe); }  /* the street's day: the grid's bar */
+    .cal-key-hol { width: auto; height: auto; font-size: var(--fs-sm); line-height: 1; color: var(--muted); text-decoration-color: currentColor; }  /* a struck date, as the grid's */
+    /* Nothing saved that day: a line (and with nothing saved, the button to add a car). */
+    .cal-empty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; padding: 0 4px; }
     /* A car's mark is round, a home's pickup square (the dots above, the keys here). */
     :is(.cal-dot, .cal-key).cal-round { border-radius: 50%; }
     :is(.cal-dot, .cal-key).cal-square { border-radius: 1px; }
@@ -610,8 +646,8 @@
     /* ── Dark mode ── */
     body.dark {
       --card: #1e293b; --text: #e2e8f0;
-      --muted: #94a3b8; --border: #334155;
-      --urg-today: #f87171; --urg-tomorrow: #fbbf24; --urg-safe: #7cc495; --urg-check: #cbd5e1;
+      --muted: #a8b3c4; --border: #334155;  /* muted 4.7:1 on the card's red tint */
+      --urg-today: #fca5a5; --urg-tomorrow: #fbbf24; --urg-safe: #7cc495; --urg-check: #cbd5e1;  /* today 5.3:1 on its tint */
       --tint-fg: #93b4f8; --home: #4ade80;
       --rule-allow: var(--home); --rule-meter: #9ca3af; --rule-snow: #60a5fa; --rule-ban: #f87171;  /* 3:1 on the card */
       --pin-halo: #111418;
@@ -691,7 +727,7 @@
       #ic-cal { overflow-y: auto; }
       #sheet-grabber { display: none; }
       .tab-head { height: auto; min-height: var(--tap); padding: 4px 12px 6px 20px; }
-      .tab-title { font-size: 1.2rem; }
+      .tab-title { font-size: calc(1.2 * var(--u)); }
       #tabbar::before { background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
       /* Words only (as a Mac segmented control): three of them fit the panel's width. */
       #tabbar [role="tab"] { min-width: 0; min-height: 34px; font-size: var(--fs-sm); }
@@ -708,6 +744,10 @@
       /* Centered in the map area right of the panel. */
       #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--inset-l) + var(--panel-w) + var(--edge)) / 2); }
       #toast-container { bottom: 24px; left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }
+    }
+    /* A large screen: a wider panel, larger type. */
+    @media (min-width: 1200px) and (min-height: 700px) {
+      :root { --panel-w: min(400px, 100vw - 24px); --u: 1.07rem; }
     }
     /* A phone on its side: the panel is the screen's height and the month scrolls in it, so
        the day details stay in view. */
