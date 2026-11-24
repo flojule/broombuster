@@ -258,7 +258,7 @@ function _serverRules(p, live) {
   if (live) {
     clearTimeout(_rulesTimer);
     const hit = map && map.getZoom() >= RULES_ZOOM && _rulesCache.get(_spotKey());
-    if (!hit?.[0].length) return [];
+    if (!hit || !hit[0].length) return [];
   }
   return p || streetNear(RULES_STREET_M) !== false ? targetRules(live) : [];
 }

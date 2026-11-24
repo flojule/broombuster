@@ -380,7 +380,7 @@ document.getElementById('btn-zoom-out').addEventListener('click', () => map?.zoo
 
 // ── Under the target, when the street card has nothing to say: why ("Zoom in to read a
 // street", "Not covered yet"), else, once on this device, how to use it (a coach mark,
-// gone at the first pan or tap). ──────────────────────────────────────────────────
+// gone at the first interaction). ──────────────────────────────────────────────────
 const mapHint = document.getElementById('map-hint');
 const COACH_KEY = 'bb_coach';
 let _coachShown = false;
@@ -407,6 +407,5 @@ function updateMapHint() {
   mapHint.classList.toggle('coach', coach);
   mapHint.hidden = !text;
 }
-// The coach mark goes once the user moves the map or taps it.
-mapDiv.addEventListener('pointerdown', _coachDone, { passive: true });
-mapDiv.addEventListener('wheel', _coachDone, { passive: true });
+// The coach mark goes at the first touch, click, scroll or key press anywhere.
+for (const ev of ['pointerdown', 'wheel', 'keydown']) document.addEventListener(ev, _coachDone, { passive: true });

@@ -6,7 +6,7 @@
 const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, dayLabel: _dayLabel, WEEKDAYS } = BroomUrgency;
 // The weekday each week row starts on, as urgency.js counts them (0 = Monday): the one
 // place that decides it (the grid, its header letters, ‹ › and Home / End follow).
-function calWeek0() { return 0; }
+function calWeek0() { return BroomUrgency.sundayFirst(regions[_tilesRegion || _region]?.tz) ? 6 : 0; }
 const _col = p => (_dow(p) - calWeek0() + 7) % 7;  // a day's column in its week row
 const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
                  'August', 'September', 'October', 'November', 'December'];
