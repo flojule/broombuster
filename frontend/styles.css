@@ -355,9 +355,11 @@
     }
     #tabbar [role="tab"] svg.ic { width: 24px; height: 24px; }
     #tabbar [aria-selected="true"] { color: var(--tint-fg); }
-    .tab-badge { position: absolute; top: 4px; left: calc(50% + 7px); width: 10px; height: 10px; border-radius: 50%;
+    /* A "!" on it, so it reads as a warning (not color alone); tomorrow's is a ring. */
+    .tab-badge { position: absolute; top: 2px; left: calc(50% + 6px); width: 14px; height: 14px; border-radius: 50%;
+                 display: grid; place-items: center; font: 800 11px/1 system-ui, sans-serif; font-style: normal; color: #fff;
                  background: var(--urg-today); box-shadow: 0 0 0 2px var(--card); }
-    .tab-badge.soon { background: var(--card); box-shadow: inset 0 0 0 3px var(--urg-tomorrow), 0 0 0 2px var(--card); }  /* tomorrow: a ring, not color alone */
+    .tab-badge.soon { background: var(--card); color: var(--urg-tomorrow); box-shadow: inset 0 0 0 2px var(--urg-tomorrow), 0 0 0 2px var(--card); }
     /* Saved: the verdict line, then one grouped list of cars and homes (as Find My's
        Items list); an open item hides the rest and shows its own page. */
     #saved-summary .note { margin: 0; font-size: var(--fs-md); }
@@ -366,8 +368,8 @@
     /* Nothing saved: what saving does, and the two ways to start. */
     .empty-saved { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; font-weight: 400; }
     .empty-saved .note { margin: 0 2px; font-size: var(--fs-md); }
-    .empty-btns { display: flex; gap: 8px; }
-    .empty-btns .btn { flex: 1; }
+    .empty-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+    .empty-btns .btn { flex: 1 1 8em; }
     body.placing .empty-btns { display: none; }  /* the banner's "Set here" is the one action */
     .urg-today { color: var(--urg-today); } .urg-tomorrow { color: var(--urg-tomorrow); }
     .urg-safe { color: var(--urg-safe); } .urg-check { color: var(--urg-check); } .urg-none { color: var(--muted); }
@@ -398,6 +400,10 @@
     .st-long, .car-entry.selected .st-short { display: none; }
     .car-entry.selected .st-long { display: inline; }
     .ce-detail { display: flex; flex-direction: column; gap: 6px; }
+    /* A car's actions under its verdict: Update to my location, Add to calendar (side by
+       side; one over the other when they do not fit). */
+    .ce-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ce-actions .btn { flex: 1 1 auto; padding: 0 14px; white-space: nowrap; }
     .car-entry:not(.selected) .ce-detail { display: none; }
 
     /* An item's page: its name is the tab's title; under it the verdict and the address,
@@ -464,7 +470,8 @@
       border-top-color: var(--card); border-bottom-color: var(--card);
     }
     .np-row { display: flex; gap: 6px; align-items: center; }
-    .np-row .field { flex: 1; min-width: 0; width: 0; }
+    .np-row .field { flex: 1; min-width: 0; width: 0; min-height: var(--tap); }
+    .np-row :is(.np-save, .round-btn) { flex: none; width: var(--tap); height: var(--tap); padding: 0; }
 
     /* ── Calendar tab: one week (small sheet) unfolding into the month view ── */
     #ic-cal { padding-bottom: calc(var(--bar-space) - 8px); gap: 0; overflow: hidden; }
