@@ -581,6 +581,10 @@
     .cal-rr { flex: 0 1 auto; min-width: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
     .cal-rr.muted { font-weight: 400; }
     .cal-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 2px; }
+    .cal-key-bar { height: 3px; width: 14px; background: var(--urg-safe); }  /* the street's day: the grid's bar */
+    .cal-key-hol { width: auto; height: auto; font-size: var(--fs-sm); line-height: 1; color: var(--muted); text-decoration-color: currentColor; }  /* a struck date, as the grid's */
+    /* Nothing saved that day: a line (and with nothing saved, the button to add a car). */
+    .cal-empty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; padding: 0 4px; }
     /* A car's mark is round, a home's pickup square (the dots above, the keys here). */
     :is(.cal-dot, .cal-key).cal-round { border-radius: 50%; }
     :is(.cal-dot, .cal-key).cal-square { border-radius: 1px; }
