@@ -20,6 +20,7 @@ let _compact = false;  // placing a car or home: the sheet is small whatever the
 // 60% so the map stays in view), both whole weeks (calFit; before the calendar has been
 // laid out, estimates).
 const MEDIUM_MAX = 0.6;
+const MEDIUM_FOUR_WEEKS = 0.72;
 const SHEET_PEEK = 280;  // px at small, until the calendar is measured
 const TABBAR_H = 56;     // px: hidden, the sheet is the tab bar's capsule (styles.css)
 function detentHeights() {
@@ -28,7 +29,10 @@ function detentHeights() {
   const hidden = TABBAR_H;
   const small = fit ? fit.small : SHEET_PEEK;
   const round = h => fit ? fit.round(h) : Math.round(h);
-  const medium = Math.max(small, round(Math.min(H * MEDIUM_MAX, Math.max(H * 0.5, fit ? fit.weeks(4) : 0))));
+  // Four weeks also when they fit in MEDIUM_FOUR_WEEKS of the screen (a 6.1" phone's 60% rounds to two).
+  const four = fit ? fit.weeks(4) : 0;
+  const medium = Math.max(small, round(Math.max(Math.min(H * MEDIUM_MAX, Math.max(H * 0.5, four)),
+                                                four <= H * MEDIUM_FOUR_WEEKS ? four : 0)));
   return { hidden, small, medium };
 }
 // The height the sheet shows now.
@@ -92,15 +96,29 @@ function applyMapInsets(animate = true) {
 // and from a tab's content as iOS sheets are (touch): up while it can grow, down once
 // the content is scrolled to its top; the calendar's grid scrolls itself unless the
 // sheet is small.
+// While dragged the sheet is laid out once at its tallest (max) and slid down by the
+// difference (a transform), its foot clipped and the tab bar slid back up: no layout per
+// frame. The height is set on release.
 let _drag = null, _dragged = false;
 function _dragBegin(y, t) { _drag = { y0: y, h0: sheet.offsetHeight, y, t, v: 0, moved: false }; _dragged = false; }
+function _dragShow(height, max) {
+  const dy = max - height;
+  sheet.style.transform = `translateY(${dy}px)`;
+  sheet.style.clipPath = `inset(0 0 ${dy}px 0 round var(--r-top) var(--r-top) var(--sheet-r) var(--sheet-r))`;
+  tabbar.style.transform = `translateY(${-dy}px)`;
+}
 // Follows the finger once it has moved 5 px; returns whether this is a drag.
 function _dragTo(y, t) {
   if (!_drag) return false;
   if (!_drag.moved && Math.abs(y - _drag.y0) < 5) return false;
-  if (!_drag.moved) { _drag.moved = true; sheet.classList.add('dragging'); }
-  const h = detentHeights(), height = Math.max(h.hidden, Math.min(h.medium * 1.04, _drag.h0 + _drag.y0 - y));
-  sheet.style.height = height + 'px';
+  const h = _drag.h || (_drag.h = detentHeights()), max = Math.max(_drag.h0, Math.round(h.medium * 1.04));
+  if (!_drag.moved) {
+    _drag.moved = true;
+    sheet.classList.add('dragging');
+    sheet.style.height = max + 'px';
+  }
+  const height = _drag.height = Math.max(h.hidden, Math.min(max, _drag.h0 + _drag.y0 - y));
+  _dragShow(height, max);
   _setMorph(Math.min(1, Math.max(0, (h.small - height) / (h.small - h.hidden))));
   const dt = t - _drag.t;
   if (dt > 0) _drag.v = (_drag.y - y) / dt;  // px per ms, up is positive
@@ -111,8 +129,12 @@ function _dragEnd() {
   if (!_drag) return;
   _dragged = _drag.moved;
   if (_drag.moved) {
+    // The height where the finger left it, then on to the detent (styles.css transition).
+    sheet.style.height = _drag.height + 'px';
+    sheet.style.transform = sheet.style.clipPath = tabbar.style.transform = '';
+    void sheet.offsetHeight;
     sheet.classList.remove('dragging');
-    const h = detentHeights(), aim = sheet.offsetHeight + _drag.v * 200;
+    const h = detentHeights(), aim = _drag.height + _drag.v * 200;
     setDetent(DETENTS.reduce((a, b) => Math.abs(h[b] - aim) < Math.abs(h[a] - aim) ? b : a));
   }
   _drag = null;
@@ -218,7 +240,9 @@ sheet.addEventListener('touchmove', e => e.stopPropagation(), { passive: true })
 
 // The sheet's top lifts the place banner and toasts above it (in a frame, so one
 // observer's update can't re-trigger another within the same frame).
+// Not while dragged: the sheet is then laid out at its tallest (_dragTo).
 new ResizeObserver(() => requestAnimationFrame(() => {
+  if (_drag?.moved) return;
   document.documentElement.style.setProperty('--sheet-h', (isDesktop() ? 0 : sheet.offsetHeight + sheetGap()) + 'px');
 })).observe(sheet);
 // The detents follow the screen.
