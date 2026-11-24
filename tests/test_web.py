@@ -113,12 +113,26 @@ def test_static_text_is_served_precompressed(client):
     part = client.get(path, headers={"Range": "bytes=0-99", "Accept-Encoding": "gzip"})
     assert part.status_code == 206 and part.content == raw[:100]
     assert "content-encoding" not in part.headers
-    assert gzip.decompress(web._gzipped[str(web._FRONTEND / path.lstrip("/"))][1]) == raw
+    stored = web._static_encoded[str(web._FRONTEND / path.lstrip("/"))][1]
+    assert gzip.decompress(stored["gzip"]) == raw
+    web._compress_file(web._FRONTEND / path.lstrip("/"))  # as the startup thread does
+    br = client.get(path, headers={"Accept-Encoding": "gzip, br"})
+    assert br.headers["content-encoding"] == "br" and br.content == raw
+    assert int(br.headers["content-length"]) < int(r.headers["content-length"])
+    assert br.headers["etag"] == r.headers["etag"]
+
+
+def test_binary_static_files_are_not_recompressed(client):
+    r = client.get("/icon-192.png", headers={"Accept-Encoding": "gzip, br"})
+    assert r.status_code == 200 and "content-encoding" not in r.headers
 
 
 def test_dynamic_json_is_still_compressed(app_client):
-    r = app_client.get("/api/cities", headers={"Accept-Encoding": "gzip"})
+    body = {"lat": 37.7605, "lon": -122.4212}
+    r = app_client.post("/api/check", json=body, headers={"Accept-Encoding": "gzip"})
     assert r.headers["content-encoding"] == "gzip" and r.headers["cache-control"] == "no-store"
+    r = app_client.get("/api/cities", headers={"Accept-Encoding": "gzip"})
+    assert r.headers["content-encoding"] == "gzip" and r.headers["cache-control"] == "no-cache"
 
 
 def test_tiles_are_immutable_only_under_their_version(app_client):
@@ -146,3 +160,30 @@ def test_layer_archives_are_immutable_only_under_the_hash_in_their_name():
     assert web.cache_control(path, "64c9ddd6c396") == "public, max-age=31536000, immutable"
     for v in (None, "000000000000"):
         assert web.cache_control(path, v) == "public, max-age=3600, must-revalidate"
+
+
+def test_map_layers_are_immutable_only_under_their_own_hash():
+    path = "/layers/bay_area/parking.geojson"
+    v = web._layer_version(path)
+    assert v and web.cache_control(path, v) == "public, max-age=31536000, immutable"
+    assert web.cache_control(path, web.asset_version()) == "no-cache"
+
+
+def test_closures_are_cached_a_minute_and_revalidated(app_client):
+    r = app_client.get("/api/closures", params={"region": "bay_area"})
+    assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=60"
+    etag = {"If-None-Match": r.headers["etag"]}
+    again = app_client.get("/api/closures", params={"region": "bay_area"}, headers=etag)
+    assert again.status_code == 304
+
+
+def test_unhandled_error_is_a_logged_500_with_headers(client, monkeypatch):
+    from broombuster.api import app as app_module
+
+    def boom(lat, lon):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(app_module, "region_for_point", boom)
+    r = client.get("/api/locate", headers={"cf-iplatitude": "41.9", "cf-iplongitude": "-87.7"})
+    assert r.status_code == 500 and r.json() == {"detail": "Internal error."}
+    assert r.headers["x-content-type-options"] == "nosniff" and r.headers["x-request-id"]

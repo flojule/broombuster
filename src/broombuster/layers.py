@@ -42,6 +42,8 @@ _arrays: dict[tuple[str, str], tuple] = {}
 # region -> the map's permit areas (label, city, color, rule; EPSG:3857): a point inside
 # one is in that area even where no permit curb is near (the middle of a block).
 _areas: dict[str, geopandas.GeoDataFrame] = {}
+_area_rows: dict[str, list[dict]] = {}  # region -> each area's rule columns, in _areas order
+_area_colors: dict[str, dict[tuple[str, str], str]] = {}  # region -> (city, label) -> color
 
 
 def city_dir(city_key: str) -> Path:
@@ -78,7 +80,15 @@ def load_all() -> None:
                     {c: gdf[c].to_numpy(object) for c in _RULE_COLS},
                 )
         _loaded[rk] = themes
-        _areas[rk] = _permit_areas(rk)
+        _areas[rk] = areas = _permit_areas(rk)
+        if areas is not None:
+            _area_rows[rk] = areas[list(_RULE_COLS)].to_dict("records")
+            colors = _area_colors[rk] = {}
+            edges = areas["edge"] if "edge" in areas else [None] * len(areas)
+            for city, label, color, edge in zip(
+                areas["city"], areas["label"], areas["color"], edges, strict=True
+            ):  # the first area of a label; its darker edge when its color is pale
+                colors.setdefault((city, label), edge if isinstance(edge, str) and edge else color)
 
 
 def _permit_areas(region_key: str):
@@ -166,7 +176,8 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
         rows = [{c: v[i] for c, v in cols.items()} for i in hit.tolist()]
         areas = _areas.get(region_key) if theme == "parking" else None
         if areas is not None and not rows:  # a curb's own rule is the more precise
-            rows += [areas.iloc[i] for i in areas.sindex.query(pt, predicate="intersects")]
+            in_area = areas.sindex.query(pt, predicate="intersects").tolist()
+            rows += [_area_rows[region_key][i] for i in in_area]
         seen = set()  # labels' parts ("Permit area F or G": both); the nearest names them
         for r in rows:
             parts = _label_parts(r["label"])
@@ -180,7 +191,7 @@ def rules_at(region_key: str, lat: float, lon: float, applies_to: str) -> list[d
                     "rule": r["rule"] or "",
                     "asof": r["asof"] or "",
                     "city": r["city"],
-                    **_color(_area_color(areas, r["city"], r["label"])),
+                    **_color(_area_color(areas, region_key, r["city"], r["label"])),
                 }
             )
     return out
@@ -193,17 +204,12 @@ def _label_parts(label: str) -> set[str]:
     return {first, *(r if " " in r else head + r for r in rest)}
 
 
-def _area_color(areas, city: str, label: str):
+def _area_color(areas, region_key: str, city: str, label: str):
     """The card color of a permit area: its map color, or its darker edge when that is pale;
     a curb's: its first permit's ("Permit area G or K": G)."""
     if areas is None:
         return None
-    label = label.split(" or ")[0]
-    m = areas[(areas["city"] == city) & (areas["label"] == label)]
-    if not len(m):
-        return None
-    edge = m["edge"].iat[0] if "edge" in m else None
-    return edge if isinstance(edge, str) and edge else m["color"].iat[0]
+    return _area_colors[region_key].get((city, label.split(" or ")[0]))
 
 
 def _color(c) -> dict:

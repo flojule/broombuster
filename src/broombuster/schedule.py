@@ -3,6 +3,7 @@ frontend/js/urgency.js (sweepsOn, timeWindow), kept in step by
 tests/test_schedule.py, plus city holidays and weekly trash days."""
 
 import datetime
+import functools
 import re
 
 from broombuster import analysis, holidays, normalize
@@ -18,8 +19,11 @@ _HALF_DAY = {"AM": (0, 720), "PM": (720, 1440)}
 
 def _rule(code):
     """("dates", {date}) | ("weekly", {weekday}, {ordinal} | None) | None."""
-    if not isinstance(code, str):
-        return None
+    return _parse_rule(code) if isinstance(code, str) else None
+
+
+@functools.lru_cache(maxsize=4096)
+def _parse_rule(code: str):
     c = code.strip().upper()
     if c.startswith("DATES:"):
         days = set()
@@ -30,13 +34,13 @@ def _rule(code):
                 days.add(datetime.date.fromisoformat(part.strip()))
             except ValueError:  # 2026-02-30
                 pass
-        return ("dates", days)
+        return ("dates", frozenset(days))
     m = _CODE_RE.fullmatch(c)
     if analysis.is_no_sweep_code(c) or not m or not (m[1] or m[2] == "E"):
         return None
     days = {analysis.WEEKDAY_CODES[t][0] for t in _DAY_TOKEN_RE.findall(m[1])} or set(range(7))
-    ords = {int(ch) for ch in m[2]} if m[2] and m[2] != "E" else None
-    return ("weekly", days, ords)
+    ords = frozenset(int(ch) for ch in m[2]) if m[2] and m[2] != "E" else None
+    return ("weekly", frozenset(days), ords)
 
 
 def sweeps_on(code, day: datetime.date) -> bool:
@@ -60,8 +64,11 @@ def _clock(h, mn, ap):
 def time_window(raw) -> tuple[int, int] | None:
     """urgency.js timeWindow: (start, end) minutes after midnight, end 1440 for a
     window ending at 12AM, end < start past midnight; None when unreadable."""
-    if not isinstance(raw, str):
-        return None
+    return _parse_window(raw) if isinstance(raw, str) else None
+
+
+@functools.lru_cache(maxsize=4096)
+def _parse_window(raw: str) -> tuple[int, int] | None:
     m = _TIME_RANGE_RE.search(raw)
     if m:
         a, b = _clock(m[1], m[2], m[3]), _clock(m[4], m[5], m[6])
@@ -73,7 +80,11 @@ def time_window(raw) -> tuple[int, int] | None:
 def sweep_days(entries, city_key: str | None, start: datetime.date, end: datetime.date):
     """[(date, [(side, time)])] in [start, end] for /check entries
     {"even": [[code, desc, time]...], "odd": [...]}, minus the city's no-sweep holidays."""
-    out = []
+    return list(iter_sweep_days(entries, city_key, start, end))
+
+
+def iter_sweep_days(entries, city_key: str | None, start: datetime.date, end: datetime.date):
+    """sweep_days, one day at a time (a caller may stop at the first)."""
     day = start
     while day <= end:
         items = []
@@ -85,9 +96,8 @@ def sweep_days(entries, city_key: str | None, start: datetime.date, end: datetim
                     continue
                 items.append((side, time or ""))
         if items:
-            out.append((day, items))
+            yield day, items
         day += datetime.timedelta(days=1)
-    return out
 
 
 def weekly_pickups(
