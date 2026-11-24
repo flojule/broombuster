@@ -12,7 +12,7 @@ What BroomBuster is built on. Versions: Python packages in `uv.lock`; browser li
    │ MapLibre GL               │   /api, /auth    │ Uvicorn · webauthn                   │
    │ PMTiles                   │ ◀─────────────── │ geopandas · shapely · pyproj         │
    └────────────┬──────────────┘                  │ pandas · numpy · PyYAML · requests   │
-                │                                 │ geopy                                │
+                │                                 │ brotli                               │
                 │ tiles, style                    │ SQLite (stdlib) · data/*.fgb         │
                 ▼                                 └──┬───────────┬──────────────────────┘
         OpenFreeMap                                  │           │
@@ -28,8 +28,8 @@ Ingress and hosting (Cloudflare Tunnel, Raspberry Pi, systemd) are in [architect
 ```
 pyproject.toml   (versions: uv.lock)
   │
-  ├─ core      geopandas · shapely · pyproj · pandas · numpy · PyYAML · requests · geopy
-  ├─ api       fastapi (starlette, pydantic) · uvicorn[standard] · webauthn
+  ├─ core      geopandas · shapely · pyproj · pandas · numpy · PyYAML · requests
+  ├─ api       fastapi (starlette, pydantic) · uvicorn[standard] · webauthn · brotli
   ├─ scripts   cairosvg (needs the system cairo library) · pdfplumber
   ├─ visual    playwright (WebKit and Chromium: uv run playwright install)
   └─ dev       pytest · ruff · httpx2
@@ -41,8 +41,8 @@ pyproject.toml   (versions: uv.lock)
 | pandas | City tables, Chicago permit zones, layers | `data_loader.py`, `schemas.py`, `feeds.py`, `layers.py` |
 | numpy | Segment geometry arrays | `analysis.py`, `resolve.py`, `schemas.py` |
 | PyYAML | Manifests, holidays, corrections | `cities.py`, `holidays.py`, `data_loader.py` |
-| requests | Live feeds; layer and city builds | `feeds.py`, `trash.py`; `layer_sources.py`, `scripts/` |
-| geopy (Nominatim) | Address ↔ coordinates, 1 request/s | `gps.py` |
+| requests | Live feeds, Nominatim (1 request/s), IP location: one pooled session; layer and city builds | `net.py`; `layer_sources.py`, `scripts/` |
+| brotli | Precompressed static files and cached responses | `api/web.py` |
 | FastAPI, Starlette, Pydantic | HTTP API, validation, phone-report errors | `api/` |
 | Uvicorn | ASGI server | `run.sh`, `broombuster.service` |
 | webauthn (py_webauthn) | Passkey sign-in and sign-up: challenge and signature checks | `api/auth.py` |
@@ -109,7 +109,7 @@ Ubuntu Server 24.04 (Raspberry Pi)
   ├─ broombuster.service        uvicorn, hardened: ProtectHome, ProtectSystem=strict, syscall filter
   ├─ broombuster-update.timer   every 2 min ─▶ deploy/auto-update.sh (ProtectSystem=strict)
   │     ├─ git                  fetch, reset --hard, optional verify-commit
-  │     ├─ uv                   uv sync --locked --extra api, system Python   (expected in ~/.local/bin)
+  │     ├─ uv                   uv sync --locked --extra api --compile-bytecode, system Python   (expected in ~/.local/bin)
   │     ├─ gh                   CI status of the commit
   │     └─ sudo                 sudoers rule: systemctl restart broombuster, nothing else
   └─ cloudflared                Cloudflare Tunnel ─▶ 127.0.0.1:8000

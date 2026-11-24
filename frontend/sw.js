@@ -3,6 +3,7 @@
 const CACHE = 'broombuster-__VERSION__';
 const API_PATHS = __API_PATHS__;
 const SHELL = __SHELL__;
+const PAGE_WAIT_MS = 2500;
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -41,10 +42,12 @@ self.addEventListener('fetch', event => {
   }
   // The page and other files: network first so a deploy is never masked by a stale cached
   // shell; the cache is the fallback offline and while the server answers 5xx (a restart).
-  // A page falls back to "/".
-  event.respondWith(
-    fetch(event.request)
-      .then(res => (get && res.status >= 500 ? cached().then(hit => hit || res) : res))
-      .catch(cached)
-  );
+  // A page falls back to "/", and to it also when the network takes over PAGE_WAIT_MS
+  // (a weak signal), so a cached app opens in seconds rather than waiting out the request.
+  const net = fetch(event.request)
+    .then(res => (get && res.status >= 500 ? cached().then(hit => hit || res) : res))
+    .catch(cached);
+  if (!nav) { event.respondWith(net); return; }
+  const slow = new Promise(resolve => setTimeout(resolve, PAGE_WAIT_MS)).then(cached).then(hit => hit || net);
+  event.respondWith(Promise.race([net, slow]));
 });

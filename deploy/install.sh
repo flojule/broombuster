@@ -8,7 +8,7 @@ trap '[ $? = 0 ] || echo "install.sh failed: auto-deploy stays paused until it c
 sudo systemctl stop broombuster-update.timer 2>/dev/null || true
 while systemctl is-active --quiet broombuster-update.service; do sleep 1; done
 
-UV_PYTHON_PREFERENCE=only-system uv sync --locked --extra api
+UV_PYTHON_PREFERENCE=only-system uv sync --locked --extra api --compile-bytecode
 mkdir -p "$HOME/.cache/uv"   # writable for the update service (missing paths are skipped)
 
 # Sign-in settings (secrets): created once, edited by hand.

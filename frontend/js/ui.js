@@ -29,19 +29,36 @@ function showToast(msg, isError = false, opts = {}) {
   _toastContainer.appendChild(el);
 }
 
-// ── Connection chip: "Offline", "Can't reach the server" or "Loading streets…" over the
+// ── Connection chip: "Offline", "Can't reach the server" or "Loading…" over the
 // map, so a failure never reads as "nothing here". ────────────────────────────────
 const netChip = document.getElementById('net-chip');
 let _citiesFailed = false;  // /api/cities failed (data.js retries it)
-let _streetsSlow = false;   // the street tiles have been loading for over a second (map.js)
+// The street tiles are loading: from the start until the map first settles, then whenever
+// they take over a second (map.js), so a blank map never reads as "nothing here".
+let _streetsSlow = true;
 // Streets are on their way: /api/cities is loading, or the tiles are slow.
 function streetsLoading() { return (!Object.keys(regions).length && !_citiesFailed) || _streetsSlow; }
+// When the server last answered with schedules (core.js loadSchedule, data.js loadCities),
+// kept on this device: offline, the chip says how old what shows is.
+const DATA_AT_KEY = 'bb_data_at';
+function noteDataFresh() { _store(DATA_AT_KEY, String(Date.now())); }
+// "9:30PM" today, else "Nov 22", in the region's clock; '' when never.
+function dataAgeText() {
+  const at = Number(_read(DATA_AT_KEY));
+  if (!at) return '';
+  const then = regionNow(_region, new Date(at)), now = regionNow(_region);
+  return BroomUrgency.isoDay(then) === BroomUrgency.isoDay(now) ? BroomUrgency.clockText(then.min).replace('midnight', '12AM')
+    : BroomUrgency.dayLabel(then).replace(/^\S+ /, '');
+}
 function updateNetChip() {
-  const text = !navigator.onLine ? 'Offline' : _citiesFailed && !Object.keys(regions).length ? 'Can’t reach the server'
-    : _streetsSlow ? 'Loading streets…' : '';
+  const age = navigator.onLine ? '' : dataAgeText();
+  const text = !navigator.onLine ? (age ? `Offline · ${age}` : 'Offline')
+    : _citiesFailed && !Object.keys(regions).length ? 'Can’t reach the server'
+    : _streetsSlow ? 'Loading…' : '';
   if (netChip.textContent !== text) netChip.textContent = text;
   netChip.hidden = !text;
 }
+updateNetChip();
 window.addEventListener('offline', updateNetChip);
 window.addEventListener('online', () => {
   updateNetChip();
@@ -256,14 +273,8 @@ const _crosshair  = document.getElementById('center-crosshair');
 // street), else the zone there, else null.
 function _centerFeature() {
   if (!map || map.getZoom() < STREET_READ_ZOOM) return null;  // zoomed out a line is a block of streets
-  const layers = HOVER_LAYERS.filter(l => !!map.getLayer(l));
-  if (!layers.length) return null;
-  const c = map.project(map.getCenter()), pad = 9;
-  let feats;
-  try {
-    feats = map.queryRenderedFeatures(
-      [[c.x - pad, c.y - pad], [c.x + pad, c.y + pad]], { layers });
-  } catch (_) { return null; }
+  const { p: c, box } = targetHits();  // one query per frame (js/map.js)
+  const feats = box.filter(f => HOVER_LAYERS.includes(f.layer.id));
   let best = null, bestD = Infinity;
   for (const f of feats) {
     const d = nearestSegment(f, c)?.d ?? Infinity;
@@ -275,13 +286,10 @@ function _centerFeature() {
 // Whether a street or zone of the data is drawn within `m` meters of the target (at any
 // zoom); null while unknown (no street tiles here, or still loading).
 function streetNear(m) {
-  if (!map) return null;
-  const layers = HOVER_LAYERS.filter(l => map.getLayer(l));
-  const c = map.getCenter(), p = map.project(c), r = Math.min(m / metersPerPx(c.lat), 400);
-  try {
-    if (!layers.length || !map.isSourceLoaded(TILES_SOURCE)) return null;
-    return map.queryRenderedFeatures([[p.x - r, p.y - r], [p.x + r, p.y + r]], { layers }).length > 0;
-  } catch (_) { return null; }
+  if (!map || !HOVER_LAYERS.some(l => map.getLayer(l))) return null;
+  const c = map.getCenter(), r = Math.min(m / metersPerPx(c.lat), 400);
+  try { if (!map.isSourceLoaded(TILES_SOURCE)) return null; } catch (_) { return null; }
+  return queryNear(map.project(c), r, HOVER_LAYERS).length > 0;
 }
 
 // The segment of a street (line feature) nearest the screen point c: {d: distance (px),
@@ -324,7 +332,7 @@ searchBox.addEventListener('submit', async e => {
   searchMsg.textContent = '';
   try { hit = await geocode(q, region) || (region ? await geocode(q, null) : null); }
   catch (_) { searchMsg.textContent = 'Couldn’t look up the address. Try again.'; return; }
-  if (!hit) { searchMsg.textContent = 'Address not found. Add the city?'; searchBox.q.select(); return; }
+  if (!hit) { searchMsg.textContent = 'Not found'; searchBox.q.select(); return; }
   closeMenu(true);
   goToAddress(hit, q);
 });
@@ -332,6 +340,7 @@ function goToAddress(hit, label) {
   _searchPin = placeMarker(_searchPin, hit, () => {
     const el = document.createElement('div');
     el.className = 'pin search-pin';
+    el.setAttribute('role', 'img');
     el.innerHTML = '<svg class="ic"><use class="pin-halo" href="#i-pin"/><use href="#i-pin"/></svg>';
     return el;
   });
@@ -354,16 +363,13 @@ function goToAddress(hit, label) {
     map.off('movestart', onMove);
     if (moved) return;
     const p = map.project([hit.lon, hit.lat]), r = SNAP_M / metersPerPx(hit.lat);
-    const layers = ['zones-line', 'zones-side-even', 'zones-side-odd'].filter(l => map.getLayer(l));
     let best = null;
-    try {
-      for (const f of map.queryRenderedFeatures([[p.x - r, p.y - r], [p.x + r, p.y + r]], { layers })) {
-        const n = nearestSegment(f, p);
-        if (!n) continue;
-        n.named = named(f);
-        if (!best || n.named > best.named || (n.named === best.named && n.d < best.d)) best = n;
-      }
-    } catch (_) {}
+    for (const f of queryNear(p, r, STREET_LINE_LAYERS)) {
+      const n = nearestSegment(f, p);
+      if (!n) continue;
+      n.named = named(f);
+      if (!best || n.named > best.named || (n.named === best.named && n.d < best.d)) best = n;
+    }
     if (best && best.d <= r) map.easeTo({ center: map.unproject([best.at.x, best.at.y]), duration: 300 });
   });
 }
@@ -371,3 +377,23 @@ function goToAddress(hit, label) {
 // ── Zoom buttons (desktop) ────────────────────────────────────────────────────
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());
 document.getElementById('btn-zoom-out').addEventListener('click', () => map?.zoomOut());
+
+// ── Under the target, when the street card has nothing to say: why ("Zoom in",
+// "Not covered"). ─────────────────────────────────────────────────────────────────
+const mapHint = document.getElementById('map-hint');
+// No swept street anywhere on screen once its tiles have loaded (the region's circle is
+// coarse: it takes in towns the data doesn't cover).
+function _noStreetsInView() {
+  const ids = STREET_LINE_LAYERS.filter(id => map.getLayer(id));
+  return ids.length > 0 && map.areTilesLoaded() && !map.queryRenderedFeatures({ layers: ids }).length;
+}
+function updateMapHint() {
+  let text = '';
+  if (map && Object.keys(regions).length && !placing && !_namePopup) {
+    const z = map.getZoom(), c = map.getCenter();
+    if (z >= AREA_ZOOM && (!regionAt(c.lat, c.lng) || _noStreetsInView())) text = 'Not covered';
+    else if (z >= AREA_ZOOM && z < STREET_READ_ZOOM) text = 'Zoom in';
+  }
+  if (mapHint.textContent !== text) mapHint.textContent = text;
+  mapHint.hidden = !text;
+}

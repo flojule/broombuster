@@ -118,6 +118,11 @@ _SCHEMA = (
     """CREATE TABLE IF NOT EXISTS calendar_tokens (
         token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, last_used INTEGER,
         account_id TEXT NOT NULL UNIQUE REFERENCES accounts(id) ON DELETE CASCADE)""",
+    # Lookups and ON DELETE CASCADE by the referencing column, without a table scan.
+    "CREATE INDEX IF NOT EXISTS members_account ON members(account_id)",
+    "CREATE INDEX IF NOT EXISTS passkeys_member ON passkeys(member_id)",
+    "CREATE INDEX IF NOT EXISTS sessions_member ON sessions(member_id)",
+    "CREATE INDEX IF NOT EXISTS invites_account ON invites(account_id)",
 )
 
 

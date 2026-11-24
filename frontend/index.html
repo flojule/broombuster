@@ -25,6 +25,14 @@
   <meta name="theme-color" content="#ecefea">
   <meta name="app-version" content="__APP_VERSION__">
 
+  <!-- Fetched at once rather than one after another: MapLibre (imported by
+       js/maplibre-global.js) and its worker, the areas (js/data.js loadCities) and the
+       basemap's host. The server versions the asset paths (api/web.py). -->
+  <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
+  <link rel="modulepreload" href="/js/maplibre-global.js">
+  <link rel="modulepreload" href="/vendor/maplibre-gl.mjs">
+  <link rel="prefetch" href="/vendor/maplibre-gl-worker.mjs">
+  <link rel="preload" href="/api/cities" as="fetch" crossorigin>
   <link rel="stylesheet" href="/vendor/maplibre-gl.css">
   <script defer src="/vendor/pmtiles.js"></script>
 
@@ -66,8 +74,9 @@
   </defs>
 </svg>
 
+<a class="skip-link" href="#map">Skip to map</a>
 <h1 class="sr-only">BroomBuster</h1>
-<div id="app-screen">
+<main id="app-screen">
   <div id="status-strip" aria-hidden="true"></div>
   <div id="map-container">
     <div id="map"></div>
@@ -101,10 +110,15 @@
          area the sheet leaves free). -->
     <div id="center-crosshair"></div>
 
+    <!-- Under the target, when there is no street to read: why, or (once) how (js/ui.js). -->
+    <div id="map-hint" role="status" hidden></div>
+
     <!-- What applies on the street at the target: its sweeping (per side) and parking rules;
          filled by js/signs.js. -->
-    <div id="signs" role="group" aria-label="Street at the target" hidden></div>
+    <div id="signs" role="region" aria-label="Street at the target" hidden></div>
     <div id="signs-live" class="sr-only" aria-live="polite"></div>
+
+    <!-- First runs: the street colors at a glance; a tap opens the full legend (js/layers.js). -->
 
     <!-- Offline / can't reach the server / loading streets (js/ui.js) -->
     <div id="net-chip" role="status" hidden></div>
@@ -116,6 +130,13 @@
   <section id="sheet" aria-label="BroomBuster">
     <button id="sheet-grabber" aria-label="Resize the sheet" aria-controls="sheet"><span></span></button>
 
+    <!-- First in the tab order, before the panels it switches (drawn at the sheet's foot). -->
+    <div id="tabbar" role="tablist" aria-label="Sections">
+      <button role="tab" id="tb-calendar" data-tab="calendar" aria-controls="tab-calendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
+      <button role="tab" id="tb-saved" data-tab="saved" aria-controls="tab-saved"><svg class="ic"><use href="#i-pin"/></svg>Saved<i class="tab-badge" hidden></i></button>
+      <button role="tab" id="tb-settings" data-tab="settings" aria-controls="tab-settings"><svg class="ic"><use href="#i-gear"/></svg>Settings</button>
+    </div>
+
     <div class="tab" id="tab-calendar" role="tabpanel" aria-labelledby="tb-calendar">
       <div class="tab-head">
         <h2 class="tab-title" id="ic-month">Calendar</h2>
@@ -123,7 +144,8 @@
         <button class="cal-nav head-btn" data-cal-nav="-1" aria-label="Previous week"><svg class="ic"><use href="#i-chevron-left"/></svg></button>
         <button class="cal-nav head-btn" data-cal-nav="1" aria-label="Next week"><svg class="ic"><use href="#i-chevron-right"/></svg></button>
       </div>
-      <div class="tab-body" id="ic-cal"></div>
+      <!-- .cal-wait: hidden until the region's clock is known (js/app.js). -->
+      <div class="tab-body cal-wait" id="ic-cal"></div>
     </div>
 
     <div class="tab" id="tab-saved" role="tabpanel" aria-labelledby="tb-saved" hidden>
@@ -156,15 +178,9 @@
         <div id="set-danger" class="set-slot"></div>
       </div>
     </div>
-
-    <div id="tabbar" role="tablist" aria-label="Sections">
-      <button role="tab" id="tb-calendar" data-tab="calendar" aria-controls="tab-calendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
-      <button role="tab" id="tb-saved" data-tab="saved" aria-controls="tab-saved"><svg class="ic"><use href="#i-pin"/></svg>Saved<i class="tab-badge" hidden></i></button>
-      <button role="tab" id="tb-settings" data-tab="settings" aria-controls="tab-settings"><svg class="ic"><use href="#i-gear"/></svg>Settings</button>
-    </div>
     <i id="sheet-probe" aria-hidden="true"></i>
   </section>
-</div>
+</main>
 
 <!-- "+" menu: what to add (a car or a home) -->
 <div id="add-menu" class="pop-menu" role="menu" aria-label="Add" hidden>

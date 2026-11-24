@@ -82,14 +82,16 @@ function abbreviate(s) {
 
 // ── Cities / regions ──────────────────────────────────────────────────────────
 // The areas (/api/cities), kept on this device: the map opens on the last copy
-// (loadStoredCities); a failed load keeps it and retries every 5 s until it answers.
-// The streets mount once it answered or failed (_citiesSettled, js/map.js ensureTiles).
-// Returns whether it answered.
+// (loadStoredCities), its streets too (_citiesSettled, js/map.js ensureTiles); an answer
+// with a new tiles_version remounts them. A first visit mounts the streets once the load
+// answered or failed; a failed load keeps the copy and retries every 5 s until it answers.
+// Returns whether it answered. index.html preloads the request.
 const CITIES_KEY = 'bb_cities';
 let _citiesRetry = 0;
 let _citiesSettled = false;
 function loadStoredCities() {
   try { regions = JSON.parse(_read(CITIES_KEY)) || {}; } catch (_) { regions = {}; }
+  if (Object.keys(regions).length) _citiesSettled = true;
 }
 async function loadCities() {
   let ok = false;
@@ -98,6 +100,7 @@ async function loadCities() {
     if (!res.ok) throw new Error(res.statusText);
     regions = await res.json();
     _store(CITIES_KEY, JSON.stringify(regions));
+    noteDataFresh();
     _citiesFailed = false;
     ok = true;
   } catch (_) {
@@ -108,7 +111,7 @@ async function loadCities() {
   const first = !_citiesSettled;
   _citiesSettled = true;
   updateNetChip();
-  if (map && (ok || first)) { syncRegion(); renderTargetInfo(); }
+  if (map && (ok || first)) { syncRegion(); renderTargetInfo(); updateMapHint(); }
   return ok;
 }
 

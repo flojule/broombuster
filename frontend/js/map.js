@@ -52,14 +52,22 @@ function attachMapListeners() {
 
   // Signs and calendar: live-read the street under the target while the map pans (the
   // sign and the glow; zooming, the glow only, as every frame brings other streets under
-  // it), and in full once it stops and after tiles finish streaming in (idle).
+  // it), and in full once it stops, and again once tiles finish streaming in (idle) only
+  // if some data or style arrived since: the same view read twice gives the same card.
+  let targetStale = true;
   map.on('move', () => {
     if (map.isZooming()) setActiveFeature(_centerFeature()?.id ?? null);
     else renderTargetInfo(undefined, true);
   });
   map.on('move', syncCrosshair);
-  map.on('moveend', () => renderTargetInfo());
-  map.on('idle', () => renderTargetInfo());
+  map.on('moveend', () => { targetStale = false; renderTargetInfo(); });
+  map.on('sourcedata', () => { targetStale = true; });
+  map.on('styledata', () => { targetStale = true; });
+  map.on('idle', () => { if (targetStale) { targetStale = false; renderTargetInfo(); } });
+  map.on('render', () => { _frame++; });
+  // While the map moves, costly effects over it pause (styles.css body.map-moving).
+  map.on('movestart', () => document.body.classList.add('map-moving'));
+  map.on('moveend', () => document.body.classList.remove('map-moving'));
 
   // Follow the map center to its region (mounts its tiles) and recolor newly
   // loaded tile features once the map settles.
@@ -69,7 +77,7 @@ function attachMapListeners() {
   map.on('idle', scheduleUrgencyUpdate);
   // Color tiles as they arrive, not only once the whole map is idle: until then
   // their streets are transparent (see _urgCase).
-  map.on('sourcedata', (e) => { if (e.sourceId === TILES_SOURCE && e.tile) scheduleUrgencyUpdate(); });
+  map.on('sourcedata', (e) => { if (e.sourceId === TILES_SOURCE && e.tile) { _tilesDirty = true; scheduleUrgencyUpdate(); } });
   // Street tiles still loading after a second: the chip says so (ui.js), until the map settles.
   let slowTimer = 0;
   map.on('sourcedataloading', (e) => {
@@ -80,18 +88,44 @@ function attachMapListeners() {
     clearTimeout(slowTimer); slowTimer = 0;
     if (_streetsSlow) { _streetsSlow = false; updateNetChip(); renderTargetInfo(); }
   });
+  map.on('moveend', updateMapHint);  // "Zoom in", "Not covered" (js/ui.js)
+  map.on('idle', updateMapHint);     // tiles loaded: whether any street is in view
   syncRegion();
 }
 
-// Ground meters per screen pixel at latitude `lat` and the map's zoom (512 px tiles).
-function metersPerPx(lat) { return 40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * 2 ** map.getZoom()); }
+// Ground meters per px at zoom z and latitude lat (512 px tiles); metersPerPx: at the map's zoom.
+const _mPerPx = (z, lat) => 40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * 2 ** z);
+function metersPerPx(lat) { return _mPerPx(map.getZoom(), lat); }
+
+// The features of `layers` (those on the map) drawn within `pad` px of screen point p
+// (a point query with no pad); [] when none or the map can't say.
+function queryNear(p, pad, layers) {
+  const ids = layers.filter(l => map.getLayer(l));
+  if (!ids.length) return [];
+  try { return map.queryRenderedFeatures(pad ? [[p.x - pad, p.y - pad], [p.x + pad, p.y + pad]] : p, { layers: ids }); }
+  catch (_) { return []; }
+}
+// The street lines: one per street, and each curb zoomed in (CURB_ZOOM).
+const STREET_LINE_LAYERS = ['zones-line', 'zones-side-even', 'zones-side-odd'];
 
 // Whether a street line is drawn within 8 px of a screen point.
-function _streetAt(p) {
-  const layers = ['zones-line', 'zones-side-even', 'zones-side-odd'].filter(l => map.getLayer(l));
-  if (!layers.length) return false;
-  try { return map.queryRenderedFeatures([[p.x - 8, p.y - 8], [p.x + 8, p.y + 8]], { layers }).length > 0; }
-  catch (_) { return false; }
+function _streetAt(p) { return queryNear(p, 8, STREET_LINE_LAYERS).length > 0; }
+
+// What is drawn at the target, queried once per frame and view (the street card, the glow
+// and the map layers' marks each read it; apart they made 4-5 queries a frame while
+// panning): `box`, within TARGET_PAD px, the streets (zoomed in to read one) and the
+// markers (js/layers.js); `point`, under it, the map layers' areas.
+const TARGET_PAD = 10;
+let _frame = 0;  // frames drawn (a new frame can hold new data at the same view)
+let _hitsKey = '', _hits = null;
+function targetHits() {
+  const c = map.getCenter(), key = `${_frame}|${c.lng}|${c.lat}|${map.getZoom()}`;
+  if (key === _hitsKey) return _hits;
+  const p = map.project(c);
+  const streets = map.getZoom() >= STREET_READ_ZOOM ? HOVER_LAYERS : [];
+  _hits = { p, box: queryNear(p, TARGET_PAD, [...streets, ..._markerLayerIds()]), point: queryNear(p, 0, _overlayFillIds()) };
+  _hitsKey = key;
+  return _hits;
 }
 
 // Run `cb` once the style can accept sources/layers: now, else at the first styledata
@@ -113,10 +147,16 @@ function whenStyleReady(cb) {
 let _tilesRegion      = null;   // region currently mounted as a tile source
 let _pmtilesProtocol  = false;  // pmtiles:// protocol registered once
 let _tilesUrl         = null;   // archive URL mounted (a new tiles_version remounts)
-let _verdicts         = new Map();  // city|split|sched -> {urgency, urgency_even?, urgency_odd?} for _verdictStamp
+// The street colors (applyUrgencyStates): per verdict key (city|split|sched), the verdict
+// {urgency, urgency_even?, urgency_odd?} for _verdictStamp, the props it is read from and
+// the ids of the features colored by it; per feature id, the key its feature-state holds.
+let _verdicts         = new Map();  // key -> {u, props, ids: Set}
 let _verdictStamp     = '';         // region-local y-m-d-minute the verdicts are for
-let _featState        = new Map();  // feature id of the last pass -> verdict object written to it
+let _featKey          = new Map();  // feature id -> verdict key written to its feature-state
+let _tilesDirty       = true;       // tiles loaded since the last pass: their features to color
+let _statePass        = 0;          // bumped when feature-state is written (curb labels follow)
 let _urgencyTimer     = null;
+function _resetUrgency() { _verdicts = new Map(); _verdictStamp = ''; _featKey = new Map(); _tilesDirty = true; }
 
 // The region's street archive; ?v=<content hash> (immutable) when /api/cities gives one.
 function _archiveUrl(region) {
@@ -197,7 +237,6 @@ function themePaint(kind) {
              'text-halo-color': dark ? '#111827' : '#ffffff' },
   }[kind];
 }
-const bodyVar = name => getComputedStyle(document.body).getPropertyValue(name).trim();  // per theme
 const themed = (kind, paint = {}) => ({ metadata: { bbTheme: kind }, paint: { ...paint, ...themePaint(kind) } });
 
 // A tile zone's edge (Chicago): a band of the zone's color just inside its edge, under the
@@ -221,8 +260,6 @@ const HALO_W  = ['interpolate', ['linear'], ['zoom'], 11, 4, 16, 8, 18, 11];
 const CURB_ZOOM = 16;
 const CURB_M = 4.5;
 const STREET_ZOOM = 12;  // tile lines are single streets from here (scripts/build_pmtiles.py _LOW_MAXZOOM + 1)
-// Ground meters per px at zoom z and latitude lat (512 px tiles).
-const _mPerPx = (z, lat) => 40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * 2 ** z);
 // Line offset (px) of `m` meters (plus `px`) to the `left` (an expression) of the drawing
 // direction, else to its right, at the latitude of the region's tiles.
 function curbOffset(left, m = CURB_M, px = 0) {
@@ -301,14 +338,17 @@ function addTilePaintLayers() {
   // Under a street swept today or tomorrow, a dark casing; under Clear, a light one (themePaint).
   const cased = key => ['match', ['coalesce', ['feature-state', key], ''], 'today', 1, 'tomorrow', 1, 'safe', 1, 0];
   // Zoomed out, the lines fade in (a city of colored streets would flood the map); from
-  // CURB_ZOOM every street is drawn as its two curbs instead.
+  // CURB_ZOOM every street is drawn as its two curbs instead: the single line's casing and
+  // dashes end there (maxzoom; an opacity per feature, even 0, is still drawn). The line
+  // itself stays for the target's query (queryRenderedFeatures): its opacity, by zoom only,
+  // is 0 there, which MapLibre skips drawing.
   // `on`: 1, or an expression that hides some (a zoom curve must be the outermost expression).
   const lineOpacity = (on = 1) => ['interpolate', ['linear'], ['zoom'],
     AREA_ZOOM, ['*', 0.45, on], 13, on, CURB_ZOOM - 0.01, on, CURB_ZOOM, 0];
   const isLine = ['==', ['get', 'render_type'], 'line'];
   const CURB_SCALE = 0.8;  // a curb's width, of a single line's
   addLayer({
-    id: 'zones-casing', type: 'line', filter: isLine,
+    id: 'zones-casing', type: 'line', filter: isLine, maxzoom: CURB_ZOOM,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     ...themed('casing:urgency', { 'line-width': _lineWidth('urgency', 1, 2),
       'line-opacity': lineOpacity(cased('urgency')) }),
@@ -336,7 +376,7 @@ function addTilePaintLayers() {
   // Check sign: dashed, so it never reads as the solid grey of No sweeping.
   const isCheck = key => ['case', ['==', ['feature-state', key], 'check'], 1, 0];
   addLayer({
-    id: 'zones-check', type: 'line', filter: isLine,
+    id: 'zones-check', type: 'line', filter: isLine, maxzoom: CURB_ZOOM,
     ...themed('check', { 'line-width': _lineWidth(), 'line-dasharray': [2, 1.5],
       'line-opacity': lineOpacity(isCheck('urgency')) }),
   });
@@ -405,7 +445,7 @@ function setActiveFeature(id) {
 function remarkTarget() {
   if (map.getSource(TILES_SOURCE)) swapState(_tileAt, 'active', _activeId, null);
   _activeId = null;
-  _featState = new Map();
+  _featKey = new Map(); _tilesDirty = true;  // the colors are written afresh
   resetOverlayMarks();
   renderTargetInfo();
 }
@@ -454,7 +494,7 @@ function ensureTiles() {
     }
     if (_tilesUrl !== _archiveUrl(region)) {
       removeTileLayers();
-      _verdicts = new Map(); _verdictStamp = ''; _featState = new Map();
+      _resetUrgency();
       _tilesUrl = _archiveUrl(region);
       map.addSource(TILES_SOURCE, { type: 'vector', url: _tilesUrl });
       addTilePaintLayers();
@@ -466,62 +506,86 @@ function ensureTiles() {
 }
 
 // Throttled, not debounced: a stream of tile loads must not keep postponing the
-// pass (applyUrgencyStates skips features it already colored this minute).
+// pass (applyUrgencyStates skips features it already colored).
 function scheduleUrgencyUpdate() {
   if (_urgencyTimer) return;
   _urgencyTimer = setTimeout(() => { _urgencyTimer = null; applyUrgencyStates(); }, 50);
 }
 
-// A tile feature's colors now ({urgency, urgency_even?, urgency_odd?}): one verdict per
-// city, schedule and side split, reused within the region-local minute it is for.
-function _verdictFor(props, now) {
-  const split = 'even_left' in props, key = props.city + '|' + split + '|' + (props.sched || '');
-  let u = _verdicts.get(key);
-  if (u) return u;
+const _verdictKey = props => props.city + '|' + ('even_left' in props) + '|' + (props.sched || '');
+const _sameVerdict = (a, b) => a.urgency === b.urgency && a.urgency_even === b.urgency_even && a.urgency_odd === b.urgency_odd;
+
+// A schedule's colors at `now` ({urgency, urgency_even?, urgency_odd?}); v: its _verdicts
+// entry, which keeps whether it has anything to display (the calendar's "No sweeping"
+// test, read once a day: the costly part).
+function _verdictFor(v, now) {
+  const props = v.props, split = 'even_left' in props;
   const entries = tileEntries(props);
-  // Same test as the calendar's "No sweeping": nothing real to display.
-  const none = !tileSchedLines(props).length;
+  const day = BroomUrgency.dayKey(now);
+  if (v.noneDay !== day) { v.none = !tileSchedLines(props).length; v.noneDay = day; }
+  const none = v.none;
   const skip = sweepSkip(_tilesRegion, props.city);
   // No line to show is no sweeping, unless the data can't tell (Chicago's dates ran out).
   const verdict = es => !es.length || (none && !es.some(e => BroomUrgency.unknownReason(e.code, now))) ? 'none'
     : BroomUrgency.checkDaySweeping(es, now, skip);
-  u = { urgency: verdict(entries) };
+  const u = { urgency: verdict(entries) };
   // A curb's color (CURB_ZOOM): its side's, or the line's when the sides share a schedule.
   if (split) {
-    u.urgency_even = verdict(entries.filter(e => e.side === 'even'));
-    u.urgency_odd = verdict(entries.filter(e => e.side === 'odd'));
+    u.urgency_even = verdict(tileSideEntries(props, 'even'));
+    u.urgency_odd = verdict(tileSideEntries(props, 'odd'));
   } else if (props.render_type === 'line') {
     u.urgency_even = u.urgency_odd = u.urgency;
   }
-  _verdicts.set(key, u);
   return u;
 }
 
-// Push every loaded tile feature's colors to feature-state, which drives the paint
-// expressions. A feature is checked again only when its verdict object changed (a new
-// minute, a remount, a basemap switch: remarkTarget), and written only when it differs.
+// Push the street colors to feature-state, which drives the paint expressions. Each
+// feature is written once, when its tile first loads (feature-state outlives the tile);
+// each new minute, every schedule's verdict is read afresh and only the features of those
+// that changed (a window opens or closes, a new day) are written again. Tiles not loaded
+// since the last pass are not queried.
 function applyUrgencyStates() {
   if (!map || !_tilesRegion || !map.getSource(TILES_SOURCE)) return;
   const now = regionNow(_tilesRegion);
   const stamp = now.y + '-' + now.m + '-' + now.d + '-' + now.min;
-  if (stamp !== _verdictStamp) { _verdicts = new Map(); _verdictStamp = stamp; }
-  let feats;
-  try { feats = map.querySourceFeatures(TILES_SOURCE, { sourceLayer: TILES_SRC_LAYER }); }
-  catch (_) { return; }
-  const seen = new Map();  // only the loaded features' ids are kept
-  for (const f of feats) {
-    const id = f.id;
-    if (id === undefined || id === null || seen.has(id)) continue;
-    const u = _verdictFor(f.properties, now);
-    seen.set(id, u);
-    if (_featState.get(id) === u) continue;
-    const target = { source: TILES_SOURCE, sourceLayer: TILES_SRC_LAYER, id };
-    const cur = map.getFeatureState(target);
-    if (Object.keys(u).some(k => cur[k] !== u[k])) map.setFeatureState(target, u);
+  let wrote = false;
+  if (stamp !== _verdictStamp) {
+    _verdictStamp = stamp;
+    for (const v of _verdicts.values()) {
+      const u = _verdictFor(v, now);
+      if (_sameVerdict(u, v.u)) continue;
+      v.u = u;
+      for (const id of v.ids) map.setFeatureState(_tileAt(id), u);
+      wrote ||= v.ids.size > 0;
+    }
   }
-  _featState = seen;
+  if (_tilesDirty) {
+    _tilesDirty = false;
+    let feats;
+    try { feats = map.querySourceFeatures(TILES_SOURCE, { sourceLayer: TILES_SRC_LAYER }); }
+    catch (_) { feats = []; }
+    for (const f of feats) {
+      const id = f.id;
+      if (id === undefined || id === null) continue;
+      const key = _verdictKey(f.properties), had = _featKey.get(id);
+      if (had === key) continue;
+      let v = _verdicts.get(key);
+      if (!v) {
+        _verdicts.set(key, v = { props: f.properties, ids: new Set() });
+        v.u = _verdictFor(v, now);
+      }
+      if (had !== undefined) _verdicts.get(had)?.ids.delete(id);
+      v.ids.add(id);
+      _featKey.set(id, key);
+      map.setFeatureState(_tileAt(id), v.u);
+      wrote = true;
+    }
+  }
+  if (wrote) _statePass++;
   updateCurbLabels();
 }
+// The colors written to a feature (undefined: none yet).
+const _featVerdict = id => _verdicts.get(_featKey.get(id))?.u;
 
 // ── Curb schedules (zoomed in to LABEL_ZOOM) ──────────────────────────────────
 // Each curb's schedule ("Tu Th 6–8AM", as the card words it with days shortened) along a
@@ -548,7 +612,7 @@ function updateCurbLabels() {
   const src = map?.getSource(LABELS_SOURCE);
   if (!src || !_tilesRegion || map.getZoom() < LABEL_ZOOM - 0.5) return;
   const now = regionNow(_tilesRegion), b = map.getBounds();
-  const key = [b.toArray().flat().map(v => v.toFixed(4)), map.getZoom().toFixed(1), _verdictStamp, _featState.size].join('|');
+  const key = [b.toArray().flat().map(v => v.toFixed(4)), map.getZoom().toFixed(1), _verdictStamp, _statePass].join('|');
   if (key === _labelsKey) return;
   _labelsKey = key;
   // Beside the curb's line, past its permit edge (5 px out): half the text and a gap further.
@@ -563,7 +627,7 @@ function updateCurbLabels() {
   try { all = map.querySourceFeatures(TILES_SOURCE, { sourceLayer: TILES_SRC_LAYER, filter: ['==', ['get', 'render_type'], 'line'] }); }
   catch (_) { return; }
   for (const f of all) {
-    const st = _featState.get(f.id);
+    const st = _featVerdict(f.id);
     if (!st) continue;
     const parts = f.geometry.type === 'LineString' ? [f.geometry.coordinates] : f.geometry.coordinates;
     for (const c of parts) {
@@ -574,7 +638,7 @@ function updateCurbLabels() {
         seen.add(k);
         const tk = f.properties.sched + '|' + side;
         if (!texts.has(tk)) {
-          const es = tileEntries(f.properties).filter(e => e.side === side);
+          const es = tileSideEntries(f.properties, side);
           texts.set(tk, sourceLines(es, now).map(l => `${_shortDays(l.days)} ${l.time}`.trim()).join(' / '));
         }
         const t = texts.get(tk);
@@ -591,18 +655,31 @@ function updateCurbLabels() {
 // Permit areas' curb edges show while that layer is on (js/layers.js syncOverlays).
 function permitEdgesOn() { return typeof _isOn === 'function' && _isOn('parking'); }
 
-// A tile feature's raw schedule entries [{code, time, desc, side}] ([] if unreadable).
-function tileEntries(props) {
-  try { return JSON.parse(props.sched || '[]') || []; } catch (_) { return []; }
+// A tile feature's raw schedule entries [{code, time, desc, side}] ([] if unreadable), and
+// one side's: parsed once per schedule string (the card, the calendar and the map colors read
+// them every frame while panning). Shared: callers must not change them.
+const _entriesMemo = new Map();  // sched string -> {all, even, odd}
+function _tileSched(props) {
+  const s = props.sched || '[]';
+  let m = _entriesMemo.get(s);
+  if (!m) {
+    let all;
+    try { all = JSON.parse(s) || []; } catch (_) { all = []; }
+    if (!Array.isArray(all)) all = [];
+    m = { all, even: all.filter(e => e.side === 'even'), odd: all.filter(e => e.side === 'odd') };
+    if (_entriesMemo.size >= 5000) _entriesMemo.clear();
+    _entriesMemo.set(s, m);
+  }
+  return m;
 }
+function tileEntries(props) { return _tileSched(props).all; }
+function tileSideEntries(props, side) { return _tileSched(props)[side]; }
 
 // Canonical schedule lines for a tile feature (days merged per time: "Tue, Thu · 3AM–5AM",
 // Mon->Sun order, merged next-cluster dates), as on the car card. Used by the
 // calendar and the map colors.
 function tileSchedLines(props) {
-  const sched = tileEntries(props);
   const now = regionNow(_tilesRegion);
   const labels = [props.side_even || 'Even', props.side_odd || 'Odd'];
-  return BroomUrgency.formatBothSides(
-    sched.filter(e => e.side === 'even'), sched.filter(e => e.side === 'odd'), now, null, labels);
+  return BroomUrgency.formatBothSides(tileSideEntries(props, 'even'), tileSideEntries(props, 'odd'), now, null, labels);
 }

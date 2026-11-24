@@ -2,8 +2,8 @@
 // Each region lists its layers in /cities (id, name, a content-versioned GeoJSON url,
 // scripts/build_layers.py). Turned on, a layer is drawn under the street colors (points
 // above them, and an area's thin rim), so sweeping stays the first thing the map says.
-// The parking rules start on, places (EV charging, markets) off; what is switched is
-// remembered on this device. A tapped marker comes under the target; the street card names
+// Only road closures start on (with the street colors, sweeping stays what the map says
+// first); what is switched is remembered on this device. A tapped marker comes under the target; the street card names
 // the areas and markers there (overlayAreasAtTarget, overlayMarkersAtTarget).
 // color: the layer's color; a feature's own `color` (each permit area its own: the
 // city's, else one its neighbors lack; scripts/build_layers.py) wins, edged in its
@@ -29,7 +29,7 @@ const LAYER_PREFIX = 'lyr-';
 const LAYER_GRAY = '#475569';  // a layer with no color of its own
 const layersMenu = document.getElementById('layers-menu');
 const btnLayers = document.getElementById('btn-layers');
-const LAYERS_OFF_DEFAULT = ['ev', 'markets'];
+const LAYERS_OFF_DEFAULT = Object.keys(LAYER_STYLE).filter(id => id !== 'closures');
 let _layersOff = new Set(LAYERS_OFF_DEFAULT);
 try { const s = _read('bb_layers_off'); if (s) _layersOff = new Set(JSON.parse(s)); } catch (_) {}
 const _isOn = id => !_layersOff.has(id);
@@ -82,22 +82,23 @@ const _fadeIn = (a, b) => ['interpolate', ['linear'], ['zoom'], CURB_ZOOM - 0.5,
 function _markerLayerIds() {
   return _regionLayers().filter(l => LAYER_STYLE[l.id]?.icon).map(l => _ids(l.id)[2]).filter(id => map?.getLayer(id));
 }
-// The marker drawn within `pad` px of screen point p (the nearest), else null.
-function _markerAt(p, pad) {
-  const ids = _markerLayerIds();
-  if (!ids.length) return null;
-  let fs;
-  try { fs = map.queryRenderedFeatures([[p.x - pad, p.y - pad], [p.x + pad, p.y + pad]], { layers: ids }); } catch (_) { return null; }
-  const d = f => { const q = map.project(f.geometry.coordinates); return Math.hypot(q.x - p.x, q.y - p.y); };
-  return fs.filter(f => f.geometry.type === 'Point').sort((a, b) => d(a) - d(b))[0] || null;
+// The turned-on layers' area fills (a tap or the target finds the area by them).
+function _overlayFillIds() {
+  return _regionLayers().map(l => _ids(l.id)[0]).filter(id => map?.getLayer(id));
 }
-// A tap: the marker under it, as [lon, lat] (the map moves it under the target), else null.
-function markerTapped(p) { return _markerAt(p, 14)?.geometry.coordinates || null; }
-// The marker at the target as a card rule ({theme, label, rule, color}; rule: a market's
-// days and hours, a charger's ports), or none.
+// Of features `fs`, the marker nearest screen point p, else null.
+function _nearestMarker(fs, p) {
+  const ids = new Set(_markerLayerIds());
+  const d = f => { const q = map.project(f.geometry.coordinates); return Math.hypot(q.x - p.x, q.y - p.y); };
+  return fs.filter(f => ids.has(f.layer.id) && f.geometry.type === 'Point').sort((a, b) => d(a) - d(b))[0] || null;
+}
+// A tap: the marker within 14 px of it, as [lon, lat] (the map moves it under the target), else null.
+function markerTapped(p) { return _nearestMarker(queryNear(p, 14, _markerLayerIds()), p)?.geometry.coordinates || null; }
+// The marker at the target (within TARGET_PAD px, js/map.js targetHits) as a card rule
+// ({theme, label, rule, color}; rule: a market's days and hours, a charger's ports), or none.
 function overlayMarkersAtTarget() {
   if (!map) return [];
-  const f = _markerAt(map.project(map.getCenter()), 10);
+  const hits = targetHits(), f = _nearestMarker(hits.box, hits.p);
   if (!f) return [];
   const theme = f.layer.id.slice(LAYER_PREFIX.length, -'-pt'.length), p = f.properties;
   return [{ theme, label: p.label || p.title || '', rule: p.rule || '', city: p.city,
@@ -252,6 +253,7 @@ function _renderLayersMenu() {
 }
 
 menuButton(btnLayers, layersMenu, _renderLayersMenu);
+
 layersMenu.addEventListener('click', e => {
   const lg = e.target.closest('.lyr-legend-btn');
   if (lg) {
@@ -280,12 +282,12 @@ layersMenu.addEventListener('click', e => {
 const _hereId = {};  // layer id -> feature id of the area at the target (null: none)
 function markOverlayAtTarget() {
   if (!map) return;
-  const c = map.project(map.getCenter());
+  let hits = null;
   for (const l of _regionLayers()) {
     const [fill, , , , here] = _ids(l.id);
     if (!map.getLayer(here)) continue;
-    let f;
-    try { [f] = map.queryRenderedFeatures(c, { layers: [fill] }); } catch (_) {}
+    hits ||= targetHits().point;
+    const f = hits.find(h => h.layer.id === fill);
     const id = f?.id ?? null, at = _overlayAt(l.id);
     if (id === (_hereId[l.id] ?? null)) continue;
     swapState(at, 'here', _hereId[l.id], id);
@@ -304,11 +306,7 @@ function resetOverlayMarks() {
 // city, color}; no rule text): the street card shows them at once, and those the server
 // does not know (fire zones are a home's, not a car's).
 function overlayAreasAtTarget() {
-  if (!map) return [];
-  const ids = _regionLayers().map(l => _ids(l.id)[0]).filter(id => map.getLayer(id));
-  if (!ids.length) return [];
-  let feats;
-  try { feats = map.queryRenderedFeatures(map.project(map.getCenter()), { layers: ids }); } catch (_) { return []; }
-  return feats.map(f => ({ theme: f.layer.id.slice(LAYER_PREFIX.length, -'-fill'.length), label: f.properties.label,
+  if (!map || !_overlayFillIds().length) return [];
+  return targetHits().point.map(f => ({ theme: f.layer.id.slice(LAYER_PREFIX.length, -'-fill'.length), label: f.properties.label,
                            city: f.properties.city, color: f.properties.edge || f.properties.color, rule: '' }));  // pale: its edge
 }

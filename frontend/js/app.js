@@ -1,17 +1,37 @@
 // ── Bootstrap (runs after every other script has defined its functions) ─────
+// With no car on this device the map opens where the IP address places it: /api/locate is
+// asked alongside /api/cities and waited for this long, rather than opening on the whole
+// country and jumping.
+const OPEN_WAIT_MS = 1500;
+const ALERTS_EVERY_MS = 10 * 60 * 1000;  // the alerts' refresh (paused while hidden, as the clock tick)
 async function initApp() {
   // The map opens at once on this device's copies of the cities and saved cars. Meanwhile
   // /api/cities and /api/me load: a signed-in user's cars and homes are merged in with
   // this device's unsaved edits once the account answers (loadAccount).
   loadStoredCities();
+  const firstVisit = !Object.keys(regions).length;
   const citiesLoaded = loadCities();
   const me = loadAccount();
   me.then(renderAccountSection);  // signed in or out; a join link's Join button too
   renderAccountSection();
   loadPrefs();
   loadSchedCache();  // each car's last answer, until its check comes back (offline: kept)
-  initMap(cars.length ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 } : DEFAULT_CENTER);
-  setInterval(loadAlerts, 10 * 60 * 1000);
+  let ipAt = null;
+  const ip = cars.length ? Promise.resolve(null) : getIPLocation().then(v => (ipAt = v));
+  if (!cars.length) {
+    await Promise.race([Promise.all([firstVisit ? citiesLoaded : null, ip]), new Promise(r => setTimeout(r, OPEN_WAIT_MS))]);
+  }
+  const ipRegion = () => ipAt && (ipAt.region in regions ? ipAt.region : nearestRegion(ipAt.lat, ipAt.lon));
+  const rk = !cars.length && ipRegion();
+  const start = cars.length ? { lat: cars[0].lat, lon: cars[0].lon, zoom: 15 }
+    : rk ? { lat: regions[rk].center.lat, lon: regions[rk].center.lon, zoom: regions[rk].zoom || 11 } : DEFAULT_CENTER;
+  // The region's clock from the start: the calendar (held hidden until now, index.html
+  // .cal-wait) never shows the device's date and then flips to the region's.
+  _region = regionAt(start.lat, start.lon) || _region;
+  initMap(start);
+  renderTargetInfo();
+  document.getElementById('ic-cal').classList.remove('cal-wait');
+  setInterval(() => { if (!document.hidden) loadAlerts(); }, ALERTS_EVERY_MS);
   if (!Object.keys(regions).length) await citiesLoaded;  // first visit: regions, clocks and holidays
   const checked = showSaved();
   if (!cars.length) {
@@ -26,13 +46,16 @@ async function initApp() {
     if ((today.length || tomorrow.length) && _tab === 'calendar') showTab('saved');
     return;
   }
-  // No cars: device position if already allowed, else the area nearest the IP,
-  // else every area's label in view.
+  // No cars: device position if already allowed, else the area nearest the IP (where the
+  // map opened, if it knew it in time), else every area's label in view.
   const gps = await getPermittedGPS();
   if (gps) { map.jumpTo({ center: [gps.lon, gps.lat], zoom: 15 }); return; }
-  const ip = await getIPLocation();
-  const rk = ip && (ip.region in regions ? ip.region : nearestRegion(ip.lat, ip.lon));
-  if (rk) { map.jumpTo({ center: [regions[rk].center.lon, regions[rk].center.lat], zoom: regions[rk].zoom || 11 }); return; }
+  await ip;
+  const late = ipRegion();
+  if (late) {
+    if (late !== rk) map.jumpTo({ center: [regions[late].center.lon, regions[late].center.lat], zoom: regions[late].zoom || 11 });
+    return;
+  }
   const cs = Object.values(regions).map(r => [r.center.lon, r.center.lat]);
   if (cs.length) {
     const lo = [0, 1].map(i => Math.min(...cs.map(c => c[i]))), hi = [0, 1].map(i => Math.max(...cs.map(c => c[i])));
@@ -56,6 +79,7 @@ initApp();
 // deadline ("Move by 9AM" -> "Sweeping now") or a region-local date changed.
 let _liveUrgencySig = '';
 function tick() {
+  if (document.hidden) return;  // caught up when the page shows again (visibilitychange)
   scheduleUrgencyUpdate();
   renderTargetInfo();  // no-op unless today changed
   // Rules at cars and homes (a closure starts, a feed recovers): refetched every 30 min.
@@ -82,14 +106,20 @@ document.addEventListener('visibilitychange', () => {
   tick();
   refreshFromAccount();
   resumeHere();
-  if (_hiddenAt && Date.now() - _hiddenAt > 3600e3) checkForUpdate();
+  const away = _hiddenAt ? Date.now() - _hiddenAt : 0;
+  if (away > ALERTS_EVERY_MS) loadAlerts();
+  if (away > 3600e3) checkForUpdate();
 });
-async function checkForUpdate() {
+// The server's release differs from this page's (a deploy since it loaded).
+async function newerRelease() {
   const mine = document.querySelector('meta[name="app-version"]')?.content;
   try {
     const { version } = await (await fetch('/health', { cache: 'no-store' })).json();
-    if (mine && version && version !== mine && !isEditingIn(document.body) && !confirmDialog.open) location.reload();
-  } catch (_) {}
+    return !!(mine && version && version !== mine);
+  } catch (_) { return false; }
+}
+async function checkForUpdate() {
+  if (await newerRelease() && !isEditingIn(document.body) && !confirmDialog.open) location.reload();
 }
 
 // ── Locate button: center on the device and show the "you are here" dot ─────
@@ -107,13 +137,8 @@ if ('serviceWorker' in navigator) {
   const hadWorker = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('/sw.js').catch(() => {});
   navigator.serviceWorker.addEventListener('controllerchange', async () => {
-    if (!hadWorker) return;
-    const mine = document.querySelector('meta[name="app-version"]')?.content;
-    try {
-      const { version } = await (await fetch('/health', { cache: 'no-store' })).json();
-      if (mine && version && version !== mine) {
-        showToast('A new version is ready', false, { sticky: true, action: { label: 'Reload', run: () => location.reload() } });
-      }
-    } catch (_) {}
+    if (hadWorker && await newerRelease()) {
+      showToast('A new version is ready', false, { sticky: true, action: { label: 'Reload', run: () => location.reload() } });
+    }
   });
 }

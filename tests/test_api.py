@@ -177,7 +177,18 @@ def test_locate_uses_cloudflare_headers(client):
 
 def test_shell_revalidates_and_api_is_not_cached(client):
     assert client.get("/styles.css").headers["cache-control"] == "no-cache"
-    assert client.get("/api/cities").headers["cache-control"] == "no-store"
+    assert client.get("/api/locate").headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("path", ["/api/cities", "/", "/sw.js", "/js/maplibre-global.js"])
+def test_built_bodies_revalidate_with_their_etag(client, path):
+    """Bodies built once per process: no-cache, and a 304 while the client's copy is current."""
+    r = client.get(path)
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+    again = client.get(path, headers={"If-None-Match": r.headers["etag"]})
+    assert again.status_code == 304 and not again.content
+    assert again.headers["etag"] == r.headers["etag"]
+    assert client.get(path, headers={"If-None-Match": 'W/"stale"'}).status_code == 200
 
 
 def test_index_assets_are_versioned_and_cacheable(client):
@@ -188,6 +199,8 @@ def test_index_assets_are_versioned_and_cacheable(client):
     v = r.text.split("/js/app.js?v=")[1].split('"')[0]
     js = client.get(f"/js/app.js?v={v}")
     assert js.headers["cache-control"] == "public, max-age=31536000, immutable"
+    # A page from before a deploy asks with its old version: not kept for good under it.
+    assert client.get("/js/app.js?v=0123456789ab").headers["cache-control"] == "no-cache"
 
 
 def test_rate_limit_blocks_bursts(client, monkeypatch):

@@ -143,12 +143,13 @@ def build(
         name = car.get("name") or "Car"
         # first_only: from yesterday, whose overnight window may still run.
         start = today - datetime.timedelta(days=1) if first_only else today
-        sweeps = schedule.sweep_days(
+        sweeps = schedule.iter_sweep_days(
             entries, spot.city, start, today + datetime.timedelta(days=days)
         )
-        if first_only:
-            later = [(d, [it for it in its if _not_over(d, it[1], tz, now)]) for d, its in sweeps]
-            sweeps = [s for s in later if s[1]][:1]
+        if first_only:  # stops at the first sweep still to come
+            later = ((d, [it for it in its if _not_over(d, it[1], tz, now)]) for d, its in sweeps)
+            first = next((s for s in later if s[1]), None)
+            sweeps = [first] if first else []
         for day, items in sweeps:
             sides_at: dict[str, list[str]] = {}  # time -> sides swept then: one event each
             for side, time in items:

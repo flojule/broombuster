@@ -122,6 +122,25 @@ function _whenBadge({ u, text }, said = false) {
   return `<b class="sc-when" style="background:var(--urg-${u}-bg)"${said ? ' aria-hidden="true"' : ''}>${esc(text)}</b>`;
 }
 
+// Nothing due: until when a street's sides (rows as /check gives them; [] for a side that
+// does not count) stay clear, from the next sweep within 60 days ("Clear until Thu 9AM";
+// a week or more away, with the date; a sweep at midnight is the night before's: "Clear
+// until Sun midnight"); "Season over" past a city's last date; null when none. {short, long}.
+// Shared with the car's page (js/cars.js clearUntilText).
+function clearUntilWords(even, odd, now, skip, entries) {
+  const todayK = BroomUrgency.dayKey(now);
+  let day = BroomUrgency.sweepDays(even, odd, now, BroomUrgency.addDays(now, 60), skip)
+    .find(d => BroomUrgency.dayKey(d) > todayK);
+  if (!day) return BroomUrgency.seasonOver(entries, now) ? { short: 'Season over', long: 'Season over' } : null;
+  const starts = day.items.map(it => BroomUrgency.timeWindow(it.time)?.[0]).filter(m => m != null);
+  const at = starts.length ? ` ${BroomUrgency.clockText(Math.min(...starts))}` : '';
+  if (at === ' midnight') day = BroomUrgency.addDays(day, -1);
+  const far = BroomUrgency.diffDays(now, day) >= 7;
+  const wd = far ? BroomUrgency.dayLabel(day) : BroomUrgency.WEEKDAYS[BroomUrgency.weekday(day)];
+  const short = far ? BroomUrgency.dayLabel(day).replace(/^\S+ /, '') : wd;  // "Nov 22" a week or more away
+  return { short: `Clear until ${short}`, long: `Clear until ${wd}${at}` };
+}
+
 // A mark: a bar (sweeping) in its color, or a rule's glyph (index.html i-<kind>).
 function markHTML({ color, mark }) {
   if (mark === 'bar') return `<i class="sc-mark sc-bar" style="background:${esc(color)}" aria-hidden="true"></i>`;
@@ -182,6 +201,59 @@ function targetRules(live) {
   return hit ? hit[0] : [];
 }
 
+// A tile feature's sides, parsed and worded once per schedule and minute (the card is
+// re-read every frame while the map moves; a street's segments share one schedule):
+// {sides: [{entries, rows, lines}] (even, odd), same: both alike on screen}.
+const _sidesMemo = new Map();
+function _tileSides(p, now) {
+  const key = `${_tilesRegion}|${p.city}|${p.sched}|${BroomUrgency.dayKey(now)}|${now.min}`;
+  let hit = _sidesMemo.get(key);
+  if (!hit) {
+    const raw = tileEntries(p);
+    const sides = ['even', 'odd'].map(s => {
+      const entries = raw.filter(e => e.side === s);
+      return { entries, rows: entries.map(e => [e.code, e.desc || '', e.time || '']), lines: sourceLines(entries, now) };
+    });
+    hit = { sides, same: JSON.stringify(sides[0].lines) === JSON.stringify(sides[1].lines), rows: new Map() };
+    if (_sidesMemo.size >= 64) _sidesMemo.delete(_sidesMemo.keys().next().value);
+    _sidesMemo.set(key, hit);
+  }
+  return hit;
+}
+
+// The street's sections ({entries, rows: [even, odd], lines, side, tag}) and their rows,
+// in screen order: one section where the sides read alike (or a zone), else one per side,
+// the side higher (or further left) on screen first.
+function _streetRows(f, now, skip) {
+  const p = f.properties, memo = _tileSides(p, now), { sides, same } = memo;
+  let secs, order = '';
+  if (p.render_type === 'polygon' || same) {
+    // Alike on screen; the verdict still reads both sides' entries (codes can differ).
+    secs = [{ ...sides[0], entries: [...sides[0].entries, ...sides[1].entries], rows: [sides[0].rows, sides[1].rows],
+              side: p.render_type === 'polygon' ? 'Zone' : 'Both sides', tag: '' }];
+  } else {
+    const ev = _evenSideDirection(f), names = sideNames(f);
+    secs = sides.map((s, i) => ({ ...s, rows: i ? [[], s.rows] : [s.rows, []], side: `${names[i]} side`, tag: names[i] }));
+    if (ev && (Math.abs(ev[1]) >= Math.abs(ev[0]) ? ev[1] > 0 : ev[0] > 0)) secs.reverse();
+    order = secs.map(s => s.tag).join('|');
+  }
+  if (!memo.rows.has(order)) memo.rows.set(order, secs.flatMap(s => _sweepRows(s, now, skip)));
+  return { secs, rows: memo.rows.get(order) };
+}
+
+// The server's rules at the target: a street's only (none with no street within
+// RULES_STREET_M: a parking lane is 10-20 m off the line the calendar reads; a block's
+// middle is farther). While the map moves, only those already fetched for this spot
+// (no lookup of a street nearby either).
+function _serverRules(p, live) {
+  if (live) {
+    clearTimeout(_rulesTimer);
+    const hit = map && map.getZoom() >= RULES_ZOOM && _rulesCache.get(_spotKey());
+    if (!hit || !hit[0].length) return [];
+  }
+  return p || streetNear(RULES_STREET_M) !== false ? targetRules(live) : [];
+}
+
 // f = the feature at the target (null: none); live: the map is moving (no new lookups).
 let _signsFeature = null;
 function renderSigns(f, live = false) {
@@ -189,36 +261,14 @@ function renderSigns(f, live = false) {
   const p = f?.properties;
   const now = p && _tilesRegion ? regionNow(_tilesRegion) : null;
   const skip = p && _tilesRegion ? sweepSkip(_tilesRegion, p.city) : null;
-  let secs = [];
-  if (now) {
-    const raw = tileEntries(p);
-    const sides = ['even', 'odd'].map(s => {
-      const entries = raw.filter(e => e.side === s);
-      return { entries, lines: sourceLines(entries, now) };
-    });
-    const same = JSON.stringify(sides[0].lines) === JSON.stringify(sides[1].lines);
-    if (p.render_type === 'polygon' || same) {
-      // Alike on screen; the verdict still reads both sides' entries (codes can differ).
-      secs = [{ ...sides[0], entries: [...sides[0].entries, ...sides[1].entries],
-                side: p.render_type === 'polygon' ? 'Zone' : 'Both sides', tag: '' }];
-    } else {
-      // The side higher (or further left) on screen first.
-      const ev = _evenSideDirection(f), names = sideNames(f);
-      secs = sides.map((s, i) => ({ ...s, side: `${names[i]} side`, tag: names[i] }));
-      if (ev && (Math.abs(ev[1]) >= Math.abs(ev[0]) ? ev[1] > 0 : ev[0] > 0)) secs.reverse();
-    }
-  }
+  const { secs, rows: sweep } = now ? _streetRows(f, now, skip) : { secs: [], rows: [] };
   // A marker at the target first (a charger, a market), then the server's (they carry the
   // rule's words; a permit curb's area wins over the area drawn around it), then the map's
-  // areas of the themes it lacks. The server's are
-  // a street's: none with no street within RULES_STREET_M (a parking lane is 10-20 m off
-  // the line the calendar reads; a block's middle is farther).
-  const near = p || streetNear(RULES_STREET_M) !== false;
-  const seen = new Set(), server = near ? targetRules(live) : [], themes = new Set(server.map(r => r.theme));
+  // areas of the themes it lacks.
+  const seen = new Set(), server = _serverRules(p, live), themes = new Set(server.map(r => r.theme));
   const rules = [...overlayMarkersAtTarget(), ...server, ...overlayAreasAtTarget().filter(r => !themes.has(r.theme))]
     .filter(r => r.label && !seen.has(r.label) && seen.add(r.label)).slice(0, 4);
-  const rows = [...secs.flatMap(s => _sweepRows(s, now, skip)),
-                ...(rules.length ? [...(secs.length ? [{ divider: true }] : []), ...rules.map(_ruleRow)] : [])];
+  const rows = [...sweep, ...(rules.length ? [...(secs.length ? [{ divider: true }] : []), ...rules.map(_ruleRow)] : [])];
   const street = p && p.street !== 'N/A' ? p.street : '';
   const broom = secs.length ? markHTML({ mark: 'broom', color: 'var(--muted)' }) : '';
   const html = rows.length
@@ -249,8 +299,14 @@ function whenOf(entries, now, skip) {
 }
 
 // Short screens: the card keeps its first rows when it would reach the target (styles.css
-// #signs.compact); the connection chip sits under it (--signs-h).
+// #signs.compact); the connection chip sits under it (--signs-h). Measured once per frame,
+// in the next one (a new card, a resize and the sheet moving can all ask in one frame),
+// so the card's layout is not forced while its rows are written.
+let _fitRaf = 0;
 function fitSigns() {
+  if (!_fitRaf) _fitRaf = requestAnimationFrame(() => { _fitRaf = 0; _fitSigns(); });
+}
+function _fitSigns() {
   signsEl.classList.remove('compact');
   const box = signsEl.hidden ? null : signsEl.getBoundingClientRect();
   if (box && !isDesktop()) {

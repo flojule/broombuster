@@ -600,3 +600,43 @@ def test_a_sweep_after_midnight_is_tonight_not_today():
         ("sweptLaterToday", [entries, tue_night, None]),
     )
     assert got == ["today", False, True]
+
+
+def test_week_starts_on_sunday_in_us_regions():
+    """The calendar's weeks start on Sunday in a US region's zone, Monday elsewhere (ISO)."""
+    wed = {"y": 2026, "m": 11, "d": 25}
+    sun = {"y": 2026, "m": 11, "d": 29}
+    got = js(
+        ("sundayFirst", ["America/Los_Angeles"]),
+        ("sundayFirst", ["Europe/Paris"]),
+        ("weekStart", [wed, True]),
+        ("weekStart", [wed, False]),
+        ("weekColumn", [sun, True]),
+        ("weekColumn", [sun, False]),
+        ("weekdayOrder", [True]),
+    )
+    assert got == [
+        True,
+        False,
+        {"y": 2026, "m": 11, "d": 22},
+        {"y": 2026, "m": 11, "d": 23},
+        0,
+        6,
+        [6, 0, 1, 2, 3, 4, 5],
+    ]
+
+
+def test_region_clock_read_once_a_minute_stays_exact():
+    """The clock kept per zone and minute still gives each instant its zone's wall clock."""
+    got = js(
+        ("nowForTimeZone", ["America/Chicago", {"$date": "2026-11-24T05:59:30Z"}]),
+        ("nowForTimeZone", ["America/Chicago", {"$date": "2026-11-24T06:00:10Z"}]),
+        ("nowForTimeZone", ["America/Los_Angeles", {"$date": "2026-11-24T06:00:20Z"}]),
+        ("nowForTimeZone", ["America/Chicago", {"$date": "2026-11-24T06:00:50Z"}]),
+    )
+    assert got == [
+        {"y": 2026, "m": 11, "d": 23, "min": 23 * 60 + 59},
+        {"y": 2026, "m": 11, "d": 24, "min": 0},
+        {"y": 2026, "m": 11, "d": 23, "min": 22 * 60},
+        {"y": 2026, "m": 11, "d": 24, "min": 0},
+    ]

@@ -1,3 +1,4 @@
+import functools
 import ipaddress
 import json
 import os
@@ -11,7 +12,6 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, 
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, BeforeValidator, Field
 from starlette.concurrency import run_in_threadpool
@@ -45,6 +45,8 @@ async def lifespan(app: FastAPI):
     load_all()
     for rk in REGIONS:
         web.tiles_version(rk)  # hashed once, before the first request
+    _cities_json()
+    web.precompress_static()
     if auth.check_config():
         auth.init_db()
     stop = feeds.start_refresh() if config.live_feeds_enabled() else None
@@ -57,9 +59,9 @@ app = FastAPI(
     title="BroomBuster", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
 )
 
-app.middleware("http")(web.http_middleware)
-# Dynamic responses only: static files are served precompressed (web.Static).
-app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
+app.add_middleware(web.RequestMiddleware)
+# /api and /auth only: static files and built pages are served precompressed (web.py).
+app.add_middleware(web.ApiGZip)
 app.add_middleware(web.BodyLimit)  # outermost: refuses before anything reads the body
 api = APIRouter(prefix="/api")  # everything the frontend fetches, except /auth and /health
 app.include_router(auth.router)
@@ -72,8 +74,18 @@ class Located(NamedTuple):
     city_key: str
 
 
+def _region(region: str | None, lat: float, lon: float) -> str:
+    """The region asked for when it is one, else the nearest to the point."""
+    return region if region in REGIONS else region_for_point(lat, lon)
+
+
+def _city_name(city_key: str) -> str:
+    """A city's short name: "Oakland" for "Oakland, CA"."""
+    return CITIES[city_key]["name"].split(",")[0]
+
+
 def _locate(lat: float, lon: float, region: str | None) -> Located:
-    region = region if region in REGIONS else region_for_point(lat, lon)
+    region = _region(region, lat, lon)
     gdf = region_gdf(region)
     resolved, city_key = resolve.locate(gdf, lat, lon, region)
     return Located(region, gdf, resolved, city_key)
@@ -89,7 +101,7 @@ def _address(loc: Located, lat: float, lon: float, *, network: bool) -> tuple[st
     resolved = loc.resolved
     if resolved is None or not resolved.label:
         return f"{lat:.4f}, {lon:.4f}", False
-    city = CITIES[loc.city_key]["name"].split(",")[0]
+    city = _city_name(loc.city_key)
     if resolved.is_polygon:
         return f"Zone: {resolved.label}, {city}", False
     pending = not network and bool(resolved.street_name) and not gps.house_number_cached(lat, lon)
@@ -98,26 +110,36 @@ def _address(loc: Located, lat: float, lon: float, *, network: bool) -> tuple[st
 
 
 @app.get("/health")
-def health():
+async def health():  # async: answers even when every worker thread is busy
     return {"status": "ok", "version": app_version()}
 
 
+@functools.cache
+def _cities_json() -> bytes:
+    """The /api/cities body: fixed for the life of the process (a deploy restarts it)."""
+    return json.dumps(
+        {
+            rk: {
+                "name": rv["name"],
+                "center": rv["center"],
+                "tz": rv["tz"],
+                "zoom": rv["zoom"],
+                "holidays": holidays.for_region(rk),
+                "cities": {ck: _city_name(ck) for ck in rv["cities"]},
+                "updated": {ck: CITIES[ck].get("source_updated") for ck in rv["cities"]},
+                "layers": layers.catalog(rk),
+                "tiles_version": web.tiles_version(rk),
+            }
+            for rk, rv in REGIONS.items()
+        },
+        default=str,
+        separators=(",", ":"),
+    ).encode()
+
+
 @api.get("/cities")
-def cities():
-    return {
-        rk: {
-            "name": rv["name"],
-            "center": rv["center"],
-            "tz": rv["tz"],
-            "zoom": rv["zoom"],
-            "holidays": holidays.for_region(rk),
-            "cities": {ck: CITIES[ck]["name"].split(",")[0] for ck in rv["cities"]},
-            "updated": {ck: CITIES[ck].get("source_updated") for ck in rv["cities"]},
-            "layers": layers.catalog(rk),
-            "tiles_version": web.tiles_version(rk),
-        }
-        for rk, rv in REGIONS.items()
-    }
+async def cities(request: Request):
+    return web.body_response(request, _cities_json(), "application/json")
 
 
 @api.get("/locate")
@@ -170,7 +192,7 @@ def check(req: CheckRequest):
     )
     inside = loc.resolved is not None or resolve.in_region(loc.region, req.lat, req.lon)
     city = loc.city_key if inside else None
-    days = {d.isoformat(): h for d, h in holidays.for_city(city).items()} if city else None
+    days = holidays.for_city_iso(city) if city else None
     near = None
     if loc.resolved is None and inside and loc.gdf_3857 is not None:
         near = resolve.nearby_street(loc.gdf_3857, req.lat, req.lon)
@@ -223,7 +245,7 @@ def check_home(req: CheckHomeRequest):
 
     trash_kind tells the client whether the city looks pickups up ("recollect") or
     needs the home's collection day ("weekly"); null where nothing is known."""
-    region = req.region if req.region in REGIONS else region_for_point(req.lat, req.lon)
+    region = _region(req.region, req.lat, req.lon)
     address = req.address or gps.reverse_address(req.lat, req.lon) or ""
     today = datetime.now(ZoneInfo(REGIONS[region]["tz"])).date()
     city = city_for_point(req.lat, req.lon, region)
@@ -248,7 +270,7 @@ def rules(
     evacuation zones), from the cities' extra layers. Each rule: {theme, label, rule,
     asof, city}. geocode=false (the map's street card, asked at every stop): no new
     address lookups, so Chicago's permit zone only when the address is cached."""
-    region = region if region in REGIONS else region_for_point(lat, lon)
+    region = _region(region, lat, lon)
     if not resolve.in_region(region, lat, lon):
         return {"region": region, "rules": []}
     out = layers.rules_at(region, lat, lon, kind)
@@ -260,11 +282,13 @@ def rules(
 
 
 @api.get("/closures")
-def closures(region: str = Query(..., pattern="^[a-z_]+$")):
-    """Street closures on now or starting within two weeks (GeoJSON), for the map."""
+def closures(request: Request, region: str = Query(..., pattern="^[a-z_]+$")):
+    """Street closures on now or starting within two weeks (GeoJSON), for the map; they
+    change at most every feeds.REFRESH_S."""
     if region not in REGIONS:
         raise HTTPException(404, "Unknown region.")
-    return Response(feeds.closures_json(region), media_type="application/json")
+    body = feeds.closures_json(region)
+    return web.body_response(request, body, "application/json", "public, max-age=60")
 
 
 @api.get("/alerts")
@@ -274,8 +298,7 @@ def place_alerts(
     region: str | None = None,
 ):
     """Weather alerts in effect at a place that change where to park (Red Flag, snow, …)."""
-    region = region if region in REGIONS else region_for_point(lat, lon)
-    return {"region": region, "alerts": alerts.at(lat, lon)}
+    return {"region": _region(region, lat, lon), "alerts": alerts.at(lat, lon)}
 
 
 @api.get("/vehicle")
@@ -447,18 +470,18 @@ app.include_router(api)  # after every route above is registered on it
 
 
 @app.get("/", include_in_schema=False)
-def index():
-    return web.index_response()
+async def index(request: Request):
+    return web.index_response(request)
 
 
 @app.get("/js/maplibre-global.js", include_in_schema=False)
-def maplibre_module():
-    return web.module_response()
+async def maplibre_module(request: Request):
+    return web.module_response(request)
 
 
 @app.get("/sw.js", include_in_schema=False)
-def service_worker():
-    return web.service_worker_response()
+async def service_worker(request: Request):
+    return web.service_worker_response(request)
 
 
 _frontend_dir = os.path.join(REPO_ROOT, "frontend")

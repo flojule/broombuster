@@ -10,7 +10,6 @@ import concurrent.futures
 import datetime
 import json
 import logging
-import math
 import threading
 import time
 from typing import NamedTuple
@@ -18,15 +17,12 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-import pyproj
-import requests
 import shapely
 
-from broombuster import config, gps, normalize
+from broombuster import config, gps, net, normalize, resolve
 from broombuster.cities import REGIONS
 
 TIMEOUT_S = 8
-_UA = {"User-Agent": "BroomBuster (https://github.com/flojule/broombuster)"}
 log = logging.getLogger(__name__)
 # Closure sources are fetched side by side, off the request path.
 _pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="feeds")
@@ -87,13 +83,8 @@ cache = TTLCache(wait_s=2 * TIMEOUT_S)
 
 
 def get_json(url: str, **params):
-    """GET url -> parsed JSON, or None on any failure."""
-    try:
-        r = requests.get(url, params=params, headers=_UA, timeout=TIMEOUT_S)
-        r.raise_for_status()
-        return r.json()
-    except (requests.RequestException, ValueError):
-        return None
+    """GET url -> parsed JSON, or None on any failure; net.Busy when its host is busy."""
+    return net.get_json(url, TIMEOUT_S, **params)
 
 
 def _iso_utc(ms_or_iso) -> str:
@@ -257,13 +248,12 @@ def _snapshot(features: list[dict]) -> _Snapshot:
             continue
         kept.append(f)
     xy = shapely.transform(
-        np.array(geoms, dtype=object), lambda c: np.column_stack(_T.transform(*c.T))
+        np.array(geoms, dtype=object), lambda c: np.column_stack(resolve.to_3857(*c.T))
     )
     body = json.dumps({"type": "FeatureCollection", "features": kept}).encode()
     return _Snapshot(kept, shapely.STRtree(xy), body)
 
 
-_T = pyproj.Transformer.from_crs(4326, 3857, always_xy=True)
 REFRESH_S = 15 * 60  # closures are fetched again this often
 RETRY_S = 5 * 60  # this soon after a source failed
 MAX_STALE_S = 6 * 3600  # a failing source's last answer is kept this long
@@ -345,8 +335,8 @@ def closures_near(region_key: str, lat: float, lon: float, meters: float = 15) -
     snap = _snapshots.get(region_key, _EMPTY)
     if not snap.features:
         return []
-    pt = shapely.Point(_T.transform(lon, lat))
-    k = 1.0 / math.cos(math.radians(lat))  # EPSG:3857 units per ground meter
+    pt = shapely.Point(resolve.to_3857(lon, lat))
+    k = resolve.mercator_scale(lat)
     out, seen = [], set()
     for i in sorted(snap.tree.query(pt, predicate="dwithin", distance=meters * k).tolist()):
         p = snap.features[i]["properties"]
@@ -465,7 +455,10 @@ def chicago_vehicle(plate: str, state: str = "IL") -> dict | None:
             ],
         }
 
-    return cache.get(("chicago_vehicle", p, st), 10 * 60, fetch)
+    try:
+        return cache.get(("chicago_vehicle", p, st), 10 * 60, fetch)
+    except net.Busy:
+        return None
 
 
 # ── Chicago: permit zones by address ──────────────────────────────────────────

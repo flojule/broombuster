@@ -1,4 +1,5 @@
 import calendar
+from typing import NamedTuple
 
 import numpy as np
 import shapely
@@ -83,23 +84,25 @@ def schedules_for_all_matching_rows(gdf_3857, resolved):
     if getattr(resolved, "is_polygon", False) or not len(tparts):
         return schedules_for_segment(seg)
 
-    sub = gdf_3857.iloc[gdf_3857.sindex.query(_boxes(tparts))[1]]
-    cparts, crow = line_parts(sub.geometry.values)
+    a = arrays(gdf_3857)
+    sub = gdf_3857.sindex.query(_boxes(tparts))[1]
+    cparts, crow = line_parts(a.geoms[sub])
     n = len(tparts)
     i, j = near_pairs(tparts, cparts)
+    crow = sub[crow]  # rows of gdf_3857
     ok = coincide(
         np.concatenate([tparts, cparts]),
-        np.concatenate([np.full(n, street_key(seg), object), street_keys(sub)[crow]]),
-        np.concatenate([np.full(n, seg.get("_city"), object), _cities(sub)[crow]]),
+        np.concatenate([np.full(n, street_key(seg), object), a.keys[crow]]),
+        np.concatenate([np.full(n, seg.get("_city"), object), a.cities[crow]]),
         i,
         j + n,
     )
-    rows = sub.iloc[np.unique(crow[j[ok]])]
-    cols = [c for c in _SCHEDULE_COLS if c in rows]
+    rows = np.unique(crow[j[ok]])
 
     even_out: list = []
     odd_out: list = []
-    for row in rows[cols].to_dict("records"):
+    for r in rows.tolist():
+        row = {c: v[r] for c, v in a.schedule.items()}
         for side, out in ((0, even_out), (1, odd_out)):
             e = get_schedule(row, side)
             if e and e not in out:
@@ -110,6 +113,35 @@ def schedules_for_all_matching_rows(gdf_3857, resolved):
 
 
 _SCHEDULE_COLS = ("DAY_EVEN", "DESC_EVEN", "TIME_EVEN", "DAY_ODD", "DESC_ODD", "TIME_ODD")
+
+
+class Arrays(NamedTuple):
+    """A frame's columns as the schedule union reads them, row-aligned numpy arrays."""
+
+    geoms: np.ndarray
+    keys: np.ndarray  # street_keys
+    cities: np.ndarray
+    schedule: dict  # _SCHEDULE_COLS present -> object array
+
+
+_arrays: dict[int, tuple] = {}  # id(frame) -> (frame, Arrays); holds the frame, so ids stay
+
+
+def arrays(gdf) -> Arrays:
+    """gdf's Arrays, built once per frame (the server's region frames are never changed)."""
+    hit = _arrays.get(id(gdf))
+    if hit is None or hit[0] is not gdf:
+        if len(_arrays) >= 8:  # tests build many small frames
+            _arrays.clear()
+        a = Arrays(
+            np.asarray(gdf.geometry.values, dtype=object),
+            street_keys(gdf),
+            _cities(gdf),
+            {c: gdf[c].to_numpy(object) for c in _SCHEDULE_COLS if c in gdf},
+        )
+        hit = _arrays[id(gdf)] = (gdf, a)
+    return hit[1]
+
 
 EARTH_RADIUS_M = 6378137.0  # EPSG:3857 sphere
 COINCIDE_M = 3.0  # two rows of one city within this (Hausdorff) draw one street
@@ -134,7 +166,11 @@ def street_keys(gdf) -> np.ndarray:
     n = len(gdf)
     keys = gdf["STREET_KEY"].to_numpy(object) if "STREET_KEY" in gdf else [None] * n
     names = gdf["STREET_NAME"].to_numpy(object) if "STREET_NAME" in gdf else [None] * n
-    out = [_street_key(k, nm) for k, nm in zip(keys, names, strict=True)]
+    memo: dict = {}  # most rows share their (key, name) with others
+    out = [
+        memo[p] if p in memo else memo.setdefault(p, _street_key(*p))
+        for p in zip(keys, names, strict=True)
+    ]
     return np.array(out, dtype=object)
 
 

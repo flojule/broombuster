@@ -4,7 +4,13 @@
 // holidays of those streets' cities. Days are {y, m, d}; arithmetic and weekday come
 // from urgency.js.
 const { addDays: _ymdAdd, dayKey: _ymdKey, weekday: _dow, dayLabel: _dayLabel, WEEKDAYS } = BroomUrgency;
-const _WD1 = WEEKDAYS.map(w => w[0]);
+// The weekday each week row starts on, as urgency.js counts them (0 = Monday): the one
+// place that decides it (the grid, its header letters, ‹ › and Home / End follow).
+function calWeek0() {
+  const c = map?.getCenter(), key = _tilesRegion || _region || (c && nearestRegion(c.lat, c.lng));
+  return BroomUrgency.sundayFirst(regions[key]?.tz) ? 6 : 0;
+}
+const _col = p => (_dow(p) - calWeek0() + 7) % 7;  // a day's column in its week row
 const _MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
                  'August', 'September', 'October', 'November', 'December'];
 
@@ -28,9 +34,8 @@ function _keyDay(k) { return { y: Math.floor(k / 10000), m: Math.floor(k / 100) 
 function pointerSched(f) {
   const props = f?.properties;
   if (!props || !_tilesRegion) return null;
-  const raw = tileEntries(props);
-  const side = s => raw.filter(e => e.side === s).map(e => [e.code, e.desc || '', e.time || '']);
-  return { schedule_even: side('even'), schedule_odd: side('odd'), region: _tilesRegion, city: props.city,
+  const { sides } = _tileSides(props, regionNow(_tilesRegion));  // parsed once (js/signs.js)
+  return { schedule_even: sides[0].rows, schedule_odd: sides[1].rows, region: _tilesRegion, city: props.city,
            side_labels: sideNames(f) };  // as the street card names them (js/signs.js)
 }
 
@@ -125,9 +130,13 @@ function _streetCls(layers, k, today) {
 
 // The calendar scrolls through one fixed window of days: a few weeks back, a
 // year ahead. Day i of the window is `_rangeStart + i`; both views index into it.
+// Only the weeks up to a few past those on screen are built (CAL_MORE more as the grid
+// scrolls or steps toward them): a street change rebuilds a few dozen days, not 490.
 const CAL_WEEKS = 70;
+const CAL_MORE = 8;
 function _calRange(today) {
-  const start = _ymdAdd(today, -56 - _dow(_ymdAdd(today, -56)));  // a Monday
+  const back = _ymdAdd(today, -56);
+  const start = _ymdAdd(back, -_col(back));  // the first day of a week row
   return { start, end: _ymdAdd(start, CAL_WEEKS * 7 - 1) };
 }
 function _dayIdx(range, p) {
@@ -136,26 +145,35 @@ function _dayIdx(range, p) {
 
 // The day details under the grid: the date, then one row per saved car and home with
 // something that day and per no-sweep holiday of the cars' cities.
+// A no-sweep holiday (the grid strikes its date through) says so, marked as the grid
+// marks it. Nothing saved that day: the street at the target's sweeping (the grid's bar);
+// nothing saved at all: the way to add a car.
 function _detailHTML(layers, sel) {
   const row = (mark, label, right, muted = false) =>
     `<div class="cal-row">${mark}<span class="cal-rl">${label}</span><span class="cal-rr${muted ? ' muted' : ''}">${right}</span></div>`;
   const ended = '<span class="tag muted">Ended</span>';
+  const lines = _dayLines(layers, sel);
   const rows = [
-    ..._dayLines(layers, sel).map(l => row(l.mark, esc(l.name), esc(l.what) + (l.ended ? ` ${ended}` : ''), l.ended)),
-    ...[[layers.savedHol, 'No sweeping'], [layers.savedHolDay, 'No daytime sweeping']]
-      .filter(([m]) => m.has(sel)).map(([m, what]) => row('', what, esc(m.get(sel)), true)),
+    ...lines.map(l => row(l.mark, esc(l.name), esc(l.what) + (l.ended ? ` ${ended}` : ''), l.ended)),
+    ...[[layers.hol, 'No sweeping', '<s class="cal-key cal-key-hol" aria-hidden="true">1</s>'], [layers.savedHolDay, 'No daytime sweeping', '']]
+      .filter(([m]) => m.has(sel)).map(([m, what, mark]) => row(mark, what, esc(m.get(sel)), true)),
   ];
-  const empty = cars.length || homes.length ? 'Nothing for your cars or homes.' : 'Save a car or home to see its days.';
+  if (!rows.length && layers.ptr.has(sel)) {
+    rows.push(row('<i class="cal-key cal-key-bar" aria-hidden="true"></i>', 'This street', esc(layers.ptr.get(sel)), true));
+  }
+  const empty = lines.length ? ''
+    : cars.length || homes.length ? ''
+    : `<div class="cal-empty"><button class="btn btn-sm btn-tinted" data-add="car">${icon('car')} Add car</button></div>`;
   return `<div class="cal-hero"><b class="cal-verdict">${esc(_dayLabel(_keyDay(sel)))}</b></div>`
-       + (rows.length ? `<div class="cal-rows">${rows.join('')}</div>` : `<div class="muted">${empty}</div>`);
+       + (rows.length ? `<div class="cal-rows">${rows.join('')}</div>` : '') + empty;
 }
 
-// Weeks in a column (scrolls vertically); `sel` is the selected day key. The first of
-// each month carries its name.
-function calendarHTML(layers, range, sel, today) {
+// Week rows [w0, w1) of the window as day buttons; `sel` is the selected day key. The
+// first of each month carries its name.
+function _cellsHTML(layers, range, sel, today, w0, w1) {
   const todayK = _ymdKey(today);
   let cells = '';
-  for (let i = 0; i < CAL_WEEKS * 7; i++) {
+  for (let i = w0 * 7; i < w1 * 7; i++) {
     const p = _ymdAdd(range.start, i), k = _ymdKey(p);
     const cls = ['cal-day', `cal-m${p.m}`, String(p.m) === icCal.dataset.m ? '' : 'cal-out', _streetCls(layers, k, today), layers.hol.has(k) ? 'cal-hol' : '',
                  k === todayK ? 'sw-today' : k < todayK ? 'cal-past' : '', k === sel ? 'cal-sel' : ''].filter(Boolean).join(' ');
@@ -164,8 +182,13 @@ function calendarHTML(layers, range, sel, today) {
            + (p.d === 1 ? `<i class="cal-mo">${_MONTHS[p.m - 1].slice(0, 3)}</i>` : '')
            + `<span class="cal-n">${p.d}</span>${_dotsHTML(layers, k)}<i class="cal-bar"></i></button>`;
   }
-  return `<div class="cal-wds" aria-hidden="true">${_WD1.map(w => `<span>${w}</span>`).join('')}</div>`
-       + `<div class="cal-scroll"><div class="cal-grid">${cells}</div></div>`
+  return cells;
+}
+// Weeks in a column (scrolls vertically): the window's first `weeks` rows.
+function calendarHTML(layers, range, sel, today, weeks) {
+  const wds = WEEKDAYS.map((_, i) => WEEKDAYS[(i + calWeek0()) % 7][0]);
+  return `<div class="cal-wds" aria-hidden="true">${wds.map(w => `<span>${w}</span>`).join('')}</div>`
+       + `<div class="cal-scroll"><div class="cal-grid">${_cellsHTML(layers, range, sel, today, 0, weeks)}</div></div>`
        + `<div class="cal-detail" tabindex="0" role="region" aria-label="Day details" aria-live="polite">${_detailHTML(layers, sel)}</div>`;
 }
 
@@ -187,7 +210,8 @@ let _ptrSched = null;   // street schedule under the target (null: none)
 let _ptrUrg = null;     // its verdict now (urgency.js checkDaySweeping)
 let _ptrTonight = false; // 'today' only for tomorrow's sweep after midnight (today's is over)
 let _calRange0 = null;  // the window rendered last
-let _calLayers0 = null; // and its layers (for the day details)
+let _calWeeks = 0;      // its week rows built so far (CAL_MORE past those in view)
+let _calLayers0 = null; // and their layers (for the day details)
 const _schedIds = new WeakMap();
 let _schedSeq = 0;
 
@@ -197,20 +221,28 @@ function _schedId(s) {
 }
 
 const _scroller = () => icCal.querySelector('.cal-scroll');
-// Distance between neighboring week rows, in px.
-function _pitch(el) {
-  const kids = el.firstElementChild.children;
-  return kids.length > 8 ? kids[7].offsetTop - kids[0].offsetTop : 0;
-}
+// Distance between neighboring week rows, in px: fixed (styles.css .cal-grid), so reading
+// it never forces a layout.
+const CAL_ROW = 43;  // px: a 40 px row + the 3 px gap (styles.css .cal-grid)
+const _pitch = () => CAL_ROW;
 const _reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 function _scrollTo(el, row, smooth) {
-  el.scrollTo({ top: row * _pitch(el), behavior: smooth && !_reduceMotion.matches ? 'smooth' : 'auto' });
+  _calGrow(Math.ceil(row) + 6 + CAL_MORE);  // the rows it lands on (a month), and a few past them
+  el.scrollTo({ top: row * _pitch(), behavior: smooth && !_reduceMotion.matches ? 'smooth' : 'auto' });
+}
+// Build the week rows up to `upto` (the window's end at most): the layers over the longer
+// span, the new rows' days appended (the rows above stay put, and so does the scroll).
+function _calGrow(upto) {
+  const n = Math.min(CAL_WEEKS, upto), grid = icCal.querySelector('.cal-grid');
+  if (!_calRange0 || !grid || n <= _calWeeks) return;
+  _calLayers0 = calLayers(_ptrSched, _calRange0.start, _ymdAdd(_calRange0.start, n * 7 - 1));
+  grid.insertAdjacentHTML('beforeend', _cellsHTML(_calLayers0, _calRange0, _cal.sel, calNow(), _calWeeks, n));
+  _calWeeks = n;
 }
 const _weekOf = (range, k) => Math.floor(_dayIdx(range, _keyDay(k)) / 7);
 // Desktop: the grid shows one month, six week rows from the week holding the 1st.
 const _monthRow = (range, k) => _weekOf(range, Math.floor(k / 100) * 100 + 1);
 
-const CAL_ROW = 43;  // px: a 40 px row + the 3 px gap (styles.css .cal-grid)
 // On a phone the sheet's heights fit whole weeks (calFit); on a desktop the grid shows one
 // month (styles.css) and ‹ › or the wheel step a month.
 
@@ -241,8 +273,8 @@ function measureCalChrome() {
 // taps or keyboard focus behind the header and tab bar. The weeks a drag up can bring
 // into view (up to the medium sheet's) are .cal-near: they unfold under the finger.
 let _weekOn = [], _weekNear = [];
-function _markWeek(el, pitch) {
-  const kids = el.firstElementChild.children, a = Math.floor(el.scrollTop / pitch + .02), b = Math.ceil(el.scrollTop / pitch - .02);
+function _markWeek(el, pitch, top) {
+  const kids = el.firstElementChild.children, a = Math.floor(top / pitch + .02), b = Math.ceil(top / pitch - .02);
   const fit = calFit();  // before it is measured, a month's worth
   const below = _cal.expanded ? 0 : fit ? Math.ceil((detentHeights().medium - fit.small) / CAL_ROW) + 1 : 5;
   const row = (r0, r1) => { const out = []; for (let i = r0 * 7; i < (r1 + 1) * 7 && i < kids.length; i++) out.push(kids[i]); return out; };
@@ -255,18 +287,20 @@ function _markWeek(el, pitch) {
   _weekNear = mark('cal-near', _weekNear, below ? row(b + 1, b + below) : []);
 }
 
-// Header title: the month of the top week on screen (of its Thursday, so a week belongs
-// to the month holding most of it; ‹ › scroll to such a week, calStep). Desktop: of the
-// third week, as the top one holds the 1st.
+// Header title: on the small sheet, the selected day's month (the details under the week
+// are that day's); in the month view, the month of the top week on screen (of its middle
+// day, so a week belongs to the month holding most of it; ‹ › scroll to such a week,
+// calStep). Desktop: of the third week, as the top one holds the 1st.
 function updateCalTitle() {
   const el = _scroller(), t = document.getElementById('ic-month');
   if (!el || !t || !_calRange0) return;
-  const pitch = _pitch(el);
-  if (!pitch) return;
-  const pos = Math.round(el.scrollTop / pitch);
-  _cal.anchor = el.scrollTop / pitch;
-  _markWeek(el, pitch);
-  const mid = _ymdAdd(_calRange0.start, (pos + (isDesktop() ? 2 : 0)) * 7 + 3);
+  const pitch = _pitch(), top = el.scrollTop, pos = Math.round(top / pitch);
+  _cal.anchor = top / pitch;
+  // Scrolled near the last rows built: build more before they come into view.
+  if (pos + 6 + CAL_MORE / 2 > _calWeeks) _calGrow(pos + 6 + CAL_MORE);
+  _markWeek(el, pitch, top);
+  const mid = !_cal.expanded && _cal.sel != null ? _keyDay(_cal.sel)
+    : _ymdAdd(_calRange0.start, (pos + (isDesktop() ? 2 : 0)) * 7 + 3);
   const key = `${mid.y}-${mid.m}-${t.clientWidth}`;
   if (t.dataset.key === key) return;
   t.dataset.key = key; t.dataset.y = mid.y; t.dataset.m = mid.m;
@@ -298,7 +332,7 @@ function renderTargetInfo(f, live = false) {
   const carSig = cars.map((c, i) => `${c.id}:${c.name}:${i}:${carSide(c) || ''}:${sweepUrgency(c)}:${carSchedules[c.id] ? _schedId(carSchedules[c.id]) : 0}`).join(',');
   const homeSig = homes.map(h => `${h.id}:${itemName(h)}:${homeSchedules[h.id] ? _schedId(homeSchedules[h.id]) : 0}`).join(',');
   const key = [_ptrSched ? `${props.city}:${props.sched}:${_ptrSched.side_labels}:${_ptrUrg}:${_ptrTonight}` : '',
-               carSig, homeSig, todayK].join('|');
+               carSig, homeSig, todayK, calWeek0()].join('|');
   if (key === _calKey) return;
   _calKey = key;
 
@@ -311,10 +345,12 @@ function renderTargetInfo(f, live = false) {
   }
   _cal.today = todayK;
   _calRange0 = range;
-  const layers = _calLayers0 = calLayers(_ptrSched, range.start, range.end);
-  const hadFocus = icCal.contains(document.activeElement);
-  icCal.innerHTML = calendarHTML(layers, range, _cal.sel, today);
   if (_cal.anchor == null) _cal.anchor = _anchorFor(range, today);
+  // The rows from the remembered one (a month's worth), the selected day's, and a few more.
+  _calWeeks = Math.min(CAL_WEEKS, Math.max(Math.ceil(_cal.anchor) + 6, _weekOf(range, _cal.sel) + 1) + CAL_MORE);
+  const layers = _calLayers0 = calLayers(_ptrSched, range.start, _ymdAdd(range.start, _calWeeks * 7 - 1));
+  const hadFocus = icCal.contains(document.activeElement);
+  icCal.innerHTML = calendarHTML(layers, range, _cal.sel, today, _calWeeks);
   _restoreScroll();
   updateCalTitle();  // marks the week on screen: a folded sheet's other weeks take no focus
   if (hadFocus) icCal.querySelector('.cal-sel')?.focus({ preventScroll: true });  // the grid's one Tab stop
@@ -324,7 +360,7 @@ function renderTargetInfo(f, live = false) {
 // until the tab shows again (calShown).
 function _restoreScroll() {
   const el = _scroller();
-  _cal.pending = !_pitch(el);
+  _cal.pending = !el.clientHeight;
   if (!_cal.pending) _scrollTo(el, _cal.anchor, false);
 }
 
@@ -354,9 +390,11 @@ function calSetExpanded(on) {
   if (!on && !first && el && _calRange0 && _cal.sel) _scrollTo(el, _weekOf(_calRange0, _cal.sel), true);
 }
 
-// Select a day in place: its ring, the one Tab stop of the grid, and the details under it.
+// Select a day in place: its ring, the one Tab stop of the grid, the details under it and
+// (the small sheet) the month in the header.
 function selectCalDay(k) {
   _cal.sel = k;
+  if (_calRange0) _calGrow(_weekOf(_calRange0, k) + 1 + CAL_MORE);
   for (const b of icCal.querySelectorAll('.cal-sel')) { b.classList.remove('cal-sel'); b.setAttribute('aria-pressed', 'false'); b.tabIndex = -1; }
   const b = icCal.querySelector(`[data-cal-day="${k}"]`);
   b?.classList.add('cal-sel');
@@ -364,6 +402,7 @@ function selectCalDay(k) {
   if (b) b.tabIndex = 0;
   const det = icCal.querySelector('.cal-detail');
   if (det && _calLayers0) det.innerHTML = _detailHTML(_calLayers0, k);
+  if (!_cal.expanded) updateCalTitle();
 }
 
 // ‹ ›: a week on the small sheet (the selected day moves with it, so its details stay
@@ -380,9 +419,12 @@ function calStep(dir) {
     return;
   }
   const d = new Date(Date.UTC(Number(t.dataset.y), Number(t.dataset.m) - 1 + dir, 1));
-  const first = { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: 1 };
-  // The month's first week; on a phone the next when the 1st falls after Thursday (that week is the last month's).
-  _scrollTo(el, Math.max(0, Math.floor(_dayIdx(_calRange0, first) / 7) + (!isDesktop() && _dow(first) > 3 ? 1 : 0)), true);
+  _scrollTo(el, _monthTop({ y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: 1 }), true);
+}
+// The month view's top row for a month (`first`: its 1st): its first week; on a phone the
+// next when the 1st falls past the week's middle (that week is the last month's).
+function _monthTop(first) {
+  return Math.max(0, Math.floor(_dayIdx(_calRange0, first) / 7) + (!isDesktop() && _col(first) > 3 ? 1 : 0));
 }
 
 // Today: selects today and scrolls back to it.
@@ -396,9 +438,14 @@ tabCal.addEventListener('click', e => {
   const nav = e.target.closest('[data-cal-nav]');
   if (nav) { calStep(Number(nav.dataset.calNav)); return; }
   if (e.target.closest('[data-cal-today]')) { calToday(); return; }
+  if (e.target.closest('[data-add]')) { startPlacing(null, 'car'); return; }
   const day = e.target.closest('[data-cal-day]');
   if (!day) return;
-  selectCalDay(Number(day.dataset.calDay));
+  const k = Number(day.dataset.calDay);
+  selectCalDay(k);
+  // The month view: a day of the month before or after (muted) brings its month into
+  // view, so the header names the selected day's month.
+  if (_cal.expanded && day.classList.contains('cal-out')) _scrollTo(_scroller(), _monthTop({ ..._keyDay(k), d: 1 }), true);
 });
 
 // The grid is one Tab stop (the selected day): the arrow keys move a day or a week,
@@ -415,8 +462,8 @@ icCal.addEventListener('keydown', e => {
   selectCalDay(k);
   const b = icCal.querySelector(`[data-cal-day="${k}"]`);
   b?.focus({ preventScroll: true });
-  const el = _scroller(), row = _weekOf(_calRange0, k), top = el.scrollTop / (_pitch(el) || 1);
-  if (row < Math.floor(top) || row > Math.floor(top) + Math.max(0, Math.round(el.clientHeight / (_pitch(el) || 1)) - 1)) {
+  const el = _scroller(), row = _weekOf(_calRange0, k), top = el.scrollTop / _pitch();
+  if (row < Math.floor(top) || row > Math.floor(top) + Math.max(0, Math.round(el.clientHeight / _pitch()) - 1)) {
     _scrollTo(el, isDesktop() ? _monthRow(_calRange0, k) : row, true);
   }
 });

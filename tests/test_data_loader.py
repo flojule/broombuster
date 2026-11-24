@@ -7,7 +7,9 @@ Unit tests use synthetic GeoDataFrames so they never hit the network.
 
 import datetime
 import functools
+import os
 import re
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import geopandas
@@ -698,3 +700,28 @@ def test_compact_region_reads_back_the_same_values(bay_area_3857):
     assert got.geometry.geom_equals_exact(bay_area_3857.geometry, tolerance=0).all()
     row = got.iloc[0]
     assert isinstance(row.get("STREET_KEY"), str) and row.get("STREET_KEY") == row["STREET_KEY"]
+
+
+def test_region_cache_round_trips_and_follows_the_data(tmp_path, monkeypatch):
+    """The startup cache (api/state.py) gives back the loaded frame, and is rebuilt when a
+    city's FGB changes."""
+    from broombuster.api import state
+    from broombuster.cities import CITIES, REGIONS
+    from broombuster.config import REPO_ROOT
+
+    ck = REGIONS["chicago"]["cities"][0]
+    fgb = tmp_path / "city.fgb"
+    fgb.write_bytes((Path(REPO_ROOT) / CITIES[ck]["fgb_path"]).read_bytes())
+    monkeypatch.setitem(CITIES[ck], "fgb_path", str(fgb))
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("BB_CACHE_DIR", str(cache))
+    first = state._load_region("chicago")
+    (cached,) = cache.iterdir()
+    again = state._load_region("chicago")
+    assert again.dtypes.equals(first.dtypes) and again.crs == first.crs
+    assert again.drop(columns="geometry").equals(first.drop(columns="geometry"))
+    assert again.geometry.geom_equals_exact(first.geometry, tolerance=0).all()
+    os.utime(fgb, ns=(0, fgb.stat().st_mtime_ns + 1))  # the FGB changed: a new cache file
+    state._load_region("chicago")
+    assert [p.name for p in cache.iterdir()] != [cached.name]
+    assert len(list(cache.iterdir())) == 1

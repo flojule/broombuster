@@ -1,8 +1,8 @@
 """Approximate position of an IP address via ipapi.co (cached, best effort)."""
 
-import json
-import urllib.request
 from functools import lru_cache
+
+from broombuster import net
 
 
 class _Failed(Exception):
@@ -12,11 +12,7 @@ class _Failed(Exception):
 @lru_cache(maxsize=512)
 def _fetch(ip: str) -> tuple[float, float]:
     try:
-        req = urllib.request.Request(
-            f"https://ipapi.co/{ip}/json/", headers={"User-Agent": "broombuster"}
-        )
-        with urllib.request.urlopen(req, timeout=3.0) as r:  # noqa: S310 (https URL above)
-            d = json.load(r)
+        d = net.get_json(f"https://ipapi.co/{ip}/json/", 3.0)
         return (float(d["latitude"]), float(d["longitude"]))
     except Exception as e:
         raise _Failed from e  # lru_cache does not cache exceptions: retried next time
