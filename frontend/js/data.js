@@ -16,21 +16,28 @@ mapDiv.addEventListener('contextmenu', e => {
   openCtxMenu(at, e.clientX, e.clientY);
 });
 // Held still for 500 ms with one finger; a pan, a second finger or lifting cancels it.
+// A ring fills at the finger meanwhile (styles.css #press-ring); a short buzz marks the
+// menu opening (Android; iOS Safari has no vibration).
 let _press = null;  // AbortController of the pending press
+const pressRing = document.getElementById('press-ring');
 mapDiv.addEventListener('touchstart', e => {
   _touchAt = e.timeStamp;
   _press?.abort();
   if (e.touches.length !== 1 || !map || placing || e.target.closest('.pin')) return;
   const { clientX: x0, clientY: y0 } = e.touches[0];
   const ac = _press = new AbortController(), opts = { passive: true, signal: ac.signal };
+  pressRing.style.left = x0 + 'px';
+  pressRing.style.top = y0 + 'px';
+  pressRing.hidden = false;  // shown, its animation restarts (styles.css)
   const timer = setTimeout(() => {
     ac.abort();
     const rect = mapDiv.getBoundingClientRect(), at = map.unproject([x0 - rect.left, y0 - rect.top]);
     openCtxMenu(at, x0, y0);
+    navigator.vibrate?.(10);
     // Lifting the finger must not also tap the map (or close the menu it just opened).
     mapDiv.addEventListener('touchend', ev => ev.preventDefault(), { once: true, passive: false });
   }, 500);
-  ac.signal.addEventListener('abort', () => clearTimeout(timer));
+  ac.signal.addEventListener('abort', () => { clearTimeout(timer); pressRing.hidden = true; });
   mapDiv.addEventListener('touchmove', ev => {
     const p = ev.touches[0];
     if (Math.hypot(p.clientX - x0, p.clientY - y0) > 10) ac.abort();
