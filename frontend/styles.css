@@ -104,7 +104,7 @@
     }
     /* While the map moves (js/map.js toggles body.map-moving on movestart / moveend), the
        controls over it are not re-blurred every frame: they turn near-opaque instead. */
-    body.map-moving :is(#map-ctrl, #place-banner, .area-label) {
+    body.map-moving :is(#map-ctrl, #place-banner, .area-label, #sheet.retracted #tabbar) {
       background: var(--glass-regular); -webkit-backdrop-filter: none; backdrop-filter: none;
     }
     /* Fills on a surface (iOS's grey control fill, the blue tint); on body, so they follow the theme. */
@@ -296,7 +296,8 @@
       display: flex; flex-direction: column; overflow: clip;
       background: var(--card); border-radius: var(--r-top) var(--r-top) var(--sheet-r) var(--sheet-r);
       box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-2);
-      transition: height .4s var(--sheet-ease), left .4s var(--sheet-ease), right .4s var(--sheet-ease),
+      /* Its height moves by JS (js/sheet.js _settle), as a transform. */
+      transition: left .4s var(--sheet-ease), right .4s var(--sheet-ease),
                   bottom .4s var(--sheet-ease), border-radius .4s var(--sheet-ease);
       /* Grouped boxes: a fill over the sheet (as iOS lists on a sheet), in both themes. */
       --group: color-mix(in srgb, var(--text) 6%, transparent);
@@ -652,10 +653,11 @@
     @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
 
     /* ── Center target (tiny always-on dot marking the point the signs read) ──
-       At the center of the map area the sheet leaves free (--pad-*: the map's padding, from JS). */
+       At the center of the map area the sheet leaves free (--pad-*: the map's padding, from JS);
+       moved by a transform, so following the sheet takes no layout. */
     #center-crosshair {
-      position: absolute; transform: translate(-50%, -50%); transition: top .4s var(--sheet-ease);
-      top: calc((100% - var(--pad-b, 0px)) / 2); left: calc(var(--pad-l, 0px) + (100% - var(--pad-l, 0px)) / 2);
+      position: absolute; top: 50%; transform: translate(-50%, calc(-50% - var(--pad-b, 0px) / 2));
+      transition: transform .4s var(--sheet-ease); left: calc(var(--pad-l, 0px) + (100% - var(--pad-l, 0px)) / 2);
       z-index: 15; display: none; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%;
       --t-ink: rgba(15,23,42,.85); --t-halo: rgba(255,255,255,.9);  /* a ring and center dot on a halo */
       border: 2px solid var(--t-ink); background: radial-gradient(circle, var(--t-ink) 0 2px, transparent 2.5px);
@@ -736,8 +738,8 @@
     #center-crosshair.on-here:not(.placing) { width: 34px; height: 34px; background: none; }
     /* Under the target: why the card is empty ("Zoom in to read a street"), or once, how to use it. */
     #map-hint {
-      position: absolute; z-index: 15; transform: translateX(-50%); transition: top .4s var(--sheet-ease);
-      top: calc((100% - var(--pad-b, 0px)) / 2 + 20px); left: calc(var(--pad-l, 0px) + (100% - var(--pad-l, 0px)) / 2);
+      position: absolute; z-index: 15; top: 50%; transform: translate(-50%, calc(20px - var(--pad-b, 0px) / 2));
+      transition: transform .4s var(--sheet-ease); left: calc(var(--pad-l, 0px) + (100% - var(--pad-l, 0px)) / 2);
       max-width: min(320px, calc(100% - var(--pad-l, 0px) - 2 * var(--edge))); width: max-content;
       padding: 6px 12px; border-radius: 16px; background: var(--toast-bg); color: var(--toast-fg);
       font-size: var(--fs-md); font-weight: 600; text-align: center; box-shadow: var(--shadow-1); pointer-events: none;

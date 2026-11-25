@@ -62,10 +62,18 @@ function _setMorph(m) {
   sheet.classList.toggle('retracted', m > 0.99);
 }
 
-function applySheet() {
+// animate: the phone sheet moves to its new height (a settle) rather than jumping.
+function applySheet(animate = true) {
   const desk = isDesktop();
-  _setMorph(!desk && _shown() === 'hidden' ? 1 : 0);
-  sheet.style.height = desk ? '' : detentHeights()[_shown()] + 'px';
+  if (desk) {
+    _stopSettle();
+    _setMorph(0);
+    sheet.style.height = '';
+  } else {
+    const to = detentHeights()[_shown()];
+    if (animate && sheet.style.height) _settle(to);
+    else { _stopSettle(); _setMorph(_shown() === 'hidden' ? 1 : 0); sheet.style.height = to + 'px'; }
+  }
   grabber.setAttribute('aria-label', _detent === 'medium' ? 'Shrink the sheet' : 'Enlarge the sheet');
   // The calendar shows the month view whenever it has the room: medium.
   if (typeof calSetExpanded === 'function') calSetExpanded(desk || (!_compact && _detent === 'medium'));
@@ -91,53 +99,148 @@ function applyMapInsets(animate = true) {
 }
 
 // ── Dragging (phone) ──────────────────────────────────────────────────────────
-// The sheet follows the finger; on release it settles on the detent nearest where the
-// flick would carry it. Dragged by the grabber, the tab bar or a tab's header (pointer events),
+// The sheet follows the finger; on release it settles on a detent: the next one in the
+// flick's direction after a flick, else the one nearest where the finger's speed would
+// carry it. Dragged by the grabber, the tab bar or a tab's header (pointer events),
 // and from a tab's content as iOS sheets are (touch): up while it can grow, down once
 // the content is scrolled to its top; the calendar's grid scrolls itself unless the
 // sheet is small.
-// While dragged the sheet is laid out once at its tallest (max) and slid down by the
-// difference (a transform), its foot clipped and the tab bar slid back up: no layout per
-// frame. The height is set on release.
+// While it moves (dragged or settling) the sheet is laid out once at its tallest (max)
+// and slid down by the difference (a transform), its foot clipped and the tab bar slid
+// back up: no layout per frame above small. The height is set once it stops.
+const FLICK_V = 0.4;     // px/ms: a release at least this fast is a flick
+const VEL_WINDOW = 100;  // ms of finger samples the release speed is taken over
 let _drag = null, _dragged = false;
-function _dragBegin(y, t) { _drag = { y0: y, h0: sheet.offsetHeight, y, t, v: 0, moved: false }; _dragged = false; }
+function _dragBegin(y, t) { _drag = { y0: y, samples: [{ y, t }], moved: false }; _dragged = false; }
 function _dragShow(height, max) {
   const dy = max - height;
   sheet.style.transform = `translateY(${dy}px)`;
   sheet.style.clipPath = `inset(0 0 ${dy}px 0 round var(--r-top) var(--r-top) var(--sheet-r) var(--sheet-r))`;
   tabbar.style.transform = `translateY(${-dy}px)`;
 }
+// --m for a shown height: 0 at small and above, 1 at hidden.
+const _morphAt = (h, height) => Math.min(1, Math.max(0, (h.small - height) / (h.small - h.hidden)));
+// Lays the sheet out at `max` (transitions off) for a drag or a settle.
+function _moveBegin(max) {
+  sheet.classList.add('dragging');
+  sheet.style.height = max + 'px';
+}
+// Back to a laid-out sheet at `height`.
+function _moveEnd(height) {
+  sheet.style.height = height + 'px';
+  sheet.style.transform = sheet.style.clipPath = tabbar.style.transform = '';
+  void sheet.offsetHeight;
+  sheet.classList.remove('dragging');
+}
 // Follows the finger once it has moved 5 px; returns whether this is a drag.
 function _dragTo(y, t) {
   if (!_drag) return false;
   if (!_drag.moved && Math.abs(y - _drag.y0) < 5) return false;
-  const h = _drag.h || (_drag.h = detentHeights()), max = Math.max(_drag.h0, Math.round(h.medium * 1.04));
   if (!_drag.moved) {
     _drag.moved = true;
-    sheet.classList.add('dragging');
-    sheet.style.height = max + 'px';
+    _stopSettle();  // caught mid-settle: the drag starts where the sheet is
+    _drag.h0 = sheet.offsetHeight;
+    _drag.h = detentHeights();
+    _drag.max = Math.max(_drag.h0, Math.round(_drag.h.medium * 1.04));
+    _moveBegin(_drag.max);
   }
+  const h = _drag.h, max = _drag.max;
   const height = _drag.height = Math.max(h.hidden, Math.min(max, _drag.h0 + _drag.y0 - y));
   _dragShow(height, max);
-  _setMorph(Math.min(1, Math.max(0, (h.small - height) / (h.small - h.hidden))));
-  const dt = t - _drag.t;
-  if (dt > 0) _drag.v = (_drag.y - y) / dt;  // px per ms, up is positive
-  _drag.y = y; _drag.t = t;
+  _setMorph(_morphAt(h, height));
+  const s = _drag.samples;
+  s.push({ y, t });
+  while (s.length > 2 && t - s[1].t > VEL_WINDOW) s.shift();
   return true;
+}
+// Release speed (px/ms, up is positive): the finger's travel over its last VEL_WINDOW ms;
+// 0 when it was held still that long.
+function _releaseV(now) {
+  const s = _drag.samples.filter(p => now - p.t <= VEL_WINDOW);
+  if (s.length < 2) return 0;
+  const a = s[0], b = s[s.length - 1];
+  return b.t > a.t ? (a.y - b.y) / (b.t - a.t) : 0;
 }
 function _dragEnd() {
   if (!_drag) return;
   _dragged = _drag.moved;
   if (_drag.moved) {
-    // The height where the finger left it, then on to the detent (styles.css transition).
-    sheet.style.height = _drag.height + 'px';
-    sheet.style.transform = sheet.style.clipPath = tabbar.style.transform = '';
-    void sheet.offsetHeight;
-    sheet.classList.remove('dragging');
-    const h = detentHeights(), aim = _drag.height + _drag.v * 200;
-    setDetent(DETENTS.reduce((a, b) => Math.abs(h[b] - aim) < Math.abs(h[a] - aim) ? b : a));
+    const h = _drag.h, v = _releaseV(performance.now()), at = _drag.height;
+    let d;
+    if (Math.abs(v) >= FLICK_V) {  // a flick: the next detent its way
+      const ahead = DETENTS.filter(k => v > 0 ? h[k] > at + 1 : h[k] < at - 1);
+      d = ahead.length ? (v > 0 ? ahead[0] : ahead[ahead.length - 1]) : (v > 0 ? 'medium' : 'hidden');
+    } else {
+      const aim = at + v * 200;
+      d = DETENTS.reduce((a, b) => Math.abs(h[b] - aim) < Math.abs(h[a] - aim) ? b : a);
+    }
+    _settleV = v;  // the settle starts at the finger's speed
+    _settleFrom = { height: at, max: _drag.max };
+    _drag = null;
+    setDetent(d);
+    _settleFrom = null;
+    return;
   }
   _drag = null;
+}
+
+// ── Settling (phone): the sheet goes to a detent's height ──────────────────────
+// A critically damped spring that starts at the finger's speed after a drag, so a flick
+// carries on without a jolt (a change from code starts fast and eases out, as iOS sheets
+// do); its rate rises with that speed, so it never overshoots the detent. Reduce Motion:
+// no settle, the height is set at once.
+const SETTLE_W = 0.018;  // 1/ms: the spring's rate at rest (within 1 px in ~400 ms)
+const _reduceMotionSheet = window.matchMedia('(prefers-reduced-motion: reduce)');
+let _settling = null;    // { raf, height } while settling
+let _settleV = 0, _settleFrom = null;  // set by _dragEnd for the settle it starts (null: from code)
+function _settle(to) {
+  const h = detentHeights(), m1 = _shown() === 'hidden' ? 1 : 0;
+  // From where the sheet shows now: the released drag, a settle under way, or at rest.
+  const from = _settleFrom ? _settleFrom.height : _settling ? _settling.height : sheet.offsetHeight;
+  const max0 = _settleFrom ? _settleFrom.max : _settling ? parseFloat(sheet.style.height) : from;
+  if (_settling) { cancelAnimationFrame(_settling.raf); _settling = null; }
+  if (Math.abs(to - from) < 1 || _reduceMotionSheet.matches) {
+    _moveEnd(to);
+    _setMorph(m1);
+    _settled();
+    return;
+  }
+  const max = Math.max(max0, from, to), A = to - from;
+  const v0 = _settleFrom ? _settleV : SETTLE_W * A, w = A * v0 > 0 ? Math.max(SETTLE_W, v0 / A) : SETTLE_W, B = w * A - v0;
+  _moveBegin(max);
+  const st = _settling = { raf: 0, height: from };
+  let t0 = null;
+  const step = now => {
+    if (t0 === null) t0 = now - 1000 / 60;  // the first frame shows one frame's motion
+    const t = now - t0, e = Math.exp(-w * t);
+    let x = to - (A + B * t) * e;
+    const v = (w * (A + B * t) - B) * e;
+    if ((Math.abs(to - x) < 0.5 && Math.abs(v) < 0.02) || t > 1000) {
+      _settling = null;
+      _moveEnd(to);
+      _setMorph(m1);
+      _settled();
+      return;
+    }
+    st.height = x = Math.max(h.hidden, Math.min(max, x));  // a slow release the other way dips past its start
+    _dragShow(x, max);
+    _setMorph(_morphAt(h, x));
+    st.raf = requestAnimationFrame(step);
+  };
+  _dragShow(from, max);
+  st.raf = requestAnimationFrame(step);
+}
+// Stops a settle where it is, the sheet laid out at that height.
+function _stopSettle() {
+  if (!_settling) return;
+  cancelAnimationFrame(_settling.raf);
+  const at = Math.round(_settling.height);
+  _settling = null;
+  _moveEnd(at);
+}
+// Settled: the calendar measures itself at rest (js/calendar.js), the tops follow.
+function _settled() {
+  if (typeof measureCalChrome === 'function') measureCalChrome();
 }
 
 // Grabber, tab bar and headers. The finger is captured only once it moves, so a tap stays a click.
@@ -230,11 +333,11 @@ sheet.addEventListener('touchmove', e => e.stopPropagation(), { passive: true })
 
 // The sheet's top lifts the place banner and toasts above it (in a frame, so one
 // observer's update can't re-trigger another within the same frame).
-// Not while dragged: the sheet is then laid out at its tallest (_dragTo).
+// Not while it moves: the sheet is then laid out at its tallest (_moveBegin).
 new ResizeObserver(() => requestAnimationFrame(() => {
-  if (_drag?.moved) return;
+  if (_drag?.moved || _settling) return;
   document.documentElement.style.setProperty('--sheet-h', (isDesktop() ? 0 : sheet.offsetHeight + sheetGap()) + 'px');
 })).observe(sheet);
 // The detents follow the screen.
-window.addEventListener('resize', () => applySheet());
+window.addEventListener('resize', () => applySheet(false));
 showTab(_tab);
