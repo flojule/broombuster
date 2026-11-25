@@ -13,7 +13,7 @@ const TABS = ['calendar', 'saved', 'settings'];
 let _tab = 'calendar';
 const DETENTS = ['hidden', 'small', 'medium'];
 let _detent = 'small';
-let _compact = false;  // placing a car or home: the sheet is small whatever the tab
+let _compact = false;  // placing a car or home: the sheet is lowered to the tab bar
 
 // Sheet height (px) of each detent on this screen: hidden the tab bar, small one week of
 // the calendar and the selected day, medium half the screen (at least four weeks, at most
@@ -36,11 +36,13 @@ function detentHeights() {
   return { hidden, small, medium };
 }
 // The height the sheet shows now.
-const _shown = () => _compact ? 'small' : _detent;
+const _shown = () => _compact ? 'hidden' : _detent;
 
+// A height the user picks (a drag, a tab) also lifts the lowered placing sheet.
 function setDetent(d) {
   if (!DETENTS.includes(d)) return;
   _detent = d;
+  _compact = false;
   applySheet();
 }
 const lowerSheet = () => setDetent('hidden');
@@ -208,6 +210,9 @@ function _settle(to) {
   const max = Math.max(max0, from, to), A = to - from;
   const v0 = _settleFrom ? _settleV : SETTLE_W * A, w = A * v0 > 0 ? Math.max(SETTLE_W, v0 / A) : SETTLE_W, B = w * A - v0;
   _moveBegin(max);
+  // The banner and toasts go straight to where the sheet is heading (the observer below
+  // waits while it moves).
+  document.documentElement.style.setProperty('--sheet-h', to + sheetGap(m1 === 1) + 'px');
   const st = _settling = { raf: 0, height: from };
   let t0 = null;
   const step = now => {
@@ -314,6 +319,7 @@ tabbar.addEventListener('click', e => {
   const b = e.target.closest('[data-tab]');
   if (!b || _dragged) { _dragged = false; return; }
   if (_detent === 'hidden') setDetent('small');
+  else if (_compact) setDetent(_detent);  // placing: the sheet comes back up as it was
   else if (b.dataset.tab === _tab && _detent === 'small') setDetent('medium');
   showTab(b.dataset.tab);
 });
@@ -333,7 +339,8 @@ sheet.addEventListener('touchmove', e => e.stopPropagation(), { passive: true })
 
 // The sheet's top lifts the place banner and toasts above it (in a frame, so one
 // observer's update can't re-trigger another within the same frame).
-// Not while it moves: the sheet is then laid out at its tallest (_moveBegin).
+// Not while it moves: the sheet is then laid out at its tallest (_moveBegin); a settle
+// sets its end value at the start.
 new ResizeObserver(() => requestAnimationFrame(() => {
   if (_drag?.moved || _settling) return;
   document.documentElement.style.setProperty('--sheet-h', (isDesktop() ? 0 : sheet.offsetHeight + sheetGap()) + 'px');

@@ -49,7 +49,7 @@
       --toast-bg: #1e293b; --toast-fg: #f1f5f9; --toast-err: #7f1d1d; --toast-btn: rgba(255,255,255,.16);
 
       /* Layers: map pins (MapLibre markers) < crosshair 15 < place banner 20 < street signs 21
-         < map controls 24 < sheet 25 < menus 200 < toasts 9999. */
+         < map controls 24 < sheet 25 < long-press ring 199 < menus 200 < toasts 9999. */
     }
     /* 100vh, not 100%: in an iOS home-screen app with a translucent status bar, 100% is the
        layout viewport, which is shorter than the screen and leaves a strip at the bottom. */
@@ -220,6 +220,17 @@
     }
     #place-banner.active { display: flex; }
     #place-banner-text { display: flex; align-items: center; gap: 6px; }
+
+    /* A long press on the map: after 150 ms (a tap or a pan stays clear of it) a ring at the
+       finger fills until the "Add here" menu opens at 500 ms (js/data.js). */
+    #press-ring { position: fixed; z-index: 199; width: 44px; height: 44px; transform: translate(-50%, -50%) rotate(-90deg);
+                  pointer-events: none; animation: press-show .08s .15s both; }
+    #press-ring svg { width: 100%; height: 100%; fill: none; stroke-width: 3; }
+    #press-ring circle { stroke: color-mix(in srgb, var(--blue) 25%, transparent); }
+    #press-ring .pr-fill { stroke: var(--blue); stroke-linecap: round; stroke-dasharray: 113.1; stroke-dashoffset: 113.1;
+                           animation: press-fill .35s linear .15s forwards; }
+    @keyframes press-show { from { opacity: 0; } }
+    @keyframes press-fill { to { stroke-dashoffset: 0; } }
 
     /* ── Pop-up menus: "Add here" (right-click / long press) and "+" ── */
     /* As iOS 26 menus: regular glass with round rows and no lines between them; a line
@@ -481,9 +492,14 @@
        left, under the status bar. ── */
     #signs {
       position: absolute; z-index: 21; top: calc(var(--inset-t) + var(--edge)); left: var(--edge);
-      pointer-events: none;
+      pointer-events: none; transition: opacity .12s;
     }
-    .sc { display: flex; flex-direction: column; gap: 5px; width: max-content; padding: 8px 10px 9px;
+    /* Off a street it fades out (then hides, js/signs.js), and fades in on the next one. */
+    #signs.sc-out { opacity: 0; }
+    #signs.sc-in { animation: sc-in .12s; }
+    @keyframes sc-in { from { opacity: 0; } }
+    /* At least 200 px wide, so it keeps a steady size from street to street. */
+    .sc { display: flex; flex-direction: column; gap: 5px; width: max-content; min-width: 200px; padding: 8px 10px 9px;
           max-width: min(260px, calc(100vw - 3 * var(--edge) - var(--tap) - var(--inset-l) - var(--inset-r)));  /* clear of the map buttons */
           border-radius: var(--r-md); background: var(--card); color: var(--text); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-1);
           font-size: var(--fs-md); line-height: 1.3; }  /* read walking to the car: rows 12.8 px, labels from 10.6 px */
@@ -565,9 +581,11 @@
     .cal-day:has(> .cal-mo) { padding-top: 9px; }  /* the date clears its month's name */
     .sw-now .cal-mo, .sw-next .cal-mo { color: inherit; }
     /* The selected day: a grouped box of rows (a car, a home, a holiday); a fixed height
-       (two rows; more scroll), so the sheet's heights stay put. */
-    .cal-detail { flex: none; height: calc(2 * 34px + 1px); margin-top: 8px; overflow-y: auto;
+       (one row or the Add car button on a phone, two on a desktop; more scroll), so the
+       sheet's heights stay put. */
+    .cal-detail { flex: none; height: 36px; margin-top: 8px; overflow-y: auto;
                   display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); line-height: 1.3; }
+    .cal-detail:has(> .cal-empty) { overflow: visible; }  /* the button's touch margin runs past the box, unscrolled */
     .cal-rows { flex: none; display: flex; flex-direction: column; background: var(--group); border-radius: var(--r-md); }
     .cal-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 12px; }
     .cal-row + .cal-row { border-top: 1px solid var(--hairline); }
@@ -708,7 +726,7 @@
       .zoom-btn { display: flex; }
       /* Calendar: one month (six 40 px week rows, js/calendar.js), the day details under it. */
       .cal-scroll { flex: none; height: calc(6 * 40px + 5 * 3px); overflow-y: hidden; scroll-snap-type: none; }
-      .cal-detail { margin-top: 10px; }
+      .cal-detail { margin-top: 10px; height: calc(2 * 34px + 1px); }
       /* Centered in the map area right of the panel. */
       #place-banner { bottom: auto; top: var(--edge); left: calc((100% + var(--inset-l) + var(--panel-w) + var(--edge)) / 2); }
       #toast-container { bottom: 24px; left: calc(var(--inset-l) + var(--panel-w) + 2 * var(--edge)); }

@@ -71,8 +71,8 @@ function moveCar(car, lat, lon) {
 
 // ── Placement (cars and homes) ────────────────────────────────────────────────
 // Center-target flow: pan the map so the crosshair sits on the spot, then
-// "Set here" commits at the map center. The sheet shrinks so most of the map shows;
-// it returns to its height after. A right-click sets an off-center spot (data.js).
+// "Set here" commits at the map center. The sheet lowers to its tab bar so the map
+// shows; it returns to its height after (or once a tab or a drag brings it up). A right-click sets an off-center spot (data.js).
 // Places (or, with an id, moves) a car or home; the banner shows its icon.
 // at: {lat, lon} to start from (a GPS fix, adjusted by hand before OK); else a new one
 // starts where you are, when the app knows (people add a car once they've parked).

@@ -277,10 +277,8 @@ function renderSigns(f, live = false) {
     : '';
   if (html !== _signsKey) {
     _signsKey = html;
-    signsEl.hidden = !html;
-    signsEl.innerHTML = html;
+    _showSigns(html);
     signsEl.setAttribute('aria-label', street ? `${street}, at the target` : 'Street at the target');
-    fitSigns();
   }
   if (placing && !live) _placeBannerStreet(f);  // read out once the map stops (role=status)
   // Screen readers hear the street and its first rows once the map stops (not while panning).
@@ -288,6 +286,35 @@ function renderSigns(f, live = false) {
   if (!live && signsLive.textContent !== said) signsLive.textContent = said;
 }
 const signsLive = document.getElementById('signs-live');
+
+// The card: a new one fades in where none showed; none fades the last one out, then hides
+// it (styles.css #signs.sc-out). Never left showing a street the target has left.
+let _signsOutTimer = 0;
+function _showSigns(html) {
+  clearTimeout(_signsOutTimer);
+  if (html) {
+    const appearing = signsEl.hidden || signsEl.classList.contains('sc-out');
+    signsEl.innerHTML = html;
+    signsEl.hidden = false;
+    signsEl.classList.remove('sc-out');
+    if (appearing) {
+      signsEl.classList.remove('sc-in');
+      void signsEl.offsetWidth;  // restarts the fade-in
+      signsEl.classList.add('sc-in');
+    }
+    fitSigns();
+    return;
+  }
+  if (signsEl.hidden) return;
+  signsEl.classList.remove('sc-in');
+  signsEl.classList.add('sc-out');
+  _signsOutTimer = setTimeout(() => {
+    signsEl.hidden = true;
+    signsEl.innerHTML = '';
+    signsEl.classList.remove('sc-out');
+    fitSigns();
+  }, 150);
+}
 
 // "Today", "Tonight 12AM" (the sweep that makes it today starts after midnight: today's
 // own window is over) or "Tomorrow": {u, text} for entries swept today or tomorrow.
