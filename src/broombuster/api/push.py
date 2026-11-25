@@ -1,5 +1,5 @@
-"""Web Push (RFC 8030) to the app on a phone: the reminders of the calendar feed (the
-evening before and an hour before each sweep of the account's cars), as notifications.
+"""Web Push (RFC 8030) to the app on a phone: reminders of the account's cars' sweeps and
+its homes' trash pickups, at the times each person picks (auth.Notify).
 
 Each message is encrypted for the subscription (RFC 8291, aes128gcm) and signed with the
 server's VAPID key (RFC 8292), a P-256 key made on first use at BB_VAPID_KEY.
@@ -185,32 +185,59 @@ def due(
     locate: Callable[[float, float], calfeed.CarSpot | None],
     since: datetime.datetime,
     now: datetime.datetime,
+    notify: auth.Notify,
 ) -> list[tuple[str, dict, int]]:
-    """The reminders of an account's cars due in (since, now]: (key, message, ttl_s)."""
+    """The reminders of an account's cars and homes due in (since, now] at the times
+    `notify` picks: (key, message, ttl_s). A key is the event's uid and the reminder's
+    offset from its start, the same for everyone who gets it then."""
     out = []
+
+    def add(uid, start, at, title, what, where, end):
+        if since < at <= now:
+            day = "Today" if at.date() == start.date() else "Tomorrow"
+            body = f"{day} {what}".rstrip() + f" · {where}"
+            ttl = int((end - now).total_seconds())
+            key = f"{uid}{(at - start).total_seconds():+.0f}"
+            out.append((key, {"title": title, "body": body, "tag": uid}, ttl))
+
+    def evening(start, hour):  # `hour` o'clock the day before `start`
+        return start.replace(hour=hour) - datetime.timedelta(days=1)
+
     for sw in calfeed.sweeps(prefs, locate, now, days=1):
-        for offset in sw.alarms:
-            at = sw.start + offset
-            if not since < at <= now:
-                continue
-            day = "Today" if at.date() == sw.day else "Tomorrow"
-            when = f"{day} {sw.when}" if sw.when else day
-            message = {
-                "title": f"Move {sw.car_name}",
-                "body": f"{when} · {sw.where}",
-                "tag": sw.uid,
-            }
-            ttl = int(((sw.end or sw.start + datetime.timedelta(days=1)) - now).total_seconds())
-            out.append((f"{sw.uid}{offset.total_seconds():+.0f}", message, ttl))
+        midnight = sw.start.replace(hour=0, minute=0)
+        times = set()
+        if notify.car_evening is not None:
+            times.add(evening(midnight, notify.car_evening))
+        if notify.car_before is not None:
+            lead = datetime.timedelta(minutes=notify.car_before)
+            times.add(sw.start - lead if sw.end else sw.start.replace(hour=6))
+        end = sw.end or midnight + datetime.timedelta(days=1)
+        for at in sorted(times):
+            add(sw.uid, sw.start, at, f"Move {sw.car_name}", sw.when, sw.where, end)
+    if notify.trash_evening is not None:
+        for pk in calfeed.pickups(prefs, now):
+            if pk.day - now.astimezone(pk.start.tzinfo).date() <= datetime.timedelta(days=1):
+                where = f"{', '.join(pk.streams)} · {pk.address or pk.label}"
+                at = evening(pk.start, notify.trash_evening)
+                end = pk.start + datetime.timedelta(hours=12)
+                add(pk.uid, pk.start, at, "Take out the trash", "", where, end)
     return out
 
 
 def run_once(locate, now: datetime.datetime) -> None:
-    """Send every reminder due since LOOKBACK that was not sent yet."""
+    """Send every reminder due since LOOKBACK that was not sent yet, to each subscription
+    whose person wants it then."""
     for account_id, prefs, subs in auth.push_targets():
-        for key, message, ttl in due(prefs, locate, now - LOOKBACK, now):
+        by_notify: dict[str | None, list] = {}
+        for sub in subs:
+            by_notify.setdefault(sub["notify"], []).append(sub)
+        sends: dict[str, tuple[dict, int, list]] = {}
+        for text, group in by_notify.items():
+            for key, message, ttl in due(prefs, locate, now - LOOKBACK, now, auth.notify_of(text)):
+                sends.setdefault(key, (message, ttl, []))[2].extend(group)
+        for key, (message, ttl, targets) in sends.items():
             if auth.claim_push(account_id, key):
-                for sub in subs:
+                for sub in targets:
                     deliver(sub, message, ttl)
 
 

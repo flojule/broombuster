@@ -41,19 +41,20 @@ browser: car's lat/lon ──POST /api/check──▶ resolve.py     nearest str
 browser: js/urgency.js colors it, calendar.js draws it ◀── JSON schedule
 ```
 
-### Sweep reminder (Web Push)
+### Reminders (Web Push)
 
 ```
 api/push.py thread, every 60 s
   │  auth.push_targets: accounts with a push subscription (users.sqlite)
   ▼
-calfeed.sweeps(account's cars, today and tomorrow) ── alarm in the last 30 min? ── no ──▶ skip
+calfeed.sweeps + calfeed.pickups (today, tomorrow) ── reminder in the last 30 min? ── no ──▶ skip
+  │  at each member's times (members.notify, PUT /api/me/notify)
   │  auth.claim_push: not sent yet
   ▼
 encrypt (RFC 8291) + VAPID JWT (RFC 8292, key BB_VAPID_KEY) ──POST──▶ push service (Apple, FCM, …)
   │                                                        404/410 ──▶ subscription deleted
   ▼
-sw.js 'push' ──▶ notification "Move <car>" (evening before, 1 h before)
+sw.js 'push' ──▶ notification "Move <car>" / "Take out the trash"
 ```
 
 Settings > Notifications subscribes the device (`POST /api/push`); only known push services

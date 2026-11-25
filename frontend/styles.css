@@ -265,6 +265,10 @@
     .menu-item + .menu-item { border-top: 1px solid var(--hairline); }
     :is(button, a).menu-item:hover { background: var(--fill); }
     :is(button, a).menu-item { color: var(--tint-fg); }  /* an action; a plain row keeps the text color */
+    /* A row with a picker: label left, value right (16 px: iOS zooms smaller fields). */
+    .menu-item.pick { justify-content: space-between; gap: 12px; }
+    .pick select { appearance: none; -webkit-appearance: none; border: 0; background: none; padding: 0; text-align: right;
+                   color: var(--muted); font: inherit; font-size: 16px; cursor: pointer; }
     .note { margin: 0 14px; font-size: var(--fs-sm); color: var(--muted); line-height: 1.4; font-weight: 400; }
     .sec .note { margin: 0; }
     .rows .note { padding: 6px 16px 8px; }

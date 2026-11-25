@@ -1,7 +1,8 @@
 """The calendar subscription feed (iCalendar, RFC 5545): an account's cars' street
 sweeping, its homes' trash pickups and the no-sweep holidays of those cities, for
 the next DAYS days. Each sweep has two reminders: the evening before and an hour before
-(TIMED_ALARMS), so a car parked late still gets one; Web Push (api/push.py) sends the same."""
+(TIMED_ALARMS), so a car parked late still gets one. Web Push (api/push.py) sends the
+same sweeps and pickups at times each person picks."""
 
 import datetime
 from collections.abc import Callable
@@ -159,35 +160,16 @@ def build(
         desc = f"{sw.where}, {sw.when}" if sw.when else sw.where
         lines += _event(sw.uid, summary, *span, stamp, sw.alarms, desc, sw.address)
 
-    lookups = 0  # trash answers fetched (not cached) so far, at most TRASH_LOOKUPS
-    for i, home in enumerate(prefs.get("homes") or []):
-        region = _region_of(home)
-        if region is None:
-            continue
-        city = city_for_point(home["lat"], home["lon"], region)
-        today = now.astimezone(ZoneInfo(REGIONS[region]["tz"])).date()
-        args = (city, home.get("address") or "", today, home.get("collection_day"))
-        picks = trash.pickups(*args, network=False)
-        if picks is None and lookups < TRASH_LOOKUPS:
-            lookups += 1
-            picks = trash.pickups(*args)
-        picks = picks or {}
-        label = "Home" if len(prefs.get("homes") or []) == 1 else f"Home {i + 1}"
-        by_day: dict[str, list[str]] = {}
-        for stream, dates in picks.items():
-            for iso in dates:
-                by_day.setdefault(iso, []).append(stream)
-        for iso, streams in sorted(by_day.items()):
-            day = datetime.date.fromisoformat(iso)
-            lines += _event(
-                f"trash-{home['id']}-{day:%Y%m%d}@broombuster",
-                f"{label} · trash day: {', '.join(streams).lower()}",
-                day,
-                day + datetime.timedelta(days=1),
-                stamp,
-                DAY_ALARMS[:1],
-                location=home.get("address") or "",
-            )
+    for pk in pickups(prefs, now):
+        lines += _event(
+            pk.uid,
+            f"{pk.label} · trash day: {', '.join(pk.streams).lower()}",
+            pk.day,
+            pk.day + datetime.timedelta(days=1),
+            stamp,
+            DAY_ALARMS[:1],
+            location=pk.address,
+        )
 
     for city, region in ({} if first_only else cities_seen).items():
         today = now.astimezone(ZoneInfo(REGIONS[region]["tz"])).date()
@@ -271,6 +253,49 @@ def sweeps(
                     yield Sweep(
                         uid, name, day, _at(day, 0, tz), None, DAY_ALARMS, where, "", spot.address
                     )
+
+
+class Pickup(NamedTuple):
+    """One trash pickup day at a home."""
+
+    uid: str
+    label: str  # "Home", "Home 2"
+    day: datetime.date
+    start: datetime.datetime  # its local midnight
+    streams: list[str]  # "Garbage", "Recycling", ...
+    address: str
+
+
+def pickups(prefs: dict, now: datetime.datetime, *, lookups: int = TRASH_LOOKUPS):
+    """The trash pickups at an account's homes, by day, in each home's city clock.
+    At most `lookups` uncached ReCollect lookups; other homes use cached answers."""
+    homes = prefs.get("homes") or []
+    for i, home in enumerate(homes):
+        region = _region_of(home)
+        if region is None:
+            continue
+        tz = ZoneInfo(REGIONS[region]["tz"])
+        city = city_for_point(home["lat"], home["lon"], region)
+        today = now.astimezone(tz).date()
+        args = (city, home.get("address") or "", today, home.get("collection_day"))
+        picks = trash.pickups(*args, network=False)
+        if picks is None and lookups > 0:
+            lookups -= 1
+            picks = trash.pickups(*args)
+        by_day: dict[str, list[str]] = {}
+        for stream, dates in (picks or {}).items():
+            for iso in dates:
+                by_day.setdefault(iso, []).append(stream)
+        for iso, streams in sorted(by_day.items()):
+            day = datetime.date.fromisoformat(iso)
+            yield Pickup(
+                f"trash-{home['id']}-{day:%Y%m%d}@broombuster",
+                "Home" if len(homes) == 1 else f"Home {i + 1}",
+                day,
+                _at(day, 0, tz),
+                streams,
+                home.get("address") or "",
+            )
 
 
 _NO_SWEEP = {"sweeping": "No street sweeping: ", "sweeping_day": "No daytime street sweeping: "}
