@@ -33,19 +33,13 @@ async function initApp() {
   document.getElementById('ic-cal').classList.remove('cal-wait');
   setInterval(() => { if (!document.hidden) loadAlerts(); }, ALERTS_EVERY_MS);
   if (!Object.keys(regions).length) await citiesLoaded;  // first visit: regions, clocks and holidays
-  const checked = showSaved();
+  showSaved();
   if (!cars.length) {
     // No cars on this device: open on the account's (loadAccount draws and checks them).
     await Promise.race([me, new Promise(r => setTimeout(r, START_WAIT_MS))]);
     if (cars.length) { map.jumpTo({ center: [cars[0].lon, cars[0].lat], zoom: 15 }); loadAlerts(); return; }
   }
-  if (cars.length) {
-    await checked;
-    // A car to move today or tomorrow: open on it, not on the calendar.
-    const { today, tomorrow } = urgentCars();
-    if ((today.length || tomorrow.length) && _tab === 'calendar') showTab('saved');
-    return;
-  }
+  if (cars.length) return;  // opens on the calendar; the Saved tab's badge flags a car to move
   // No cars: device position if already allowed, else the area nearest the IP (where the
   // map opened, if it knew it in time), else every area's label in view.
   const gps = await getPermittedGPS();
