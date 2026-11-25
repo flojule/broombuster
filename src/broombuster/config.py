@@ -5,6 +5,8 @@ environment can change them. Variables:
 
   BB_BASE_URL                                          public site URL; turns passkey sign-in on
   BB_DB                                                SQLite user database path
+  BB_VAPID_KEY                                         Web Push signing key (PEM; made on first
+                                                       use; default: next to BB_DB)
   BB_RATE_LIMIT                                        "0" turns rate limits off
   BB_LIVE_FEEDS                                        "0" turns the closures refresh off (tests)
   BB_CSP                                               "report-only" relaxes the enforced CSP
@@ -28,6 +30,10 @@ def base_url() -> str:
 
 def db_path() -> str:
     return os.environ.get("BB_DB") or os.path.join(REPO_ROOT, "data", "users.sqlite")
+
+
+def vapid_key_path() -> str:
+    return os.environ.get("BB_VAPID_KEY") or os.path.join(os.path.dirname(db_path()), "vapid.pem")
 
 
 def rate_limit_enabled() -> bool:

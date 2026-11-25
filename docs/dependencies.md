@@ -43,10 +43,11 @@ pyproject.toml   (versions: uv.lock)
 | PyYAML | Manifests, holidays, corrections | `cities.py`, `holidays.py`, `data_loader.py` |
 | requests | Live feeds, Nominatim (1 request/s), IP location: one pooled session; layer and city builds | `net.py`; `layer_sources.py`, `scripts/` |
 | brotli | Precompressed static files and cached responses | `api/web.py` |
-| FastAPI, Starlette, Pydantic | HTTP API, validation, phone-report errors | `api/` |
+| FastAPI, Starlette, Pydantic | HTTP API, validation | `api/` |
 | Uvicorn | ASGI server | `run.sh`, `broombuster.service` |
 | webauthn (py_webauthn) | Passkey sign-in and sign-up: challenge and signature checks | `api/auth.py` |
-| SQLite (stdlib) | Accounts, members, passkeys, hashed sessions, cars, phone tokens | `api/auth.py` |
+| cryptography (via webauthn) | Web Push: message encryption (RFC 8291), VAPID signature (RFC 8292) | `api/push.py` |
+| SQLite (stdlib) | Accounts, members, passkeys, hashed sessions, cars, push subscriptions | `api/auth.py` |
 | pdfplumber | Reading published PDFs | `scripts/pdf_city.py` |
 | cairosvg | PNG icons from `frontend/icon.svg` | `scripts/build_icons.py` |
 | playwright | Layout screenshots and checks | `scripts/visual_scenarios.py` |

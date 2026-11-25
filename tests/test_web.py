@@ -1,4 +1,4 @@
-"""HTTP plumbing (api/web.py): rate-limit keys and pruning, refusals on the phone path,
+"""HTTP plumbing (api/web.py): rate-limit keys and pruning, refusals before the app,
 HSTS, the service worker's cache name, precompressed static files and versioned tiles."""
 
 import gzip
@@ -59,21 +59,19 @@ def test_idle_clients_are_pruned_at_most_once_per_window(monkeypatch):
     assert lim._hits is table and len(table) == 10_003
 
 
-def test_phone_refusals_carry_a_summary(monkeypatch):
-    """The phone shows `summary`: refusals before the app (size, rate) carry it too."""
-    path, auth = web.PHONE_PATH, {"Authorization": "Bearer bbc_x"}
-    c = TestClient(app)
-    big = c.post(path, content=b"x" * (web.MAX_BODY_BYTES + 1), headers=auth)
-    assert big.status_code == 413 and big.json()["summary"] == "Request too large."
-    chunked = c.post(path, content=iter([b"{}"]), headers=auth)
-    assert chunked.status_code == 411 and chunked.json()["summary"]
+def test_refusals_before_the_app_read_as_fastapis(monkeypatch):
+    """Size and rate refusals, made before the app runs, carry `detail` as its own do."""
+    path, c = "/api/check", TestClient(app)
+    big = c.post(path, content=b"x" * (web.MAX_BODY_BYTES + 1))
+    assert big.status_code == 413 and big.json() == {"detail": "Request too large."}
+    chunked = c.post(path, content=iter([b"{}"]))
+    assert chunked.status_code == 411 and chunked.json()["detail"]
     monkeypatch.setattr(web, "RATE_LIMIT", True)
     monkeypatch.setattr(web, "_limiter", web.RateLimiter())
-    monkeypatch.setattr(web, "LIMITS", (("/api/cars", 1),))
-    c.post(path, json={}, headers=auth)
-    limited = c.post(path, json={}, headers=auth)
-    assert limited.status_code == 429 and limited.json()["summary"] == "Too many requests."
-    assert "summary" not in c.post("/api/cars/c1/token").json()  # not the phone path
+    monkeypatch.setattr(web, "LIMITS", ((path, 1),))
+    c.post(path, json={})
+    limited = c.post(path, json={})
+    assert limited.status_code == 429 and limited.json() == {"detail": "Too many requests."}
 
 
 def test_hsts_only_over_https(client, monkeypatch):

@@ -27,6 +27,7 @@ data/**/*.html
 # Local secrets and the user database
 .env
 data/users.sqlite*
+data/vapid.pem
 
 .deploy-bad
 

@@ -110,7 +110,7 @@ LIMITS = (
     ("/api/alerts", 30),
     ("/api/check", 60),
     ("/api/me", 30),
-    ("/api/cars", 30),
+    ("/api/push", 10),
     ("/auth/passkey/register", 5),  # each success adds an account
     ("/auth/", 30),
 )
@@ -150,13 +150,9 @@ def _limit_for(path: str) -> tuple[str, int] | None:
     return next(((p, n) for p, n in LIMITS if path.startswith(p)), None)
 
 
-PHONE_PATH = "/api/cars/location"  # a phone's report: every refusal carries a `summary`
-
-
-def refusal(path: str, status: int, detail: str, headers: dict | None = None) -> JSONResponse:
-    """An error body; on the phone path also its `summary`, which the phone shows."""
-    body = {"detail": detail, **({"summary": detail} if path == PHONE_PATH else {})}
-    return JSONResponse(body, status, headers=headers)
+def refusal(status: int, detail: str, headers: dict | None = None) -> JSONResponse:
+    """An error body, as FastAPI's own."""
+    return JSONResponse({"detail": detail}, status, headers=headers)
 
 
 # ── Request size ──────────────────────────────────────────────────────────────
@@ -180,7 +176,7 @@ class BodyLimit:
             else:
                 refused = None
             if refused:
-                await refusal(scope["path"], *refused)(scope, receive, send)
+                await refusal(*refused)(scope, receive, send)
                 return
         await self.app(scope, receive, send)
 
@@ -555,7 +551,7 @@ class RequestMiddleware:
         rule = _limit_for(path) if method != "OPTIONS" else None
         try:
             if rule and RATE_LIMIT and not _limiter.allow(client_key(ip), rule[0], rule[1]):
-                refused = refusal(path, 429, "Too many requests.", {"Retry-After": str(_WINDOW_S)})
+                refused = refusal(429, "Too many requests.", {"Retry-After": str(_WINDOW_S)})
                 await refused(scope, receive, send_with_headers)
             else:
                 await self.app(scope, receive, send_with_headers)
@@ -572,6 +568,4 @@ class RequestMiddleware:
             "status": status[0] if status else None,
             "ms": round((time.perf_counter() - t0) * 1000),
         }
-        if reason := getattr(request.state, "log_reason", None):  # why a request was refused
-            extra["reason"] = reason
         log.info("request", extra=extra)

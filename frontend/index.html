@@ -66,7 +66,6 @@
     <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></symbol>
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></symbol>
-    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></symbol>
     <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l9 5-9 5-9-5 9-5z"/><path d="M3 14l9 5 9-5"/></symbol>
     <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
     <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
@@ -113,7 +112,7 @@
          area the sheet leaves free). -->
     <div id="center-crosshair"></div>
 
-    <!-- Under the target, when there is no street to read: why, or (once) how (js/ui.js). -->
+    <!-- Under the target, outside coverage (js/ui.js). -->
     <div id="map-hint" role="status" hidden></div>
 
     <!-- What applies on the street at the target: its sweeping (per side) and parking rules;
@@ -123,7 +122,7 @@
 
     <!-- First runs: the street colors at a glance; a tap opens the full legend (js/layers.js). -->
 
-    <!-- Offline / can't reach the server / loading streets (js/ui.js) -->
+    <!-- Offline / can't reach the server (js/ui.js) -->
     <div id="net-chip" role="status" hidden></div>
   </div>
 
@@ -166,7 +165,7 @@
 
     <div class="tab" id="tab-settings" role="tabpanel" aria-labelledby="tb-settings" hidden>
       <div class="tab-head"><h2 class="tab-title">Settings</h2></div>
-      <!-- The account's sections (js/account.js) fill the slots: first, around the calendar link, last. -->
+      <!-- The account's sections (js/account.js) fill the slots: first, calendar link and notifications, last. -->
       <div class="tab-body">
         <div id="set-account" class="set-slot"></div>
         <div class="sec-label">Appearance</div>
@@ -176,6 +175,7 @@
           <button type="button" role="radio" data-theme="dark">Dark</button>
         </div>
         <div id="set-calendar" class="set-slot"></div>
+        <div id="set-notify" class="set-slot"></div>
         <div class="sec-label">About</div>
         <p class="note about">Data: city open data, ReCollect, DOE AFDC, Genasys, NWS<br><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a> · <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · __APP_VERSION__</p>
         <div id="set-danger" class="set-slot"></div>

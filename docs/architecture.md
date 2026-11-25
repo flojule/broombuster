@@ -13,12 +13,13 @@ Cloudflare Tunnel ──────────── the only way in
   ▼
 uvicorn 127.0.0.1:8000        src/broombuster/api/app.py
   │
-  ├─ /api/*   schedule, rules, closures, alerts, calendar feed, phone reports
+  ├─ /api/*   schedule, rules, closures, alerts, calendar feed, push subscriptions
   ├─ /auth/*  passkey sign-in                      api/auth.py
   └─ /        frontend/ (index.html, js/, sw.js, tiles/, layers/, vendor/)
         │
         ├─ data/<city>.fgb        loaded at startup         data_loader.py, state.py
-        ├─ users.sqlite           accounts, members, passkeys, sessions  auth.py  (BB_DB;
+        ├─ users.sqlite           accounts, members, passkeys, sessions,  auth.py  (BB_DB;
+        │                         push subscriptions (vapid.pem beside)
         │                         host: /var/lib/broombuster, local: data/)
         └─ live feeds             closures (DataSF, Oakland, 511): refreshed every 15 min in a
                                   background thread, requests read the last snapshot;
@@ -40,22 +41,23 @@ browser: car's lat/lon ──POST /api/check──▶ resolve.py     nearest str
 browser: js/urgency.js colors it, calendar.js draws it ◀── JSON schedule
 ```
 
-### Phone reports a parked car
+### Sweep reminder (Web Push)
 
 ```
-Shortcuts / Tasker on car disconnect
-  │  POST /api/cars/location   Authorization: Bearer <token>   {lat, lon, accuracy}
+api/push.py thread, every 60 s
+  │  auth.push_targets: accounts with a push subscription (users.sqlite)
   ▼
-auth.car_for_token ── unknown or revoked ──▶ 401
-  │
-accuracy > 50 m ───────────────────────────▶ 422 "Position too rough…"
-  │
-set_car_location ── car removed ───────────▶ 404
-  │
-resolve → address
-  │
-200 {"summary": "Parked at …"}     refusals: reason kept on the token (shown in the app), logged
+calfeed.sweeps(account's cars, today and tomorrow) ── alarm in the last 30 min? ── no ──▶ skip
+  │  auth.claim_push: not sent yet
+  ▼
+encrypt (RFC 8291) + VAPID JWT (RFC 8292, key BB_VAPID_KEY) ──POST──▶ push service (Apple, FCM, …)
+  │                                                        404/410 ──▶ subscription deleted
+  ▼
+sw.js 'push' ──▶ notification "Move <car>" (evening before, 1 h before)
 ```
+
+Settings > Notifications subscribes the device (`POST /api/push`); only known push services
+are accepted as endpoints.
 
 ### Sign-in
 
@@ -71,7 +73,7 @@ from a name and a passkey; "Sign in" finds the account from the passkey itself. 
 sync between a person's devices through their platform (iCloud Keychain, Google Password
 Manager). There is no account recovery: lose the passkey and the account is gone.
 
-Accounts are shared: an account (its cars, homes, phone and calendar links) has members,
+Accounts are shared: an account (its cars, homes and calendar link) has members,
 each a person with their own sign-in. Under Settings > Account, "Invite someone" makes a
 single-use link (valid 7 days) that adds the opener's account to whoever opens it, through
 a passkey. Up to 10 members per account. Leaving removes only yourself; the

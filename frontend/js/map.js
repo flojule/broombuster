@@ -77,17 +77,7 @@ function attachMapListeners() {
   // Color tiles as they arrive, not only once the whole map is idle: until then
   // their streets are transparent (see _urgCase).
   map.on('sourcedata', (e) => { if (e.sourceId === TILES_SOURCE && e.tile) { _tilesDirty = true; scheduleUrgencyUpdate(); } });
-  // Street tiles still loading after a second: the chip says so (ui.js), until the map settles.
-  let slowTimer = 0;
-  map.on('sourcedataloading', (e) => {
-    if (e.sourceId !== TILES_SOURCE || slowTimer || _streetsSlow) return;
-    slowTimer = setTimeout(() => { _streetsSlow = true; updateNetChip(); renderTargetInfo(); }, 1000);
-  });
-  map.on('idle', () => {
-    clearTimeout(slowTimer); slowTimer = 0;
-    if (_streetsSlow) { _streetsSlow = false; updateNetChip(); renderTargetInfo(); }
-  });
-  map.on('moveend', updateMapHint);  // "Zoom in", "Not covered" (js/ui.js)
+  map.on('moveend', updateMapHint);  // "Not covered" (js/ui.js)
   map.on('idle', updateMapHint);     // tiles loaded: whether any street is in view
   syncRegion();
 }

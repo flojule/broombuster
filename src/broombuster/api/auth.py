@@ -3,10 +3,10 @@
 Sign-in is a passkey (WebAuthn): no password, no email. It needs BB_BASE_URL (e.g.
 https://broombuster.com); without it sign-in is off.
 
-An account (its cars, homes, phone and calendar links) has one or more members, each
-a person with their own passkeys. A person joins an account through a single-use
-invite link. Accounts, members, sessions and prefs live in the SQLite file BB_DB
-(default data/users.sqlite).
+An account (its cars, homes and calendar link) has one or more members, each
+a person with their own passkeys and notification subscriptions (api/push.py). A person
+joins an account through a single-use invite link. Accounts, members, sessions and prefs
+live in the SQLite file BB_DB (default data/users.sqlite).
 """
 
 import hashlib
@@ -60,9 +60,10 @@ _SIGNUPS_PER_DAY = 20  # account sign-ups started per client (IPv4 address or IP
 _MAX_SESSIONS = 20  # signed-in devices per member; the least recently used goes
 _MAX_PENDING_PASSKEYS = 1000  # sign-ins in progress, all clients together
 _MAX_PENDING_PER_CLIENT = 5  # sign-ins in progress per client; the oldest goes
+_MAX_PUSH_SUBS = 10  # notification subscriptions (devices) per member; the oldest goes
+_PUSH_SENT_S = 3 * 86400  # how long a sent reminder is remembered (not sent twice)
 _LAST_USED_S = 3600  # a calendar token's last_used is written at most this often
 _INVITE_PREFIX = "bbi_"
-_TOKEN_PREFIX = "bbc_"  # noqa: S105 (a prefix, not a password)  # phone: one car of one account
 _CAL_PREFIX = "bbk_"  # calendar feed: one account
 
 
@@ -109,20 +110,22 @@ _SCHEMA = (
     """CREATE TABLE IF NOT EXISTS invites (
         token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL,
         account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE)""",
-    """CREATE TABLE IF NOT EXISTS car_tokens (
-        token_hash TEXT PRIMARY KEY, car_id TEXT NOT NULL,
-        created_at INTEGER NOT NULL, last_used INTEGER,
-        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-        last_moved INTEGER, last_error TEXT,
-        UNIQUE (account_id, car_id))""",
     """CREATE TABLE IF NOT EXISTS calendar_tokens (
         token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, last_used INTEGER,
         account_id TEXT NOT NULL UNIQUE REFERENCES accounts(id) ON DELETE CASCADE)""",
+    """CREATE TABLE IF NOT EXISTS push_subs (
+        endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+        member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS push_sent (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        key TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (account_id, key))""",
     # Lookups and ON DELETE CASCADE by the referencing column, without a table scan.
     "CREATE INDEX IF NOT EXISTS members_account ON members(account_id)",
     "CREATE INDEX IF NOT EXISTS passkeys_member ON passkeys(member_id)",
     "CREATE INDEX IF NOT EXISTS sessions_member ON sessions(member_id)",
     "CREATE INDEX IF NOT EXISTS invites_account ON invites(account_id)",
+    "CREATE INDEX IF NOT EXISTS push_subs_member ON push_subs(member_id)",
 )
 
 
@@ -172,6 +175,7 @@ def init_db() -> None:
             and not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'accounts'").fetchone()
         ):
             _drop_google_schema(db)
+        db.execute("DROP TABLE IF EXISTS car_tokens")  # unused (phone report tokens)
         for stmt in _SCHEMA:
             db.execute(stmt)
         if "prefs_rev" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:
@@ -261,7 +265,7 @@ def _same_origin(request: Request) -> None:
         raise HTTPException(403, "Cross-origin request refused.")
 
 
-def _signed_in_mutation(request: Request) -> sqlite3.Row:
+def signed_in_mutation(request: Request) -> sqlite3.Row:
     _same_origin(request)
     user = _session_user(request)
     if user is None:
@@ -351,7 +355,7 @@ def logout(request: Request):
 
 
 @router.post("/auth/logout-everywhere")
-def logout_everywhere(user: sqlite3.Row = Depends(_signed_in_mutation)):
+def logout_everywhere(user: sqlite3.Row = Depends(signed_in_mutation)):
     """Sign this person out on every device; their passkeys stay."""
     with _db() as db, db:
         db.execute("DELETE FROM sessions WHERE member_id = ?", (user["id"],))
@@ -557,7 +561,7 @@ def passkey_login_verify(request: Request, credential: dict = Body(...)):
 
 # ── Invites ───────────────────────────────────────────────────────────────────
 @router.post("/api/me/invite")
-def create_invite(user: sqlite3.Row = Depends(_signed_in_mutation)):
+def create_invite(user: sqlite3.Row = Depends(signed_in_mutation)):
     """A single-use link that adds a new person to this account (shown once)."""
     base = _require_base()
     now = int(time.time())
@@ -583,8 +587,8 @@ class Car(BaseModel):
     name: str = Field(max_length=200)
     lat: float = Field(ge=-90.0, le=90.0)
     lon: float = Field(ge=-180.0, le=180.0)
-    # Position version: bumped on every move, from the browser or a phone, so a
-    # stale device can't overwrite a newer position (see _merge_cars).
+    # Position version: bumped on every move, so a stale device can't overwrite a
+    # newer position (see _merge_cars).
     loc_rev: int = Field(0, ge=0, le=2**31)
     # Chosen when the car is added, so removing another car never repaints it.
     color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
@@ -635,9 +639,6 @@ def me(request: Request, response: Response):
 
     `user` is the signed-in person and `family` the names of everyone in their account.
     `prefs_rev` counts the saves of `prefs`; PUT /api/me/prefs sends it back as `rev`.
-    `phone_links` maps each car that has a phone token to its last report: `used`
-    (any report), `moved` (last accepted one), `error` (why the last one was refused;
-    null when it was accepted), times in epoch seconds.
     """
     response.headers["Cache-Control"] = "no-store"
     if _base() is None:
@@ -651,18 +652,6 @@ def me(request: Request, response: Response):
         account = db.execute(
             "SELECT prefs, prefs_rev FROM accounts WHERE id = ?", (account_id,)
         ).fetchone()
-        links = {
-            r["car_id"]: {
-                "used": r["last_used"],
-                "moved": r["last_moved"],
-                "error": r["last_error"],
-            }
-            for r in db.execute(
-                "SELECT car_id, last_used, last_moved, last_error FROM car_tokens"
-                " WHERE account_id = ?",
-                (account_id,),
-            )
-        }
         cal = db.execute(
             "SELECT created_at FROM calendar_tokens WHERE account_id = ?", (account_id,)
         ).fetchone()
@@ -678,13 +667,12 @@ def me(request: Request, response: Response):
         "family": family,
         "prefs": json.loads(account["prefs"]) if account and account["prefs"] else None,
         "prefs_rev": account["prefs_rev"] if account else 0,
-        "phone_links": links,
         "calendar": cal is not None,
     }
 
 
 @router.put("/api/me/prefs")
-def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
+def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(signed_in_mutation)):
     """Replace the account's cars and homes; returns the new prefs_rev as `rev`.
 
     A save whose `rev` is not the stored prefs_rev is refused (409): another device
@@ -693,7 +681,7 @@ def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
     new = prefs.model_dump(mode="json", exclude_unset=True, exclude={"rev"})
     account_id = user["account_id"]
     with _db() as db, db:
-        db.execute("BEGIN IMMEDIATE")  # a phone update can't slip in between read and write
+        db.execute("BEGIN IMMEDIATE")  # another save can't slip in between read and write
         rev = db.execute("SELECT prefs_rev FROM accounts WHERE id = ?", (account_id,)).fetchone()[
             "prefs_rev"
         ]
@@ -704,19 +692,13 @@ def put_prefs(prefs: Prefs, user: sqlite3.Row = Depends(_signed_in_mutation)):
             "UPDATE accounts SET prefs = ?, prefs_rev = ? WHERE id = ?",
             (json.dumps(new, separators=(",", ":")), rev + 1, account_id),
         )
-        keep = [c["id"] for c in new["cars"]]
-        marks = ",".join("?" * len(keep))  # placeholders only; the values are bound
-        db.execute(
-            f"DELETE FROM car_tokens WHERE account_id = ? AND car_id NOT IN ({marks})",  # noqa: S608
-            (account_id, *keep),
-        )
     return {"rev": rev + 1}
 
 
 @router.delete("/api/me")
-def delete_me(user: sqlite3.Row = Depends(_signed_in_mutation)):
+def delete_me(user: sqlite3.Row = Depends(signed_in_mutation)):
     """Leave the account: this member, their sessions and passkeys go. When nobody else is
-    left in it, the account goes too (cars, homes, phone and calendar links)."""
+    left in it, the account goes too (cars, homes, calendar link)."""
     account_id = user["account_id"]
     with _db() as db, db:
         db.execute("BEGIN IMMEDIATE")
@@ -728,71 +710,11 @@ def delete_me(user: sqlite3.Row = Depends(_signed_in_mutation)):
     return resp
 
 
-# ── Phone position updates ────────────────────────────────────────────────────
-# A phone (iOS Shortcut, Tasker) reports where the car was parked with a bearer
-# token that is tied to one car of one account and can do nothing else.
-@router.post("/api/cars/{car_id}/token")
-def create_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutation)):
-    """New phone token for a saved car (shown once); replaces any earlier one."""
-    account_id = user["account_id"]
-    with _db() as db, db:
-        db.execute("BEGIN IMMEDIATE")
-        if not any(c["id"] == car_id for c in _stored_prefs(db, account_id)["cars"]):
-            raise HTTPException(404, "Car not saved to your account yet.")
-        token = _TOKEN_PREFIX + secrets.token_urlsafe(32)
-        db.execute(
-            "DELETE FROM car_tokens WHERE account_id = ? AND car_id = ?", (account_id, car_id)
-        )
-        db.execute(
-            "INSERT INTO car_tokens (token_hash, car_id, created_at, account_id)"
-            " VALUES (?, ?, ?, ?)",
-            (_hash(token), car_id, int(time.time()), account_id),
-        )
-    return {"token": token}
-
-
-@router.delete("/api/cars/{car_id}/token", status_code=204)
-def revoke_car_token(car_id: str, user: sqlite3.Row = Depends(_signed_in_mutation)):
-    with _db() as db, db:
-        db.execute(
-            "DELETE FROM car_tokens WHERE account_id = ? AND car_id = ?",
-            (user["account_id"], car_id),
-        )
-
-
-def car_for_token(request: Request) -> sqlite3.Row:
-    """The (account_id, car_id) a bearer token belongs to. The token's hash goes on
-    request.state.car_token; set_car_location() or record_refusal() marks it used.
-    """
-    _require_base()
-    scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        raise HTTPException(401, "Missing bearer token.")
-    token_hash = _hash(token.strip())
-    with _db() as db:
-        row = db.execute(
-            "SELECT account_id, car_id FROM car_tokens WHERE token_hash = ?", (token_hash,)
-        ).fetchone()
-    if row is None:
-        raise HTTPException(401, "Unknown or revoked token.")
-    request.state.car_token = token_hash
-    return row
-
-
-def record_refusal(token_hash: str, reason: str) -> None:
-    """Note why a phone report was refused, for the car's page."""
-    with _db() as db, db:
-        db.execute(
-            "UPDATE car_tokens SET last_error = ?, last_used = ? WHERE token_hash = ?",
-            (reason[:300], int(time.time()), token_hash),
-        )
-
-
 # ── Calendar subscription ─────────────────────────────────────────────────────
 # A secret URL a calendar app polls (/api/calendar/<token>.ics): the account's cars'
 # sweeping and homes' pickups. The token can only read that feed; one per account.
 @router.post("/api/me/calendar")
-def create_calendar_token(request: Request, user: sqlite3.Row = Depends(_signed_in_mutation)):
+def create_calendar_token(request: Request, user: sqlite3.Row = Depends(signed_in_mutation)):
     """A new calendar feed URL (shown once); replaces any earlier one."""
     token = _CAL_PREFIX + secrets.token_urlsafe(32)
     with _db() as db, db:
@@ -808,7 +730,7 @@ def create_calendar_token(request: Request, user: sqlite3.Row = Depends(_signed_
 
 
 @router.delete("/api/me/calendar", status_code=204)
-def revoke_calendar_token(user: sqlite3.Row = Depends(_signed_in_mutation)):
+def revoke_calendar_token(user: sqlite3.Row = Depends(signed_in_mutation)):
     with _db() as db, db:
         db.execute("DELETE FROM calendar_tokens WHERE account_id = ?", (user["account_id"],))
 
@@ -833,25 +755,53 @@ def prefs_for_calendar_token(token: str) -> dict | None:
         return _stored_prefs(db, row["account_id"])
 
 
-def set_car_location(account_id: str, car_id: str, lat: float, lon: float) -> bool:
-    """Move a saved car, bump its position version and mark its phone token's report
-    accepted; False if the car is gone."""
+# ── Notification subscriptions (api/push.py) ──────────────────────────────────
+def save_push_sub(member_id: str, endpoint: str, p256dh: str, auth_secret: str) -> None:
+    """Keep a device's subscription for this member (replacing one at that endpoint)."""
+    with _db() as db, db:
+        db.execute(
+            "INSERT OR REPLACE INTO push_subs (endpoint, p256dh, auth, member_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (endpoint, p256dh, auth_secret, member_id, int(time.time())),
+        )
+        db.execute(
+            "DELETE FROM push_subs WHERE member_id = ? AND endpoint NOT IN (SELECT endpoint"
+            " FROM push_subs WHERE member_id = ? ORDER BY created_at DESC LIMIT ?)",
+            (member_id, member_id, _MAX_PUSH_SUBS),
+        )
+
+
+def delete_push_sub(endpoint: str, member_id: str | None = None) -> None:
+    """Forget a subscription (only this member's when given)."""
+    with _db() as db, db:
+        db.execute(
+            "DELETE FROM push_subs WHERE endpoint = ? AND (? IS NULL OR member_id = ?)",
+            (endpoint, member_id, member_id),
+        )
+
+
+def push_targets() -> list[tuple[str, dict, list[sqlite3.Row]]]:
+    """(account_id, prefs, subscriptions of all its members) for each account with any."""
+    if _base() is None:
+        return []
+    with _db() as db:
+        rows = db.execute(
+            "SELECT p.*, m.account_id FROM push_subs p JOIN members m ON m.id = p.member_id"
+            " ORDER BY m.account_id"
+        ).fetchall()
+        by_account: dict[str, list[sqlite3.Row]] = {}
+        for r in rows:
+            by_account.setdefault(r["account_id"], []).append(r)
+        return [(a, _stored_prefs(db, a), subs) for a, subs in by_account.items()]
+
+
+def claim_push(account_id: str, key: str) -> bool:
+    """True the first time a reminder `key` is claimed for an account: send it then."""
     now = int(time.time())
     with _db() as db, db:
-        db.execute("BEGIN IMMEDIATE")
-        prefs = _stored_prefs(db, account_id)
-        car = next((c for c in prefs["cars"] if c["id"] == car_id), None)
-        if car is None:
-            return False
-        car.update(lat=lat, lon=lon, loc_rev=car.get("loc_rev", 0) + 1)
-        car.pop("side", None)  # a new spot: its side is unknown
-        db.execute(
-            "UPDATE accounts SET prefs = ? WHERE id = ?",
-            (json.dumps(prefs, separators=(",", ":")), account_id),
+        db.execute("DELETE FROM push_sent WHERE at < ?", (now - _PUSH_SENT_S,))
+        cur = db.execute(
+            "INSERT OR IGNORE INTO push_sent (account_id, key, at) VALUES (?, ?, ?)",
+            (account_id, key, now),
         )
-        db.execute(
-            "UPDATE car_tokens SET last_moved = ?, last_used = ?, last_error = NULL"
-            " WHERE account_id = ? AND car_id = ?",
-            (now, now, account_id, car_id),
-        )
-    return True
+        return cur.rowcount == 1

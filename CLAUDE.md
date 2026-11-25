@@ -4,8 +4,7 @@ Street-sweeping map: FastAPI backend (`src/broombuster/`), plain-JS PWA (`fronte
 committed per-city FlatGeobuf data (`data/`), deployed to a Raspberry Pi by a systemd timer.
 **`docs/requirements.md` is the source of truth for scope and UI/UX: check every change
 against it; a conflict needs the owner's approval and an update there first.**
-README.md covers using and running; `docs/architecture.md` the architecture and deployment;
-`docs/phone-setup.md` phone position updates.
+README.md covers using and running; `docs/architecture.md` the architecture and deployment.
 
 ## Commands
 
