@@ -1,6 +1,6 @@
 # BroomBuster
 
-Street-sweeping map for Oakland, San Francisco, Berkeley, Alameda and Chicago.
+Street-sweeping map for the San Francisco Bay Area and Chicago ([sources](data/README.md#sources)).
 
 ## Run
 

@@ -23,7 +23,7 @@ WEEKDAY_CODES = {
 
 # Codes that explicitly mean "no sweeping" (compared upper-cased, stripped).
 # Oakland: N-E / N-O = no even / odd addresses; MS = "major street uses 2
-# lines"; DM = "shown in a different map"; MISSING = no data.
+# lines"; DM = "shown in a different map".
 NO_SWEEP_CODES = frozenset(
     {
         "N",
@@ -38,7 +38,6 @@ NO_SWEEP_CODES = frozenset(
         "NS-A",
         "MS",
         "DM",
-        "MISSING",
     }
 )
 

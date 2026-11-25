@@ -77,8 +77,7 @@ Server ──▶ live feeds, on demand, results cached in memory
   ├─ Recollect      api.recollect.net                                     Oakland trash
   ├─ weather.gov    api.weather.gov · alerts.weather.gov                  Red Flag, snow
   ├─ 511.org        api.511.org  (BB_511_API_KEY)                         Bay Area work zones
-  ├─ Nominatim      OpenStreetMap                                         address search, reverse
-  └─ ipapi.co       approximate position from IP (iplocate.py)
+  └─ Nominatim      OpenStreetMap                                         address search, reverse
 
 Failure: a source that fails answers "nothing known" (failures cached 5 min), never an error.
 ```

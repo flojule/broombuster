@@ -143,11 +143,10 @@ function _dayIdx(range, p) {
   return BroomUrgency.diffDays(range.start, p);
 }
 
-// The day details under the grid: the date, then one row per saved car and home with
-// something that day and per no-sweep holiday of the cars' cities.
-// A no-sweep holiday (the grid strikes its date through) says so, marked as the grid
-// marks it. Nothing saved that day: the street at the target's sweeping (the grid's bar);
-// nothing saved at all: the way to add a car.
+// The day details under the grid: one row per saved car and home with something that day
+// and per no-sweep holiday of the cars' cities (the grid strikes its date through), marked
+// as the grid marks it. The date is for screen readers (the grid's ring shows it); nothing
+// saved at all: the way to add a car.
 function _detailHTML(layers, sel) {
   const row = (mark, label, right, muted = false) =>
     `<div class="cal-row">${mark}<span class="cal-rl">${label}</span><span class="cal-rr${muted ? ' muted' : ''}">${right}</span></div>`;
@@ -158,13 +157,10 @@ function _detailHTML(layers, sel) {
     ...[[layers.hol, 'No sweeping', '<s class="cal-key cal-key-hol" aria-hidden="true">1</s>'], [layers.savedHolDay, 'No daytime sweeping', '']]
       .filter(([m]) => m.has(sel)).map(([m, what, mark]) => row(mark, what, esc(m.get(sel)), true)),
   ];
-  if (!rows.length && layers.ptr.has(sel)) {
-    rows.push(row('<i class="cal-key cal-key-bar" aria-hidden="true"></i>', 'This street', esc(layers.ptr.get(sel)), true));
-  }
   const empty = lines.length ? ''
     : cars.length || homes.length ? ''
     : `<div class="cal-empty"><button class="btn btn-sm btn-tinted" data-add="car">${icon('car')} Add car</button></div>`;
-  return `<div class="cal-hero"><b class="cal-verdict">${esc(_dayLabel(_keyDay(sel)))}</b></div>`
+  return `<span class="sr-only">${esc(_dayLabel(_keyDay(sel)))}</span>`
        + (rows.length ? `<div class="cal-rows">${rows.join('')}</div>` : '') + empty;
 }
 
@@ -341,7 +337,8 @@ function renderTargetInfo(f, live = false) {
   // and the week rows on screen stay on their dates as the window moves.
   if (_calRange0 && _cal.today != null && _cal.today !== todayK) {
     if (_cal.sel === _cal.today) _cal.sel = todayK;
-    if (_cal.anchor != null) _cal.anchor = Math.max(0, _cal.anchor + _dayIdx(range, _calRange0.start) / 7);
+    // Whole rows: a new week start (the region's, once known) moves the window by a day.
+    if (_cal.anchor != null) _cal.anchor = Math.max(0, Math.round(_cal.anchor + _dayIdx(range, _calRange0.start) / 7));
   }
   _cal.today = todayK;
   _calRange0 = range;

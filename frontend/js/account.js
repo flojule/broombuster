@@ -37,7 +37,7 @@ async function loadAccount() {
       _joinToken = null;
     }
     // The session ended on its own (30 days unused): say so; cars stay on this device only.
-    if (!account && accountEnabled && _read('bb_signed_in')) showToast('Signed out. Sign in again to sync your cars.', true, { sticky: true });
+    if (!account && accountEnabled && _read('bb_signed_in')) showToast('Signed out', true, { sticky: true });
     _store('bb_signed_in', account ? '1' : null);
     if (!account) { _setBase(null); return; }
     if (!map) loadPrefs();  // before startup: this device's copy (answered late: the live lists)
@@ -176,7 +176,7 @@ async function _pullPrefs() {
     account = null;
     _store('bb_signed_in', null);
     _setBase(null);
-    showToast('Signed out. Sign in again to sync your cars.', true, { sticky: true });
+    showToast('Signed out', true, { sticky: true });
     renderAccountSection();
     return false;
   }
@@ -354,9 +354,9 @@ function _calendarItems() {
     const a = Object.assign(document.createElement('a'), {
       className: 'menu-item', href: _calendarUrl.webcal, textContent: 'Subscribe in Calendar' });
     items.push(a, ..._copyItems('Copy link', _calendarUrl),
-      _note('Shown once. Anyone with the link sees your cars’ days.'));
+      _note('Shown once'));
   } else {
-    items.push(_menuItem(calendarOn ? 'New calendar link' : 'Add sweeping and trash days to your calendar',
+    items.push(_menuItem(calendarOn ? 'New calendar link' : 'Add to calendar',
                          _makeCalendarLink));
   }
   if (calendarOn) {
@@ -406,7 +406,7 @@ function renderAccountSection() {
 }
 // Removes every car and home saved on this device (asked first).
 function _clearSavedItem() {
-  const el = _menuItem('Remove saved cars and homes', async () => {
+  const el = _menuItem('Remove all saved', async () => {
     if (!await askConfirm('Remove all saved cars and homes?', 'They are removed from this device.', 'Remove')) return;
     clearSelection();
     _setBase(null);  // a later sign-in takes the account's lists, never "all removed here"

@@ -251,7 +251,6 @@ def run_one(pw, browsers, base, out, platform, theme, view, axe):
     ctx = browsers[engine].new_context(**kw)
     seed = (
         f"if (!sessionStorage.s) {{ sessionStorage.s = 1; localStorage.setItem('bb_prefs', {json.dumps(json.dumps(PREFS))});"
-        f" localStorage.setItem('bb_tab', 'calendar'); localStorage.setItem('bb_detent', 'small');"
         f" localStorage.setItem('bb_theme', '{theme}'); }}"
     )
     ctx.add_init_script(seed + (STANDALONE if standalone else ""))

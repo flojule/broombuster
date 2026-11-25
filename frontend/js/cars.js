@@ -77,11 +77,10 @@ function moveCar(car, lat, lon) {
 // at: {lat, lon} to start from (a GPS fix, adjusted by hand before OK); else a new one
 // starts where you are, when the app knows (people add a car once they've parked).
 function startPlacing(editId = null, kind = 'car', at = null) {
-  closeNameBox();
   const p = placing = { kind, editId };
   // The street under the target follows as the map moves (js/signs.js _placeBannerStreet).
   placeBannerText.innerHTML = icon(editId ? 'pin' : kind)
-    + `<span><span class="sr-only">${editId ? 'Set location of' : 'Place'} ${kind}: </span><span class="pb-street">Pan to the spot</span></span>`;
+    + `<span><span class="sr-only">${editId ? 'Set location of' : 'Place'} ${kind}: </span><span class="pb-street">Pan to spot</span></span>`;
   if (!isDesktop()) setCompact(true);
   document.body.classList.add('placing');
   placeBanner.classList.add('active');
@@ -128,7 +127,7 @@ function confirmPlacementAtCenter() {
   if (kind === 'home') { if (editId) moveHome(editId, lat, lng); else addHome(lat, lng); return; }
   const car = editId && cars.find(c => c.id === editId);
   if (car) { moveCar(car, lat, lng); openItem(car.id); }
-  else openNameBox(lat, lng);
+  else addCar(lat, lng);  // a default name: renamed on its page
 }
 
 btnConfirmPlace.addEventListener('click', confirmPlacementAtCenter);
@@ -217,76 +216,9 @@ function openCtxMenu(lngLat, x, y) {
   openMenu(ctxMenu, null, { x, y });
 }
 
-ctxAddCar.addEventListener('click', () => { closeMenu(); openNameBox(pendingLat, pendingLon); });
-ctxAddHome.addEventListener('click', () => { closeMenu(); addHome(pendingLat, pendingLon); });
-
-// ── Name box (arrow popup at the pending location) ─────────────────────────────
-// Anchored MapLibre popup whose tip points at the spot the car will sit. Drops a
-// temp pin under the tip.
-let _nameReturn = null;  // what had focus before the name box (it gets it back)
-function openNameBox(lat, lon) {
-  if (!map) return;
-  closeNameBox();
-  _nameReturn = document.activeElement;
-  pendingLat = lat; pendingLon = lon;
-  _tempPin = { lat, lon }; updateTempPin();
-  document.body.classList.add('naming');  // the street sign would cover the box
-
-  const row = document.createElement('div');
-  row.className = 'np-row';
-  const input = document.createElement('input');
-  input.type = 'text'; input.className = 'field';
-  input.placeholder = 'Car name'; input.maxLength = CAR_NAME_MAX;
-  input.setAttribute('aria-label', 'Car name');
-  input.value = defaultCarName();
-  const save = document.createElement('button');
-  save.className = 'btn np-save'; save.title = 'Save'; save.setAttribute('aria-label', 'Save');
-  save.innerHTML = icon('check');
-  const close = document.createElement('button');
-  close.className = 'round-btn';
-  close.title = 'Close (Esc)'; close.setAttribute('aria-label', 'Close');
-  close.innerHTML = icon('close');
-  row.append(input, save, close);
-
-  save.addEventListener('click', savePendingCar);
-  close.addEventListener('click', () => closeNameBox());
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  { e.preventDefault(); savePendingCar(); }
-    if (e.key === 'Escape') { e.preventDefault(); closeNameBox(); }
-  });
-
-  _nameInput = input;
-  _namePopup = new maplibregl.Popup({
-    closeButton: false, closeOnClick: false, anchor: 'bottom', offset: 22,
-    className: 'name-popup',
-  }).setLngLat([lon, lat]).setDOMContent(row).addTo(map);
-  _namePopup.on('close', () => { _namePopup = null; _nameInput = null; document.body.classList.remove('naming'); });
-  setTimeout(() => { input.focus(); input.select(); }, 30);
-  syncHistory();
-}
-
-// Close the name box and drop its pending spot and temp pin.
-function closeNameBox(refocus = true) {
-  const had = !!_namePopup;
-  _namePopup?.remove();
-  _namePopup = null; _nameInput = null;
-  document.body.classList.remove('naming');
-  _tempPin = null; updateTempPin();
-  pendingLat = pendingLon = null;
-  if (!had) return;
-  // Focus back where it was (gone or hidden: the map), never lost to the page.
-  const back = _nameReturn?.isConnected && _nameReturn.offsetParent ? _nameReturn : map?.getCanvas();
-  _nameReturn = null;
-  if (refocus && document.activeElement === document.body) back?.focus();
-  syncHistory();
-}
-
-function savePendingCar() {
-  if (pendingLat === null) return;
-  const name = _nameInput?.value.trim(), lat = pendingLat, lon = pendingLon;
-  closeNameBox(false);  // the car's page takes focus
-  addCar(lat, lon, name);
-}
+// Both go through placement from the spot pressed: adjusted, then Set here (F8).
+ctxAddCar.addEventListener('click', () => { closeMenu(); startPlacing(null, 'car', { lat: pendingLat, lon: pendingLon }); });
+ctxAddHome.addEventListener('click', () => { closeMenu(); startPlacing(null, 'home', { lat: pendingLat, lon: pendingLon }); });
 
 // A new car at (lat, lon), named (else "Car", "Car 1", …: it can be renamed on its page);
 // its page opens with the schedule as it loads.
@@ -385,12 +317,12 @@ function _otherSideUnknown(car) {
   return [sched.schedule_even, sched.schedule_odd].some(r => BroomUrgency.entries(r).some(e => BroomUrgency.unknownReason(e.code, now)));
 }
 
-// Verdict: icon + words (never color alone); the row shows the short form, the item's
-// page the long one (CSS). `words`: {short, long}, else the verdict's name.
+// Verdict: icon + words (never color alone): the short form shown, the long one read by
+// screen readers (U1). `words`: {short, long}, else the verdict's name.
 function _statusHTML(u, words) {
   const ic = URGENCY[u].icon, short = words?.short || URGENCY[u].short, long = words?.long || short;
   return `<span class="ce-status" style="color:${URGENCY[u].color}">${ic ? icon(ic) + ' ' : ''}`
-       + `<span class="st-short">${esc(short)}</span><span class="st-long">${esc(long)}</span></span>`;
+       + `<span aria-hidden="true">${esc(short)}</span><span class="sr-only">${esc(long)}</span></span>`;
 }
 
 // When a cached schedule was fetched, on the region clock: "2:10PM", "Nov 14 2:10PM".
@@ -589,7 +521,7 @@ function dataAgeHTML(sched) {
   const ym = sched && regions[sched.region]?.updated?.[sched.city];
   const m = /^(\d{4})-(\d{2})/.exec(ym || ''), now = schedNow(sched);
   if (!m || (now.y - +m[1]) * 12 + now.m - +m[2] < 12) return '';
-  return `<p class="note">City data from ${BroomUrgency.dayLabel({ y: +m[1], m: +m[2], d: 1 }).split(' ')[1]} ${m[1]}. Follow posted signs.</p>`;
+  return `<p class="note">Data: ${BroomUrgency.dayLabel({ y: +m[1], m: +m[2], d: 1 }).split(' ')[1]} ${m[1]}</p>`;
 }
 
 // A file for the calendar app with the car's next sweep and its reminders (the evening

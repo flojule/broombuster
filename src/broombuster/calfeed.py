@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from broombuster import holidays, normalize, schedule, trash
 from broombuster.cities import REGIONS, city_for_point, region_for_point
 
-DAYS = 60
+DAYS = 365
 TRASH_LOOKUPS = 3  # uncached ReCollect lookups per feed; other homes use cached answers
 PRODID = "-//BroomBuster//Sweeping calendar//EN"
 

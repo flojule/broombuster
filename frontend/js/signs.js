@@ -325,7 +325,7 @@ function _placeBannerStreet(f) {
   const el = placeBannerText.querySelector('.pb-street');
   if (!el) return;
   const street = f?.properties?.street;
-  const text = map && map.getZoom() < PLACE_ZOOM ? 'Zoom in to the spot'
+  const text = map && map.getZoom() < PLACE_ZOOM ? 'Zoom in'
     : f ? (street && street !== 'N/A' ? `On ${street}` : 'On a zone') : 'No street here';
   if (el.textContent !== text) el.textContent = text;
 }

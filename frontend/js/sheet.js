@@ -9,10 +9,10 @@
 const tabbar  = document.getElementById('tabbar');
 const grabber = document.getElementById('sheet-grabber');
 const TABS = ['calendar', 'saved', 'settings'];
-let _tab = _stored('bb_tab', [...TABS, 'me'], 'calendar').replace(/^me$/, 'settings');  // Settings was "Me"
-// The detents, smallest first; the sheet remembers where it was left.
+// The app opens on the calendar, small. The detents, smallest first.
+let _tab = 'calendar';
 const DETENTS = ['hidden', 'small', 'medium'];
-let _detent = _stored('bb_detent', DETENTS, 'small');
+let _detent = 'small';
 let _compact = false;  // placing a car or home: the sheet is small whatever the tab
 
 // Sheet height (px) of each detent on this screen: hidden the tab bar, small one week of
@@ -40,7 +40,7 @@ const _shown = () => _compact ? 'small' : _detent;
 
 function setDetent(d) {
   if (!DETENTS.includes(d)) return;
-  if (d !== _detent) { _detent = d; _store('bb_detent', d); }
+  _detent = d;
   applySheet();
 }
 const lowerSheet = () => setDetent('hidden');
@@ -195,21 +195,12 @@ for (const body of document.querySelectorAll('.tab-body')) {
 function showTab(name) {
   if (name !== 'saved' && typeof clearSelection === 'function') clearSelection();
   _tab = name;
-  _store('bb_tab', name);
   for (const b of tabbar.querySelectorAll('[role="tab"]')) {
     const on = b.dataset.tab === name;
     b.setAttribute('aria-selected', String(on));
     b.tabIndex = on ? 0 : -1;
   }
-  // The selected pill slides to it, stretching on the way (styles.css pill-go).
-  const from = tabbar.style.getPropertyValue('--i'), to = TABS.indexOf(name);
-  tabbar.style.setProperty('--i', to);
-  if (from !== '' && Number(from) !== to) {
-    tabbar.style.setProperty('--from', from);
-    tabbar.classList.remove('pill-go');
-    void tabbar.offsetWidth;  // restarts the animation
-    tabbar.classList.add('pill-go');
-  }
+  tabbar.style.setProperty('--i', TABS.indexOf(name));  // the selected pill slides to it (styles.css)
   for (const t of TABS) document.getElementById('tab-' + t).hidden = t !== name;
   if (name === 'calendar' && typeof calShown === 'function') calShown();
   applySheet();
@@ -223,7 +214,6 @@ tabbar.addEventListener('click', e => {
   else if (b.dataset.tab === _tab && _detent === 'small') setDetent('medium');
   showTab(b.dataset.tab);
 });
-tabbar.addEventListener('animationend', () => tabbar.classList.remove('pill-go'));
 // Arrow keys move between tabs (the ARIA tabs pattern).
 tabbar.addEventListener('keydown', e => {
   const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
