@@ -604,9 +604,10 @@ def _push_keys():
 
 
 def test_push_subscription_reminders_and_expiry(env, client, monkeypatch):
-    from broombuster import calfeed, net
+    from broombuster import calfeed, net, trash
     from broombuster.api import push
 
+    monkeypatch.setattr(trash, "pickups", lambda *a, **kw: {})  # no ReCollect lookups
     sent, status = [], [201]
     monkeypatch.setattr(
         net.session,
@@ -636,6 +637,15 @@ def test_push_subscription_reminders_and_expiry(env, client, monkeypatch):
     )
     tz = datetime.timezone(datetime.timedelta(hours=-8))
     now = datetime.datetime(2026, 12, 2, 7, 5, tzinfo=tz)
+    me = client.get("/api/me").json()
+    assert me["notify"] == {"car_evening": 20, "car_before": 60, "trash_evening": 19}
+    off = {**me["notify"], "car_before": None}
+    assert client.put("/api/me/notify", json=off, headers=ORIGIN).status_code == 204
+    assert client.put("/api/me/notify", json={"car_before": 45}, headers=ORIGIN).status_code == 422
+    push.run_once(lambda lat, lon: spot, now)
+    assert len(sent) == 1  # this person turned the hour-before reminder off
+    client.put("/api/me/notify", json=me["notify"], headers=ORIGIN)
+    assert client.get("/api/me").json()["notify"] == me["notify"]
     push.run_once(lambda lat, lon: spot, now)
     push.run_once(lambda lat, lon: spot, now)  # sent once only
     assert len(sent) == 2

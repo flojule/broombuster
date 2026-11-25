@@ -29,6 +29,7 @@ async function loadAccount() {
     accountEnabled = !!me.enabled;
     account = me.user;
     family = me.family || [];
+    _notify = me.notify || null;
     calendarOn = !!me.calendar;
     if (account && _joinToken) {  // one account at a time
       showToast('Sign out first', true);
@@ -366,9 +367,10 @@ function _calendarItems() {
   return items;
 }
 
-// ── Notifications (Web Push, api/push.py): the calendar link's reminders (the evening
-// before and an hour before each sweep of the account's cars) on this device. iPhone:
-// the home-screen app only (Safari has no PushManager), asked from a tap. ─────────────
+// ── Notifications (Web Push, api/push.py): reminders of the account's cars' sweeps and
+// its homes' trash days on this device, at the times this person picks (auth.Notify: the
+// same on all their devices). iPhone: the home-screen app only (Safari has no PushManager),
+// asked from a tap. ──────────────────────────────────────────────────────────────────
 const _pushOk = 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
 let _pushOn = false;  // this device is subscribed
 const _pushSub = async () => (await navigator.serviceWorker.ready).pushManager.getSubscription();
@@ -405,10 +407,34 @@ async function _pushOff() {
   }
   _pushOn = false;
 }
+let _notify = null;  // {car_evening, car_before, trash_evening} (auth.me notify); null: off
+const _EVENINGS = [[null, 'Off'], ...[18, 19, 20, 21, 22].map(h => [h, `${h - 12} PM`])];
+const _BEFORE = [[null, 'Off'], [30, '30 min'], [60, '1 hour'], [120, '2 hours']];
+// A settings row: its label and a native picker of [value, text] options.
+function _pick(label, key, options) {
+  const row = Object.assign(document.createElement('label'), { className: 'menu-item pick' });
+  const sel = document.createElement('select');
+  for (const [value, text] of options) sel.append(new Option(text, value ?? ''));
+  sel.value = _notify[key] ?? '';
+  sel.addEventListener('change', async () => {
+    const next = { ..._notify, [key]: sel.value === '' ? null : Number(sel.value) };
+    const res = await fetch('/api/me/notify', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next) })
+      .catch(() => null);
+    if (res?.ok) _notify = next;
+    else { sel.value = _notify[key] ?? ''; showToast('Couldn’t save', true); }
+  });
+  row.append(Object.assign(document.createElement('span'), { textContent: label }), sel);
+  return row;
+}
 function _notifyItems() {
   if (Notification.permission === 'denied') return [_note('Blocked in Settings')];
   if (!_pushOn) return [_menuItem('Turn on notifications', _pushTurnOn)];
-  return [_menuItem('Turn off notifications', async () => { await _pushOff(); renderAccountSection(); })];
+  const picks = _notify ? [_pick('Car, evening before', 'car_evening', _EVENINGS),
+    _pick('Car, before sweeping', 'car_before', _BEFORE),
+    _pick('Trash, evening before', 'trash_evening', _EVENINGS)] : [];
+  return [...picks,
+    _menuItem('Turn off notifications', async () => { await _pushOff(); renderAccountSection(); })];
 }
 
 // Signed out. A join link's token travels with the passkey sign-up that uses it.

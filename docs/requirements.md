@@ -60,7 +60,8 @@ D demonstration, M measurement. Priority: Must unless marked Should.
 | F20 | For a saved home, the app shall show its trash pickup days where the city publishes them. | D |
 | F21 | The user shall add a car's next sweep to their phone's calendar. | D |
 | F22 | A signed-in user shall share their saved cars and homes with people they invite. (Should) | D |
-| F23 | A signed-in user shall get a notification on their phone the evening before and an hour before each sweep of the account's cars (iPhone: iOS 16.4+, home-screen app). (Should) | T |
+| F23 | A signed-in user shall get a notification on their phone before each sweep of the account's cars and each trash pickup at its homes (iPhone: iOS 16.4+, home-screen app). (Should) | T |
+| F24 | Each signed-in user shall pick when notifications come: for cars, the evening before (6–10 PM or off) and before the sweep (30 min, 1 h, 2 h or off; all-day sweeps: 6 AM); for homes, the evening before (6–10 PM or off). Defaults: 8 PM, 1 h, 7 PM. (Should) | T |
 
 ## 4. UI/UX rules
 

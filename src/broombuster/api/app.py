@@ -379,14 +379,16 @@ def push_key():
 
 @api.post("/push", status_code=204)
 def push_subscribe(sub: PushSubscription, user=Depends(auth.signed_in_mutation)):
-    """This device gets the account's sweep reminders; a first notice confirms it."""
+    """This device gets its person's reminders (auth.Notify); a first notice confirms it."""
     if not push.allowed_endpoint(sub.endpoint):
         raise HTTPException(422, "Unknown push service.")
     if not push.valid_keys(sub.keys.p256dh, sub.keys.auth):
         raise HTTPException(422, "Bad subscription keys.")
     auth.save_push_sub(user["id"], sub.endpoint, sub.keys.p256dh, sub.keys.auth)
     row = {"endpoint": sub.endpoint, "p256dh": sub.keys.p256dh, "auth": sub.keys.auth}
-    push.deliver(row, {"title": "Notifications on", "body": "Reminders before sweeping"}, 600)
+    push.deliver(
+        row, {"title": "Notifications on", "body": "Reminders before sweeping and trash days"}, 600
+    )
 
 
 @api.delete("/push", status_code=204)

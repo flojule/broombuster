@@ -3,8 +3,8 @@
 Sign-in is a passkey (WebAuthn): no password, no email. It needs BB_BASE_URL (e.g.
 https://broombuster.com); without it sign-in is off.
 
-An account (its cars, homes and calendar link) has one or more members, each
-a person with their own passkeys and notification subscriptions (api/push.py). A person
+An account (its cars, homes and calendar link) has one or more members, each a person
+with their own passkeys, notification subscriptions and reminder times (api/push.py). A person
 joins an account through a single-use invite link. Accounts, members, sessions and prefs
 live in the SQLite file BB_DB (default data/users.sqlite).
 """
@@ -18,6 +18,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
@@ -183,6 +184,8 @@ def init_db() -> None:
         if "last_seen" not in {r["name"] for r in db.execute("PRAGMA table_info(members)")}:
             db.execute("ALTER TABLE members ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0")
             db.execute("UPDATE members SET last_seen = ?", (int(time.time()),))  # seen: now
+        if "notify" not in {r["name"] for r in db.execute("PRAGMA table_info(members)")}:
+            db.execute("ALTER TABLE members ADD COLUMN notify TEXT")  # NULL: Notify()
 
 
 def _hash(token: str) -> str:
@@ -615,6 +618,22 @@ class Prefs(BaseModel):
     rev: int | None = Field(None, ge=0)
 
 
+class Notify(BaseModel):
+    """When a person's devices get reminders (api/push.py); None: never."""
+
+    # The evening before a sweep, at this hour (local); a car's sweep.
+    car_evening: Literal[18, 19, 20, 21, 22] | None = 20
+    # Minutes before a timed sweep starts (an all-day sweep: 6AM that day).
+    car_before: Literal[30, 60, 120] | None = 60
+    # The evening before a home's trash pickup, at this hour (local).
+    trash_evening: Literal[18, 19, 20, 21, 22] | None = 19
+
+
+def notify_of(text: str | None) -> Notify:
+    """A member's stored notify column as settings."""
+    return Notify.model_validate_json(text) if text else Notify()
+
+
 def _merge_cars(incoming: list[dict], stored: list[dict]) -> list[dict]:
     """Incoming cars, each keeping the stored position unless the incoming one is newer."""
     have = {c["id"]: c for c in stored}
@@ -668,7 +687,17 @@ def me(request: Request, response: Response):
         "prefs": json.loads(account["prefs"]) if account and account["prefs"] else None,
         "prefs_rev": account["prefs_rev"] if account else 0,
         "calendar": cal is not None,
+        "notify": notify_of(user["notify"]).model_dump(),
     }
+
+
+@router.put("/api/me/notify", status_code=204)
+def put_notify(notify: Notify, user: sqlite3.Row = Depends(signed_in_mutation)):
+    """When this person's devices get reminders."""
+    with _db() as db, db:
+        db.execute(
+            "UPDATE members SET notify = ? WHERE id = ?", (notify.model_dump_json(), user["id"])
+        )
 
 
 @router.put("/api/me/prefs")
@@ -781,13 +810,14 @@ def delete_push_sub(endpoint: str, member_id: str | None = None) -> None:
 
 
 def push_targets() -> list[tuple[str, dict, list[sqlite3.Row]]]:
-    """(account_id, prefs, subscriptions of all its members) for each account with any."""
+    """(account_id, prefs, subscriptions of all its members) for each account with any;
+    a subscription's `notify` is its member's."""
     if _base() is None:
         return []
     with _db() as db:
         rows = db.execute(
-            "SELECT p.*, m.account_id FROM push_subs p JOIN members m ON m.id = p.member_id"
-            " ORDER BY m.account_id"
+            "SELECT p.*, m.account_id, m.notify FROM push_subs p"
+            " JOIN members m ON m.id = p.member_id ORDER BY m.account_id"
         ).fetchall()
         by_account: dict[str, list[sqlite3.Row]] = {}
         for r in rows:

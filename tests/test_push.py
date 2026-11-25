@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from broombuster import calfeed
-from broombuster.api import push
+from broombuster.api import auth, push
 
 LA = ZoneInfo("America/Los_Angeles")
 
@@ -116,8 +116,8 @@ SPOT = calfeed.CarSpot(
 PREFS = {"cars": [{"id": "c1", "name": "Civic", "lat": 37.77, "lon": -122.27}]}
 
 
-def _due(since, now):
-    return push.due(PREFS, lambda lat, lon: SPOT, since, now)
+def _due(since, now, **picks):
+    return push.due(PREFS, lambda lat, lon: SPOT, since, now, auth.Notify(**picks))
 
 
 def _at(day, hh, mm=0):
@@ -137,8 +137,40 @@ def test_reminders_the_evening_before_and_an_hour_before():
     ((key2, msg2, _),) = _due(_at(2, 6, 40), _at(2, 7, 1))
     assert msg2["body"].startswith("Today 8AM–10AM") and key2 != key and msg2["tag"] == msg["tag"]
     assert _due(_at(2, 7, 1), _at(2, 7, 30)) == []  # already in the window before
-    # Thu Dec 3, all day on the odd side: 7PM Wednesday, 6AM Thursday.
-    ((_, eve, _),) = _due(_at(2, 18, 59), _at(2, 19))
+    # Thu Dec 3, all day on the odd side: 8PM Wednesday, 6AM Thursday.
+    ((_, eve, _),) = _due(_at(2, 19, 59), _at(2, 20))
     assert eve["body"] == "Tomorrow · 1 Oak St, Alameda, South side"
     ((_, morning, _),) = _due(_at(3, 5, 59), _at(3, 6))
     assert morning["body"].startswith("Today · ")
+
+
+def test_reminders_at_the_picked_times():
+    picks = {"car_evening": 18, "car_before": 30}
+    ((key, msg, _),) = _due(_at(1, 17, 59), _at(1, 18), **picks)  # 6PM the evening before
+    assert key == msg["tag"] + "-50400"
+    ((key, _, _),) = _due(_at(2, 7, 29), _at(2, 7, 30), **picks)  # 30 min before 8AM
+    assert key.endswith("-1800")
+    assert _due(_at(1, 19, 50), _at(1, 20, 5), **picks) == []  # not at the default 8PM
+    off = {"car_evening": None, "car_before": None}
+    assert _due(_at(1, 0), _at(3, 23), **off) == []
+
+
+def test_trash_reminder_the_evening_before(monkeypatch):
+    start = datetime.datetime(2026, 12, 2, tzinfo=LA)
+    pk = calfeed.Pickup(
+        "trash-h1-20261202@broombuster",
+        "Home",
+        start.date(),
+        start,
+        ["Garbage", "Recycling"],
+        "1 Oak St, Alameda",
+    )
+    monkeypatch.setattr(calfeed, "pickups", lambda prefs, now: iter([pk]))
+    ((key, msg, ttl),) = _due(_at(1, 18, 59), _at(1, 19))
+    assert msg == {
+        "title": "Take out the trash",
+        "body": "Tomorrow · Garbage, Recycling · 1 Oak St, Alameda",
+        "tag": pk.uid,
+    }
+    assert key == pk.uid + "-18000" and ttl == 17 * 3600
+    assert _due(_at(1, 18, 59), _at(1, 19), trash_evening=None) == []
