@@ -14,7 +14,7 @@
   var NO_SWEEP_CODES = [
     'N', 'NS', 'O', 'N-S', 'N-E', 'N-O',
     'NS-UC', 'NS-H', 'NS-O', 'NS-A',
-    'MS', 'DM', 'MISSING',
+    'MS', 'DM',
   ];
   var NO_SWEEP = {};
   NO_SWEEP_CODES.forEach(function (c) { NO_SWEEP[c] = 1; });
@@ -27,6 +27,8 @@
 
   // Same set as analysis.UNDATED_CODES: swept on a day only the posted sign gives.
   var UNDATED = { POSTED: 1 };
+  // Swept, nobody ticketed (scripts/citykit.COURTESY): never urgent, not unknown.
+  var COURTESY = 'NT';
 
   // ── Days (calendar arithmetic only; no JS Date tz pitfalls) ──────────────────
   // Days are {y, m, d}. Python weekday(): Mon=0..Sun=6; JS getUTCDay(): Sun=0.
@@ -297,9 +299,12 @@
   // the next one's start it is the off-season (seasonOver), not unknown.
   function unknownReason(code, now) {
     if (typeof code !== 'string') return '';
-    if (UNDATED[code.trim().toUpperCase()] === 1) return 'sign';
+    var c = code.trim().toUpperCase();
+    if (UNDATED[c] === 1) return 'sign';
     var r = codeRule(code);
-    if (!r || !r.dates || !r.dates.length) return '';
+    // A code the grammar can't read is unknown, never clear.
+    if (!r) return c && !NO_SWEEP[c] && c !== COURTESY ? 'sign' : '';
+    if (!r.dates || !r.dates.length) return '';
     // The off-season is the longest gap across a new year (wrap-around included): seasons run
     // within a calendar year (Apr-Nov) or across one (Nov-Mar); the season starts after it.
     var last = r.dates[r.dates.length - 1], first = r.dates[0], gap = diffDays(last, _nextOn(last, first));
