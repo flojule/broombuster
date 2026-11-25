@@ -23,6 +23,8 @@ equals the source.
 
 ## Sources
 
+Street View validated ([validation](../docs/validation.md)): Oakland, San Francisco, Berkeley, Alameda. Every other region: unvalidated.
+
 | City | Schedule | Blocks and sides | Enforced where |
 |---|---|---|---|
 | Oakland | city sweeping layer (ArcGIS; behind the city's map) | same layer | codes other than no-sweep; `MISSING` -> `POSTED` |
