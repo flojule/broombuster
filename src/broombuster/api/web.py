@@ -29,7 +29,7 @@ from broombuster.version import app_version
 log = logging.getLogger("broombuster.http")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-_RECORD_FIELDS = ("rid", "method", "path", "status", "ms", "ip", "reason")
+_RECORD_FIELDS = ("rid", "method", "path", "status", "ms", "reason")
 
 
 class JsonFormatter(logging.Formatter):
@@ -560,9 +560,7 @@ class RequestMiddleware:
             else:
                 await self.app(scope, receive, send_with_headers)
         except Exception:
-            log.exception(
-                "unhandled error", extra={"rid": rid, "method": method, "path": shown, "ip": ip}
-            )
+            log.exception("unhandled error", extra={"rid": rid, "method": method, "path": shown})
             if status:  # the response has begun: nothing else can be sent
                 raise
             error = JSONResponse({"detail": "Internal error."}, status_code=500)
@@ -573,7 +571,6 @@ class RequestMiddleware:
             "path": shown,
             "status": status[0] if status else None,
             "ms": round((time.perf_counter() - t0) * 1000),
-            "ip": ip,
         }
         if reason := getattr(request.state, "log_reason", None):  # why a request was refused
             extra["reason"] = reason

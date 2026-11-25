@@ -32,7 +32,9 @@ def _get(path: str, **params):
 def parse_pickups(events, today: datetime.date) -> dict[str, list[str]]:
     """ReCollect events -> {stream label: sorted ISO dates from today on}."""
     out: dict[str, set[str]] = {}
-    for e in events or []:
+    for e in events if isinstance(events, list) else []:
+        if not isinstance(e, dict):
+            continue
         try:
             day = datetime.date.fromisoformat(e.get("day"))
         except (TypeError, ValueError):
@@ -40,6 +42,8 @@ def parse_pickups(events, today: datetime.date) -> dict[str, list[str]]:
         if day < today:
             continue
         for flag in e.get("flags") or []:
+            if not isinstance(flag, dict):
+                continue
             label = flag.get("subject") or flag.get("name")
             if flag.get("event_type") == "pickup" and label:
                 out.setdefault(str(label), set()).add(day.isoformat())
@@ -77,7 +81,8 @@ def pickups(
 
     def place():
         hits = _get(f"areas/{area}/services/{service}/address-suggest", q=address)
-        return hits[0].get("place_id") if isinstance(hits, list) and hits else None
+        ok = isinstance(hits, list) and hits and isinstance(hits[0], dict)
+        return hits[0].get("place_id") if ok else None
 
     place_key = ("place", area, " ".join(address.lower().split()))
     try:

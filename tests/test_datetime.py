@@ -279,7 +279,9 @@ URGENCY_CASES = [
     ("F1", "1AM-3AM", now(datetime.date(2026, 12, 31), 20), "today"),  # into next year
     ("FE", "8AM-10AM", now(datetime.date(2026, 12, 31), 12), "tomorrow"),  # year rollover
     ("F1", "8AM-10AM", now(datetime.date(2026, 12, 31), 12), "tomorrow"),
-    ("TU5", "8AM-10AM", now(WED), "safe"),  # not a code
+    ("TU5", "8AM-10AM", now(WED), "check"),  # not a code: unknown, never clear (D3)
+    ("NT", "8AM-10AM", now(WED), "safe"),  # courtesy sweep, no tickets
+    ("NS", "", now(WED), "safe"),  # no sweeping
     ("T5", "8AM-10AM", now(datetime.date(2028, 2, 28), 12), "tomorrow"),  # Feb 29, 5th Tue
     ("DATES:2026-03-01", "", now(datetime.date(2026, 2, 28), 12), "tomorrow"),
 ]

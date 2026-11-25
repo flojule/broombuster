@@ -16,11 +16,13 @@ _EVENTS = re.compile(
 
 def _nws(lat: float, lon: float):
     data = feeds.get_json(_NWS, point=f"{lat:.3f},{lon:.3f}")
-    if data is None:
+    if not isinstance(data, dict):
         return None
     out = []
     for f in data.get("features") or []:
-        p = f.get("properties") or {}
+        p = (f.get("properties") if isinstance(f, dict) else None) or {}
+        if not isinstance(p, dict):
+            continue
         event = p.get("event") or ""
         if not _EVENTS.search(event):
             continue

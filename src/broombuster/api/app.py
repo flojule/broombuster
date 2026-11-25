@@ -1,5 +1,4 @@
 import functools
-import ipaddress
 import json
 import os
 import re
@@ -25,7 +24,6 @@ from broombuster import (
     feeds,
     gps,
     holidays,
-    iplocate,
     layers,
     resolve,
     trash,
@@ -144,23 +142,12 @@ async def cities(request: Request):
 
 @api.get("/locate")
 def locate(request: Request):
-    """Approximate visitor position from the IP, and the nearest area.
-
-    Uses Cloudflare's visitor-location headers when enabled, else a lookup of the
-    client IP. Done server-side so ad blockers and CORS can't break it.
-    """
+    """Approximate visitor position from Cloudflare's visitor-location headers (the IP
+    never leaves Cloudflare), and the nearest area; nulls without them."""
     h = request.headers
-    pos = None
     try:
         pos = (float(h["cf-iplatitude"]), float(h["cf-iplongitude"]))
     except (KeyError, ValueError):
-        try:
-            ip = ipaddress.ip_address(web.client_ip(request))
-        except ValueError:
-            ip = None
-        if ip is not None and ip.is_global:
-            pos = iplocate.lookup(str(ip))
-    if pos is None:
         return {"lat": None, "lon": None, "region": None}
     return {"lat": pos[0], "lon": pos[1], "region": region_for_point(*pos)}
 
