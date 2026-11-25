@@ -91,9 +91,12 @@ let _openMenu = null;  // { menu, anchor (null: opened at a point) }
 const _clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
 // Under `anchor` (or above it when the sheet sits low), or at the point `at` {x, y};
 // kept inside the screen. It grows out of the button or the point (styles.css .pop-menu).
+const _menuCloseT = new WeakMap();  // a closing menu's timer, until it hides
 function openMenu(menu, anchor, at = null) {
   closeMenu();
   _openMenu = { menu, anchor };
+  clearTimeout(_menuCloseT.get(menu));
+  menu.classList.remove('closing');
   menu.hidden = false;
   anchor?.setAttribute('aria-expanded', 'true');
   sheet.inert = true;
@@ -116,12 +119,14 @@ function openMenu(menu, anchor, at = null) {
   (menu.querySelector('input, button'))?.focus();
   syncHistory();
 }
-// Returns whether a menu was open.
+// Returns whether a menu was open. It is closed at once; it fades out over 120 ms
+// (styles.css .pop-menu.closing), then hides.
 function closeMenu(refocus = false) {
   if (!_openMenu) return false;
   const { menu, anchor } = _openMenu;
   _openMenu = null;
-  menu.hidden = true;
+  menu.classList.add('closing');
+  _menuCloseT.set(menu, setTimeout(() => { menu.hidden = true; menu.classList.remove('closing'); }, 120));
   anchor?.setAttribute('aria-expanded', 'false');
   sheet.inert = false;
   if (refocus) anchor?.focus();
@@ -312,7 +317,7 @@ const btnSearch = document.getElementById('btn-search'), searchBox = document.ge
 const SNAP_M = 60;  // the address's street: within this distance of the geocoded point
 let _searchPin = null;
 menuButton(btnSearch, searchBox);
-btnSearch.addEventListener('click', () => { if (!searchBox.hidden) { searchMsg.textContent = ''; searchBox.q.focus(); } });
+btnSearch.addEventListener('click', () => { if (_openMenu?.menu === searchBox) { searchMsg.textContent = ''; searchBox.q.focus(); } });
 searchBox.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); closeMenu(true); } });
 // A failed search says why under the field, which stays open to fix the address.
 const searchMsg = searchBox.querySelector('.search-msg');

@@ -297,11 +297,7 @@ function _showSigns(html) {
     signsEl.innerHTML = html;
     signsEl.hidden = false;
     signsEl.classList.remove('sc-out');
-    if (appearing) {
-      signsEl.classList.remove('sc-in');
-      void signsEl.offsetWidth;  // restarts the fade-in
-      signsEl.classList.add('sc-in');
-    }
+    if (appearing) restartAnim(signsEl, 'sc-in');
     fitSigns();
     return;
   }
