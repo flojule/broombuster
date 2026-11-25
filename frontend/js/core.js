@@ -32,7 +32,7 @@ const CAR_COLORS = ['#3b82f6','#10b981','#a855f7','#06b6d4','#ec4899','#84cc16',
 const HOME_COLOR = '#15803d';  // styles.css --home in light mode: white glyphs on it
 // A color token's light-mode value (styles.css :root), for what the map paints.
 const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const CAR_NAME_MAX = 32;  // characters in a car name (the name box and Rename)
+const CAR_NAME_MAX = 32;  // characters in a car name (Rename)
 // A car keeps the color it was given (saved with it), so removing one never repaints the others.
 function carColor(car) { return car.color || CAR_COLORS[0]; }
 function nextCarColor() {
@@ -197,7 +197,6 @@ let regions        = {};         // regionKey → {name, center, zoom, tz} from 
 let placing        = null;   // while placing: { kind: 'car' | 'home', editId (null: a new one) }
 let pendingLat     = null, pendingLon = null;
 let carSchedules   = {};
-let _tempPin        = null;   // {lat,lon} while naming a new car
 let _selectedId     = null;   // the one selected car or home (its card is open)
 let _region          = null;   // region key under the map center (null: none nearby)
 const REGION_RADIUS  = 1.5;    // degrees: a region applies this close to its center
@@ -248,9 +247,6 @@ const _carMarkers  = new Map();  // carId → maplibregl.Marker
 let homes          = [];         // [{ id, lat, lon, address }] — saved residences
 let homeSchedules  = {};         // homeId → /check-home response
 const _homeMarkers = new Map();  // homeId → maplibregl.Marker for the home pin
-let _tempPinMarker = null;
-let _namePopup     = null;  // MapLibre popup (arrow box) for naming a new car
-let _nameInput     = null;  // <input> inside the active name popup
 
 const ZONE_LAYERS  = ['zones-fill', 'zones-active', 'zones-band', 'zones-ward', 'zones-casing', 'zones-casing-even',
                       'zones-casing-odd', 'zones-line', 'zones-side-even', 'zones-side-odd', 'zones-check', 'zones-check-even',

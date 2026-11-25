@@ -13,27 +13,20 @@ mapDiv.addEventListener('contextmenu', e => {
     if (!_fromTouch(e)) { map.jumpTo({ center: at }); confirmPlacementAtCenter(); }
     return;
   }
-  if (!_zoomToPlace(at)) openCtxMenu(at, e.clientX, e.clientY);
+  openCtxMenu(at, e.clientX, e.clientY);
 });
-// Zoomed out, a spot is a block or more: the first press zooms in there instead (true).
-function _zoomToPlace(at) {
-  if (map.getZoom() >= PLACE_ZOOM) return false;
-  map.easeTo({ center: at, zoom: Math.max(PLACE_ZOOM + 1, map.getZoom()) });
-  showToast('Zoomed in: press and hold again to add here');
-  return true;
-}
 // Held still for 500 ms with one finger; a pan, a second finger or lifting cancels it.
 let _press = null;  // AbortController of the pending press
 mapDiv.addEventListener('touchstart', e => {
   _touchAt = e.timeStamp;
   _press?.abort();
-  if (e.touches.length !== 1 || !map || placing || _namePopup || e.target.closest('.pin')) return;
+  if (e.touches.length !== 1 || !map || placing || e.target.closest('.pin')) return;
   const { clientX: x0, clientY: y0 } = e.touches[0];
   const ac = _press = new AbortController(), opts = { passive: true, signal: ac.signal };
   const timer = setTimeout(() => {
     ac.abort();
     const rect = mapDiv.getBoundingClientRect(), at = map.unproject([x0 - rect.left, y0 - rect.top]);
-    if (!_zoomToPlace(at)) openCtxMenu(at, x0, y0);
+    openCtxMenu(at, x0, y0);
     // Lifting the finger must not also tap the map (or close the menu it just opened).
     mapDiv.addEventListener('touchend', ev => ev.preventDefault(), { once: true, passive: false });
   }, 500);
@@ -52,7 +45,6 @@ function dismissLayer(lower = true) {
   if (confirmDialog.open) return;  // the dialog cancels itself
   let dismissed = false;
   if (closeMenu(true))                     dismissed = true;
-  if (_namePopup)                          { closeNameBox(); dismissed = true; }
   if (placing)                             { stopPlacing();  dismissed = true; }
   if (dismissed) return;
   if (_selectedId) { clearSelection(); btnAdd.focus(); return; }
@@ -169,7 +161,7 @@ function getGPS(onSuccess, onError) {
   if (!navigator.geolocation) { onError?.('Location isn’t available here.'); return; }
   navigator.geolocation.getCurrentPosition(
     pos => onSuccess(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-    err => onError?.(err.code === err.PERMISSION_DENIED ? 'Location is off for BroomBuster.' : 'Couldn’t find your location.'),
+    err => onError?.(err.code === err.PERMISSION_DENIED ? 'Location off' : 'No location'),
     { enableHighAccuracy: true, timeout: 10000 }
   );
 }

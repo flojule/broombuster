@@ -53,19 +53,6 @@ function updateHomeMarkers() {
   _syncPins(_homeMarkers, homes, 'home', () => 'var(--home)', itemName);  // lighter in dark mode
 }
 
-// Under the name box while a new car is being named: its pin to be, faded.
-function updateTempPin() {
-  _tempPinMarker = placeMarker(_tempPinMarker, _tempPin, () => {
-    const el = document.createElement('div');
-    el.className = 'pin temp';
-    el.setAttribute('role', 'img');
-    el.setAttribute('aria-label', 'New car');
-    el.innerHTML = _pinGlyph('car');
-    el.style.setProperty('--pin', nextCarColor());
-    return el;
-  });
-}
-
 // ── Selection: one car or home at a time ──────────────────────────────────────
 // The selected item has its own page in the Saved tab (as in Find My): its name is
 // the title, the other cards hide, and a back button (‹) leads back to the list. Applied

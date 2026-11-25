@@ -35,12 +35,11 @@ function attachMapListeners() {
   _mapListenersAttached = true;
 
   // A tap closes the open card, like Esc. The action is deferred ~280 ms so a
-  // double-tap-to-zoom can cancel it; a tap while placing or naming is ignored.
+  // double-tap-to-zoom can cancel it; a tap while placing is ignored.
   map.on('click', (e) => {
     // Placement commits via the center target ("Place here") or right-click, not
     // a stray tap — a tap during place mode is ignored so panning can't misfire.
     if (placing) return;
-    if (_namePopup) return;  // name box open: taps don't open windows or close it
     // A tapped marker (a charger, a market) or street comes under the target, so the card
     // and calendar read it (js/layers.js overlayMarkersAtTarget).
     const marker = markerTapped(e.point);

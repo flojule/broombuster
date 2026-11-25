@@ -69,8 +69,7 @@ window.addEventListener('online', () => {
 });
 
 // Once, after the first car or home is saved (the user has seen what the app is for):
-// Chrome and Android offer Install (their install prompt); Safari on iPhone, which has
-// none, gets the steps.
+// Chrome and Android offer Install (their install prompt). Safari has none: no tip (U3).
 let _installPrompt = null;
 // Held for after the first save; once offered, the browser's own prompts are left alone.
 window.addEventListener('beforeinstallprompt', e => { if (_read('bb_install_hint')) return; e.preventDefault(); _installPrompt = e; });
@@ -80,12 +79,8 @@ function offerInstall() {
     _store('bb_install_hint', '1');
     const p = _installPrompt;
     _installPrompt = null;
-    showToast('Install BroomBuster on this device?', false, { ms: 10000, action: { label: 'Install', run: () => p.prompt() } });
-    return;
+    showToast('Install app?', false, { ms: 10000, action: { label: 'Install', run: () => p.prompt() } });
   }
-  if (navigator.standalone !== false || !/iPhone|iPad/.test(navigator.userAgent)) return;
-  _store('bb_install_hint', '1');
-  showToast('Tip: Share › Add to Home Screen opens BroomBuster full screen.', false, 8000);
 }
 
 // ── Menus ("+", an item's "…", Layers, and "Add here" at a point on the map) ──
@@ -166,7 +161,7 @@ document.addEventListener('click', e => { if (_openMenu && !_openMenu.menu.conta
 // box, placing, an item's page); Back closes the top one (as Escape does, js/data.js), so it
 // never leaves the app with something open. Closed by other means, the entry is taken back.
 let _historyQueued = false, _ownBack = false;
-const _layerOpen = () => !!(_openMenu || _namePopup || placing || _selectedId);
+const _layerOpen = () => !!(_openMenu || placing || _selectedId);
 function syncHistory() {
   if (_historyQueued) return;
   _historyQueued = true;
@@ -389,7 +384,7 @@ function _noStreetsInView() {
 }
 function updateMapHint() {
   let text = '';
-  if (map && Object.keys(regions).length && !placing && !_namePopup) {
+  if (map && Object.keys(regions).length && !placing) {
     const z = map.getZoom(), c = map.getCenter();
     if (z >= AREA_ZOOM && (!regionAt(c.lat, c.lng) || _noStreetsInView())) text = 'Not covered';
     else if (z >= AREA_ZOOM && z < STREET_READ_ZOOM) text = 'Zoom in';
