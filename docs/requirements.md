@@ -33,7 +33,7 @@ D demonstration, M measurement. Priority: Must unless marked Should.
 | S4 | The app shall run on desktop browsers. (Should) | D |
 | S5 | Coverage is the regions listed in the [data sources](../data/README.md#sources). | I |
 | S6 | Language: US English. | I |
-| S7 | Out of scope: push notifications, native apps, other languages, ticket payment. | I |
+| S7 | Out of scope: native apps, other languages, ticket payment. | I |
 
 ## 3. Functions
 
@@ -53,14 +53,14 @@ D demonstration, M measurement. Priority: Must unless marked Should.
 | F12 | The app shall show a calendar of sweep days for saved cars and homes, at least 12 months ahead. | T |
 | F13 | The user shall subscribe to sweep and trash days, 12 months ahead, in an external calendar app. | D |
 | F14 | Where the user signs in, saved cars and homes shall sync across their devices. (Should) | D |
-| F15 | A phone automation shall be able to report where the car parked. (Should) | D |
 | F16 | Without a network, the app shall work with the last loaded data and show when it was loaded. | T |
-| F17 | Outside coverage, the app shall say so; when zoomed too far out to read a street, it shall say to zoom in. | T |
+| F17 | Outside coverage, the app shall say so. | T |
 | F18 | The user shall choose a light, dark or system theme. | D |
 | F19 | The app shall show data sources and map attribution. | I |
 | F20 | For a saved home, the app shall show its trash pickup days where the city publishes them. | D |
 | F21 | The user shall add a car's next sweep to their phone's calendar. | D |
 | F22 | A signed-in user shall share their saved cars and homes with people they invite. (Should) | D |
+| F23 | A signed-in user shall get a notification on their phone the evening before and an hour before each sweep of the account's cars (iPhone: iOS 16.4+, home-screen app). (Should) | T |
 
 ## 4. UI/UX rules
 
@@ -71,7 +71,7 @@ D demonstration, M measurement. Priority: Must unless marked Should.
 | U3 | No tips, onboarding text or always-visible legend; the legend opens on demand. | I |
 | U4 | Reading the street at the map center: 0 taps. | D |
 | U5 | Saving a car at the GPS position, from the app open on the map: 2 taps or fewer, plus any optional adjustment. | D |
-| U6 | Nothing saved changes without a user action; a phone automation (F15) the user set up counts as one. | T |
+| U6 | Nothing saved changes without a user action. | T |
 | U7 | Meaning is never carried by color alone; a word, icon or line style (width, dash) goes with it. | I |
 | U8 | No panel or label covers the target while the sheet is at its lower height. | D |
 | U9 | Accessibility: WCAG (Web Content Accessibility Guidelines) 2.2 level AA. | T, I |

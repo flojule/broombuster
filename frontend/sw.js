@@ -5,6 +5,20 @@ const API_PATHS = __API_PATHS__;
 const SHELL = __SHELL__;
 const PAGE_WAIT_MS = 2500;
 
+// A sweep reminder (api/push.py): {title, body, tag}; a later one of the same sweep replaces it.
+self.addEventListener('push', event => {
+  let m = {};
+  try { m = event.data.json(); } catch (_) {}
+  event.waitUntil(self.registration.showNotification(m.title || 'BroomBuster',
+    { body: m.body || '', tag: m.tag, icon: '/icon-192.png' }));
+});
+// Tapped: the app, in its open window if there is one.
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(clients.matchAll({ type: 'window' })
+    .then(list => (list[0] ? list[0].focus() : clients.openWindow('/'))));
+});
+
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting())

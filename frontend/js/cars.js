@@ -155,7 +155,6 @@ menuButton(btnItemMore, itemMenu, () => {
     _menuRow('place', 'Set location', 'pin'),
     _menuRow('address', 'Enter address', 'search'),
     car && _menuRow('rename', 'Rename', 'pencil'),
-    car && account && _menuRow('phone', item.id in phoneLinks ? 'Unlink phone' : 'Link phone', 'phone'),
     '<hr>',
     _menuRow('remove', 'Remove', 'trash', true),
   ].filter(Boolean).join('');
@@ -170,22 +169,15 @@ itemMenu.addEventListener('click', async e => {
   if (act === 'place') startPlacing(item.id, car ? 'car' : 'home');
   else if (act === 'address') entry?.querySelector('.ce-addr').startEdit();
   else if (act === 'rename') savedTitle.startEdit();
-  else if (act === 'phone') {
-    if (!(item.id in phoneLinks)
-        || await askConfirm(`Unlink the phone from ${name}?`, 'The phone stops updating where the car is.', 'Unlink')) {
-      _togglePhoneLink(car);
-    }
-  } else if (act === 'remove') {
+  else if (act === 'remove') {
     // Focus goes back to "…" on Cancel, to "+" on the list once it is gone.
     if (!await askConfirm(`Remove ${name}?`, car ? 'Its location is forgotten.' : 'Its trash days are no longer shown.', 'Remove')) {
       btnItemMore.focus();
       return;
     }
-    // A phone-linked car loses its token on the server once removed: no Undo for it.
-    const linked = car && car.id in phoneLinks;
     const undo = car ? removeCar(car.id) : removeHome(item.id);
     (btnAdd.hidden ? savedSummary.querySelector('[data-parked]') : btnAdd)?.focus();  // nothing left: "Parked here"
-    showToast(`${name} removed`, false, linked ? {} : { ms: 6000, action: { label: 'Undo', run: () => {
+    showToast(`${name} removed`, false, { ms: 6000, action: { label: 'Undo', run: () => {
       undo();
       carsPanel.querySelector(`.car-entry[data-id="${CSS.escape(item.id)}"] .ce-header`)?.focus();  // focus back on its row
     } } });
@@ -435,53 +427,6 @@ async function checkVehicle(car) {
   renderCarsPanel();
 }
 
-// ── Phone link: a token that lets a phone automation report where the car parked ──
-let _phoneLink = null;  // { carId, token } while a freshly created token is on screen
-
-function _ago(epochS) {
-  const m = Math.max(0, Math.round((Date.now() / 1000 - epochS) / 60));
-  if (m < 2) return 'just now';
-  if (m < 90) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  return h < 36 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
-}
-
-// A linked car's page: the phone's status (and the new token, once), as a section.
-function phoneLinkHTML(car) {
-  if (!(car.id in phoneLinks)) return '';
-  const { used, moved, error } = phoneLinks[car.id] || {};
-  const status = !used ? 'No report yet.'
-    : !error ? `Last reported ${_ago(moved || used)}.`
-    : `Last report (${_ago(used)}) was refused: ${error}`
-      + (moved ? ` Last position received ${_ago(moved)}.` : ' No position received yet.');
-  const token = _phoneLink?.carId === car.id ? _phoneLink.token : null;
-  return `<div class="sec-label">Phone</div><div class="sec">
-    <div class="note">${esc(status)}</div>
-    ${token ? `
-    <div class="note">Shown once. POST {"lat", "lon"} to <b>${esc(location.origin)}/api/cars/location</b>
-      with <b>Authorization: Bearer &lt;token&gt;</b>.</div>
-    <input class="field ce-token" readonly value="${esc(token)}" aria-label="Phone token">
-    <button class="btn btn-tinted ce-btn-copy">Copy token</button>` : ''}
-  </div>`;
-}
-
-async function _togglePhoneLink(car) {
-  const linked = car.id in phoneLinks;
-  if (!linked) await _flushPrefs();  // the server only issues tokens for cars it has saved
-  const res = await fetch(`/api/cars/${encodeURIComponent(car.id)}/token`,
-                          { method: linked ? 'DELETE' : 'POST' }).catch(() => null);
-  if (!res?.ok) { showToast(linked ? 'Couldn’t unlink the phone' : 'Couldn’t link a phone', true); return; }
-  if (linked) {
-    delete phoneLinks[car.id];
-    _phoneLink = null;
-  } else {
-    phoneLinks[car.id] = {};
-    _phoneLink = { carId: car.id, token: (await res.json()).token };
-  }
-  renderCarsPanel();
-  document.querySelector('.ce-token')?.scrollIntoView({ block: 'nearest' });  // it is below the schedule
-}
-
 // A side's sweeping as lines in the map card's words ("Tue, Thu 6–8AM").
 function _sideLines(entries, now) {
   const ls = sourceLines(entries, now).map(l => `${l.days} ${l.time}`.trim());
@@ -560,8 +505,7 @@ function renderCarsPanel() {
       detail: `
         ${pickFirst ? sweeping + actions : actions + sweeping}${dataAgeHTML(sched)}
         ${rulesBlockHTML('Other rules', placeRules[car.id])}
-        ${vehicleHTML(car)}
-        ${account ? phoneLinkHTML(car) : ''}`,
+        ${vehicleHTML(car)}`,
     });
 
     const addrEl = entry.querySelector('.ce-addr');
@@ -600,10 +544,6 @@ function renderCarsPanel() {
       savePrefs();
     });
     entry.querySelector('.ce-btn-towed')?.addEventListener('click', () => checkVehicle(car));
-    entry.querySelector('.ce-btn-copy')?.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(_phoneLink.token); showToast('Token copied'); }
-      catch (_) { entry.querySelector('.ce-token').select(); }
-    });
 
     itemList.insertBefore(entry, firstHome);
   }

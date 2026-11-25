@@ -90,8 +90,8 @@ function tick() {
 setInterval(tick, 60 * 1000);
 
 // Hidden: save pending edits and stop following the position. Back in the foreground
-// (iOS freezes timers meanwhile): catch the clock up at once, take any car a phone
-// moved, and follow the position again.
+// (iOS freezes timers meanwhile): catch the clock up at once, take any car another
+// device moved, and follow the position again.
 // Back after an hour or more, a home-screen app may run an old release: reload when the
 // server's differs (cars, tab and map position come back).
 let _hiddenAt = 0;

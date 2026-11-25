@@ -29,15 +29,10 @@ function showToast(msg, isError = false, opts = {}) {
   _toastContainer.appendChild(el);
 }
 
-// ── Connection chip: "Offline", "Can't reach the server" or "Loading…" over the
-// map, so a failure never reads as "nothing here". ────────────────────────────────
+// ── Connection chip: "Offline" or "Can't reach the server" over the map, so a
+// failure never reads as "nothing here". ──────────────────────────────────────────
 const netChip = document.getElementById('net-chip');
 let _citiesFailed = false;  // /api/cities failed (data.js retries it)
-// The street tiles are loading: from the start until the map first settles, then whenever
-// they take over a second (map.js), so a blank map never reads as "nothing here".
-let _streetsSlow = true;
-// Streets are on their way: /api/cities is loading, or the tiles are slow.
-function streetsLoading() { return (!Object.keys(regions).length && !_citiesFailed) || _streetsSlow; }
 // When the server last answered with schedules (core.js loadSchedule, data.js loadCities),
 // kept on this device: offline, the chip says how old what shows is.
 const DATA_AT_KEY = 'bb_data_at';
@@ -53,8 +48,7 @@ function dataAgeText() {
 function updateNetChip() {
   const age = navigator.onLine ? '' : dataAgeText();
   const text = !navigator.onLine ? (age ? `Offline · ${age}` : 'Offline')
-    : _citiesFailed && !Object.keys(regions).length ? 'Can’t reach the server'
-    : _streetsSlow ? 'Loading…' : '';
+    : _citiesFailed && !Object.keys(regions).length ? 'Can’t reach the server' : '';
   if (netChip.textContent !== text) netChip.textContent = text;
   netChip.hidden = !text;
 }
@@ -378,8 +372,7 @@ function goToAddress(hit, label) {
 document.getElementById('btn-zoom-in').addEventListener('click', () => map?.zoomIn());
 document.getElementById('btn-zoom-out').addEventListener('click', () => map?.zoomOut());
 
-// ── Under the target, when the street card has nothing to say: why ("Zoom in",
-// "Not covered"). ─────────────────────────────────────────────────────────────────
+// ── Under the target, outside coverage: "Not covered". ─────────────────────────────────────────────────────────────────
 const mapHint = document.getElementById('map-hint');
 // No swept street anywhere on screen once its tiles have loaded (the region's circle is
 // coarse: it takes in towns the data doesn't cover).
@@ -392,7 +385,6 @@ function updateMapHint() {
   if (map && Object.keys(regions).length && !placing) {
     const z = map.getZoom(), c = map.getCenter();
     if (z >= AREA_ZOOM && (!regionAt(c.lat, c.lng) || _noStreetsInView())) text = 'Not covered';
-    else if (z >= AREA_ZOOM && z < STREET_READ_ZOOM) text = 'Zoom in';
   }
   if (mapHint.textContent !== text) mapHint.textContent = text;
   mapHint.hidden = !text;

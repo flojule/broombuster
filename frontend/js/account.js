@@ -9,7 +9,6 @@ let _prefsRev  = null;   // the account's prefs version our lists build on (auth
 // none). What differs from it is this device's unsaved edits. Kept across launches.
 const SYNC_BASE_KEY = 'bb_sync_base';
 let _base = null;
-let phoneLinks = {};     // car id -> the phone's last report, {used, moved, error} (auth.me)
 let calendarOn = false;  // the account has a calendar subscription link
 let _calendarUrl = null; // a freshly made link, shown once: {url, webcal}
 let _joinToken = null;   // an invite's token, from a join link, until a sign-in uses it
@@ -30,7 +29,6 @@ async function loadAccount() {
     accountEnabled = !!me.enabled;
     account = me.user;
     family = me.family || [];
-    phoneLinks = me.phone_links || {};
     calendarOn = !!me.calendar;
     if (account && _joinToken) {  // one account at a time
       showToast('Sign out first', true);
@@ -43,6 +41,7 @@ async function loadAccount() {
     if (!map) loadPrefs();  // before startup: this device's copy (answered late: the live lists)
     _takeAccountLists(me);
     if (_unsaved()) { syncPrefs(); await _flushPrefs(); }
+    _checkPush();
   } catch (_) {}
 }
 
@@ -150,7 +149,6 @@ function _takeAccountLists(me) {
   const spot = x => `${x.lat},${x.lon}`;
   const carAt = new Map(cars.map(c => [c.id, spot(c)]));
   const homeAt = new Map(homes.map(h => [h.id, spot(h)]));
-  phoneLinks = me.phone_links || phoneLinks;
   cars = _rebase(cars, base.cars, server.cars);
   homes = _rebase(homes, base.homes, server.homes);
   _prefsRev = me.prefs_rev ?? null;
@@ -159,7 +157,7 @@ function _takeAccountLists(me) {
   for (const id in carSchedules) if (!cars.some(c => c.id === id)) delete carSchedules[id];
   for (const id in homeSchedules) if (!homes.some(h => h.id === id)) delete homeSchedules[id];
   if (!map) return;  // startup draws and checks them
-  updateCarMarkers();  // also re-renders the cards (phone link status may have changed)
+  updateCarMarkers();  // also re-renders the cards
   updateHomeMarkers();
   renderHomePanel();
   for (const c of cars) if (carAt.get(c.id) !== spot(c)) { delete carSchedules[c.id]; checkCar(c); }
@@ -184,7 +182,7 @@ async function _pullPrefs() {
   return true;
 }
 
-// Back in the foreground: another device or a phone may have changed the lists.
+// Back in the foreground: another device may have changed the lists.
 // Push our own edits first, then take the account's; edits still unsaved (a failed
 // or refused save) are saved again.
 async function refreshFromAccount() {
@@ -213,6 +211,7 @@ function _section(label, rows) {
 
 async function _leaveAccount(request) {
   await _flushPrefs();
+  if (_pushOn) await _pushOff();  // this device's reminders stop with its session
   const res = await request().catch(() => null);
   if (!res?.ok) { showToast('Couldn’t reach the server', true); return; }
   account = null;
@@ -367,6 +366,51 @@ function _calendarItems() {
   return items;
 }
 
+// ── Notifications (Web Push, api/push.py): the calendar link's reminders (the evening
+// before and an hour before each sweep of the account's cars) on this device. iPhone:
+// the home-screen app only (Safari has no PushManager), asked from a tap. ─────────────
+const _pushOk = 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
+let _pushOn = false;  // this device is subscribed
+const _pushSub = async () => (await navigator.serviceWorker.ready).pushManager.getSubscription();
+async function _checkPush() {
+  if (!_pushOk || !account) return;
+  const sub = await _pushSub().catch(() => null);
+  _pushOn = !!sub && Notification.permission === 'granted';
+  renderAccountSection();
+}
+async function _pushTurnOn() {
+  // First, in the tap: iOS shows the prompt only from a user gesture.
+  if (await Notification.requestPermission() !== 'granted') { renderAccountSection(); return; }
+  try {
+    const keyRes = await fetch('/api/push/key');
+    if (!keyRes.ok) throw new Error('key');
+    const reg = await navigator.serviceWorker.ready;
+    await (await reg.pushManager.getSubscription())?.unsubscribe();  // one made with another key fails
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: _b64uToBuf((await keyRes.json()).key) });
+    await _flushPrefs();  // the reminders are of the account's saved cars
+    const res = await fetch('/api/push', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) });
+    if (!res.ok) { await sub.unsubscribe(); throw new Error('subscribe'); }
+    _pushOn = true;
+  } catch (_) { showToast('Couldn’t turn on notifications', true); }
+  renderAccountSection();
+}
+async function _pushOff() {
+  const sub = await _pushSub().catch(() => null);
+  if (sub) {
+    await fetch('/api/push', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => null);
+    await sub.unsubscribe().catch(() => {});
+  }
+  _pushOn = false;
+}
+function _notifyItems() {
+  if (Notification.permission === 'denied') return [_note('Blocked in Settings')];
+  if (!_pushOn) return [_menuItem('Turn on notifications', _pushTurnOn)];
+  return [_menuItem('Turn off notifications', async () => { await _pushOff(); renderAccountSection(); })];
+}
+
 // Signed out. A join link's token travels with the passkey sign-up that uses it.
 function _signedOutSection() {
   if (!_passkeysOk) return [];
@@ -393,13 +437,14 @@ function _signedInSection() {
   return _section('Account', rows);
 }
 
-// Settings (as iOS orders it): who you are first, the calendar link after Appearance,
+// Settings (as iOS orders it): who you are first, the calendar link and notifications after Appearance,
 // deleting the account last and apart (a destructive action kept away from the rest).
 // Without sign-in on the server, none of them.
 function renderAccountSection() {
   const fill = (id, nodes) => document.getElementById(id).replaceChildren(...(accountEnabled ? nodes : []));
   fill('set-account', account ? _signedInSection() : _signedOutSection());
   fill('set-calendar', account ? _section('Calendar', _calendarItems()) : []);
+  fill('set-notify', account && _pushOk ? _section('Notifications', _notifyItems()) : []);
   // Signed out (or no sign-in): what this device keeps can be cleared here.
   document.getElementById('set-danger').replaceChildren(...(account ? (accountEnabled ? _section('', [_deleteAccountItem()]) : [])
     : (cars.length || homes.length) && !_read('bb_signed_in') ? _section('', [_clearSavedItem()]) : []));

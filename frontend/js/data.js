@@ -124,10 +124,9 @@ function loadPrefs() {
   // Cars saved before colors were stored keep the color their position gave them.
   cars.forEach((c, i) => { c.color ||= CAR_COLORS[i % CAR_COLORS.length]; });
 }
-// Version a car's position change so a stale device or phone update can't
-// overwrite it (the server keeps the higher version; see auth._merge_cars). The
-// version is the clock in seconds: a phone report (server: version + 1) made while
-// this page was open must not outrank a move the user makes here afterward.
+// Version a car's position change so a stale device can't overwrite it (the server
+// keeps the higher version; see auth._merge_cars). The version is the clock in seconds,
+// so a later move outranks an earlier one made on another device.
 function touchCarLocation(car) {
   car.loc_rev = Math.max((car.loc_rev || 0) + 1, Math.floor(Date.now() / 1000));
 }

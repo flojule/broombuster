@@ -1,20 +1,16 @@
 import functools
 import json
 import os
-import re
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Annotated, NamedTuple
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
-from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, BeforeValidator, Field
-from starlette.concurrency import run_in_threadpool
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import BaseModel, Field
 
 from broombuster import (
     alerts,
@@ -32,7 +28,7 @@ from broombuster.cities import CITIES, REGIONS, city_for_point, region_bbox, reg
 from broombuster.config import REPO_ROOT
 from broombuster.version import app_version
 
-from . import auth, web
+from . import auth, push, web
 from .state import load_all, region_gdf
 
 web.setup_logging()
@@ -45,11 +41,15 @@ async def lifespan(app: FastAPI):
         web.tiles_version(rk)  # hashed once, before the first request
     _cities_json()
     web.precompress_static()
+    stops = []
     if auth.check_config():
         auth.init_db()
-    stop = feeds.start_refresh() if config.live_feeds_enabled() else None
+        push.public_key()  # made now if missing, not in a request
+        stops.append(push.start(_car_spot))
+    if config.live_feeds_enabled():
+        stops.append(feeds.start_refresh())
     yield
-    if stop is not None:
+    for stop in stops:
         stop.set()
 
 
@@ -349,84 +349,53 @@ def next_sweep(
     )
 
 
-# Phone automations send numbers as text, sometimes with a unit ("65 m", "213 ft",
-# Shortcuts' measurements) or a decimal comma ("37,8044"). In a distance, a comma before
-# exactly three digits is a thousands separator ("1,234 ft"); in a degree, always a decimal.
-_NUMBER = re.compile(r"[±~]?\s*([-+]?\d+(?:[.,]\d+)?)\s*([a-z°]*)\.?", re.I)
-_METERS = {"": 1.0, "m": 1.0, "km": 1000.0, "ft": 0.3048, "yd": 0.9144, "mi": 1609.344}
-_DEGREES = {"": 1.0, "°": 1.0}
+# ── Notifications (api/push.py) ───────────────────────────────────────────────
+_B64URL = r"^[A-Za-z0-9_-]+=*$"
 
 
-def _number(units: dict, thousands: bool = False):
-    def parse(v):
-        if not isinstance(v, str):
-            return v
-        v = v.strip().replace("\u00a0", " ")
-        if thousands:
-            v = re.sub(r",(\d{3})(?!\d)", r"\1", v)
-        m = _NUMBER.fullmatch(v)
-        if not m or m[2].lower() not in units:
-            return v  # pydantic refuses it
-        return float(m[1].replace(",", ".")) * units[m[2].lower()]
-
-    return parse
+class PushKeys(BaseModel):
+    p256dh: str = Field(max_length=200, pattern=_B64URL)
+    auth: str = Field(max_length=100, pattern=_B64URL)
 
 
-class CarLocation(BaseModel):
-    lat: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-90.0, le=90.0, **_STRICT)]
-    lon: Annotated[float, BeforeValidator(_number(_DEGREES)), Field(ge=-180.0, le=180.0, **_STRICT)]
-    # Meters (or with a unit), as the phone reports it.
-    accuracy: Annotated[
-        float | None,
-        BeforeValidator(_number(_METERS, thousands=True)),
-        Field(ge=0.0, le=1e6),
-    ] = None
+class PushSubscription(BaseModel):
+    """A browser's PushSubscription.toJSON() (expirationTime is ignored)."""
+
+    endpoint: str = Field(max_length=1000)
+    keys: PushKeys
 
 
-ACCURACY_MAX_M = 50.0  # a phone fix rougher than this is refused
+class PushEndpoint(BaseModel):
+    endpoint: str = Field(max_length=1000)
 
 
-_PHONE_PATH = web.PHONE_PATH
+@api.get("/push/key")
+def push_key():
+    """The server's VAPID public key, for PushManager.subscribe; 404 when sign-in is off."""
+    if not config.base_url():
+        raise HTTPException(404, "Sign-in is not configured.")
+    return {"key": push.public_key()}
 
 
-async def _phone_refusal(
-    request: Request, status: int, reason: str, headers: dict | None = None
-) -> JSONResponse:
-    """A refused phone report: the reason is also its `summary`, so the phone's
-    notification says why; it is kept on the token for the car's page, and logged."""
-    if token_hash := getattr(request.state, "car_token", None):
-        await run_in_threadpool(auth.record_refusal, token_hash, reason)
-    request.state.log_reason = reason
-    return JSONResponse({"detail": reason, "summary": reason}, status, headers=headers)
+@api.post("/push", status_code=204)
+def push_subscribe(sub: PushSubscription, user=Depends(auth.signed_in_mutation)):
+    """This device gets the account's sweep reminders; a first notice confirms it."""
+    if not push.allowed_endpoint(sub.endpoint):
+        raise HTTPException(422, "Unknown push service.")
+    if not push.valid_keys(sub.keys.p256dh, sub.keys.auth):
+        raise HTTPException(422, "Bad subscription keys.")
+    auth.save_push_sub(user["id"], sub.endpoint, sub.keys.p256dh, sub.keys.auth)
+    row = {"endpoint": sub.endpoint, "p256dh": sub.keys.p256dh, "auth": sub.keys.auth}
+    push.deliver(row, {"title": "Notifications on", "body": "Reminders before sweeping"}, 600)
 
 
-def _unreadable(errors: list[dict]) -> str:
-    """Why a phone's body was not understood, e.g. "Could not read accuracy ('65 meters')"."""
-    parts = []
-    for e in errors:
-        loc = [str(p) for p in e.get("loc", ()) if p != "body"]
-        if not loc or e["type"] in ("json_invalid", "model_attributes_type", "dict_type"):
-            return "Could not read the request: send a JSON body with lat and lon."
-        if e["type"] == "missing":
-            parts.append(f"{loc[0]} missing")
-        elif loc[0] == "accuracy":  # not private, and the most useful to see
-            parts.append(f"accuracy ({str(e.get('input'))[:24]!r})")
-        else:
-            parts.append(loc[0])
-    return f"Could not read {', '.join(parts)}; the car was not moved."
-
-
-@app.exception_handler(StarletteHTTPException)
-async def _http_error(request: Request, exc: StarletteHTTPException):
-    if request.url.path == _PHONE_PATH and isinstance(exc.detail, str):
-        return await _phone_refusal(request, exc.status_code, exc.detail, exc.headers)
-    return await http_exception_handler(request, exc)
+@api.delete("/push", status_code=204)
+def push_unsubscribe(body: PushEndpoint, user=Depends(auth.signed_in_mutation)):
+    auth.delete_push_sub(body.endpoint, user["id"])
 
 
 @app.exception_handler(RequestValidationError)
 async def _validation_error(request: Request, exc: RequestValidationError):
-    if request.url.path == _PHONE_PATH:
-        return await _phone_refusal(request, 422, _unreadable(exc.errors()))
     detail = jsonable_encoder(exc.errors())
     for e in detail:  # NaN and Infinity are not JSON: echoed as text
         try:
@@ -434,23 +403,6 @@ async def _validation_error(request: Request, exc: RequestValidationError):
         except ValueError:
             e["input"] = str(e["input"])
     return JSONResponse({"detail": detail}, 422)
-
-
-@api.post("/cars/location")
-def car_location(req: CarLocation, who=Depends(auth.car_for_token)):
-    """A phone reports where the car was parked (bearer token of that car).
-
-    `summary` is short plain text for the phone to show as a notification.
-    """
-    if req.accuracy is not None and req.accuracy > ACCURACY_MAX_M:
-        raise HTTPException(
-            422, f"Position too rough (±{req.accuracy:.0f} m); the car was not moved."
-        )
-    if not auth.set_car_location(who["account_id"], who["car_id"], req.lat, req.lon):
-        raise HTTPException(404, "That car was removed from your account.")
-    loc = _locate(req.lat, req.lon, None)
-    address, _ = _address(loc, req.lat, req.lon, network=False)
-    return {"summary": f"Parked at {address}."}
 
 
 app.include_router(api)  # after every route above is registered on it

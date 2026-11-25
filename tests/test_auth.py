@@ -1,5 +1,6 @@
 """Passkey sign-in, shared accounts, sessions and account prefs; WebAuthn's verdict is faked."""
 
+import datetime
 import json
 import shutil
 import sqlite3
@@ -138,135 +139,6 @@ def test_session_in_use_is_renewed(env, client, monkeypatch):
 # ── Phone position updates ────────────────────────────────────────────────────
 OAKLAND = {"lat": 37.821326, "lon": -122.280705}  # Chestnut St: swept
 ORIGIN = {"Origin": BASE}
-
-
-def _signed_in_with_car(client, monkeypatch):
-    _sign_in(client, monkeypatch)
-    assert client.put("/api/me/prefs", json=PREFS, headers=ORIGIN).status_code == 200
-    r = client.post("/api/cars/c1/token", headers=ORIGIN)
-    assert r.status_code == 200
-    return r.json()["token"]
-
-
-def _bearer(token):
-    return {"Authorization": f"Bearer {token}"}
-
-
-def test_phone_token_moves_car_and_bumps_version(env, client, monkeypatch, app_client):
-    token = _signed_in_with_car(client, monkeypatch)
-    r = client.post("/api/cars/location", json={**OAKLAND, "accuracy": 8}, headers=_bearer(token))
-    assert r.status_code == 200 and r.json()["summary"].startswith("Parked at ")
-    car = client.get("/api/me").json()["prefs"]["cars"][0]
-    assert (car["lat"], car["lon"], car["loc_rev"]) == (OAKLAND["lat"], OAKLAND["lon"], 1)
-    link = client.get("/api/me").json()["phone_links"]["c1"]
-    assert link["used"] and link["moved"] and link["error"] is None
-    # Shortcuts may send the coordinates as text.
-    r = client.post(
-        "/api/cars/location", json={"lat": "37.81", "lon": "-122.27"}, headers=_bearer(token)
-    )
-    assert r.status_code == 200
-    assert client.get("/api/me").json()["prefs"]["cars"][0]["loc_rev"] == 2
-
-
-def test_phone_token_rejections(env, client, monkeypatch, app_client):
-    token = _signed_in_with_car(client, monkeypatch)
-    no_cookie = TestClient(app)  # the phone sends no session cookie
-    assert no_cookie.post("/api/cars/location", json=OAKLAND).status_code == 401
-    assert (
-        no_cookie.post("/api/cars/location", json=OAKLAND, headers=_bearer("bbc_nope")).status_code
-        == 401
-    )
-    rough = no_cookie.post(
-        "/api/cars/location", json={**OAKLAND, "accuracy": 500}, headers=_bearer(token)
-    )
-    assert rough.status_code == 422
-    assert rough.json()["summary"].startswith("Position too rough (±500 m)")  # the phone shows it
-    me = client.get("/api/me").json()
-    assert me["prefs"]["cars"][0]["lat"] == PREFS["cars"][0]["lat"]
-    assert me["phone_links"]["c1"]["error"].startswith("Position too rough")
-    assert me["phone_links"]["c1"]["moved"] is None
-    bad = no_cookie.post(
-        "/api/cars/location", json={"lat": 37.8, "accuracy": "lots"}, headers=_bearer(token)
-    )
-    assert bad.status_code == 422
-    assert bad.json()["summary"] == (
-        "Could not read lon missing, accuracy ('lots'); the car was not moved."
-    )
-    not_json = no_cookie.post("/api/cars/location", content="lat=1", headers=_bearer(token))
-    assert not_json.status_code == 422 and "JSON body" in not_json.json()["summary"]
-    # An accepted report clears the refusal.
-    assert (
-        no_cookie.post("/api/cars/location", json=OAKLAND, headers=_bearer(token)).status_code
-        == 200
-    )
-    link = client.get("/api/me").json()["phone_links"]["c1"]
-    assert link["error"] is None and link["moved"]
-
-
-def test_phone_numbers_as_shortcuts_sends_them(env, client, monkeypatch, app_client):
-    token = _signed_in_with_car(client, monkeypatch)
-    for body in (
-        {"lat": "37,804", "lon": "-122,271"},  # a decimal comma before three digits
-        {"lat": "37,8044", "lon": "-122,2712", "accuracy": "35,0 m"},
-        {"lat": "37.8044°", "lon": " -122.2712 ", "accuracy": "±40 ft"},
-        {"lat": 37.8044, "lon": -122.2712, "accuracy": "12\u00a0m"},
-    ):
-        r = client.post("/api/cars/location", json=body, headers=_bearer(token))
-        assert r.status_code == 200, (body, r.json())
-    car = client.get("/api/me").json()["prefs"]["cars"][0]
-    assert (car["lat"], car["lon"]) == (37.8044, -122.2712)
-    # A thousands separator, too rough, an unknown unit.
-    for accuracy in ("1,234 ft", "0.1 km", "65 parsecs"):
-        r = client.post(
-            "/api/cars/location", json={**OAKLAND, "accuracy": accuracy}, headers=_bearer(token)
-        )
-        assert r.status_code == 422, accuracy
-
-
-def test_phone_token_revoked_and_replaced(env, client, monkeypatch, app_client):
-    old = _signed_in_with_car(client, monkeypatch)
-    new = client.post("/api/cars/c1/token", headers=ORIGIN).json()["token"]
-    assert client.post("/api/cars/location", json=OAKLAND, headers=_bearer(old)).status_code == 401
-    assert client.post("/api/cars/location", json=OAKLAND, headers=_bearer(new)).status_code == 200
-    assert client.delete("/api/cars/c1/token", headers=ORIGIN).status_code == 204
-    assert client.post("/api/cars/location", json=OAKLAND, headers=_bearer(new)).status_code == 401
-    assert client.get("/api/me").json()["phone_links"] == {}
-
-
-def test_token_needs_saved_car_session_and_origin(env, client, monkeypatch):
-    assert client.post("/api/cars/c1/token", headers=ORIGIN).status_code == 401
-    _sign_in(client, monkeypatch)
-    assert client.post("/api/cars/c1/token", headers=ORIGIN).status_code == 404  # not saved yet
-    client.put("/api/me/prefs", json=PREFS, headers=ORIGIN)
-    assert client.post("/api/cars/c1/token").status_code == 403
-
-
-def test_stale_device_cannot_overwrite_phone_position(env, client, monkeypatch):
-    token = _signed_in_with_car(client, monkeypatch)
-    client.post("/api/cars/location", json=OAKLAND, headers=_bearer(token))
-    # A browser that never saw the phone update syncs its old copy, plus a rename.
-    stale = {**PREFS, "cars": [{**PREFS["cars"][0], "name": "Renamed"}]}
-    assert client.put("/api/me/prefs", json=stale, headers=ORIGIN).status_code == 200
-    car = client.get("/api/me").json()["prefs"]["cars"][0]
-    assert car["name"] == "Renamed" and car["lat"] == OAKLAND["lat"] and car["loc_rev"] == 1
-    # A newer manual move on the browser does win.
-    moved = {**PREFS, "cars": [{**PREFS["cars"][0], "lat": 37.7, "lon": -122.4, "loc_rev": 2}]}
-    client.put("/api/me/prefs", json=moved, headers=ORIGIN)
-    assert client.get("/api/me").json()["prefs"]["cars"][0]["lat"] == 37.7
-
-
-def test_removing_a_car_drops_its_token(env, client, monkeypatch):
-    token = _signed_in_with_car(client, monkeypatch)
-    client.put("/api/me/prefs", json={"cars": [], "homes": []}, headers=ORIGIN)
-    r = client.post("/api/cars/location", json=OAKLAND, headers=_bearer(token))
-    assert r.status_code == 401
-
-
-def test_delete_account_removes_tokens(env, client, monkeypatch):
-    token = _signed_in_with_car(client, monkeypatch)
-    assert client.delete("/api/me", headers=ORIGIN).status_code == 204
-    r = client.post("/api/cars/location", json=OAKLAND, headers=_bearer(token))
-    assert r.status_code == 401
 
 
 def test_calendar_link_and_feed(env, monkeypatch, app_client):
@@ -458,10 +330,12 @@ def test_leaving_keeps_the_account_for_others(env, client, monkeypatch):
 def test_last_member_leaving_deletes_the_account(env, client, monkeypatch):
     _register(client, monkeypatch, "Anna", _cid("cred-a"))
     client.put("/api/me/prefs", json=PREFS, headers=ORIGIN)
-    client.post("/api/cars/c1/token", headers=ORIGIN)
+    with auth._connect() as db:
+        member = db.execute("SELECT id FROM members").fetchone()[0]
+    auth.save_push_sub(member, "https://web.push.apple.com/x", "k", "a")
     assert client.delete("/api/me", headers=ORIGIN).status_code == 204
     with auth._connect() as db:
-        for table in ("accounts", "members", "car_tokens", "sessions"):
+        for table in ("accounts", "members", "push_subs", "sessions"):
             assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
@@ -487,7 +361,7 @@ def test_drops_the_google_era_schema(tmp_path, monkeypatch):
     with auth._connect() as db:
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'users'").fetchone()
         assert db.execute("SELECT COUNT(*) FROM members").fetchone()[0] == 0
-        assert [r[1] for r in db.execute("PRAGMA table_info(car_tokens)")].count("account_id") == 1
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'car_tokens'").fetchone()
 
 
 def test_merge_keeps_the_side_picked_for_the_stored_position():
@@ -508,19 +382,18 @@ CAR2 = {"id": "c2", "name": "Van", "lat": 37.81, "lon": -122.25, "color": "#3b82
 
 
 def test_stale_save_is_refused_and_the_other_devices_car_stays(env, client, monkeypatch):
-    """Phone B adds a car and links a phone; phone A, still on the old lists, renames a
-    car: its save is refused (409) and the new car and its link stay."""
+    """Phone B adds a car; phone A, still on the old lists, renames a car: its save is
+    refused (409) and the new car stays."""
     _sign_in(client, monkeypatch)
     r = client.put("/api/me/prefs", json=PREFS, headers=ORIGIN)
     assert r.json() == {"rev": 1} and client.get("/api/me").json()["prefs_rev"] == 1
     both = {**PREFS, "cars": [*PREFS["cars"], CAR2], "rev": 1}
     assert client.put("/api/me/prefs", json=both, headers=ORIGIN).json() == {"rev": 2}
-    assert client.post("/api/cars/c2/token", headers=ORIGIN).status_code == 200
 
     renamed = {**PREFS, "cars": [{**PREFS["cars"][0], "name": "Renamed"}], "rev": 1}
     assert client.put("/api/me/prefs", json=renamed, headers=ORIGIN).status_code == 409
     me = client.get("/api/me").json()
-    assert [c["id"] for c in me["prefs"]["cars"]] == ["c1", "c2"] and "c2" in me["phone_links"]
+    assert [c["id"] for c in me["prefs"]["cars"]] == ["c1", "c2"]
     assert me["prefs_rev"] == 2
     # Rebased on rev 2, the rename goes through.
     rebased = {**both, "cars": [{**PREFS["cars"][0], "name": "Renamed"}, CAR2], "rev": 2}
@@ -584,13 +457,13 @@ def test_client_reapplies_its_edits_on_the_account_lists():
         ([{"lat": 1.0, "name": "Car", "id": "c1"}], [c1], [theirs]),  # key order is no edit
         # Plate changed elsewhere, name here: both kept.
         ([{**plated, "name": "Ours"}], [plated], [{**plated, "plate": "XYZ"}]),
-        # Moved here (newer), renamed and moved by a phone elsewhere: our spot, their name.
+        # Moved here (newer), renamed and moved elsewhere: our spot, their name.
         (
             [{"id": "c1", "name": "Car", "lat": 2.0, "loc_rev": 10}],
             [spot],
             [{**spot, "name": "Theirs", "lat": 3.0, "loc_rev": 5}],
         ),
-        # Side picked here, then a phone moved the car: the newer spot, no side.
+        # Side picked here, then moved elsewhere: the newer spot, no side.
         ([{**spot, "side": "odd"}], [spot], [{**c1, "lat": 3.0, "loc_rev": 5}]),
     ]
     js = Path(__file__).resolve().parent.parent / "frontend" / "js" / "account.js"
@@ -712,3 +585,67 @@ def test_sessions_are_capped_and_sign_out_everywhere(env, client, monkeypatch):
     assert not any(d.get("/api/me").json()["user"] for d in devices)
     assert other.get("/api/me").json()["user"]["name"] == "Ben"
     assert _login(client, monkeypatch, _cid("cred-a")).status_code == 204  # the passkey stays
+
+
+# ── Notifications (api/push.py) ───────────────────────────────────────────────
+APPLE = "https://web.push.apple.com/QGuk"
+
+
+def _push_keys():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    point = (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    )
+    return {"p256dh": bytes_to_base64url(point), "auth": bytes_to_base64url(b"0" * 16)}
+
+
+def test_push_subscription_reminders_and_expiry(env, client, monkeypatch):
+    from broombuster import calfeed, net
+    from broombuster.api import push
+
+    sent, status = [], [201]
+    monkeypatch.setattr(
+        net.session,
+        "post",
+        lambda url, **kw: (
+            sent.append((url, kw["headers"]))
+            or SimpleNamespace(status_code=status[0], ok=status[0] < 300, text="")
+        ),
+    )
+    sub = {"endpoint": APPLE, "keys": _push_keys(), "expirationTime": None}
+    assert client.post("/api/push", json=sub, headers=ORIGIN).status_code == 401
+    _sign_in(client, monkeypatch)
+    client.put("/api/me/prefs", json=PREFS, headers=ORIGIN)
+    evil = {**sub, "endpoint": "https://evil.example/x"}
+    assert client.post("/api/push", json=evil, headers=ORIGIN).status_code == 422
+    bad = {**sub, "keys": {**sub["keys"], "p256dh": "AAAA"}}
+    assert client.post("/api/push", json=bad, headers=ORIGIN).status_code == 422
+    assert client.post("/api/push", json=sub, headers=ORIGIN).status_code == 204
+    assert [u for u, _ in sent] == [APPLE]  # "Notifications on"
+    assert sent[0][1]["Content-Encoding"] == "aes128gcm"
+    assert sent[0][1]["Authorization"].startswith("vapid t=")
+    assert client.get("/api/push/key").json()["key"] == push.public_key()
+
+    # The account's car on a street swept Wednesdays 8-10AM: Wed 7:05AM, its 7AM reminder.
+    spot = calfeed.CarSpot(
+        "bay_area", "alameda", "1 Oak St", {"even": [["W", "", "8:00 AM - 10:00 AM"]]}, ("N", "S")
+    )
+    tz = datetime.timezone(datetime.timedelta(hours=-8))
+    now = datetime.datetime(2026, 12, 2, 7, 5, tzinfo=tz)
+    push.run_once(lambda lat, lon: spot, now)
+    push.run_once(lambda lat, lon: spot, now)  # sent once only
+    assert len(sent) == 2
+    status[0] = 410  # the phone dropped it: the subscription goes
+    push.run_once(lambda lat, lon: spot, now + datetime.timedelta(days=7))
+    assert len(sent) == 3 and auth.push_targets() == []
+
+    assert client.post("/api/push", json=sub, headers=ORIGIN).status_code == 204
+    assert (
+        client.request("DELETE", "/api/push", json={"endpoint": APPLE}, headers=ORIGIN).status_code
+        == 204
+    )
+    assert auth.push_targets() == []
