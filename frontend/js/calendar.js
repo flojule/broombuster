@@ -495,8 +495,7 @@ icCal.addEventListener('wheel', e => {
 
 // The sheet resizing (a drag, a detent, the screen) changes how many weeks show.
 new ResizeObserver(() => requestAnimationFrame(() => { updateCalTitle(); measureCalChrome(); })).observe(icCal);
-// Measured mid-animation is skipped; once the sheet settles, measure.
-sheet.addEventListener('transitionend', e => { if (e.target === sheet && e.propertyName === 'height') measureCalChrome(); });
+// Measured mid-animation is skipped; once the sheet settles, it measures (js/sheet.js _settled).
 // The tab shows again (sheet.js showTab): a re-render while it was hidden left the grid at its top.
 function calShown() {
   if (_cal.pending) _restoreScroll();
