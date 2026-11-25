@@ -404,19 +404,26 @@ function selectCalDay(k) {
 
 // ‹ ›: a week on the small sheet (the selected day moves with it, so its details stay
 // in view), a month in the month view (smooth; the scroll event keeps the title current).
-function calStep(dir) {
+// Returns whether it stepped (not past the window's ends).
+function calStep(dir, smooth = true) {
   const el = _scroller(), t = document.getElementById('ic-month');
-  if (!el || !t || !_calRange0) return;
+  if (!el || !t || !_calRange0) return false;
   if (!_cal.expanded) {
-    const last = CAL_WEEKS * 7 - 1, i = _dayIdx(_calRange0, _keyDay(_cal.sel)) + 7 * dir;
-    if (i < 0 || i > last) return;
+    const i = _weekStepDay(dir);
+    if (i === null) return false;
     const k = _ymdKey(_ymdAdd(_calRange0.start, i));
     selectCalDay(k);
-    _scrollTo(el, _weekOf(_calRange0, k), true);
-    return;
+    _scrollTo(el, _weekOf(_calRange0, k), smooth);
+    return true;
   }
   const d = new Date(Date.UTC(Number(t.dataset.y), Number(t.dataset.m) - 1 + dir, 1));
-  _scrollTo(el, _monthTop({ y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: 1 }), true);
+  _scrollTo(el, _monthTop({ y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: 1 }), smooth);
+  return true;
+}
+// The window's day index a week step lands on from the selected day; null past its ends.
+function _weekStepDay(dir) {
+  const i = _dayIdx(_calRange0, _keyDay(_cal.sel)) + 7 * dir;
+  return i >= 0 && i < CAL_WEEKS * 7 ? i : null;
 }
 // The month view's top row for a month (`first`: its 1st): its first week; on a phone the
 // next when the 1st falls past the week's middle (that week is the last month's).
@@ -472,18 +479,58 @@ tabCal.addEventListener('scroll', () => {
   _scrollRaf = requestAnimationFrame(() => { _scrollRaf = 0; updateCalTitle(); });
 }, true);
 
-// Small sheet: a sideways swipe or the wheel steps a week (one step per gesture); a
-// vertical drag moves the sheet (sheet.js). Desktop: the wheel steps a month.
+// Small sheet: a sideways swipe steps a week. The week follows the finger; let go past
+// 30 % of its width or with a flick, it slides out as the next slides in, else it springs
+// back. A vertical drag moves the sheet (sheet.js). The wheel steps a week (one step per
+// gesture); desktop: a month.
+const WEEK_SLIDE_MS = 160;
 let _swipe = null, _wheelAt = 0;
 icCal.addEventListener('touchstart', e => {
-  _swipe = !_cal.expanded && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+  const p = e.touches[0];
+  _swipe = !_cal.expanded && !isDesktop() && e.touches.length === 1 ? { x: p.clientX, y: p.clientY, on: false } : null;
 }, { passive: true });
-icCal.addEventListener('touchend', e => {
-  if (!_swipe) return;
-  const t = e.changedTouches[0], dx = t.clientX - _swipe.x, dy = t.clientY - _swipe.y;
+icCal.addEventListener('touchmove', e => {
+  const s = _swipe;
+  if (!s) return;
+  const p = e.touches[0], dx = p.clientX - s.x, dy = p.clientY - s.y;
+  if (!s.on) {
+    if (Math.hypot(dx, dy) < 8) return;
+    if (Math.abs(dx) <= 1.5 * Math.abs(dy) || !(s.grid = icCal.querySelector('.cal-grid'))) { _swipe = null; return; }
+    s.on = true;
+    s.grid.style.transition = 'none';
+  }
+  if (s.t !== undefined && e.timeStamp > s.t) s.v = (dx - s.dx) / (e.timeStamp - s.t);  // px/ms
+  s.dx = dx; s.t = e.timeStamp;
+  s.grid.style.transform = `translateX(${dx}px)`;
+}, { passive: true });
+const _swipeEnd = () => {
+  const s = _swipe;
   _swipe = null;
-  if (Math.abs(dx) > 40 && Math.abs(dx) > 1.5 * Math.abs(dy)) calStep(dx < 0 ? 1 : -1);
-}, { passive: true });
+  if (!s?.on) return;
+  const dir = s.dx < 0 ? 1 : -1, w = s.grid.offsetWidth;
+  const go = Math.abs(s.dx) > 0.3 * w || (Math.abs(s.v || 0) >= 0.4 && Math.sign(s.v) === Math.sign(s.dx));
+  _weekSlide(s.grid, go && _weekStepDay(dir) !== null ? dir : 0, w);
+};
+icCal.addEventListener('touchend', _swipeEnd, { passive: true });
+icCal.addEventListener('touchcancel', _swipeEnd, { passive: true });
+// Slides the week out toward `dir` (1: the next) and the new one in; dir 0: back in place.
+function _weekSlide(grid, dir, w) {
+  const ms = _reduceMotion.matches ? 0 : WEEK_SLIDE_MS;
+  const to = (x, t) => {
+    grid.style.transition = t ? `transform ${t}ms var(--sheet-ease)` : 'none';
+    grid.style.transform = `translateX(${x}px)`;
+  };
+  const done = () => { grid.style.transition = grid.style.transform = ''; };
+  if (!dir) { to(0, ms); setTimeout(done, ms); return; }
+  to(-dir * w, ms);
+  setTimeout(() => {
+    calStep(dir, false);
+    to(dir * w, 0);
+    void grid.offsetWidth;
+    to(0, ms);
+    setTimeout(done, ms);
+  }, ms);
+}
 icCal.addEventListener('wheel', e => {
   if (_cal.expanded && !isDesktop()) return;
   e.preventDefault();

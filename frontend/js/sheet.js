@@ -107,30 +107,62 @@ function applyMapInsets(animate = true) {
 // and from a tab's content as iOS sheets are (touch): up while it can grow, down once
 // the content is scrolled to its top; the calendar's grid scrolls itself unless the
 // sheet is small.
-// While it moves (dragged or settling) the sheet is laid out once at its tallest (max)
-// and slid down by the difference (a transform), its foot clipped and the tab bar slid
-// back up: no layout per frame above small. The height is set once it stops.
+// Past its tallest or below the tab bar it gives with resistance (rubber band).
+// While it moves (dragged or settling) the sheet is laid out once, open (styles.css
+// #sheet.dragging) and at its tallest (max): the shown height, and the closing in on
+// the tab bar's capsule below small, are drawn by transforms and clip paths only, so no
+// frame takes a layout. The height and --m's layout are set once it stops.
 const FLICK_V = 0.4;     // px/ms: a release at least this fast is a flick
 const VEL_WINDOW = 100;  // ms of finger samples the release speed is taken over
+const RB_C = 0.55, RB_L = 120;  // rubber band: give per px pulled, and the most it gives (px)
+const _rubber = d => RB_C * d / (1 + RB_C * d / RB_L);
 let _drag = null, _dragged = false;
 function _dragBegin(y, t) { _drag = { y0: y, samples: [{ y, t }], moved: false }; _dragged = false; }
-function _dragShow(height, max) {
-  const dy = max - height;
-  sheet.style.transform = `translateY(${dy}px)`;
-  sheet.style.clipPath = `inset(0 0 ${dy}px 0 round var(--r-top) var(--r-top) var(--sheet-r) var(--sheet-r))`;
-  tabbar.style.transform = `translateY(${-dy}px)`;
-}
 // --m for a shown height: 0 at small and above, 1 at hidden.
 const _morphAt = (h, height) => Math.min(1, Math.max(0, (h.small - height) / (h.small - h.hidden)));
-// Lays the sheet out at `max` (transitions off) for a drag or a settle.
+// The open sheet's gap, the hidden one, the tab bar's inset and the screen's corner
+// radius, in px (styles.css #sheet), read as a move starts.
+let _geo = null;
+function _readGeo() {
+  const open = sheetGap(false), hid = sheetGap(true);
+  return { open, hid, tbIn: parseFloat(getComputedStyle(sheet).getPropertyValue('--tb-in')), screenR: hid + 28 };
+}
+// The place banner and toasts ride on the sheet's top while it moves; --sheet-h places them at rest.
+const placeBannerEl = document.getElementById('place-banner'), toastsEl = document.getElementById('toast-container');
+let _sheetH = 0;  // px: --sheet-h as last set
+function _setSheetH(px) {
+  _sheetH = px;
+  document.documentElement.style.setProperty('--sheet-h', px + 'px');
+}
+// Draws the sheet at `height` (below the tab bar: its capsule slid down) while laid out at
+// `max`: what styles.css draws from --m (gaps, radii, the tab bar's size), as clip paths.
+function _show(height, max, h) {
+  const g = _geo, m = _morphAt(h, height);
+  const r = (g.hid - g.open) * m;                                  // the sheet's gap, past the open one
+  const gb = g.open + g.tbIn + (g.hid - g.open - g.tbIn) * m;      // the tab bar's gap to the screen
+  const c = gb - g.open - g.tbIn;                                  // the tab bar, inside its open box
+  const shown = Math.max(height, h.hidden), sink = h.hidden - Math.min(height, h.hidden), dy = max - shown;
+  const rs = g.screenR - g.open - r, rt = Math.min(32, rs);
+  sheet.style.transform = `translateY(${dy - r + sink}px)`;
+  sheet.style.clipPath = `inset(0 ${r}px ${dy}px ${r}px round ${rt}px ${rt}px ${rs}px ${rs}px)`;
+  tabbar.style.transform = `translateY(${r - dy}px)`;
+  tabbar.style.clipPath = c > 0.01 ? `inset(${c}px round ${g.screenR - gb}px)` : '';
+  _setMorph(m);
+  const lift = _sheetH - (g.open + r + shown - sink);
+  toastsEl.style.transform = `translateY(${lift}px)`;
+  placeBannerEl.style.setProperty('--lift', lift + 'px');
+}
+// Lays the sheet out open at `max` (transitions off) for a drag or a settle.
 function _moveBegin(max) {
+  _geo = _readGeo();
   sheet.classList.add('dragging');
   sheet.style.height = max + 'px';
 }
 // Back to a laid-out sheet at `height`.
 function _moveEnd(height) {
   sheet.style.height = height + 'px';
-  sheet.style.transform = sheet.style.clipPath = tabbar.style.transform = '';
+  sheet.style.transform = sheet.style.clipPath = tabbar.style.transform = tabbar.style.clipPath = toastsEl.style.transform = '';
+  placeBannerEl.style.removeProperty('--lift');
   void sheet.offsetHeight;
   sheet.classList.remove('dragging');
 }
@@ -143,13 +175,14 @@ function _dragTo(y, t) {
     _stopSettle();  // caught mid-settle: the drag starts where the sheet is
     _drag.h0 = sheet.offsetHeight;
     _drag.h = detentHeights();
-    _drag.max = Math.max(_drag.h0, Math.round(_drag.h.medium * 1.04));
+    _drag.top = Math.max(_drag.h0, _drag.h.medium);
+    _drag.max = Math.ceil(_drag.top + RB_L);
     _moveBegin(_drag.max);
   }
-  const h = _drag.h, max = _drag.max;
-  const height = _drag.height = Math.max(h.hidden, Math.min(max, _drag.h0 + _drag.y0 - y));
-  _dragShow(height, max);
-  _setMorph(_morphAt(h, height));
+  const h = _drag.h, raw = _drag.h0 + _drag.y0 - y;
+  const height = _drag.height = raw > _drag.top ? _drag.top + _rubber(raw - _drag.top)
+    : raw < h.hidden ? h.hidden - _rubber(h.hidden - raw) : raw;
+  _show(height, _drag.max, h);
   const s = _drag.samples;
   s.push({ y, t });
   while (s.length > 2 && t - s[1].t > VEL_WINDOW) s.shift();
@@ -212,7 +245,7 @@ function _settle(to) {
   _moveBegin(max);
   // The banner and toasts go straight to where the sheet is heading (the observer below
   // waits while it moves).
-  document.documentElement.style.setProperty('--sheet-h', to + sheetGap(m1 === 1) + 'px');
+  _setSheetH(to + sheetGap(m1 === 1));
   const st = _settling = { raf: 0, height: from };
   let t0 = null;
   const step = now => {
@@ -227,19 +260,18 @@ function _settle(to) {
       _settled();
       return;
     }
-    st.height = x = Math.max(h.hidden, Math.min(max, x));  // a slow release the other way dips past its start
-    _dragShow(x, max);
-    _setMorph(_morphAt(h, x));
+    st.height = x = Math.min(max, x);  // a slow release the other way dips past its start
+    _show(x, max, h);
     st.raf = requestAnimationFrame(step);
   };
-  _dragShow(from, max);
+  _show(from, max, h);
   st.raf = requestAnimationFrame(step);
 }
 // Stops a settle where it is, the sheet laid out at that height.
 function _stopSettle() {
   if (!_settling) return;
   cancelAnimationFrame(_settling.raf);
-  const at = Math.round(_settling.height);
+  const at = Math.max(TABBAR_H, Math.round(_settling.height));
   _settling = null;
   _moveEnd(at);
 }
@@ -269,24 +301,35 @@ grabber.addEventListener('click', () => {
 });
 
 // Content: decided on the first move; a sheet drag then keeps the content from scrolling.
-function _contentMovesSheet(body, dy) {
-  if (body.id === 'ic-cal' && _detent === 'medium') return false;
-  return dy < 0 ? _detent !== 'medium' : body.scrollTop <= 0;
+// The month view's grid scrolls itself; its weekday row is a handle, as the header is.
+// Content scrolled back to its top and pulled on down hands over to the sheet, where the
+// browser still lets the touch be taken (a cancelable move).
+function _contentMovesSheet(c, dy) {
+  if (c.body.id === 'ic-cal' && _detent === 'medium' && !c.wds) return false;
+  return dy < 0 ? _detent !== 'medium' : c.body.scrollTop <= 0;
 }
-let _content = null;  // { body, x0, y0, sheet: null (undecided) | bool }
+let _content = null;  // { body, x0, y0, wds: began on the weekday row, sheet: null (undecided) | bool }
 for (const body of document.querySelectorAll('.tab-body')) {
   body.addEventListener('touchstart', e => {
     _content = null;
     if (isDesktop() || e.touches.length !== 1 || _drag || e.target.closest('[contenteditable="true"], input')) return;
-    _content = { body, x0: e.touches[0].clientX, y0: e.touches[0].clientY, sheet: null };
+    _content = { body, x0: e.touches[0].clientX, y0: e.touches[0].clientY, wds: !!e.target.closest('.cal-wds'), sheet: null };
   }, { passive: true });
   body.addEventListener('touchmove', e => {
     const c = _content;
-    if (!c || c.body !== body || c.sheet === false) return;
+    if (!c || c.body !== body) return;
     const p = e.touches[0], dx = p.clientX - c.x0, dy = p.clientY - c.y0;
+    if (c.sheet === false) {
+      if (!c.scrolls || !e.cancelable || body.scrollTop > 0 || p.clientY <= c.yPrev) { c.yPrev = p.clientY; return; }
+      c.sheet = true;  // scrolled back to the top and still pulling down
+      _dragBegin(p.clientY, e.timeStamp);
+    }
     if (c.sheet === null) {
       if (Math.hypot(dx, dy) < 6) return;
-      c.sheet = Math.abs(dy) > Math.abs(dx) && _contentMovesSheet(body, dy);
+      const vertical = Math.abs(dy) > Math.abs(dx);
+      c.sheet = vertical && _contentMovesSheet(c, dy);
+      c.scrolls = vertical && !c.sheet && body.id !== 'ic-cal';
+      c.yPrev = p.clientY;
       if (!c.sheet) return;
       _dragBegin(c.y0, e.timeStamp);
     }
@@ -300,8 +343,10 @@ for (const body of document.querySelectorAll('.tab-body')) {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 // Leaving Saved closes an open item (as Find My does).
+// A new tab's content fades in, unless the sheet is opening from its tab bar (it fades then).
 function showTab(name) {
   if (name !== 'saved' && typeof clearSelection === 'function') clearSelection();
+  if (name !== _tab && !sheet.classList.contains('retracted')) restartAnim(document.getElementById('tab-' + name), 'tab-in');
   _tab = name;
   for (const b of tabbar.querySelectorAll('[role="tab"]')) {
     const on = b.dataset.tab === name;
@@ -314,14 +359,21 @@ function showTab(name) {
   applySheet();
   if (name === 'settings' && typeof renderAccountSection === 'function') renderAccountSection();
 }
-// A tab opens a hidden sheet (small); tapping the open tab again at small opens the month.
+// A tab opens a hidden sheet (small). Tapping the open tab goes to its start, as iOS
+// tab bars do: Saved back to its list, the calendar to today, and to the top.
+function _tabHome(name) {
+  if (name === 'saved' && typeof _selectedId !== 'undefined' && _selectedId) { clearSelection(); return; }
+  if (name === 'calendar' && typeof calToday === 'function') { calToday(); return; }
+  document.querySelector(`#tab-${name} .tab-body`)?.scrollTo({ top: 0, behavior: _reduceMotionSheet.matches ? 'auto' : 'smooth' });
+}
 tabbar.addEventListener('click', e => {
   const b = e.target.closest('[data-tab]');
   if (!b || _dragged) { _dragged = false; return; }
+  const again = b.dataset.tab === _tab && _shown() !== 'hidden';
   if (_detent === 'hidden') setDetent('small');
   else if (_compact) setDetent(_detent);  // placing: the sheet comes back up as it was
-  else if (b.dataset.tab === _tab && _detent === 'small') setDetent('medium');
-  showTab(b.dataset.tab);
+  if (again) _tabHome(_tab);
+  else showTab(b.dataset.tab);
 });
 // Arrow keys move between tabs (the ARIA tabs pattern).
 tabbar.addEventListener('keydown', e => {
@@ -343,7 +395,7 @@ sheet.addEventListener('touchmove', e => e.stopPropagation(), { passive: true })
 // sets its end value at the start.
 new ResizeObserver(() => requestAnimationFrame(() => {
   if (_drag?.moved || _settling) return;
-  document.documentElement.style.setProperty('--sheet-h', (isDesktop() ? 0 : sheet.offsetHeight + sheetGap()) + 'px');
+  _setSheetH(isDesktop() ? 0 : sheet.offsetHeight + sheetGap());
 })).observe(sheet);
 // The detents follow the screen.
 window.addEventListener('resize', () => applySheet(false));

@@ -51,6 +51,22 @@ const _store = (key, v) => {
 // Inline SVG icon from the sprite in index.html (stroke follows text color).
 function icon(name) { return `<svg class="ic"><use href="#i-${name}"/></svg>`; }
 
+// Restarts a CSS animation class on `el`; the class goes once the animation (on it or
+// inside it) ends.
+function restartAnim(el, cls) {
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+  const end = e => {
+    if (!el.contains(e.target)) return;
+    el.classList.remove(cls);
+    el.removeEventListener('animationend', end);
+    el.removeEventListener('animationcancel', end);
+  };
+  el.addEventListener('animationend', end);
+  el.addEventListener('animationcancel', end);
+}
+
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

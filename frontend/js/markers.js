@@ -80,6 +80,12 @@ function applySelection() {
     else { head.setAttribute('role', 'button'); head.tabIndex = 0; }
   }
   const item = selectedItem();
+  // The page slides in, or the list back (styles.css), when the Saved tab shows.
+  if (carsPanel.classList.contains('item-open') !== !!item && _tab === 'saved' && !sheet.classList.contains('retracted')) {
+    const tabSaved = document.getElementById('tab-saved');
+    tabSaved.classList.remove('push-in', 'pop-in');
+    restartAnim(tabSaved, item ? 'push-in' : 'pop-in');
+  }
   carsPanel.classList.toggle('item-open', !!item);
   if (savedTitle.contentEditable !== 'true') savedTitle.textContent = item ? itemName(item) : 'Saved';
   btnAdd.hidden = !!item || !cars.length && !homes.length;  // nothing saved: the empty state's buttons add
@@ -99,6 +105,47 @@ function syncCrosshair() {
 }
 // Back to the list; focus moves to "+" (the ‹ it was on is gone).
 btnItemBack.addEventListener('click', () => { clearSelection(); btnAdd.focus(); });
+
+// Home-screen app only (a browser has its own edge swipe, which reaches Back): a swipe
+// right from the sheet's left edge goes back to the list. The page follows the finger;
+// let go past 30 % of its width or with a flick, it goes, else it springs back.
+const _standalone = navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+const EDGE_PX = 24;  // px from the sheet's left edge where the swipe starts
+let _edge = null;
+carsPanel.addEventListener('touchstart', e => {
+  _edge = null;
+  const p = e.touches[0];
+  if (!_standalone || !_selectedId || isDesktop() || e.touches.length !== 1
+      || p.clientX - sheet.getBoundingClientRect().left > EDGE_PX) return;
+  _edge = { x: p.clientX, y: p.clientY, dx: 0, v: 0, on: false };
+}, { passive: true });
+carsPanel.addEventListener('touchmove', e => {
+  const s = _edge;
+  if (!s) return;
+  const p = e.touches[0], dx = Math.max(0, p.clientX - s.x), dy = p.clientY - s.y;
+  if (!s.on) {
+    if (Math.hypot(dx, dy) < 8) return;
+    if (dx <= 1.5 * Math.abs(dy)) { _edge = null; return; }
+    s.on = true;
+    s.els = [carsPanel, savedTitle];
+  }
+  if (s.t !== undefined && e.timeStamp > s.t) s.v = (dx - s.dx) / (e.timeStamp - s.t);
+  s.dx = dx; s.t = e.timeStamp;
+  for (const el of s.els) { el.style.transition = 'none'; el.style.transform = `translateX(${dx}px)`; }
+}, { passive: true });
+const _edgeEnd = () => {
+  const s = _edge;
+  _edge = null;
+  if (!s?.on) return;
+  const go = s.dx > 0.3 * carsPanel.offsetWidth || s.v >= 0.4;
+  for (const el of s.els) { el.style.transition = 'transform .2s var(--sheet-ease)'; el.style.transform = go ? `translateX(${carsPanel.offsetWidth}px)` : ''; }
+  setTimeout(() => {
+    for (const el of s.els) el.style.transition = el.style.transform = '';
+    if (go) clearSelection();
+  }, 200);
+};
+carsPanel.addEventListener('touchend', _edgeEnd, { passive: true });
+carsPanel.addEventListener('touchcancel', _edgeEnd, { passive: true });
 
 function selectItem(id) {
   _selectedId = id;
